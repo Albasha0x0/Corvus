@@ -72,6 +72,25 @@ public sealed class RustAuditTests
     public void Images_without_the_section_do_not_apply() => Assert.Null(View(new ElfWriter().Build()));
 
     [Fact]
+    public void Without_the_section_the_rustc_commit_and_the_crates_of_source_paths_are_read()
+    {
+        const string Commit = "88d9e12ae178fab0fb5cc050a94da85685d449ea";
+        var paths = string.Join("\0",
+            $"/rustc/{Commit}/library/core/src/str/mod.rs",
+            $"/rustc/{Commit}/library/std/src/io/mod.rs",
+            @"C:\Users\b\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\regex-automata-0.4.14\src\meta\strategy.rs",
+            "/home/b/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/clap_builder-4.6.0/src/parser/parser.rs",
+            "/home/b/.cargo/registry/src/github.com-1ecc6299db9ec823/jiff-tzdb-0.1.6/lib.rs",
+            "/home/b/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/not a crate/x.rs") + "\0";
+        var b = new PeBuilder();
+        b.Add(".text", [0xC3], 0x60000020);
+        b.Add(".rdata", Encoding.ASCII.GetBytes(paths));
+        var f = View(b.Build(), "tool.exe")!;
+        Assert.Equal(("source paths", Commit, 3), (f.Section, f.RustcCommit, f.Crates));
+        Assert.Equal([("clap_builder", "4.6.0"), ("jiff-tzdb", "0.1.6"), ("regex-automata", "0.4.14")], f.Packages.Select(c => (c.Name, c.Version)));
+    }
+
+    [Fact]
     [FuzzEntry(typeof(RustFileView), typeof(RustAudit))]
     public void Fuzzed_section_never_throws()
     {
