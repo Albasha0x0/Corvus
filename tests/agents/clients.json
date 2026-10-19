@@ -1,33 +1,39 @@
 {
-  "comment": "Agent clients for tests/agents/run-tasks.ps1: each client's own command-line options, kept here only. {prompt}, {mcpConfig} (a JSON file of mcpServers), {server} (the server's name), {tomlCommand} and {tomlArgs} (TOML values) are filled per run; the executable is the variable's value, else the command on PATH; env is set for the client process; output matching signedOut means the client is not signed in (skipped, not failed).",
+  "comment": "Agent clients for tests/agents/run-tasks.ps1: each client's own command-line options, kept here only. {prompt}, {mcpConfig} (a JSON file of mcpServers), {server} (the server's name), {tomlCommand} and {tomlArgs} (TOML values) are filled per run; a {model} argument becomes modelArgs when modelVariable is set, else nothing; the executable is the variable's value, else the command on PATH; env is set for the client process; output matching signedOut means the client is not signed in (skipped, not failed).",
   "clients": {
     "claude": {
       "variable": "CORVUS_CLIENT_CLAUDE",
+      "modelVariable": "CORVUS_CLIENT_CLAUDE_MODEL",
+      "modelArgs": ["--model", "{value}"],
       "command": "claude",
       "mcp": "file",
       "output": "claude-stream",
       "args": ["-p", "{prompt}", "--output-format", "stream-json", "--verbose", "--no-session-persistence",
                "--strict-mcp-config", "--mcp-config", "{mcpConfig}", "--setting-sources", "project",
-               "--tools", "", "--allowedTools", "mcp__{server}", "--max-turns", "40"]
+               "--tools", "", "--allowedTools", "mcp__{server}", "--max-turns", "40", "{model}"]
     },
     "codex": {
       "variable": "CORVUS_CLIENT_CODEX",
+      "modelVariable": "CORVUS_CLIENT_CODEX_MODEL",
+      "modelArgs": ["-m", "{value}"],
       "command": "codex",
       "mcp": "toml",
       "output": "codex-jsonl",
       "args": ["exec", "--json", "--skip-git-repo-check", "--sandbox", "read-only",
                "-c", "mcp_servers.{server}.command={tomlCommand}", "-c", "mcp_servers.{server}.args={tomlArgs}",
-               "-c", "mcp_servers.{server}.tool_timeout_sec=600", "{prompt}"]
+               "-c", "mcp_servers.{server}.tool_timeout_sec=600", "{model}", "{prompt}"]
     },
     "gemini": {
       "variable": "CORVUS_CLIENT_GEMINI",
+      "modelVariable": "CORVUS_CLIENT_GEMINI_MODEL",
+      "modelArgs": ["-m", "{value}"],
       "command": "gemini",
       "mcp": "workspace",
       "workspaceFile": ".gemini/settings.json",
       "env": { "NO_BROWSER": "true" },
       "signedOut": "authorize the application|login required|FatalAuthenticationError",
       "output": "gemini-json",
-      "args": ["-p", "{prompt}", "--output-format", "json", "--yolo", "--allowed-mcp-server-names", "{server}"]
+      "args": ["-p", "{prompt}", "--output-format", "json", "--yolo", "--allowed-mcp-server-names", "{server}", "{model}"]
     }
   }
 }

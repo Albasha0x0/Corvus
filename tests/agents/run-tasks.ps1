@@ -4,7 +4,7 @@
 #         ./tests/agents/run-tasks.ps1 -Set bench -Client claude -Server corvus,reference -Runs 3   # token benchmark
 # Servers: corvus is this repository's build (CORVUS_AGENT_SERVER overrides it); reference is CORVUS_REFERENCE_SERVER.
 # Both variables hold JSON: {"command": "...", "args": ["..."]}. A client or server that is missing is skipped with the
-# reason. Model calls cost tokens: nothing here runs in the test sets unless CORVUS_CLIENT_CHECKS=1.
+# reason. CORVUS_CLIENT_<NAME>_MODEL picks a client's model (clients.json modelArgs). Model calls cost tokens: nothing here runs in the test sets unless CORVUS_CLIENT_CHECKS=1.
 #Requires -Version 7.0
 param(
     [ValidateSet('check', 'bench')][string]$Set = 'check',
@@ -136,7 +136,11 @@ foreach ($clientName in $Client) {
                     '{tomlCommand}' = (ConvertTo-Toml $s.command); '{tomlArgs}' = (ConvertTo-Toml @($s.args)) }
                 $start = [Diagnostics.ProcessStartInfo]::new($exe)
                 foreach ($a in $prefix) { $start.ArgumentList.Add($a) }
-                foreach ($a in $c.args) { foreach ($k in $values.Keys) { $a = $a.Replace($k, $values[$k]) }; $start.ArgumentList.Add($a) }
+                $model = if ($c.modelVariable) { [Environment]::GetEnvironmentVariable($c.modelVariable) } else { $null }
+                foreach ($a in $c.args) {
+                    if ($a -eq '{model}') { if ($model) { foreach ($m in $c.modelArgs) { $start.ArgumentList.Add($m.Replace('{value}', $model)) } }; continue }
+                    foreach ($k in $values.Keys) { $a = $a.Replace($k, $values[$k]) }; $start.ArgumentList.Add($a)
+                }
                 $start.WorkingDirectory = $cwd; $start.RedirectStandardOutput = $true; $start.RedirectStandardError = $true
                 $start.RedirectStandardInput = $true; $start.UseShellExecute = $false
                 if ($c.env) { foreach ($kv in $c.env.GetEnumerator()) { $start.Environment[$kv.Key] = [string]$kv.Value } }
