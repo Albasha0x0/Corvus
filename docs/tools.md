@@ -2963,7 +2963,7 @@ Collect a timestamped trace of the files, registry keys, endpoints and child pro
 |---|---|---|---|---|
 | `session` | string |  |  | Session id; start only. |
 | `action` | string |  | `list` | start, stop, list, report or diff. Values: start, stop, list, report, diff. |
-| `run` | string |  |  | Timeline id (tl-1; omitted: the only one); without it, list shows the timelines. |
+| `run` | string |  |  | Timeline id (tl-1; omitted: the only one); list without it or a filter shows the timelines. |
 | `a` | string |  |  | diff: the first timeline. |
 | `b` | string |  |  | diff: the second timeline. |
 | `category` | string |  |  | Only file, registry, network or process. Values: file, registry, network, process. |

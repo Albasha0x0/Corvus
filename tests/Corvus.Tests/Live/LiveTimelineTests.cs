@@ -79,6 +79,7 @@ public sealed class LiveTimelineTests : IDisposable
         Assert.Contains("end of the timeline so far; poll again with cursor=5", rest);
         var files = await _tools.LiveTimeline(action: "list", run: "tl-1", category: "file");
         Assert.DoesNotContain("registry", files);
+        Assert.Equal(files, await _tools.LiveTimeline(action: "list", category: "file")); // a filter without run pages the only timeline
 
         var report = await _tools.LiveTimeline(action: "report", run: "tl-1");
         Assert.Contains("tl-1 live-1 e_sqlite3.dll: 4 entries (file 2, registry 1, network 1), 3 names, recording", report);

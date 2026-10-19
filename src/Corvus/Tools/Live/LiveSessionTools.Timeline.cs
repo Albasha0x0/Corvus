@@ -52,7 +52,7 @@ public sealed partial class LiveSessionTools
     public Task<string> LiveTimeline(
         [Description("Session id; start only.")] string? session = null,
         [Description("start, stop, list, report or diff.")] string action = "list",
-        [Description("Timeline id (tl-1; omitted: the only one); without it, list shows the timelines.")] string? run = null,
+        [Description("Timeline id (tl-1; omitted: the only one); list without it or a filter shows the timelines.")] string? run = null,
         [Description("diff: the first timeline.")] string? a = null,
         [Description("diff: the second timeline.")] string? b = null,
         [Description("Only file, registry, network or process.")] string? category = null,
@@ -85,7 +85,7 @@ public sealed partial class LiveSessionTools
                     await live.StopTimelineAsync(r).ConfigureAwait(false);
                     return ToolOutput.With($"{r.Id} complete: {ToolSupport.Plural((int)Math.Min(int.MaxValue, r.Count), "entry")}\n", new LiveTimelinePage(TimelineSummary(r), [], null, []));
                 }
-                case "list" when string.IsNullOrWhiteSpace(run):
+                case "list" when string.IsNullOrWhiteSpace(run) && c == null && m == null && string.IsNullOrWhiteSpace(cursor):
                 {
                     var runs = live.TimelineRuns.Where(r => string.IsNullOrWhiteSpace(session) || r.Session.Equals(session.Trim(), StringComparison.OrdinalIgnoreCase))
                         .Select(TimelineSummary).ToList();
@@ -94,7 +94,7 @@ public sealed partial class LiveSessionTools
                     return ToolOutput.With(text, new LiveTimelinePage(null, [], null, runs));
                 }
                 case "list":
-                    return TimelinePage(live.GetTimeline(run!), c, m, cursor, limit);
+                    return TimelinePage(live.GetTimeline(RequireTimeline(run, session)), c, m, cursor, limit);
                 case "report":
                     return TimelineReport(live.GetTimeline(RequireTimeline(run, session)), c, m, offset, limit);
                 case "diff":
