@@ -93,7 +93,9 @@ public sealed class LiveCoverageTests : IDisposable
     {
         await _tools.LiveSession("attach", program: "4242");
         await _tools.LiveCoverage("live-1", "start", match: "sqlite3_column_");
+        Assert.Contains("cov-1", await _tools.LiveCoverage("live-1", "report")); // run omitted: the session's only run
         await _tools.LiveCoverage("live-1", "start", match: "sqlite3_column_");
+        Assert.Contains("needs run: cov-1, cov-2", (await Assert.ThrowsAsync<ToolError>(() => _tools.LiveCoverage("live-1", "report"))).Message);
         var run = _service.GetCoverage("cov-1");
         var placed = run.Placed;
         Assert.True(placed.Count >= 3, string.Join(", ", run.Points.Select(p => p.Name)));

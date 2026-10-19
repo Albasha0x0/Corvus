@@ -48,7 +48,7 @@ public sealed partial class LiveSessionTools
     public Task<string> LiveCoverage(
         [Description("Session id; start only.")] string? session = null,
         [Description("start, stop, list, report or diff.")] string action = "list",
-        [Description("Coverage run id (cov-1); diff: the first run.")] string? run = null,
+        [Description("Coverage run id (cov-1; omitted: the only run); diff: the first run.")] string? run = null,
         [Description("diff: the run compared with.")] string? other = null,
         [Description("Only functions whose name contains this; start: module!part for another module.")] string? match = null,
         [Description("start: stops counted per function before its point is cleared.")] int hitLimit = 100,
@@ -77,7 +77,7 @@ public sealed partial class LiveSessionTools
                 }
                 case "stop":
                 {
-                    var r = live.GetCoverage(RequireRun(run));
+                    var r = live.GetCoverage(RequireRun(run, session));
                     await live.StopCoverageAsync(live.Get(r.Session), r, cancellationToken).ConfigureAwait(false);
                     return ToolOutput.With($"{r.Id} complete: {r.Ran:N0} of {ToolSupport.Plural(r.Placed.Count, "function")} ran\n",
                         new LiveCoverageReport(Summary(r), [], 0, 0, []));
@@ -91,9 +91,9 @@ public sealed partial class LiveSessionTools
                     return ToolOutput.With(text, new LiveCoverageReport(null, [], 0, 0, runs));
                 }
                 case "report":
-                    return await CoverageReport(live.GetCoverage(RequireRun(run)), match, show, format, offset, limit, cancellationToken).ConfigureAwait(false);
+                    return await CoverageReport(live.GetCoverage(RequireRun(run, session)), match, show, format, offset, limit, cancellationToken).ConfigureAwait(false);
                 case "diff":
-                    return CoverageDiff(live.GetCoverage(RequireRun(run)),
+                    return CoverageDiff(live.GetCoverage(RequireRun(run, session)),
                         live.GetCoverage(string.IsNullOrWhiteSpace(other) ? throw new ToolError(ErrorCode.InvalidArgument, "action=diff needs other.", "other=<the second run id>") : other), limit);
                 default:
                     throw new ToolError(ErrorCode.InvalidArgument, $"Unknown action '{action}'.", "action=start, stop, list, report or diff");
@@ -105,8 +105,17 @@ public sealed partial class LiveSessionTools
     private const int MaxCoverageDot = 200;
     private readonly OutputPager _pager = new(options);
 
-    private static string RequireRun(string? run) =>
-        string.IsNullOrWhiteSpace(run) ? throw new ToolError(ErrorCode.InvalidArgument, "This action needs run.", "run=<id from live_coverage action=list>") : run;
+    private string RequireRun(string? run, string? session) =>
+        OnlyRun(run, session, live.CoverageRuns.Select(r => (r.Id, r.Session)), "live_coverage");
+
+    /// <summary>The run named, else the only run (of the session, when one is named).</summary>
+    private static string OnlyRun(string? run, string? session, IEnumerable<(string Id, string Session)> runs, string tool)
+    {
+        if (!string.IsNullOrWhiteSpace(run)) return run;
+        var ids = runs.Where(r => string.IsNullOrWhiteSpace(session) || r.Session.Equals(session.Trim(), StringComparison.OrdinalIgnoreCase)).Select(r => r.Id).ToList();
+        return ids.Count == 1 ? ids[0] : throw new ToolError(ErrorCode.InvalidArgument,
+            ids.Count == 0 ? "This action needs run, and there is none." : $"This action needs run: {string.Join(", ", ids)}.", $"run=<id from {tool} action=list>");
+    }
 
     private static LiveCoverageSummary Summary(Services.LiveCoverageRun r) =>
         new(r.Id, r.Session, r.ImageId, r.Sha256, r.State, r.Placed.Count, r.Ran, r.HitLimit) { Unplaced = r.Unplaced.Count };

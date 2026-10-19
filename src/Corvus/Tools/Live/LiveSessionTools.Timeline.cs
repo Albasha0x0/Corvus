@@ -52,7 +52,7 @@ public sealed partial class LiveSessionTools
     public Task<string> LiveTimeline(
         [Description("Session id; start only.")] string? session = null,
         [Description("start, stop, list, report or diff.")] string action = "list",
-        [Description("Timeline id (tl-1); without it, list shows the timelines.")] string? run = null,
+        [Description("Timeline id (tl-1; omitted: the only one); without it, list shows the timelines.")] string? run = null,
         [Description("diff: the first timeline.")] string? a = null,
         [Description("diff: the second timeline.")] string? b = null,
         [Description("Only file, registry, network or process.")] string? category = null,
@@ -81,7 +81,7 @@ public sealed partial class LiveSessionTools
                 }
                 case "stop":
                 {
-                    var r = live.GetTimeline(RequireTimeline(run));
+                    var r = live.GetTimeline(RequireTimeline(run, session));
                     await live.StopTimelineAsync(r).ConfigureAwait(false);
                     return ToolOutput.With($"{r.Id} complete: {ToolSupport.Plural((int)Math.Min(int.MaxValue, r.Count), "entry")}\n", new LiveTimelinePage(TimelineSummary(r), [], null, []));
                 }
@@ -96,7 +96,7 @@ public sealed partial class LiveSessionTools
                 case "list":
                     return TimelinePage(live.GetTimeline(run!), c, m, cursor, limit);
                 case "report":
-                    return TimelineReport(live.GetTimeline(RequireTimeline(run)), c, m, offset, limit);
+                    return TimelineReport(live.GetTimeline(RequireTimeline(run, session)), c, m, offset, limit);
                 case "diff":
                 {
                     if (string.IsNullOrWhiteSpace(a) || string.IsNullOrWhiteSpace(b))
@@ -111,8 +111,8 @@ public sealed partial class LiveSessionTools
             }
         }, cancellationToken);
 
-    private static string RequireTimeline(string? run) =>
-        string.IsNullOrWhiteSpace(run) ? throw new ToolError(ErrorCode.InvalidArgument, "This action needs run.", "run=<id from live_timeline action=list>") : run;
+    private string RequireTimeline(string? run, string? session) =>
+        OnlyRun(run, session, live.TimelineRuns.Select(r => (r.Id, r.Session)), "live_timeline");
 
     private static string? Category(string? category)
     {
