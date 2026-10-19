@@ -186,6 +186,14 @@ public sealed partial class MinidumpService(AssemblyWorkspace? workspace = null,
     /// <summary>The file of an open dump id, or null.</summary>
     internal string? PathOf(string id) => _ids.TryGetValue(id.Trim(), out var path) ? path : null;
 
+    /// <summary>Drops an open dump id; a dump holds no handle between calls, so this frees only the name. Its file, or null.</summary>
+    internal string? Close(string id)
+    {
+        if (!_ids.TryRemove(id.Trim(), out var path)) return null;
+        _imageDirectories.TryRemove(path, out _);
+        return path;
+    }
+
     /// <summary>A session over other process memory (a live process); it owns <paramref name="memory"/>.</summary>
     internal Session SessionFor(string id, IProcessMemory memory, IReadOnlyList<string> directories) => new(this, id, memory, directories);
 

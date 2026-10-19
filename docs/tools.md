@@ -56,7 +56,7 @@ Structured output: `ids`, `entries`, `skipped`, `discardedEdits`.
 
 **Unload assembly** (destructive, idempotent)
 
-Remove an assembly from the workspace (unsaved edits are discarded).
+Remove an assembly (unsaved edits are discarded) or close a dump id.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -2908,7 +2908,7 @@ Page a session's event ring with a cursor and filters, so polling never re-sends
 |---|---|---|---|---|
 | `session` | string | yes |  | Session id from live_session. |
 | `cursor` | string |  |  | Cursor from an earlier page; default the oldest event kept. |
-| `kind` | string |  |  | Only this kind: stop, call, script, exception, module, thread, output, error or exit. |
+| `kind` | string |  |  | Only this kind. Values: stop, call, script, exception, module, thread, output, error, exit. |
 | `thread` | string |  |  | Only this thread id. |
 | `from` | string |  |  | Only events of this watch or script id. |
 | `limit` | integer |  | `100` |  |
@@ -2942,7 +2942,7 @@ Collect code coverage in a session: which functions of an image ran and how ofte
 |---|---|---|---|---|
 | `session` | string |  |  | Session id; start only. |
 | `action` | string |  | `list` | start, stop, list, report or diff. Values: start, stop, list, report, diff. |
-| `run` | string |  |  | Coverage run id (cov-1); diff: the first run. |
+| `run` | string |  |  | Coverage run id (cov-1; omitted: the only run); diff: the first run. |
 | `other` | string |  |  | diff: the run compared with. |
 | `match` | string |  |  | Only functions whose name contains this; start: module!part for another module. |
 | `hitLimit` | integer |  | `100` | start: stops counted per function before its point is cleared. |
@@ -2963,7 +2963,7 @@ Collect a timestamped trace of the files, registry keys, endpoints and child pro
 |---|---|---|---|---|
 | `session` | string |  |  | Session id; start only. |
 | `action` | string |  | `list` | start, stop, list, report or diff. Values: start, stop, list, report, diff. |
-| `run` | string |  |  | Timeline id (tl-1); without it, list shows the timelines. |
+| `run` | string |  |  | Timeline id (tl-1; omitted: the only one); without it, list shows the timelines. |
 | `a` | string |  |  | diff: the first timeline. |
 | `b` | string |  |  | diff: the second timeline. |
 | `category` | string |  |  | Only file, registry, network or process. Values: file, registry, network, process. |

@@ -466,6 +466,23 @@ public sealed class MinidumpTests
         Assert.Equal(ErrorCode.InvalidArgument, (await Assert.ThrowsAsync<ToolError>(() => tools.OpenMinidump(path, view: "stacks"))).Code);
     }
 
+    /// <summary>unload_assembly closes an open dump id (it named only the loaded images before) and leaves the file.</summary>
+    [Fact]
+    public async Task Unload_closes_an_open_dump_id()
+    {
+        using var dir = new TempDir();
+        var path = SyntheticCrash.Write(dir);
+        using var service = new MinidumpService();
+        using var ws = new AssemblyWorkspace();
+        await new Corvus.Tools.MinidumpTools(service).OpenMinidump(path);
+        var id = Assert.Single(service.OpenIds);
+        var tools = new Corvus.Tools.WorkspaceTools(ws, new Il2CppService(ws), new IndexingService(ws, new CallGraphService(ws), new ServerOptions()), new Corvus.Services.Analysis.UnpackService(ws), dumps: service);
+        Assert.StartsWith($"Closed dump {id}", await tools.UnloadAssembly(id));
+        Assert.Empty(service.OpenIds);
+        Assert.True(File.Exists(path));
+        Assert.Equal(ErrorCode.NotLoaded, (await Assert.ThrowsAsync<ToolError>(() => tools.UnloadAssembly(id))).Code);
+    }
+
     [Fact]
     public async Task SyntheticCrashIsSummarizedAndUnwound()
     {

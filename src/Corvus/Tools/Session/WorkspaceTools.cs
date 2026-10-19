@@ -14,7 +14,7 @@ namespace Corvus.Tools;
 
 [McpServerToolType]
 public sealed class WorkspaceTools(AssemblyWorkspace workspace, Il2CppService il2cpp, IndexingService indexing, UnpackService unpacker,
-    NativeLinkService? link = null, Il2CppRawLoader? il2cppRaw = null, NativeEngineService? engines = null)
+    NativeLinkService? link = null, Il2CppRawLoader? il2cppRaw = null, NativeEngineService? engines = null, MinidumpService? dumps = null)
 {
     /// <summary>
     /// A list_assemblies row: a loaded assembly or native image, or with path an assembly or file inside the container;
@@ -382,7 +382,7 @@ public sealed class WorkspaceTools(AssemblyWorkspace workspace, Il2CppService il
     };
 
     [McpServerTool(Name = "unload_assembly", Title = "Unload assembly", UseStructuredContent = true, OutputSchemaType = typeof(UnloadChange))]
-    [Description("Remove an assembly from the workspace (unsaved edits are discarded).")]
+    [Description("Remove an assembly (unsaved edits are discarded) or close a dump id.")]
     public Task<string> UnloadAssembly([Description(AssemblyDescription)] string assembly, CancellationToken cancellationToken = default) =>
         Task.Run(() =>
         {
@@ -391,7 +391,12 @@ public sealed class WorkspaceTools(AssemblyWorkspace workspace, Il2CppService il
                 workspace.UnloadNative(native);
                 return ToolOutput.With($"Unloaded {native.Id}.", new UnloadChange([native.Id]));
             }
-            var asm = workspace.Read(() => workspace.Get(assembly));
+            LoadedAssembly asm;
+            try { asm = workspace.Read(() => workspace.Get(assembly)); }
+            catch (ToolError e) when (e.Code is ErrorCode.NotLoaded or ErrorCode.NotFound && dumps?.Close(assembly) is { } dump)
+            {
+                return ToolOutput.With($"Closed dump {assembly.Trim()} ({dump}); dump tools hold no file open between calls.", new UnloadChange([assembly.Trim()]));
+            }
             int edits = asm.Edits.Count;
             workspace.Unload(asm);
             return ToolOutput.With($"Unloaded {asm.Id}{(edits > 0 ? $" (discarded {Plural(edits, "unsaved edit")})" : "")}.",
