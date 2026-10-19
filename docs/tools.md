@@ -96,7 +96,7 @@ Loaded assemblies and native images: ids, versions, paths, Il2Cpp dummy / ReadyT
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `path` | string |  |  | Container file or Blazor _framework folder to list instead of the workspace. |
+| `path` | string |  |  | Container file, Blazor or ClickOnce folder to list instead of the workspace. |
 | `filter` | string |  |  | Id, name or path substring (case-insensitive). |
 | `offset` | integer |  |  |  |
 | `limit` | integer |  | `100` | Rows per page (default 100). |
@@ -647,7 +647,7 @@ Extract the .NET assemblies inside a container and load them: single-file bundle
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `path` | string | yes |  | Container file, or a Blazor _framework folder. |
+| `path` | string | yes |  | Container file, Blazor or ClickOnce folder. |
 | `outputDirectory` | string |  |  | New or empty directory, or an earlier extract of this file; default under temp. |
 | `extractOnly` | boolean |  |  | Extract without loading the assemblies; default: loaded, ids in loadedAs. |
 | `offset` | integer |  |  |  |

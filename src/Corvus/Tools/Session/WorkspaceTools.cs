@@ -308,7 +308,7 @@ public sealed class WorkspaceTools(AssemblyWorkspace workspace, Il2CppService il
                  "reference search directories. With path: the managed assemblies inside a container (bundle, .nupkg, .apk / .aab, Costura, zip), " +
                  "not extracted; archives (.asar with integrity, WebGL .data, HAR / mitmproxy) list their files.")]
     public Task<string> ListAssemblies(
-        [Description("Container file or Blazor _framework folder to list instead of the workspace.")] string? path = null,
+        [Description("Container file, Blazor or ClickOnce folder to list instead of the workspace.")] string? path = null,
         [Description("Id, name or path substring (case-insensitive).")] string? filter = null,
         [Description(RowOffsetDescription)] int offset = 0,
         [Description("Rows per page (default 100).")] int limit = 100,

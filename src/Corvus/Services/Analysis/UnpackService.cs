@@ -69,6 +69,7 @@ public sealed class UnpackService(AssemblyWorkspace workspace)
         progress?.Invoke($"reading {Path.GetFileName(path)}");
         string kind = DotNet;
         if (WebcilFolder(path, limits, ct) is { } folder) (source, sha, walked) = folder;
+        else if (Deployment(path, limits, ct, allFiles: true) is { } deployment) (source, sha, walked) = deployment;
         else if (Capture(path, keyLog, limits, ct, progress) is { } capture)
         {
             (source, sha, walked) = capture;
@@ -278,6 +279,11 @@ public sealed class UnpackService(AssemblyWorkspace workspace)
             (source, _, walked) = folder;
             entries = walked.Entries;
         }
+        else if (Deployment(path, limits, ct, allFiles: true) is { } deployment)
+        {
+            (source, _, walked) = deployment;
+            entries = walked.Entries;
+        }
         else
         {
             (source, var data, var sha) = ReadSource(path, limits);
@@ -368,6 +374,8 @@ public sealed class UnpackService(AssemblyWorkspace workspace)
         if (WebcilFolder(path, limits, ct) is { } folder)
             return (folder.Source, folder.Walked.Container,
                 folder.Walked.Items.Select(i => new ManagedAssembly(i.Relative, i.Bytes, i.Sha256, i.Origin)).ToList(), folder.Walked.Notes, null);
+        if (Deployment(path, limits, ct, allFiles: false) is { } deployment)
+            return Managed(deployment.Source, null, deployment.Sha, deployment.Walked, limits);
         var (source, data, sha) = ReadSource(path, limits);
         return Managed(source, data, sha, Walk(data, sha, source, limits, ct), limits);
     }
@@ -505,6 +513,19 @@ public sealed class UnpackService(AssemblyWorkspace workspace)
         return (Path.GetDirectoryName(files[0])!, sha, new Walked("Blazor WebAssembly folder (Webcil)", found, notes));
     }
 
+    /// <summary>A ClickOnce deployment (a .application file or its publish folder) read from the files beside its manifests; null for anything else.</summary>
+    private static (string Source, string Sha, Walked Walked)? Deployment(string path, AnalysisLimits limits, CancellationToken ct, bool allFiles)
+    {
+        if (Core.Installers.ClickOnceDeployment.Find(path) is not { } manifest) return null;
+        var top = Core.Installers.ClickOnceDeployment.Open(manifest, limits, ct);
+        var sha = Blob.Sha256(System.Text.Encoding.UTF8.GetBytes(string.Join("\n", top.Items.Select(i => i.Name + " " + Blob.Sha256(i.Bytes)))));
+        var walked = Walk(top, sha, limits, ct, allFiles);
+        // the manifests' own listings repeat the deployment's
+        var manifests = top.Items.Take(2).Select(i => i.Name + ": ").ToList();
+        walked.Notes.RemoveAll(n => manifests.Any(m => n.StartsWith(m, StringComparison.Ordinal)));
+        return (manifest, sha, walked);
+    }
+
     /// <summary>A Blazor folder whose boot manifest lists assemblies of which none is on disk; null otherwise.</summary>
     private static (string Folder, int Listed)? BootManifestWithoutAssemblies(string folder)
     {
@@ -525,7 +546,7 @@ public sealed class UnpackService(AssemblyWorkspace workspace)
         if (Directory.Exists(Path.GetFullPath(path)) && BootManifestWithoutAssemblies(Path.GetFullPath(path)) is { } boot)
             throw new ToolError(ErrorCode.NotFound, $"the boot manifest in {boot.Folder} lists {boot.Listed} assemblies; none is present (an incomplete copy of the app).",
                 "copy the app's _framework folder with its .wasm (or .dll) files and pass it again");
-        if (Directory.Exists(Path.GetFullPath(path))) throw new ToolError(ErrorCode.InvalidArgument, $"{Path.GetFullPath(path)} is a directory; pass a container file (single-file app, .nupkg, .apk, Costura host) or a Blazor _framework folder. To load a folder of assemblies, use load_assembly.");
+        if (Directory.Exists(Path.GetFullPath(path))) throw new ToolError(ErrorCode.InvalidArgument, $"{Path.GetFullPath(path)} is a directory; pass a container file (single-file app, .nupkg, .apk, Costura host), a Blazor _framework folder or a ClickOnce publish folder. To load a folder of assemblies, use load_assembly.");
         var source = InputFiles.RequireRegularFile(path, "container file");
         if (!File.Exists(source)) throw Targets.FileNotFound(source);
         var length = new FileInfo(source).Length;

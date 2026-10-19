@@ -16,7 +16,7 @@ public sealed class UnpackTools(UnpackService unpacker)
                  ".aab (per ABI), zips, embedded .NET images, nested containers; Electron .asar, Unity WebGL .data, HAR / mitmproxy captures: " +
                  "every file; pcap: HTTP objects and TCP streams; JS: modules and the source map's original tree. Nothing runs; runnable extensions get .bin.")]
     public Task<string> UnpackContainer(
-        [Description("Container file, or a Blazor _framework folder.")] string path,
+        [Description("Container file, Blazor or ClickOnce folder.")] string path,
         [Description("New or empty directory, or an earlier extract of this file; default under temp.")] string? outputDirectory = null,
         [Description("Extract without loading the assemblies; default: loaded, ids in loadedAs.")] bool extractOnly = false,
         [Description(RowOffsetDescription)] int offset = 0,
