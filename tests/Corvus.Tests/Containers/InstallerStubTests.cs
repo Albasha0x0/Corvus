@@ -201,12 +201,86 @@ public sealed class InstallerStubTests
         Assert.Contains(c.Entries!, e => e.Path == "uninst.exe" && e.Detail!.StartsWith("uninstaller written at install time", StringComparison.Ordinal));
     }
 
+    /// <summary>
+    /// An Inno Setup 6.7.0 installer with uncompressed setup-0 blocks: AppName "Sample", one stored file {app}\a.txt and the
+    /// uninstaller entry; the offset table (RCDATA 11111) points past the image.
+    /// </summary>
+    private static byte[] InnoFixture()
+    {
+        var content = "inno file"u8.ToArray();
+        static byte[] Block(byte[] data)
+        {
+            var o = new BinaryWriter(new MemoryStream());
+            var chunks = data.Chunk(4096).ToList();
+            var header = new byte[9];
+            BitConverter.TryWriteBytes(header, (long)chunks.Sum(c => 4 + c.Length));
+            o.Write(System.IO.Hashing.Crc32.HashToUInt32(header)); o.Write(header);
+            foreach (var c in chunks) { o.Write(System.IO.Hashing.Crc32.HashToUInt32(c)); o.Write(c); }
+            return ((MemoryStream)o.BaseStream).ToArray();
+        }
+        static void Record(BinaryWriter w, string[] strings, int ansi, byte[] fixedPart)
+        {
+            foreach (var s in strings) { var b = Encoding.Unicode.GetBytes(s); w.Write(b.Length); w.Write(b); }
+            for (int i = 0; i < ansi; i++) w.Write(0);
+            w.Write(fixedPart);
+        }
+        var first = new BinaryWriter(new MemoryStream());
+        var header = new byte[162];
+        BitConverter.TryWriteBytes(header.AsSpan(32), 2); // file entries
+        BitConverter.TryWriteBytes(header.AsSpan(36), 1); // file locations
+        Record(first, ["Sample", .. Enumerable.Repeat("", 8), "1.0", .. Enumerable.Repeat("", 29)], 4, header);
+        var file = new byte[80];
+        BitConverter.TryWriteBytes(file.AsSpan(53), 0);
+        Record(first, ["a.txt", @"{app}\a.txt", .. Enumerable.Repeat("", 13)], 1, file);
+        var uninstaller = new byte[80];
+        BitConverter.TryWriteBytes(uninstaller.AsSpan(53), -1);
+        uninstaller[79] = 1;
+        Record(first, ["", @"{app}\unins000.exe", .. Enumerable.Repeat("", 13)], 1, uninstaller);
+        var location = new byte[89];
+        BitConverter.TryWriteBytes(location.AsSpan(24), (long)content.Length);
+        BitConverter.TryWriteBytes(location.AsSpan(32), (long)content.Length);
+        System.Security.Cryptography.SHA256.HashData(content).CopyTo(location, 40);
+
+        var setup0 = new BinaryWriter(new MemoryStream());
+        setup0.Write(Encoding.ASCII.GetBytes("Inno Setup Setup Data (6.7.0)".PadRight(64, '\0')));
+        var encryption = new byte[49];
+        setup0.Write(System.IO.Hashing.Crc32.HashToUInt32(encryption)); setup0.Write(encryption);
+        setup0.Write(Block(((MemoryStream)first.BaseStream).ToArray()));
+        setup0.Write(Block(location));
+        byte[] tail = [.. ((MemoryStream)setup0.BaseStream).ToArray(), .. "zlb\x1a"u8, .. content];
+
+        byte[] Table(long image)
+        {
+            var t = new byte[64];
+            "rDlPtS"u8.CopyTo(t); new byte[] { 0xCD, 0xE6, 0xD7, 0x7B, 0x0B, 0x2A }.CopyTo(t, 6);
+            BitConverter.TryWriteBytes(t.AsSpan(12), 2);
+            BitConverter.TryWriteBytes(t.AsSpan(40), image);
+            BitConverter.TryWriteBytes(t.AsSpan(48), image + tail.Length - 4 - content.Length);
+            return t;
+        }
+        int imageSize = Stub("#10", 11111, Table(0), tail).Length - tail.Length;
+        return Stub("#10", 11111, Table(imageSize), tail);
+    }
+
     [Fact]
-    [FuzzEntry(typeof(SquirrelSetupReader), typeof(BurnBundleReader), typeof(NsisInstallerReader))]
+    public void An_Inno_Setup_installer_lists_its_files_under_their_destination_names()
+    {
+        var setup = InnoFixture();
+        Assert.True(new InnoSetupReader().Accepts(setup, "setup.exe"));
+        var c = Containers.Open(setup, "setup.exe", AnalysisLimits.Default, default, allFiles: true);
+        Assert.Equal("Inno Setup installer", c.Kind);
+        Assert.Contains("Inno Setup installer (data 6.7.0) Sample 1.0: 2 file(s) in 1 data block(s), stored.", c.Notes);
+        Assert.Equal("inno file"u8.ToArray(), Assert.Single(c.Items, i => i.Name == "{app}/a.txt").Bytes);
+        Assert.Contains(c.Entries!, e => e.Path == "{app}/unins000.exe" && e.Detail!.StartsWith("uninstaller", StringComparison.Ordinal));
+        Assert.DoesNotContain(c.Notes, n => n.Contains("SHA-256", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    [FuzzEntry(typeof(SquirrelSetupReader), typeof(BurnBundleReader), typeof(NsisInstallerReader), typeof(InnoSetupReader))]
     public void Fuzzed_installer_stubs_never_throw_past_a_tool_error()
     {
         var squirrel = Stub("DATA", 131, Zip(("RELEASES", Encoding.ASCII.GetBytes($"{new string('A', 40)} A-1-full.nupkg 3\n")), ("A-1-full.nupkg", [1, 2, 3])));
-        foreach (var seed in new[] { squirrel, BurnFixture(), NsisFixture() })
+        foreach (var seed in new[] { squirrel, BurnFixture(), NsisFixture(), InnoFixture() })
         {
             var failures = FormatFuzz.Run(seed, b =>
             {
