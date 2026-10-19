@@ -118,7 +118,9 @@ if ($Background) {
         Write-Host "A run on $($previous.commit.Substring(0, 8)) is going; queued: a run on the newest commit ($asked) when it ends (./test.ps1 -Status)."
         exit 0
     }
-    $dir = Join-Path ([IO.Path]::GetTempPath()) "corvus-bg-$($commit.Substring(0, 8))"
+    # CORVUS_BACKGROUND_DIR: where the worktrees go, e.g. a folder the antivirus does not scan (script fixtures)
+    $bgRoot = if ($env:CORVUS_BACKGROUND_DIR) { $env:CORVUS_BACKGROUND_DIR } else { [IO.Path]::GetTempPath() }
+    $dir = Join-Path $bgRoot "corvus-bg-$($commit.Substring(0, 8))"
     if (Test-Path $dir) { git -C $root worktree remove --force $dir 2>$null; Remove-Item -Recurse -Force $dir -ErrorAction SilentlyContinue }
     git -C $root worktree add --detach $dir $commit | Out-Null
     # Routine by default; release strength records the passes a release takes.

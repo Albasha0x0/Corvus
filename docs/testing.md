@@ -12,7 +12,8 @@
   runs over stdio, sweeps, fuzzing and the large runtime packs. A push needs the commit gate above; the full set then runs off
   the critical path: the pre-push hook (`.githooks/pre-push`, enabled per clone with `git config core.hooksPath
   .githooks`) starts `./test.ps1 -Full -Background` on the commit pushed to main, in a worktree of its own (`-Status`
-  shows the result), and a failure is fixed in the next commit. A push while a run is going is queued: when the run
+  shows the result; the worktree goes under `CORVUS_BACKGROUND_DIR`, else the temp folder, so it can sit where the
+  antivirus does not quarantine the script fixtures), and a failure is fixed in the next commit. A push while a run is going is queued: when the run
   ends, one run starts on the newest commit, at the strongest strength asked meanwhile. A background run runs at below-normal priority (its test
   hosts and engine workers inherit it) and reuses family passes; it is routine strength, a quarter of the sweeps
   without the `Tier=Release` tests (`-Exhaustive`: release strength; `-Whole`: release strength without reuse). `./test.ps1 -Affected` runs the quick set plus the slow
