@@ -49,6 +49,23 @@ public class ParameterDomainTests
             }
     }
 
+    /// <summary>A description that lists the values ("a, b or c.") names exactly the set enforced: live_session lost snapshot this way.</summary>
+    [Fact]
+    public void A_described_value_list_matches_the_enforced_set()
+    {
+        var list = new System.Text.RegularExpressions.Regex(@"^([a-z][\w-]*)((?:, [a-z][\w-]*)*),? or ([a-z][\w-]*)\.?$");
+        var mismatches = new List<string>();
+        foreach (var (tool, parameters) in ParameterDomains.Table)
+            foreach (var (name, domain) in parameters)
+            {
+                var description = (string?)Schemas[tool]["properties"]?[name]?["description"] ?? "";
+                if (list.Match(description) is not { Success: true } m) continue;
+                var described = new[] { m.Groups[1].Value, m.Groups[3].Value }.Concat(m.Groups[2].Value.Split(", ", StringSplitOptions.RemoveEmptyEntries)).ToHashSet();
+                if (!described.SetEquals(domain.Values)) mismatches.Add($"{tool}.{name}: described {string.Join(",", described.Order())}; enforced {string.Join(",", domain.Values.Order())}");
+            }
+        Assert.Empty(mismatches);
+    }
+
     [Fact]
     public void EveryEngineParameterHasADomain()
     {

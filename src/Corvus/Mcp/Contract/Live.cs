@@ -32,7 +32,7 @@ public static partial class ParameterDomains
     private static Dictionary<string, IReadOnlyDictionary<string, Domain>> LiveTools() => new(StringComparer.Ordinal)
     {
         ["inspect_process"] = new Dictionary<string, Domain> { ["regionFilter"] = Of(["committed", "all", "executable", "writable", "image", "private", "mapped"]) },
-        ["live_session"] = new Dictionary<string, Domain> { ["action"] = Of(["list", "processes", "attach", "spawn", "status", "close"]) },
+        ["live_session"] = new Dictionary<string, Domain> { ["action"] = Of(["list", "processes", "attach", "spawn", "status", "snapshot", "close"]) },
         ["live_break"] = new Dictionary<string, Domain> { ["action"] = Of(["list", "set", "clear", "continue"]) },
         ["live_watch"] = new Dictionary<string, Domain> { ["action"] = Of(["list", "set", "clear"]) },
         ["live_script"] = new Dictionary<string, Domain> { ["action"] = Of(["list", "load", "unload"]) },
@@ -56,7 +56,7 @@ public sealed partial record ToolContract
         ["live_session"] = Row(O.Report, L.Interactive, noDryRun: "N14: gated by --allow-live"),
         ["live_break"] = Row(O.Report, L.Interactive, noDryRun: "N14: gated by --allow-live"),
         ["live_watch"] = Row(O.Report, L.Interactive, noDryRun: "N14: gated by --allow-live"),
-        ["live_read"] = Row(O.Report, L.Interactive),
+        ["live_read"] = Row(O.Bytes, L.Interactive),
         ["live_events"] = Row(O.List, L.Instant, sort: "event sequence"),
         ["live_script"] = Row(O.Report, L.Interactive, noDryRun: "N14: gated by --allow-live and --live-scripting"),
         ["live_coverage"] = Row(O.Report, L.Interactive, noDryRun: "N14: gated by --allow-live"),
