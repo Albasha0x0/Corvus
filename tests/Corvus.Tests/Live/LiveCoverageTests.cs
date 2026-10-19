@@ -70,6 +70,27 @@ public sealed class LiveCoverageTests : IDisposable
     }
 
     [Fact]
+    public async Task A_stop_point_inside_a_function_start_and_coverage_of_that_function_exclude_each_other()
+    {
+        await _tools.LiveSession("attach", program: "4242");
+        var index = new NativeCodeService(_workspace, new ServerOptions()).IndexOfOriginal(_workspace.Natives.Single(), default);
+        var rva = index.AddressOfName("sqlite3_complete")!.Value;
+        var second = index.Disassemble(rva, 2)[1].Rva - rva;
+        Assert.True(second < 16);
+        await _tools.LiveBreak("live-1", "set", at: $"sqlite3_complete+0x{second:X}");
+        await _tools.LiveCoverage("live-1", "start", match: "sqlite3_complete");
+        Assert.Equal($"s1 sits {second} bytes in, inside the bytes a hook at the start rewrites", _service.GetCoverage("cov-1").Unplaced[rva]);
+        await _tools.LiveCoverage(action: "stop", run: "cov-1");
+        await _tools.LiveBreak("live-1", "clear", stopPoint: "s1");
+
+        await _tools.LiveCoverage("live-1", "start", match: "sqlite3_complete");
+        var refused = await Assert.ThrowsAsync<ToolError>(() => _tools.LiveBreak("live-1", "set", at: $"sqlite3_complete+0x{second:X}"));
+        Assert.Equal(ErrorCode.Conflict, refused.Code);
+        Assert.Contains("coverage run cov-2 rewrites", refused.Message);
+        Assert.Contains("s2 set", await _tools.LiveBreak("live-1", "set", at: "sqlite3_complete")); // the start itself shares the hook
+    }
+
+    [Fact]
     public async Task Function_counts_are_drawn_on_the_static_call_graph()
     {
         await _tools.LiveSession("attach", program: "4242");

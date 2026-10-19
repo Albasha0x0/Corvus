@@ -751,6 +751,20 @@ public sealed partial class LiveSessionService(AssemblyWorkspace workspace, Nati
         }
     }
 
+    /// <summary>Refuses an address in the first bytes of a function a recording coverage run hooks at its start.</summary>
+    private void CheckCoverageOverlap(LiveSession session, ulong address, string what, CancellationToken ct)
+    {
+        foreach (var run in _coverage.Values.Where(r => r.Session == session.Id && r.State == "recording"))
+            foreach (var rva in run.ArmedRvas)
+            {
+                var start = run.ModuleBase + rva;
+                if (address <= start || address >= start + WatchPatchBytes) continue;
+                throw new ToolError(ErrorCode.Conflict,
+                    $"{what} at {Name(session, address, ct: ct).Display} is {address - start} bytes into {Name(session, start, ct: ct).Display}, whose first {WatchPatchBytes} bytes coverage run {run.Id} rewrites.",
+                    $"set it at the function's start or {WatchPatchBytes}+ bytes in, or stop {run.Id} first (live_coverage action=stop)");
+            }
+    }
+
     /// <summary>Refuses an address inside an instruction of a known function: a hook written there corrupts the code and crashes the program.</summary>
     private async Task CheckInstructionStartAsync(LiveSession session, ulong address, CancellationToken ct)
     {
@@ -774,6 +788,7 @@ public sealed partial class LiveSessionService(AssemblyWorkspace workspace, Nati
     {
         var (address, followed) = await FollowJumpsAsync(session, await ResolveAsync(session, where, ct).ConfigureAwait(false), ct).ConfigureAwait(false);
         await CheckInstructionStartAsync(session, address, ct).ConfigureAwait(false);
+        CheckCoverageOverlap(session, address, "This stop point", ct);
         List<LiveWatchState> watches;
         lock (session.Watches) watches = session.Watches.Values.Where(w => !w.Cleared).ToList();
         foreach (var w in watches)
@@ -791,6 +806,7 @@ public sealed partial class LiveSessionService(AssemblyWorkspace workspace, Nati
     {
         var (address, followed) = await FollowJumpsAsync(session, await ResolveAsync(session, where, ct).ConfigureAwait(false), ct).ConfigureAwait(false);
         await CheckInstructionStartAsync(session, address, ct).ConfigureAwait(false);
+        CheckCoverageOverlap(session, address, "This watch", ct);
         List<LiveStopPointState> points;
         lock (session.StopPoints) points = session.StopPoints.Values.ToList();
         foreach (var p in points)

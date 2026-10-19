@@ -107,7 +107,7 @@ thread, and a program the session started is ended. A started program's output a
 
 A stop point or watch on `module!name` whose module is not loaded yet is deferred, as a debugger defers an unresolved
 breakpoint: it is set when the module's load event arrives (a `module` event says so), so calls made before then are
-missed. An address inside an instruction, a stop point in the first 16 bytes of a watched function (or a watch over one),
+missed. An address inside an instruction, a stop point in the first 16 bytes of a watched or counted function (or a watch or count over one),
 and a function too short for a hook's jump are refused with the nearest place that works. The `exit` event carries the
 exit code the system reports (`exit code 0xC0000005 (EXCEPTION_ACCESS_VIOLATION)`); a crash whose exception event the
 program's end cut off is recorded as an `exception` event from that code, without an address. Stack values that cannot be

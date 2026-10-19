@@ -80,6 +80,9 @@ public sealed class LiveCoverageRun
 
     internal IReadOnlyList<string> Armed => [.. _live.Keys, .. _exits.Keys];
 
+    /// <summary>The function starts whose stop point is still set.</summary>
+    internal IReadOnlyList<uint> ArmedRvas => [.. _live.Values];
+
     /// <summary>Counts one stop; true when the point just reached the hit limit and is to be cleared.</summary>
     internal bool Hit(string pointId)
     {
@@ -157,6 +160,13 @@ public sealed partial class LiveSessionService
                 else if (first.InstructionCount == 1 && first.EndKind is BlockEnd.Jump or BlockEnd.IndirectJump or BlockEnd.TailCall)
                     refused[p.Rva] = "a single jump: its runs are counted at the function it leads to";
             }
+        // a hook at the start rewrites its first bytes, so a stop point or watch already inside them would be corrupted
+        List<(string Id, ulong Address)> occupied;
+        lock (session.StopPoints) occupied = [.. session.StopPoints.Values.Select(p => (p.Id, p.Address))];
+        lock (session.Watches) occupied.AddRange(session.Watches.Values.Where(w => !w.Cleared).Select(w => (w.Id, w.Address)));
+        foreach (var p in points)
+            if (occupied.FirstOrDefault(o => o.Address > m.Base + p.Rva && o.Address < m.Base + p.Rva + WatchPatchBytes) is { Id: { } inside } o)
+                refused[p.Rva] = $"{inside} sits {o.Address - (m.Base + p.Rva)} bytes in, inside the bytes a hook at the start rewrites";
         if (points.Count == 0)
             throw new ToolError(ErrorCode.NotFound, $"No function of {image.Id}{(match != null ? $" has a name containing '{match.Trim()}'" : " is indexed")}.", "list_functions shows the image's functions");
         if (points.Count > MaxCoveragePoints)
