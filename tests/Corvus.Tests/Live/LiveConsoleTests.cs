@@ -107,7 +107,7 @@ public sealed class LiveConsoleTests : IDisposable
         Assert.Contains("script stopped at step 3 of 4, 1 step not run; the program is running", text);
         Assert.Equal(["Ada\r"], _host.Last!.Input);
 
-        var status = await _tools.LiveConsole("status", run: "con-1");
+        var status = await _tools.LiveConsole("status"); // the only run
         Assert.Matches(@"step 4\s+send x\s+not run", status);
         Assert.Contains("con-1 prompt.exe pid 4242: running, script stopped at step 3", await _tools.LiveConsole());
 

@@ -45,7 +45,7 @@ public sealed partial class LiveSessionTools
         [Description("start: program path.")] string? program = null,
         [Description("start: program arguments.")] string[]? arguments = null,
         [Description("start: steps, one per line: send TEXT, wait TEXT (output contains it), resize COLUMNS ROWS, delay MS; TEXT takes \\r (Enter), \\n, \\t, \\e, \\xHH.")] string[]? script = null,
-        [Description("Console run id (con-1).")] string? run = null,
+        [Description("Console run id (con-1; omitted: the only one).")] string? run = null,
         [Description("Seconds each wait step waits (1-300).")] int timeoutSeconds = 10,
         [Description("transcript: cursor from an earlier page; default the oldest line kept.")] string? cursor = null,
         [Description(ToolSupport.LimitDescription)] int limit = 100,
@@ -100,8 +100,7 @@ public sealed partial class LiveSessionTools
 
     private static string DefaultSize() => $"{LiveSessionService.DefaultColumns}x{LiveSessionService.DefaultRows}";
 
-    private static string RequireConsole(string? run) =>
-        string.IsNullOrWhiteSpace(run) ? throw new ToolError(ErrorCode.InvalidArgument, "This action needs run.", "run=<id from live_console action=list>") : run;
+    private string RequireConsole(string? run) => OnlyRun(run, null, live.ConsoleRuns.Select(r => (r.Id, "")), "live_console");
 
     private static string Exit(LiveConsoleRun r) => r.ExitCode is { } c ? $" (exit code {c})" : "";
 

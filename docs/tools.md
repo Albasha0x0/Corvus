@@ -2986,7 +2986,7 @@ Run a program under a console host (the pseudoconsole on Windows) driven by a sc
 | `program` | string |  |  | start: program path. |
 | `arguments` | string[] |  |  | start: program arguments. |
 | `script` | string[] |  |  | start: steps, one per line: send TEXT, wait TEXT (output contains it), resize COLUMNS ROWS, delay MS; TEXT takes \r (Enter), \n, \t, \e, \xHH. |
-| `run` | string |  |  | Console run id (con-1). |
+| `run` | string |  |  | Console run id (con-1; omitted: the only one). |
 | `timeoutSeconds` | integer |  | `10` | Seconds each wait step waits (1-300). |
 | `cursor` | string |  |  | transcript: cursor from an earlier page; default the oldest line kept. |
 | `limit` | integer |  | `100` |  |
