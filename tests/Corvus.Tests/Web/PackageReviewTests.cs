@@ -260,6 +260,15 @@ public sealed class PackageReviewTests : IDisposable
     }
 
     [Fact]
+    public void A_vscode_extension_whose_display_name_carries_zero_width_characters_is_noteworthy()
+    {
+        var pkg = """{"name":"sol","publisher":"acme","version":"1.0.0","displayName":"so​lid​ity","main":"./extension.js"}""";
+        var r = Review(Zip("acme.sol-1.0.0.vsix", ("extension/package.json", U(pkg)), ("extension/extension.js", U("exports.activate = () => {};"))));
+        Assert.Equal("noteworthy", r.Review);
+        Assert.Contains(r.Findings, f => f is { Level: "noteworthy", Category: "name" } && f.Detail.Contains("so\\u200blid", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public void The_package_view_names_the_review_in_the_overview()
     {
         var path = Tgz("internal-auth-1.0.0.tgz",

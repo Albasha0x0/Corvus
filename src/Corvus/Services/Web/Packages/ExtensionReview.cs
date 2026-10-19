@@ -169,9 +169,13 @@ public static partial class PackageReview
             id ??= Str(p, "name");
             version ??= Str(p, "version");
             publisher ??= Str(p, "publisher");
+            display ??= Str(p, "displayName");
             foreach (var key in new[] { "extensionDependencies", "extensionPack" })
                 foreach (var dep in Strings(p, key)) entries.Add(new PackageEntryPoint(key, dep, null));
         }
+        // zero-width characters let a listing read as a widely installed extension's name while differing from it
+        if (display != null && display.Any(Corvus.Core.Format.IsInvisible))
+            findings.Add(new PackageFinding("noteworthy", "name", $"the display name '{Corvus.Core.Format.EscapeInvisible(display)}' carries invisible characters", pkgPath));
         var loaded = entries.Where(e => e.Kind is "main" or "browser").Select(e => Resolve(root, e.Target!))
             .Select(t => !files.Has(t) && files.Has(t + ".js") ? t + ".js" : t);
         findings.AddRange(ScanLoaded(files, root, loaded, ct));
