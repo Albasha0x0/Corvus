@@ -148,10 +148,15 @@ public sealed partial class LiveSessionService
             .OrderBy(x => x.f.Start).Select(x => new LiveCoveragePoint(x.f.Start, x.Name))];
         // a function whose first block is shorter than this is refused, not counted
         var minBlock = MinCountableBlock(image.Image.Arch);
-        var tooShort = new HashSet<uint>();
+        var refused = new Dictionary<uint, string>();
         foreach (var p in points)
-            if (idx.FunctionAt(p.Rva) is { } f && f.Size < 64 && idx.GetGraph(f, ct).Blocks.FirstOrDefault(b => b.Start == f.Start) is { } first && first.End - first.Start < minBlock)
-                tooShort.Add(p.Rva);
+            if (idx.FunctionAt(p.Rva) is { } f && f.Size < 64 && idx.GetGraph(f, ct).Blocks.FirstOrDefault(b => b.Start == f.Start) is { } first)
+            {
+                if (first.End - first.Start < minBlock) refused[p.Rva] = "too short to count with stop-based coverage";
+                // the stop point lands where the jump leads: through a CFG dispatch pointer, every indirect call of the process
+                else if (first.InstructionCount == 1 && first.EndKind is BlockEnd.Jump or BlockEnd.IndirectJump or BlockEnd.TailCall)
+                    refused[p.Rva] = "a single jump: its runs are counted at the function it leads to";
+            }
         if (points.Count == 0)
             throw new ToolError(ErrorCode.NotFound, $"No function of {image.Id}{(match != null ? $" has a name containing '{match.Trim()}'" : " is indexed")}.", "list_functions shows the image's functions");
         if (points.Count > MaxCoveragePoints)
@@ -165,9 +170,9 @@ public sealed partial class LiveSessionService
             for (int i = 0; i < points.Count; i++)
             {
                 var id = $"{run.Id}.{i + 1}";
-                if (tooShort.Contains(points[i].Rva))
+                if (refused.TryGetValue(points[i].Rva, out var reason))
                 {
-                    run.Refused(id, points[i].Rva, "too short to count with stop-based coverage");
+                    run.Refused(id, points[i].Rva, reason);
                     continue;
                 }
                 run.Arm(id, points[i].Rva);

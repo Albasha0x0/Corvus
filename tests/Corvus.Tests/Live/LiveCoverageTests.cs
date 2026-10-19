@@ -45,8 +45,11 @@ public sealed class LiveCoverageTests : IDisposable
         await _tools.LiveSession("attach", program: "4242");
         var start = await _tools.LiveCoverage("live-1", "start", match: "sqlite3_open", hitLimit: 2);
         var n = int.Parse(Regex.Match(start, @"cov-1 counting (\d+) functions of e_sqlite3\.dll").Groups[1].Value);
-        Assert.True(n >= 3, start);
+        Assert.True(n >= 2, start);
         Assert.Equal(n, Count("set"));
+        // sqlite3_open_v2 is one jmp: a stop point there lands in the function it leads to, counting every caller of that one
+        Assert.Contains("1 function left out: a single jump", start);
+        Assert.Contains("a single jump", _service.GetCoverage("cov-1").Unplaced[_service.GetCoverage("cov-1").Points.Single(p => p.Name == "sqlite3_open_v2").Rva]);
 
         var open = _service.GetCoverage("cov-1").Points.Select((p, i) => (p, i)).Single(x => x.p.Name == "sqlite3_open");
         var id = $"cov-1.{open.i + 1}";
@@ -60,7 +63,7 @@ public sealed class LiveCoverageTests : IDisposable
         Assert.Contains("No events.", await _tools.LiveEvents("live-1", kind: "stop"));
 
         var missed = await _tools.LiveCoverage(action: "report", run: "cov-1", show: "missed");
-        Assert.Contains("sqlite3_open_v2", missed);
+        Assert.Contains("sqlite3_open16", missed);
         Assert.DoesNotContain("  sqlite3_open\n", missed);
         Assert.Contains("complete", await _tools.LiveCoverage(action: "stop", run: "cov-1"));
         Assert.Equal(n, Count("clear"));
@@ -89,21 +92,24 @@ public sealed class LiveCoverageTests : IDisposable
     public async Task The_diff_lists_the_functions_that_ran_in_only_one_run()
     {
         await _tools.LiveSession("attach", program: "4242");
-        await _tools.LiveCoverage("live-1", "start", match: "sqlite3_open");
-        await _tools.LiveCoverage("live-1", "start", match: "sqlite3_open");
-        var points = _service.GetCoverage("cov-1").Points;
-        int Index(string name) => points.Select((p, i) => (p, i)).Single(x => x.p.Name == name).i + 1;
-        _backend.Hit($"cov-1.{Index("sqlite3_open")}", 7, Base + 0x10);
-        _backend.Hit($"cov-1.{Index("sqlite3_open_v2")}", 7, Base + 0x10);
-        _backend.Hit($"cov-2.{Index("sqlite3_open_v2")}", 7, Base + 0x10);
-        _backend.Hit($"cov-2.{Index("sqlite3_open16")}", 7, Base + 0x10);
+        await _tools.LiveCoverage("live-1", "start", match: "sqlite3_column_");
+        await _tools.LiveCoverage("live-1", "start", match: "sqlite3_column_");
+        var run = _service.GetCoverage("cov-1");
+        var placed = run.Placed;
+        Assert.True(placed.Count >= 3, string.Join(", ", run.Points.Select(p => p.Name)));
+        var (a, b, c) = (placed[0].Name, placed[1].Name, placed[2].Name);
+        int Index(string name) => run.Points.Select((p, i) => (p, i)).Single(x => x.p.Name == name).i + 1;
+        _backend.Hit($"cov-1.{Index(a)}", 7, Base + 0x10);
+        _backend.Hit($"cov-1.{Index(b)}", 7, Base + 0x10);
+        _backend.Hit($"cov-2.{Index(b)}", 7, Base + 0x10);
+        _backend.Hit($"cov-2.{Index(c)}", 7, Base + 0x10);
         await Until(() => _service.GetCoverage("cov-1").Ran == 2 && _service.GetCoverage("cov-2").Ran == 2);
 
         var diff = await _tools.LiveCoverage(action: "diff", run: "cov-1", other: "cov-2");
 
-        Assert.True(diff.Contains($"cov-1 and cov-2 on e_sqlite3.dll: 1 function ran only in cov-1, 1 only in cov-2, 1 in both, {points.Count - 3} in neither"), diff);
-        Assert.Matches(@"only in cov-1:\r?\n\s+1\s+0x[0-9A-F]+\s+sqlite3_open\r?\n", diff);
-        Assert.Matches(@"only in cov-2:\r?\n\s+1\s+0x[0-9A-F]+\s+sqlite3_open16\r?\n", diff);
+        Assert.True(diff.Contains($"cov-1 and cov-2 on e_sqlite3.dll: 1 function ran only in cov-1, 1 only in cov-2, 1 in both, {placed.Count - 3} in neither"), diff);
+        Assert.Matches($@"only in cov-1:\r?\n\s+1\s+0x[0-9A-F]+\s+{a}\r?\n", diff);
+        Assert.Matches($@"only in cov-2:\r?\n\s+1\s+0x[0-9A-F]+\s+{c}\r?\n", diff);
         Assert.Equal(ErrorCode.InvalidArgument, (await Assert.ThrowsAsync<ToolError>(() => _tools.LiveCoverage(action: "diff", run: "cov-1"))).Code);
     }
 }
