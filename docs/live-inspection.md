@@ -103,7 +103,8 @@ Addresses are joined to the static model: the program's own image is loaded and 
 stack reads `orders.exe!AddLine+0x1B  orders.c:9`, not a bare address; other modules join once loaded with
 `load_assembly`. Stop points hold only the thread that hits them; other threads run on. Memory is read, never written.
 A session ends on `close`, after `CORVUS_LIVE_MAX_MINUTES` (default 30) and with the server; each releases every held
-thread, and a program the session started is ended. A started program's output arrives as `output` events.
+thread, and a program the session started is ended. A started program runs in its own folder and its output arrives
+as `output` events.
 
 Attach refuses the server's own process and the processes it runs under (the MCP client, its terminal, the editor), by id
 or by name: a session held there would freeze the client driving it.

@@ -73,11 +73,12 @@ public sealed class LiveProgramScopeTests : IDisposable
     }
 
     [Fact]
-    public async Task Spawn_inside_a_listed_folder_hands_the_backend_the_full_path()
+    public async Task Spawn_inside_a_listed_folder_hands_the_backend_the_full_path_and_its_folder()
     {
         var inside = Program("allowed");
         await Tools(allow: Path.Combine(_dir.Path, "allowed")).LiveSession("spawn", program: inside);
         Assert.Equal(inside, (string?)_backend.LastOpen!["spawn"]);
+        Assert.Equal(Path.GetDirectoryName(inside), (string?)_backend.LastOpen!["cwd"]);
     }
 
     [Fact]

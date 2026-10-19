@@ -80,7 +80,7 @@ class Session:
             # The worker's TEMP is its own (Frida unpacks helpers there); the program gets the user's.
             env = {k: args[k.lower()] for k in ("TEMP", "TMP") if args.get(k.lower())}
             try:
-                self.pid = self.device.spawn(argv, stdio="pipe", env=env or None)
+                self.pid = self.device.spawn(argv, stdio="pipe", env=env or None, cwd=args.get("cwd") or None)
             except frida.ExecutableNotFoundError as e:
                 raise Failure("not_found", str(e))
             self.spawned = True

@@ -253,6 +253,8 @@ public sealed partial class LiveSessionService(AssemblyWorkspace workspace, Nati
                 ? new JsonObject
                 {
                     ["spawn"] = target, ["arguments"] = new JsonArray(arguments.Select(a => (JsonNode)a).ToArray()),
+                    // a started program runs in its own folder, as a debugger starts it, not in the worker's
+                    ["cwd"] = Path.GetDirectoryName(target),
                     // the worker's own TEMP is private (see FridaBackend); a started program gets the user's
                     ["temp"] = Environment.GetEnvironmentVariable("TEMP"), ["tmp"] = Environment.GetEnvironmentVariable("TMP"),
                 }
