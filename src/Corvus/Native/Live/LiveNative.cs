@@ -28,6 +28,7 @@ internal static class LiveNative
     public const uint PROCESS_VM_READ = 0x0010;
     public const uint PROCESS_QUERY_INFORMATION = 0x0400;
     public const uint PROCESS_QUERY_LIMITED_INFORMATION = 0x1000;
+    public const uint SYNCHRONIZE = 0x00100000;
     public const uint THREAD_GET_CONTEXT = 0x0008;
     public const uint THREAD_QUERY_INFORMATION = 0x0040;
 
@@ -79,6 +80,9 @@ internal static class LiveNative
 
     [DllImport("kernel32.dll", SetLastError = true)]
     public static extern SafeKernelHandle OpenProcess(uint access, bool inherit, int processId);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    public static extern uint WaitForSingleObject(SafeKernelHandle handle, uint milliseconds);
 
     // A file or folder opened with no access, only to ask for its final path (links and short names resolved).
     public const uint FILE_SHARE_ALL = 0x7;

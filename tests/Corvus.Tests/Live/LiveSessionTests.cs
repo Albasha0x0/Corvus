@@ -21,6 +21,8 @@ internal sealed class ScriptedLiveBackend(string mainPath, ulong mainBase, uint 
     /// <summary>Bytes the program holds, by address.</summary>
     public readonly Dictionary<ulong, byte[]> Memory = [];
     private readonly Dictionary<string, ulong> _points = [];
+    /// <summary>Addresses the backend cannot hook, as Frida refuses a function too short for its jump.</summary>
+    public readonly HashSet<ulong> Unhookable = [];
     /// <summary>What the session script was told to read for each watch.</summary>
     public readonly Dictionary<string, List<string>> WatchedKinds = [];
 
@@ -39,6 +41,21 @@ internal sealed class ScriptedLiveBackend(string mainPath, ulong mainBase, uint 
         ["event"] = "stop", ["point"] = id, ["tid"] = thread, ["hits"] = 1,
         ["registers"] = new JsonObject { ["pc"] = $"0x{_points[id]:x}", ["rcx"] = "0x5000", ["rsp"] = "0x9000" },
         ["frames"] = new JsonArray($"0x{_points[id]:x}", $"0x{caller:x}", "0x7ffe00001234"),
+    });
+
+    /// <summary>A thread hitting stop point <paramref name="id"/> with the given stack values, as the worker reports them.</summary>
+    public void HitWith(string id, long thread, params ulong[] frames) => Worker!.Emit(new JsonObject
+    {
+        ["event"] = "stop", ["point"] = id, ["tid"] = thread, ["hits"] = 1,
+        ["registers"] = new JsonObject { ["pc"] = $"0x{_points[id]:x}" },
+        ["frames"] = new JsonArray([.. new[] { _points[id] }.Concat(frames).Select(f => (JsonNode)$"0x{f:x}")]),
+    });
+
+    /// <summary>The program loading <paramref name="name"/> from <paramref name="path"/> at <paramref name="at"/>.</summary>
+    public void Load(string name, string path, ulong at, uint size) => Worker!.Emit(new JsonObject
+    {
+        ["event"] = "module", ["action"] = "loaded",
+        ["module"] = new JsonObject { ["name"] = name, ["base"] = $"0x{at:x}", ["size"] = size, ["path"] = path },
     });
 
     /// <summary>A batch of recorded calls of watch <paramref name="id"/>: (thread, ms, return address, arguments, return value) rows.</summary>
@@ -65,6 +82,8 @@ internal sealed class ScriptedLiveBackend(string mainPath, ulong mainBase, uint 
                         new JsonObject { ["name"] = Path.GetFileName(mainPath), ["base"] = $"0x{mainBase:x}", ["size"] = mainSize, ["path"] = mainPath },
                         new JsonObject { ["name"] = "system.dll", ["base"] = "0x7ffe00000000", ["size"] = 0x10000, ["path"] = "/nowhere/system.dll" }),
                 };
+            case "set" or "watch" when Unhookable.Contains(Convert.ToUInt64(((string)args["address"]!)[2..], 16)):
+                throw new InvalidOperationException($"Error: unable to intercept function at {args["address"]}; please file a bug");
             case "set":
                 _points[(string)args["id"]!] = Convert.ToUInt64(((string)args["address"]!)[2..], 16);
                 return true;
@@ -154,6 +173,112 @@ public sealed class LiveSessionTests : IDisposable
         var closed = await _tools.LiveSession("close", session: "live-1");
         Assert.Contains("closed", closed);
         Assert.Contains("close", _backend.Ops);
+    }
+
+    [Fact]
+    public async Task A_point_in_a_module_not_yet_loaded_is_deferred_until_its_load_event()
+    {
+        await _tools.LiveSession("attach", program: "4242");
+        var deferred = await _tools.LiveBreak("live-1", "set", at: "plugin!sqlite3_open");
+        Assert.Contains("s1 deferred: plugin is not loaded", deferred);
+        Assert.Contains("s1 plugin!sqlite3_open: deferred until plugin loads", deferred);
+        Assert.Contains("w1 deferred", await _tools.LiveWatchCalls("live-1", "set", at: "plugin!sqlite3_close"));
+        Assert.DoesNotContain("set", _backend.Ops);
+
+        const ulong PluginBase = 0x7ff7_0000_0000;
+        _backend.Load("plugin.dll", Sqlite, PluginBase, 0x200000);
+        for (int i = 0; i < 100 && !_backend.WatchedKinds.ContainsKey("w1"); i++) await Task.Delay(50);
+        var listed = await _tools.LiveBreak("live-1");
+        Assert.Contains("s1 plugin!sqlite3_open at 0x7FF7", listed);
+        Assert.DoesNotContain("deferred", listed);
+        Assert.Contains("deferred stop point s1 set at plugin.dll!sqlite3_open", await _tools.LiveEvents("live-1", kind: "module"));
+        Assert.Contains("w1", _backend.WatchedKinds.Keys);
+        Assert.Contains("s2 deferred", await _tools.LiveBreak("live-1", "set", at: "other!f"));
+        Assert.Contains("s2 cleared", await _tools.LiveBreak("live-1", "clear", stopPoint: "s2"));
+    }
+
+    [Fact]
+    public async Task Name_plus_offset_resolves_and_a_point_inside_an_instruction_is_refused()
+    {
+        await _tools.LiveSession("attach", program: "4242");
+        var index = new NativeCodeService(_workspace, new ServerOptions()).IndexOfOriginal(_workspace.Natives.Single(), default);
+        var rva = index.AddressOfName("sqlite3_open")!.Value;
+        var second = index.Disassemble(rva, 2)[1].Rva - rva;
+        Assert.Contains($"set at 0x{Base + rva + second:X} e_sqlite3.dll!sqlite3_open+0x{second:X}",
+            await _tools.LiveBreak("live-1", "set", at: $"sqlite3_open+0x{second:X}"));
+        if (second > 1)
+        {
+            var inside = await Assert.ThrowsAsync<ToolError>(() => _tools.LiveBreak("live-1", "set", at: "e_sqlite3!sqlite3_open+0x1"));
+            Assert.Contains("inside an instruction", inside.Message);
+            Assert.Contains($"e_sqlite3.dll!sqlite3_open+0x{second:X}", inside.Remediation);
+        }
+        Assert.Equal(ErrorCode.InvalidArgument, (await Assert.ThrowsAsync<ToolError>(() => _tools.LiveBreak("live-1", "set", at: "sqlite3_open+0x7FFFFFFF"))).Code);
+    }
+
+    [Fact]
+    public async Task Stack_values_that_cannot_be_code_are_left_out_and_unloaded_modules_name_by_export()
+    {
+        await _tools.LiveSession("attach", program: "4242");
+        await _tools.LiveBreak("live-1", "set", at: "e_sqlite3!sqlite3_open");
+        var old = RealPackages.File("SQLitePCLRaw.lib.e_sqlite3", "2.1.2", "runtimes", "win-x64", "native", "e_sqlite3.dll");
+        const ulong LibBase = 0x7ff8_0000_0000;
+        _backend.Load("old.dll", old, LibBase, 0x200000);
+        var exportRva = Native.NativeImageLoader.Open(old).Exports.Single(e => e.Name == "sqlite3_close").Rva;
+        await Task.Delay(100);
+        _backend.HitWith("s1", 9, 0x3e8, ulong.MaxValue, Base + 0x10, LibBase + exportRva + 2);
+        var stop = await _tools.LiveBreak("live-1", wait: true, waitSeconds: 10);
+        Assert.DoesNotContain("0x3E8", stop);
+        Assert.DoesNotContain("0xFFFFFFFFFFFFFFFF", stop);
+        Assert.DoesNotContain($"0x{Base + 0x10:X}", stop);
+        Assert.Contains($"#1 0x{LibBase + exportRva + 2:X} old.dll!sqlite3_close+0x2", stop);
+    }
+
+    [Fact]
+    public async Task A_watch_and_a_stop_point_in_the_same_prologue_are_refused_in_either_order()
+    {
+        await _tools.LiveSession("attach", program: "4242");
+        var index = new NativeCodeService(_workspace, new ServerOptions()).IndexOfOriginal(_workspace.Natives.Single(), default);
+        var rva = index.AddressOfName("sqlite3_open")!.Value;
+        var second = index.Disassemble(rva, 2)[1].Rva - rva;
+        await _tools.LiveBreak("live-1", "set", at: $"sqlite3_open+0x{second:X}");
+        var watch = await Assert.ThrowsAsync<ToolError>(() => _tools.LiveWatchCalls("live-1", "set", at: "sqlite3_open"));
+        Assert.Equal(ErrorCode.Conflict, watch.Code);
+        Assert.Contains($"{second} bytes into e_sqlite3.dll!sqlite3_open", watch.Message);
+        await _tools.LiveBreak("live-1", "clear", stopPoint: "s1");
+        Assert.Contains("w1 set", await _tools.LiveWatchCalls("live-1", "set", at: "sqlite3_open"));
+        Assert.Equal(ErrorCode.Conflict, (await Assert.ThrowsAsync<ToolError>(() => _tools.LiveBreak("live-1", "set", at: $"sqlite3_open+0x{second:X}"))).Code);
+        Assert.Contains("s2 set", await _tools.LiveBreak("live-1", "set", at: "sqlite3_open")); // the entry itself: the watch's own hook reports it
+    }
+
+    [Fact]
+    public async Task A_function_too_short_to_hook_is_refused_with_its_size()
+    {
+        await _tools.LiveSession("attach", program: "4242");
+        var index = new NativeCodeService(_workspace, new ServerOptions()).IndexOfOriginal(_workspace.Natives.Single(), default);
+        var shortest = index.Functions.Where(f => f.Size is > 0 and < 16).OrderBy(f => f.Start).First();
+        _backend.Unhookable.Add(Base + shortest.Start);
+        var refused = await Assert.ThrowsAsync<ToolError>(() => _tools.LiveBreak("live-1", "set", at: $"0x{Base + shortest.Start:X}"));
+        Assert.Equal(ErrorCode.Unsupported, refused.Code);
+        Assert.Contains($"the function is {shortest.Size} bytes long, too short", refused.Message);
+        Assert.Contains("find_xrefs", refused.Remediation);
+        Assert.Equal(ErrorCode.Unsupported, (await Assert.ThrowsAsync<ToolError>(() => _tools.LiveWatchCalls("live-1", "set", at: $"0x{Base + shortest.Start:X}"))).Code);
+    }
+
+    [Fact]
+    public async Task The_exit_event_carries_the_exit_code_the_system_reports()
+    {
+        if (!OperatingSystem.IsWindows()) return;
+        using var child = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(Path.Combine(Environment.SystemDirectory, "findstr.exe"), "x")
+            { RedirectStandardInput = true, UseShellExecute = false, CreateNoWindow = true })!;
+        var backend = new ScriptedLiveBackend(Sqlite, Base, 0x200000) { ProcessId = child.Id };
+        using var service = new LiveSessionService(_workspace, new NativeCodeService(_workspace, new ServerOptions())) { Backend = backend };
+        var tools = new LiveSessionTools(new ServerOptions { AllowLive = true, AllowLiveAttach = true }, service);
+        await tools.LiveSession("attach", program: child.Id.ToString());
+        child.StandardInput.Close(); // findstr exits 1: no line matched
+        await child.WaitForExitAsync();
+        backend.Worker!.Emit(new JsonObject { ["event"] = "exit", ["reason"] = "process-terminated" });
+        for (int i = 0; i < 100 && service.Get("live-1").State != "exited"; i++) await Task.Delay(50);
+        Assert.Contains("exited: process-terminated, exit code 1", await tools.LiveEvents("live-1", kind: "exit"));
     }
 
     [Fact]

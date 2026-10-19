@@ -32,7 +32,7 @@ internal sealed class FakeWorkerProcess : ChildProcess
     public int Cancelled;
     private readonly ManualResetEventSlim _released = new();
 
-    /// <summary>Ops answered before the built-in ones: a result, or null to fall through.</summary>
+    /// <summary>Ops answered before the built-in ones: a result, or null to fall through; an <see cref="InvalidOperationException"/> becomes a failed reply.</summary>
     public Func<string, JsonObject, JsonNode?>? Ops { get; init; }
 
     /// <summary>Writes an event line, as a worker does between responses.</summary>
@@ -91,7 +91,14 @@ internal sealed class FakeWorkerProcess : ChildProcess
     {
         try
         {
-            if (Ops?.Invoke(op, args) is { } handled)
+            JsonNode? handled;
+            try { handled = Ops?.Invoke(op, args); }
+            catch (InvalidOperationException e)
+            {
+                Reply(Error(id, "failed", e.Message));
+                return;
+            }
+            if (handled != null)
             {
                 Reply(Ok(id, handled));
                 return;

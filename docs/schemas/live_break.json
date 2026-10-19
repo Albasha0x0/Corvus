@@ -17,6 +17,7 @@
             "type": "string"
           },
           "address": {
+            "description": "Null while deferred.",
             "type": "string"
           },
           "hits": {

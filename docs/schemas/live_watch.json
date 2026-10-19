@@ -59,6 +59,13 @@
         ]
       }
     },
+    "deferred": {
+      "description": "Watches deferred until their module loads.",
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
     "namedAddresses": {
       "type": "array",
       "items": {

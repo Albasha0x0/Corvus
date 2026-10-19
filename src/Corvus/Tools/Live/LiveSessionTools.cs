@@ -44,7 +44,7 @@ public sealed partial class LiveSessionTools(ServerOptions options, LiveSessionS
 
     public sealed record LiveStopPoint(string Id,
         [property: Description("As given: a name, module!export, address or file:line.")] string Where,
-        string? Address, int Hits)
+        [property: Description("Null while deferred.")] string? Address, int Hits)
     {
         [Description("The jump followed, if any.")]
         public string? Followed { get; init; }
@@ -76,6 +76,8 @@ public sealed partial class LiveSessionTools(ServerOptions options, LiveSessionS
 
     public sealed record LiveWatchReport(string Session, IReadOnlyList<LiveWatch> Watches)
     {
+        [Description("Watches deferred until their module loads.")]
+        public IReadOnlyList<string>? Deferred { get; init; }
         public IReadOnlyList<LiveNamedAddress>? NamedAddresses { get; init; }
     }
 
@@ -215,13 +217,18 @@ public sealed partial class LiveSessionTools(ServerOptions options, LiveSessionS
                 case "set":
                     LiveSessionService.Live(s);
                     if (string.IsNullOrWhiteSpace(at)) throw new ToolError(ErrorCode.InvalidArgument, "action=set needs at.", "at=<name>, module!export, file:line or 0xADDRESS");
+                    if (live.Defer(s, at, watch: false) is { } deferred)
+                    {
+                        head.AppendLine($"{deferred.Id} deferred: {deferred.Module} is not loaded; it is set when {deferred.Module} loads (calls before then are missed)");
+                        break;
+                    }
                     var point = await live.SetAsync(s, at, cancellationToken).ConfigureAwait(false);
                     head.AppendLine($"{point.Id} set at {Hex(point.Address)} {point.At.Display}{Src(point.At.Source)}{(point.Followed != null ? $" ({point.Followed})" : "")}");
                     break;
                 case "clear":
                     LiveSessionService.Live(s);
                     if (string.IsNullOrWhiteSpace(stopPoint)) throw new ToolError(ErrorCode.InvalidArgument, "action=clear needs stopPoint.", "stopPoint=<id from action=list>");
-                    await live.ClearAsync(s, stopPoint.Trim(), cancellationToken).ConfigureAwait(false);
+                    if (!LiveSessionService.ClearDeferred(s, stopPoint.Trim())) await live.ClearAsync(s, stopPoint.Trim(), cancellationToken).ConfigureAwait(false);
                     head.AppendLine($"{stopPoint.Trim()} cleared");
                     break;
                 case "continue":
@@ -246,10 +253,14 @@ public sealed partial class LiveSessionTools(ServerOptions options, LiveSessionS
             }
             List<LiveStopPointState> points;
             lock (s.StopPoints) points = s.StopPoints.Values.OrderBy(p => int.Parse(p.Id[1..], CultureInfo.InvariantCulture)).ToList();
-            head.AppendLine($"{s.Id}: {s.State}, {points.Count} stop point(s)");
+            List<LiveDeferred> deferredPoints;
+            lock (s.Deferred) deferredPoints = s.Deferred.Where(d => !d.Watch).ToList();
+            head.AppendLine($"{s.Id}: {s.State}, {points.Count} stop point(s){(deferredPoints.Count > 0 ? $", {deferredPoints.Count} deferred" : "")}");
             foreach (var p in points) head.AppendLine($"  {p.Id} {p.Where} at {Hex(p.Address)} {p.At.Display}, {p.Hits} hit(s)");
+            foreach (var d in deferredPoints) head.AppendLine($"  {d.Id} {d.Where}: deferred until {d.Module} loads");
             named.AddRange(points.Select(p => p.At.Named).OfType<EvidenceName>());
-            var rows = points.Select(p => new LiveStopPoint(p.Id, p.Where, Hex(p.Address), p.Hits) { Followed = p.Followed }).ToList();
+            var rows = points.Select(p => new LiveStopPoint(p.Id, p.Where, Hex(p.Address), p.Hits) { Followed = p.Followed })
+                .Concat(deferredPoints.Select(d => new LiveStopPoint(d.Id, d.Where, null, 0))).ToList();
             return ToolOutput.With(head.ToString(), new LiveStopPointReport(s.Id, rows, stop) { NamedAddresses = Named(named) });
         }, cancellationToken);
 
@@ -285,13 +296,18 @@ public sealed partial class LiveSessionTools(ServerOptions options, LiveSessionS
                 case "set":
                     LiveSessionService.Live(s);
                     if (string.IsNullOrWhiteSpace(at)) throw new ToolError(ErrorCode.InvalidArgument, "action=set needs at.", "at=<name>, module!export or 0xADDRESS");
+                    if (live.Defer(s, at, watch: true, Math.Clamp(rateLimit, 1, 100_000), arguments) is { } deferred)
+                    {
+                        head.AppendLine($"{deferred.Id} deferred: {deferred.Module} is not loaded; it is set when {deferred.Module} loads (calls before then are missed)");
+                        break;
+                    }
                     var w = await live.WatchAsync(s, at, Math.Clamp(rateLimit, 1, 100_000), arguments, cancellationToken).ConfigureAwait(false);
                     head.AppendLine($"{w.Id} set at {Hex(w.Address)} {w.At.Display}: {w.Plan.Prototype} ({w.Plan.Source}); at most {w.PerSecond:N0} calls/s recorded{(w.Followed != null ? $" ({w.Followed})" : "")}");
                     break;
                 case "clear":
                     LiveSessionService.Live(s);
                     if (string.IsNullOrWhiteSpace(watch)) throw new ToolError(ErrorCode.InvalidArgument, "action=clear needs watch.", "watch=<id from action=list>");
-                    await live.UnwatchAsync(s, watch.Trim(), cancellationToken).ConfigureAwait(false);
+                    if (!LiveSessionService.ClearDeferred(s, watch.Trim())) await live.UnwatchAsync(s, watch.Trim(), cancellationToken).ConfigureAwait(false);
                     head.AppendLine($"{watch.Trim()} cleared");
                     break;
                 default:
@@ -310,9 +326,15 @@ public sealed partial class LiveSessionTools(ServerOptions options, LiveSessionS
                     rate is { } r ? Math.Round(r) : null) { Followed = x.Followed });
                 head.AppendLine($"  {x.Id} {x.At.Display}: {calls:N0} call(s) recorded{(rate is { } r2 ? $" ({r2:N0}/s)" : "")}{(skipped > 0 ? $", {skipped:N0} over the rate limit" : "")}");
             }
+            List<LiveDeferred> deferredWatches;
+            lock (s.Deferred) deferredWatches = s.Deferred.Where(d => d.Watch).ToList();
+            foreach (var d in deferredWatches) head.AppendLine($"  {d.Id} {d.Where}: deferred until {d.Module} loads");
             if (rows.Count > 0) head.AppendLine($"calls: live_events from={rows[0].Id}");
             var named = watches.Select(x => x.At.Named).OfType<EvidenceName>().ToList();
-            return ToolOutput.With(head.ToString(), new LiveWatchReport(s.Id, rows) { NamedAddresses = Named(named) });
+            return ToolOutput.With(head.ToString(), new LiveWatchReport(s.Id, rows)
+            {
+                NamedAddresses = Named(named), Deferred = deferredWatches.Count > 0 ? [.. deferredWatches.Select(d => $"{d.Id} {d.Where}")] : null,
+            });
         }, cancellationToken);
 
     [McpServerTool(Name = "live_script", Title = "User script in a session", UseStructuredContent = true, OutputSchemaType = typeof(LiveScriptReport))]

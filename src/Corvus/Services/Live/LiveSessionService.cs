@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Collections.Concurrent;
 using System.Globalization;
+using System.Runtime.InteropServices;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Text.RegularExpressions;
@@ -28,6 +29,9 @@ public sealed record LiveStopPointState(string Id, string Where, ulong Address, 
 }
 
 /// <summary>A thread held at a stop point until it is resumed: its general registers and return addresses.</summary>
+/// <summary>A stop point or watch on a module the program has not loaded yet; set when the module loads.</summary>
+public sealed record LiveDeferred(string Id, string Where, string Module, bool Watch, int PerSecond, int RawArguments);
+
 public sealed record LiveHeldStop(long Sequence, long Thread, string Point, IReadOnlyDictionary<string, string> Registers, IReadOnlyList<ulong> Frames);
 
 /// <summary>An event; <see cref="Source"/> is the watch or user script it came from.</summary>
@@ -88,11 +92,15 @@ public sealed class LiveSession
     public List<LiveModuleState> Modules { get; } = [];
     public Dictionary<string, LiveStopPointState> StopPoints { get; } = new(StringComparer.Ordinal);
     public Dictionary<string, LiveWatchState> Watches { get; } = new(StringComparer.Ordinal);
+    public List<LiveDeferred> Deferred { get; } = [];
     /// <summary>User scripts loaded with live_script: id to where the source came from.</summary>
     public Dictionary<string, string> Scripts { get; } = new(StringComparer.Ordinal);
     /// <summary>Stop points of coverage runs: point id to its run.</summary>
     internal ConcurrentDictionary<string, LiveCoverageRun> CoveragePoints { get; } = new(StringComparer.Ordinal);
     public bool Suspended { get; internal set; }
+    /// <summary>A query-and-wait handle to the program, for its exit code (the worker's exit event carries none).</summary>
+    internal Native.Live.SafeKernelHandle? ProcessHandle { get; set; }
+    public uint? ExitCode { get; internal set; }
     public string? Ended { get; internal set; }
     public bool Closed { get; internal set; }
     /// <summary>Events the ring dropped, oldest first.</summary>
@@ -247,6 +255,17 @@ public sealed partial class LiveSessionService(AssemblyWorkspace workspace, Nati
                 : new JsonObject { ["attach"] = target };
             var info = await worker.RequestAsync("open", args, RequestTimeout, ct).ConfigureAwait(false);
             session.ProcessId = info.GetProperty("pid").GetInt32();
+            if (OperatingSystem.IsWindows())
+            {
+                // full query rights let stop frames be checked against page protection; the limited right still reads the exit code
+                foreach (var access in new[] { Native.Live.LiveNative.PROCESS_QUERY_INFORMATION, Native.Live.LiveNative.PROCESS_QUERY_LIMITED_INFORMATION })
+                {
+                    var h = Native.Live.LiveNative.OpenProcess(Native.Live.LiveNative.SYNCHRONIZE | access, false, session.ProcessId);
+                    if (h.IsInvalid) { h.Dispose(); continue; }
+                    session.ProcessHandle = h;
+                    break;
+                }
+            }
             // two sessions in one process place their hooks independently, at the same functions
             if (_sessions.Values.FirstOrDefault(o => o.ProcessId == session.ProcessId && o.State is not ("closed" or "exited" or "failed")) is { } other)
                 throw new ToolError(ErrorCode.Conflict, $"Process {session.ProcessId} is already in session {other.Id}.", $"use {other.Id}, or close it first (live_session action=close session={other.Id})");
@@ -363,6 +382,7 @@ public sealed partial class LiveSessionService(AssemblyWorkspace workspace, Nati
                 foreach (var r in body.GetProperty("registers").EnumerateObject())
                     if (r.Value.ValueKind == JsonValueKind.String) registers[r.Name] = r.Value.GetString()!;
                 var frames = body.GetProperty("frames").EnumerateArray().Select(f => Hex(f.GetString())).ToList();
+                frames = [.. frames.Where((f, i) => i == 0 || CouldBeCode(session, f))];
                 int hits = body.TryGetProperty("hits", out var h) ? h.GetInt32() : 0;
                 if (session.StopPoints.TryGetValue(point, out var sp)) sp.Hits = hits;
                 var thread = Thread();
@@ -409,6 +429,7 @@ public sealed partial class LiveSessionService(AssemblyWorkspace workspace, Nati
                     if (loaded) session.Modules.Add(m);
                 }
                 session.Add("module", null, m.Base, $"{(loaded ? "loaded" : "unloaded")} {m.Name} ({m.Path})");
+                if (loaded) _ = SetDeferredAsync(session, m);
                 break;
             }
             case "thread":
@@ -426,13 +447,75 @@ public sealed partial class LiveSessionService(AssemblyWorkspace workspace, Nati
                 session.Add("error", null, null, "session script: " + body.GetProperty("message").GetString());
                 break;
             case "exit":
-                session.Ended = "exited: " + body.GetProperty("reason").GetString();
+                session.Ended = "exited: " + body.GetProperty("reason").GetString() + ExitText(session);
                 session.ReleaseAll();
                 EndCoverage(session);
                 EndTimeline(session);
                 session.Add("exit", null, null, session.Ended);
                 break;
         }
+    }
+
+    /// <summary>
+    /// False for a frame a stack scan picked up that cannot be a return address: below 64 KiB, past user space, or in a
+    /// loaded image outside its executable sections (code outside every module, such as JIT code, stays).
+    /// </summary>
+    private bool CouldBeCode(LiveSession session, ulong address)
+    {
+        if (address < 0x10000 || address >= (session.Arch is "ia32" or "arm" ? 0xFFFF_0000UL : 0x8000_0000_0000UL)) return false;
+        LiveModuleState? m;
+        lock (session.Modules) m = session.Modules.FirstOrDefault(x => x.Contains(address));
+        if (m == null) return ExecutablePage(session, address) != false;
+        return Match(m) is not { } native || native.Image.SectionAt((uint)(address - m.Base)) is { IsExecutable: true };
+    }
+
+    /// <summary>Whether the page at <paramref name="address"/> is committed and executable; null when it cannot be queried.</summary>
+    private static bool? ExecutablePage(LiveSession session, ulong address)
+    {
+        const uint MemCommit = 0x1000, AnyExecute = 0x10 | 0x20 | 0x40 | 0x80;
+        if (!OperatingSystem.IsWindows() || !Environment.Is64BitProcess || session.ProcessHandle is not { IsInvalid: false } h) return null;
+        if (Native.Live.LiveNative.VirtualQueryEx64(h, (nint)address, out var info, Marshal.SizeOf<Native.Live.LiveNative.MEMORY_BASIC_INFORMATION64>()) == 0) return null;
+        return info.State == MemCommit && (info.Protect & AnyExecute) != 0;
+    }
+
+    private readonly ConcurrentDictionary<string, (uint Rva, string Name)[]> _exports = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>The export at or before <paramref name="rva"/> in a module no image is loaded for (system DLLs), as a debugger names export symbols.</summary>
+    private (uint Rva, string Name)? NearestExport(string path, uint rva)
+    {
+        var table = _exports.GetOrAdd(path, p =>
+        {
+            try
+            {
+                if (!File.Exists(p)) return [];
+                return [.. NativeImageLoader.Open(p).Exports.Where(x => x.ForwardedTo == null && !string.IsNullOrEmpty(x.Name))
+                    .Select(x => (x.Rva, x.Name!)).DistinctBy(x => x.Rva).OrderBy(x => x.Rva)];
+            }
+            catch (Exception e) when (e is ToolError or IOException or UnauthorizedAccessException or InvalidDataException) { return []; }
+        });
+        int lo = 0, hi = table.Length - 1, best = -1;
+        while (lo <= hi)
+        {
+            int mid = (lo + hi) / 2;
+            if (table[mid].Rva <= rva) { best = mid; lo = mid + 1; }
+            else hi = mid - 1;
+        }
+        return best >= 0 ? table[best] : null;
+    }
+
+    private static readonly TimeSpan ExitCodeWait = TimeSpan.FromSeconds(1);
+
+    /// <summary>", exit code N" from the program's handle once it has ended (crash codes named); empty when it cannot be read.</summary>
+    private static string ExitText(LiveSession session)
+    {
+        if (session.ProcessHandle is not { IsInvalid: false } h) return "";
+        // the exit event can come just before the process object is signaled
+        const uint WaitObject0 = 0;
+        if (Native.Live.LiveNative.WaitForSingleObject(h, (uint)ExitCodeWait.TotalMilliseconds) != WaitObject0
+            || !Native.Live.LiveNative.GetExitCodeProcess(h, out var code)) return "";
+        session.ExitCode = code;
+        return code < 0x10000 ? $", exit code {code}"
+            : $", exit code 0x{code:X8}{(Native.Dump.ExceptionCodes.Name(code) is { } n ? $" ({n})" : "")}";
     }
 
     /// <summary>Names <paramref name="address"/> through the module holding it and its loaded image (return addresses look up the call's line).</summary>
@@ -443,7 +526,9 @@ public sealed partial class LiveSessionService(AssemblyWorkspace workspace, Nati
         if (module == null) return new(address, null, null, 0, null, 0, null, null);
         var rva = (uint)(address - module.Base);
         var native = Match(module);
-        if (native == null) return new(address, module.Name, null, rva, null, 0, null, null);
+        if (native == null)
+            return NearestExport(module.Path, rva) is { } e ? new(address, module.Name, null, rva, e.Name, rva - e.Rva, null, null)
+                : new(address, module.Name, null, rva, null, 0, null, null);
         string? function = null, source = null;
         uint offset = 0;
         EvidenceName? named = null;
@@ -467,6 +552,7 @@ public sealed partial class LiveSessionService(AssemblyWorkspace workspace, Nati
         if (pending.Length > 0) await Task.WhenAny(Task.WhenAll(pending), Task.Delay(wait, ct)).ConfigureAwait(false);
     }
 
+    private static readonly Regex NameOffset = new(@"^(?<name>.+?)\+0x(?<offset>[0-9A-Fa-f]{1,8})$", RegexOptions.CultureInvariant);
     private static readonly Regex FileLine = new(@"^(?<file>.+\.[A-Za-z0-9+]{1,8}):(?<line>\d+)$", RegexOptions.CultureInvariant);
 
     /// <summary>
@@ -491,6 +577,15 @@ public sealed partial class LiveSessionService(AssemblyWorkspace workspace, Nati
                     return m.Base + found[0].Rva;
             throw new ToolError(ErrorCode.NotFound, $"No loaded image's PDB has code at {t}.",
                 "load the program's PDB (load_pdb) or check the file name; the line tables name files by their build path");
+        }
+        if (NameOffset.Match(t) is { Success: true } no && !t.StartsWith("0x", StringComparison.OrdinalIgnoreCase))
+        {
+            var start = await ResolveAsync(session, no.Groups["name"].Value, ct, data).ConfigureAwait(false);
+            var target = start + ulong.Parse(no.Groups["offset"].Value, NumberStyles.HexNumber, CultureInfo.InvariantCulture);
+            var holder = modules.FirstOrDefault(m => m.Contains(start));
+            if (holder != null && !holder.Contains(target))
+                throw new ToolError(ErrorCode.InvalidArgument, $"{t} is past the end of {holder.Name}.", "use a smaller offset");
+            return target;
         }
         if (t.IndexOf('!') is > 0 and var bang)
         {
@@ -580,20 +675,118 @@ public sealed partial class LiveSessionService(AssemblyWorkspace workspace, Nati
         return slots;
     }
 
-    public async Task<LiveStopPointState> SetAsync(LiveSession session, string where, CancellationToken ct)
+    /// <summary>Bytes a watch rewrites at its function's start; a stop point inside them (past the first byte) silences the watch.</summary>
+    internal const int WatchPatchBytes = 16;
+
+    private void CheckOverlap(LiveSession session, ulong stop, ulong watch, string conflict, string next, CancellationToken ct)
+    {
+        if (stop <= watch || stop - watch >= WatchPatchBytes) return;
+        throw new ToolError(ErrorCode.Conflict,
+            $"{conflict} at {Name(session, stop, ct: ct).Display} is {stop - watch} bytes into {Name(session, watch, ct: ct).Display}, " +
+            $"whose first {WatchPatchBytes} bytes a watch rewrites: the watch would record nothing.", next);
+    }
+
+    private static bool Unhookable(ToolError e) => e.Message.Contains("unable to intercept function", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>The backend's refusal to hook, explained: a function shorter than the jump a hook writes over its start.</summary>
+    private ToolError HookRefused(LiveSession session, ulong address, string what, CancellationToken ct)
+    {
+        var at = Name(session, address, ct: ct);
+        var size = at.Image != null && code.Ready(at.Image)?.FunctionAt(at.Rva) is { } f && f.Start == at.Rva ? f.Size : 0;
+        return new ToolError(ErrorCode.Unsupported,
+            $"A {what} cannot be placed at {at.Display}: " + (size is > 0 and < WatchPatchBytes
+                ? $"the function is {size} bytes long, too short for the jump a hook writes over its start."
+                : "the instructions there cannot be moved aside for the hook's jump."),
+            "set it at a caller (find_xrefs lists the call sites) or inside a longer function");
+    }
+
+    /// <summary>
+    /// Defers a module!name whose module the program has not loaded (a plug-in loaded later): the point or watch is set
+    /// when the module's load event comes, so calls made before then are missed. Null when the module is loaded.
+    /// </summary>
+    public LiveDeferred? Defer(LiveSession session, string where, bool watch, int perSecond = 0, int rawArguments = 0)
+    {
+        var t = where.Trim();
+        if (NameOffset.Match(t) is { Success: true } no) t = no.Groups["name"].Value;
+        if (t.StartsWith("0x", StringComparison.OrdinalIgnoreCase) || t.IndexOf('!') is not (> 0 and var bang)) return null;
+        var module = t[..bang];
+        lock (session.Modules)
+            if (session.Modules.Any(m => ModuleNamed(m, module))) return null;
+        var d = new LiveDeferred(watch ? session.NextWatchId() : session.NextPointId(), where.Trim(), module, watch, perSecond, rawArguments);
+        lock (session.Deferred) session.Deferred.Add(d);
+        return d;
+    }
+
+    private static bool ModuleNamed(LiveModuleState m, string name) =>
+        m.Name.Equals(name, StringComparison.OrdinalIgnoreCase) || Path.GetFileNameWithoutExtension(m.Name).Equals(name, StringComparison.OrdinalIgnoreCase);
+
+    private async Task SetDeferredAsync(LiveSession session, LiveModuleState module)
+    {
+        List<LiveDeferred> due;
+        lock (session.Deferred)
+        {
+            due = session.Deferred.Where(d => ModuleNamed(module, d.Module)).ToList();
+            session.Deferred.RemoveAll(due.Contains);
+        }
+        foreach (var d in due)
+        {
+            try
+            {
+                var at = d.Watch ? (await WatchAsync(session, d.Where, d.PerSecond, d.RawArguments, CancellationToken.None, d.Id).ConfigureAwait(false)).At
+                    : (await SetAsync(session, d.Where, CancellationToken.None, d.Id).ConfigureAwait(false)).At;
+                session.Add("module", null, at.Address, $"deferred {(d.Watch ? "watch" : "stop point")} {d.Id} set at {at.Display} ({module.Name} loaded)");
+            }
+            catch (Exception e) when (e is ToolError or TimeoutException or OperationCanceledException)
+            {
+                session.Add("error", null, null, $"deferred {d.Id} at {d.Where} could not be set when {module.Name} loaded: {e.Message}");
+            }
+        }
+    }
+
+    /// <summary>Refuses an address inside an instruction of a known function: a hook written there corrupts the code and crashes the program.</summary>
+    private async Task CheckInstructionStartAsync(LiveSession session, ulong address, CancellationToken ct)
+    {
+        LiveModuleState? m;
+        lock (session.Modules) m = session.Modules.FirstOrDefault(x => x.Contains(address));
+        if (m == null || Match(m) is not { } native) return;
+        var index = code.Ready(native) ?? await code.Index(native, null, ct).ConfigureAwait(false);
+        var rva = (uint)(address - m.Base);
+        if (index.FunctionAt(rva) is not { } f || f.Start == rva) return;
+        if (index.GetGraph(f, ct).Blocks.FirstOrDefault(b => b.Start <= rva && rva < b.End) is not { } block) return;
+        var starts = index.Disassemble(block.Start, block.InstructionCount, block.End).Select(l => l.Rva).ToList();
+        if (starts.Count == 0 || starts.Contains(rva)) return;
+        string At(uint r) => Name(session, m.Base + r, ct: ct).Display;
+        var before = starts.LastOrDefault(r => r < rva, block.Start);
+        var after = starts.FirstOrDefault(r => r > rva);
+        throw new ToolError(ErrorCode.InvalidArgument, $"{At(rva)} is inside an instruction: a hook there would corrupt the code.",
+            $"use an instruction start: {At(before)}{(after > rva ? $" or {At(after)}" : "")}");
+    }
+
+    public async Task<LiveStopPointState> SetAsync(LiveSession session, string where, CancellationToken ct, string? id = null)
     {
         var (address, followed) = await FollowJumpsAsync(session, await ResolveAsync(session, where, ct).ConfigureAwait(false), ct).ConfigureAwait(false);
-        var id = session.NextPointId();
-        await session.Worker.RequestAsync("set", new JsonObject { ["id"] = id, ["address"] = $"0x{address:X}" }, RequestTimeout, ct).ConfigureAwait(false);
+        await CheckInstructionStartAsync(session, address, ct).ConfigureAwait(false);
+        List<LiveWatchState> watches;
+        lock (session.Watches) watches = session.Watches.Values.Where(w => !w.Cleared).ToList();
+        foreach (var w in watches)
+            CheckOverlap(session, address, w.Address, "This stop point", $"set it at the function's start or {WatchPatchBytes}+ bytes in, or clear watch {w.Id} first", ct);
+        id ??= session.NextPointId();
+        try { await session.Worker.RequestAsync("set", new JsonObject { ["id"] = id, ["address"] = $"0x{address:X}" }, RequestTimeout, ct).ConfigureAwait(false); }
+        catch (ToolError e) when (Unhookable(e)) { throw HookRefused(session, address, "stop point", ct); }
         var point = new LiveStopPointState(id, where.Trim(), address, Name(session, address, ct: ct)) { Followed = followed };
         lock (session.StopPoints) session.StopPoints[id] = point;
         return point;
     }
 
     /// <summary>Records each call of the function at <paramref name="where"/>, decoded by the plan its name, PDB or DWARF gives.</summary>
-    public async Task<LiveWatchState> WatchAsync(LiveSession session, string where, int perSecond, int rawArguments, CancellationToken ct)
+    public async Task<LiveWatchState> WatchAsync(LiveSession session, string where, int perSecond, int rawArguments, CancellationToken ct, string? id = null)
     {
         var (address, followed) = await FollowJumpsAsync(session, await ResolveAsync(session, where, ct).ConfigureAwait(false), ct).ConfigureAwait(false);
+        await CheckInstructionStartAsync(session, address, ct).ConfigureAwait(false);
+        List<LiveStopPointState> points;
+        lock (session.StopPoints) points = session.StopPoints.Values.ToList();
+        foreach (var p in points)
+            CheckOverlap(session, p.Address, address, $"Stop point {p.Id}", $"clear stop point {p.Id} first (live_break action=clear), or move it to the function's start", ct);
         var at = Name(session, address, ct: ct);
         var bare = where.Trim();
         // a known API is found by the name given (module!export) or the function's own name
@@ -601,7 +794,7 @@ public sealed partial class LiveSessionService(AssemblyWorkspace workspace, Nati
         if (ApiSignatures.Find(bare) is not null && !bare.StartsWith("0x", StringComparison.OrdinalIgnoreCase)) function = ApiSignatures.BareName(bare);
         var os = session.Platform switch { "windows" => ApiOs.Windows, "linux" => ApiOs.Linux, "darwin" => ApiOs.Darwin, _ => ApiOs.Unknown };
         var plan = LiveWatchPlans.Build(function, at.Image, at.Rva, session.Arch is "x64" or "arm64", os, rawArguments);
-        var id = session.NextWatchId();
+        id ??= session.NextWatchId();
         var w = new LiveWatchState(id, bare, address, at, plan, perSecond) { Followed = followed };
         lock (session.Watches) session.Watches[id] = w;
         try
@@ -611,9 +804,10 @@ public sealed partial class LiveSessionService(AssemblyWorkspace workspace, Nati
                 ["id"] = id, ["address"] = $"0x{address:X}", ["args"] = new JsonArray(plan.ScriptKinds.Select(k => (JsonNode)k).ToArray()), ["perSecond"] = perSecond,
             }, RequestTimeout, ct).ConfigureAwait(false);
         }
-        catch
+        catch (Exception e)
         {
             lock (session.Watches) session.Watches.Remove(id);
+            if (e is ToolError t && Unhookable(t)) throw HookRefused(session, address, "watch", ct);
             throw;
         }
         return w;
@@ -655,6 +849,12 @@ public sealed partial class LiveSessionService(AssemblyWorkspace workspace, Nati
                 throw new ToolError(ErrorCode.NotFound, $"Session {session.Id} has no script '{id}'.", "live_script action=list shows them");
         await session.Worker.RequestAsync("unload_script", new JsonObject { ["id"] = id }, RequestTimeout, ct).ConfigureAwait(false);
         lock (session.Scripts) session.Scripts.Remove(id);
+    }
+
+    /// <summary>Drops a deferred stop point or watch; false when <paramref name="id"/> is none.</summary>
+    public static bool ClearDeferred(LiveSession session, string id)
+    {
+        lock (session.Deferred) return session.Deferred.RemoveAll(d => d.Id == id) > 0;
     }
 
     public async Task ClearAsync(LiveSession session, string id, CancellationToken ct)
@@ -704,6 +904,7 @@ public sealed partial class LiveSessionService(AssemblyWorkspace workspace, Nati
         if (session.Worker.IsAlive)
             await session.Worker.ShutdownAsync("close", new JsonObject { ["end"] = session.Spawned }, TimeSpan.FromSeconds(5)).ConfigureAwait(false);
         session.Worker.Dispose();
+        session.ProcessHandle?.Dispose();
         session.ReleaseAll();
         EndCoverage(session);
         EndTimeline(session);

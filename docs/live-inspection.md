@@ -87,7 +87,7 @@ it. A session runs a worker on Frida's Python bindings
 | Step | Call |
 |---|---|
 | Start a program suspended, or attach to a running one | `live_session action=spawn program=app.exe` / `action=attach program=<pid or name>` |
-| Set stop points before it runs | `live_break action=set at=Orders::AddLine` (or `module!export`, `orders.c:42`, an image or live address) |
+| Set stop points before it runs | `live_break action=set at=Orders::AddLine` (or `module!export`, `AddLine+0x1B`, `orders.c:42`, an image or live address) |
 | Run to the next stop | `live_break action=continue wait=true` |
 | Read the held thread | `live_read registers=rcx,rdx memory=rcx type=int32[2]` |
 | Record every call of a function | `live_watch action=set at=AddLine` (or `kernelbase!CreateFileA`, an address) |
@@ -104,6 +104,13 @@ stack reads `orders.exe!AddLine+0x1B  orders.c:9`, not a bare address; other mod
 `load_assembly`. Stop points hold only the thread that hits them; other threads run on. Memory is read, never written.
 A session ends on `close`, after `CORVUS_LIVE_MAX_MINUTES` (default 30) and with the server; each releases every held
 thread, and a program the session started is ended. A started program's output arrives as `output` events.
+
+A stop point or watch on `module!name` whose module is not loaded yet is deferred, as a debugger defers an unresolved
+breakpoint: it is set when the module's load event arrives (a `module` event says so), so calls made before then are
+missed. An address inside an instruction, a stop point in the first 16 bytes of a watched function (or a watch over one),
+and a function too short for a hook's jump are refused with the nearest place that works. The `exit` event carries the
+exit code the system reports (`exit code 0xC0000005 (EXCEPTION_ACCESS_VIOLATION)`), and stack values that cannot be
+return addresses (small values, header bytes, non-executable pages) are left out of a stop's frames.
 
 A watch records each call's arguments and return value without stopping the program. They are decoded from, in order:
 the known-API table (parameter names, ANSI and wide strings, flags and enumerations by name: `dwDesiredAccess=GENERIC_READ`),
