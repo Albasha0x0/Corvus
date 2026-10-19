@@ -19,7 +19,7 @@ public sealed class LiveCoverageTests : IDisposable
     {
         _backend = new ScriptedLiveBackend(Sqlite, Base, 0x200000);
         _service = new LiveSessionService(_workspace, new NativeCodeService(_workspace, new ServerOptions())) { Backend = _backend };
-        _tools = new LiveSessionTools(new ServerOptions { AllowLive = true }, _service);
+        _tools = new LiveSessionTools(new ServerOptions { AllowLive = true, AllowLiveAttach = true }, _service);
     }
 
     public void Dispose()

@@ -8,14 +8,14 @@ namespace Corvus.Tests;
 /// <summary>The session tools are registered everywhere and refuse calls until the server starts with their opt-in flags.</summary>
 public class LiveSessionGateTests
 {
-    private static LiveSessionTools Tools(bool live = false, bool spawn = false)
+    private static LiveSessionTools Tools(bool live = false, bool spawn = false, bool attach = false)
     {
         var workspace = new AssemblyWorkspace();
         var service = new LiveSessionService(workspace, new NativeCodeService(workspace, new ServerOptions()))
         {
             Backend = new ScriptedLiveBackend("app.exe", 0, 1) { Missing = "no session backend" },
         };
-        return new(new ServerOptions { AllowLive = live, AllowLiveSpawn = spawn }, service);
+        return new(new ServerOptions { AllowLive = live, AllowLiveSpawn = spawn, AllowLiveAttach = attach }, service);
     }
 
     [Fact]
@@ -43,7 +43,7 @@ public class LiveSessionGateTests
         var console = await Assert.ThrowsAsync<ToolError>(() => Tools(live: true).LiveConsole("start", program: "app.exe"));
         Assert.Contains(ServerOptions.AllowLiveSpawnOption, console.Remediation);
         // past the gates: the backend's own answer
-        Assert.Equal(ErrorCode.ProviderUnavailable, (await Assert.ThrowsAsync<ToolError>(() => Tools(live: true).LiveSession("attach", program: "app.exe"))).Code);
+        Assert.Equal(ErrorCode.ProviderUnavailable, (await Assert.ThrowsAsync<ToolError>(() => Tools(live: true, attach: true).LiveSession("attach", program: "app.exe"))).Code);
     }
 
     [Fact]
@@ -54,8 +54,9 @@ public class LiveSessionGateTests
         Assert.Equal(ToolAvailability.SessionTools.Order(StringComparer.Ordinal), off.Select(u => u.Tool).Order(StringComparer.Ordinal));
         Assert.All(off, u => Assert.Contains(ServerOptions.AllowLiveOption, u.Remediation));
         var live = ToolAvailability.Of(registered, [], idaScripting: false, isWindows: true, allowLive: true);
-        Assert.Equal([("live_session", "action=spawn"), ("live_console", "action=start"), ("live_script", (string?)null)], live.Select(u => (u.Tool, u.Mode)));
-        Assert.Contains(ServerOptions.LiveScriptingOption, live[2].Remediation);
-        Assert.Empty(ToolAvailability.Of(registered, [], idaScripting: false, isWindows: true, allowLive: true, allowLiveSpawn: true, liveScripting: true));
+        Assert.Equal([("live_session", "action=spawn"), ("live_session", "action=attach"), ("live_console", "action=start"), ("live_script", (string?)null)], live.Select(u => (u.Tool, u.Mode)));
+        Assert.Contains(ServerOptions.AllowLiveAttachOption, live[1].Remediation);
+        Assert.Contains(ServerOptions.LiveScriptingOption, live[3].Remediation);
+        Assert.Empty(ToolAvailability.Of(registered, [], idaScripting: false, isWindows: true, allowLive: true, allowLiveSpawn: true, liveScripting: true, allowLiveAttach: true));
     }
 }

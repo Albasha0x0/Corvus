@@ -14,6 +14,8 @@ internal sealed class ScriptedLiveBackend(string mainPath, ulong mainBase, uint 
     public FakeWorkerProcess? Worker { get; private set; }
     public readonly List<string> Ops = [];
     public string? Missing { get; init; }
+    /// <summary>The arguments of the last open request (what the backend was asked to start or attach to).</summary>
+    public JsonObject? LastOpen { get; private set; }
     /// <summary>The process id the session reports (a real child for snapshot tests).</summary>
     public int ProcessId { get; init; } = Pid;
     /// <summary>Bytes the program holds, by address.</summary>
@@ -55,6 +57,7 @@ internal sealed class ScriptedLiveBackend(string mainPath, ulong mainBase, uint 
         {
             case "hello": return new JsonObject { ["frida"] = "test" };
             case "open":
+                LastOpen = (JsonObject)args.DeepClone();
                 return new JsonObject
                 {
                     ["pid"] = ProcessId, ["arch"] = "x64", ["suspended"] = args["spawn"] != null,
@@ -95,7 +98,7 @@ public sealed class LiveSessionTests : IDisposable
     {
         _backend = new ScriptedLiveBackend(Sqlite, Base, 0x200000);
         _service = new LiveSessionService(_workspace, new NativeCodeService(_workspace, new ServerOptions())) { Backend = _backend };
-        _tools = new LiveSessionTools(new ServerOptions { AllowLive = true, AllowLiveSpawn = true }, _service);
+        _tools = new LiveSessionTools(new ServerOptions { AllowLive = true, AllowLiveAttach = true, AllowLiveSpawn = true }, _service);
     }
 
     public void Dispose()
@@ -210,7 +213,7 @@ public sealed class LiveSessionTests : IDisposable
         await _tools.LiveSession("attach", program: "4242");
         var off = await Assert.ThrowsAsync<ToolError>(() => _tools.LiveScriptCalls("live-1", "load", source: "send(1);"));
         Assert.Contains(ServerOptions.LiveScriptingOption, off.Remediation);
-        var tools = new LiveSessionTools(new ServerOptions { AllowLive = true, LiveScripting = true }, _service);
+        var tools = new LiveSessionTools(new ServerOptions { AllowLive = true, AllowLiveAttach = true, LiveScripting = true }, _service);
         var loaded = await tools.LiveScriptCalls("live-1", "load", source: "send({ hello: Process.id });");
         Assert.Contains("u1 loaded (inline)", loaded);
         _backend.ScriptMessage("u1", new JsonObject { ["hello"] = 4242 });
@@ -251,7 +254,7 @@ public sealed class LiveSessionTests : IDisposable
             { RedirectStandardInput = true, UseShellExecute = false, CreateNoWindow = true })!;
         var dumps = new MinidumpService();
         var service = new LiveSessionService(_workspace, new NativeCodeService(_workspace, new ServerOptions())) { Backend = new ScriptedLiveBackend(Sqlite, Base, 0x200000) { ProcessId = child.Id } };
-        var tools = new LiveSessionTools(new ServerOptions { AllowLive = true }, service, dumps);
+        var tools = new LiveSessionTools(new ServerOptions { AllowLive = true, AllowLiveAttach = true }, service, dumps);
         var dir = Path.Combine(Path.GetTempPath(), "corvus-test-" + Guid.NewGuid().ToString("N"));
         try
         {
@@ -278,7 +281,7 @@ public sealed class LiveSessionTests : IDisposable
     public async Task A_missing_backend_names_its_next_step()
     {
         var service = new LiveSessionService(_workspace, new NativeCodeService(_workspace, new ServerOptions())) { Backend = new ScriptedLiveBackend(Sqlite, Base, 1) { Missing = "no frida" } };
-        var tools = new LiveSessionTools(new ServerOptions { AllowLive = true }, service);
+        var tools = new LiveSessionTools(new ServerOptions { AllowLive = true, AllowLiveAttach = true }, service);
         var e = await Assert.ThrowsAsync<ToolError>(() => tools.LiveSession("attach", program: "app"));
         Assert.Equal(ErrorCode.ProviderUnavailable, e.Code);
         Assert.Equal("install it", e.Remediation);

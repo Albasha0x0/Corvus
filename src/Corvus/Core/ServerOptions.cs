@@ -80,7 +80,7 @@ public sealed class ServerOptions
     public const string AllowDeviceChangesOption = "--allow-device-changes";
     public const string AllowDeviceChangesVariable = "CORVUS_ALLOW_DEVICE_CHANGES";
 
-    /// <summary>Allow the session tools on programs already running on this machine; default off.</summary>
+    /// <summary>Allow the session tools; default off. Attaching and starting programs each need their own switch as well.</summary>
     public bool AllowLive { get; set; }
 
     public const string AllowLiveOption = "--allow-live";
@@ -91,6 +91,18 @@ public sealed class ServerOptions
 
     public const string AllowLiveSpawnOption = "--allow-live-spawn";
     public const string AllowLiveSpawnVariable = "CORVUS_ALLOW_LIVE_SPAWN";
+
+    /// <summary>Allow live_session action=attach, which opens a session on a program already running (with <see cref="AllowLive"/>); default off.</summary>
+    public bool AllowLiveAttach { get; set; }
+
+    public const string AllowLiveAttachOption = "--allow-live-attach";
+    public const string AllowLiveAttachVariable = "CORVUS_ALLOW_LIVE_ATTACH";
+
+    /// <summary>Programs and folders sessions may open (--live-allow, repeatable); empty: any program the switches allow.</summary>
+    public List<string> LiveAllow { get; } = [];
+
+    public const string LiveAllowOption = "--live-allow";
+    public const string LiveAllowVariable = "CORVUS_LIVE_ALLOW";
 
     /// <summary>Allow live_script, which loads a user-supplied script into a session's program (with <see cref="AllowLive"/>); default off.</summary>
     public bool LiveScripting { get; set; }
@@ -177,6 +189,8 @@ public sealed class ServerOptions
                 case AllowDeviceChangesOption: o.AllowDeviceChanges = true; break;
                 case AllowLiveOption: o.AllowLive = true; break;
                 case AllowLiveSpawnOption: o.AllowLiveSpawn = true; break;
+                case AllowLiveAttachOption: o.AllowLiveAttach = true; break;
+                case LiveAllowOption: o.LiveAllow.Add(Path.GetFullPath(Next())); break;
                 case LiveScriptingOption: o.LiveScripting = true; break;
                 case "--engine": engine = Next(); break;
                 case "--index-cache": cacheRoot = Next(); break;
@@ -218,6 +232,9 @@ public sealed class ServerOptions
         if (Environment.GetEnvironmentVariable(AllowDeviceChangesVariable)?.Trim() is "1" or "true" or "on") o.AllowDeviceChanges = true;
         if (Environment.GetEnvironmentVariable(AllowLiveVariable)?.Trim() is "1" or "true" or "on") o.AllowLive = true;
         if (Environment.GetEnvironmentVariable(AllowLiveSpawnVariable)?.Trim() is "1" or "true" or "on") o.AllowLiveSpawn = true;
+        if (Environment.GetEnvironmentVariable(AllowLiveAttachVariable)?.Trim() is "1" or "true" or "on") o.AllowLiveAttach = true;
+        if (Environment.GetEnvironmentVariable(LiveAllowVariable) is { Length: > 0 } allowFromEnv)
+            o.LiveAllow.AddRange(allowFromEnv.Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).Select(Path.GetFullPath));
         if (Environment.GetEnvironmentVariable(LiveScriptingVariable)?.Trim() is "1" or "true" or "on") o.LiveScripting = true;
         o.EngineRequestTimeoutSeconds = Seconds(EngineRequestTimeoutVariable, o.EngineRequestTimeoutSeconds);
         o.EngineOpenTimeoutSeconds = Seconds(EngineOpenTimeoutVariable, o.EngineOpenTimeoutSeconds);

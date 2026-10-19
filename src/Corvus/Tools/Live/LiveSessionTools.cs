@@ -11,7 +11,8 @@ namespace Corvus.Tools;
 
 /// <summary>
 /// Sessions on local programs: open, stop points, typed reads and the event ring. Observation only; every tool refuses
-/// calls unless the server starts with --allow-live, and starting a program also needs --allow-live-spawn.
+/// calls unless the server starts with --allow-live; starting a program also needs --allow-live-spawn, attaching --allow-live-attach,
+/// and --live-allow limits both to listed programs.
 /// </summary>
 [McpServerToolType]
 public sealed partial class LiveSessionTools(ServerOptions options, LiveSessionService live, MinidumpService? dumps = null)
@@ -105,7 +106,7 @@ public sealed partial class LiveSessionTools(ServerOptions options, LiveSessionS
         Task.Run(async () =>
         {
             var a = action.Trim().ToLowerInvariant();
-            Require(a == "spawn");
+            Require(spawn: a == "spawn", attach: a == "attach");
             switch (a)
             {
                 case "list":
@@ -120,7 +121,7 @@ public sealed partial class LiveSessionTools(ServerOptions options, LiveSessionS
                 case "attach" or "spawn":
                     if (string.IsNullOrWhiteSpace(program))
                         throw new ToolError(ErrorCode.InvalidArgument, $"action={a} needs program.", a == "spawn" ? "program=<path to the program>" : "program=<process id or name>");
-                    var opened = await live.OpenAsync(a == "spawn", program, arguments ?? [], cancellationToken).ConfigureAwait(false);
+                    var opened = await live.OpenAsync(a == "spawn", Scoped(a == "spawn", program), arguments ?? [], cancellationToken).ConfigureAwait(false);
                     return Report(a, opened);
                 case "status":
                     return Report(a, live.Get(RequireSession(session)));
@@ -532,8 +533,8 @@ public sealed partial class LiveSessionTools(ServerOptions options, LiveSessionS
     private static string Hex(ulong v) => $"0x{v:X}";
     private static string Src(string? source) => source != null ? "  " + source : "";
 
-    /// <summary>The opt-in flags: sessions need --allow-live, starting a program --allow-live-spawn as well.</summary>
-    private void Require(bool spawn)
+    /// <summary>The opt-in flags: sessions need --allow-live, starting a program --allow-live-spawn and attaching --allow-live-attach as well.</summary>
+    private void Require(bool spawn, bool attach = false)
     {
         if (!options.AllowLive)
             throw new ToolError(ErrorCode.Unsupported, "Sessions on running programs are off in this server.",
@@ -541,5 +542,13 @@ public sealed partial class LiveSessionTools(ServerOptions options, LiveSessionS
         if (spawn && !options.AllowLiveSpawn)
             throw new ToolError(ErrorCode.Unsupported, "Starting a program under a session is off in this server.",
                 $"start the server with {ServerOptions.AllowLiveSpawnOption} (or {ServerOptions.AllowLiveSpawnVariable}=1) as well");
+        if (attach && !options.AllowLiveAttach)
+            throw new ToolError(ErrorCode.Unsupported, "Attaching to a running program is off in this server.",
+                $"start the server with {ServerOptions.AllowLiveAttachOption} (or {ServerOptions.AllowLiveAttachVariable}=1) as well");
     }
+
+    /// <summary>The program as the backend receives it: unchanged without --live-allow; with it, checked and resolved (full path or process id).</summary>
+    private string Scoped(bool spawn, string program) =>
+        options.LiveAllow.Count == 0 ? program
+        : spawn ? LiveProgramScope.Spawn(program, options.LiveAllow) : LiveProgramScope.Attach(program, options.LiveAllow);
 }

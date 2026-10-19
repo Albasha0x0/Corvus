@@ -51,7 +51,7 @@ public sealed class LiveTimelineTests : IDisposable
     {
         _backend = new ScriptedLiveBackend(Sqlite, 0x7ff6_1000_0000, 0x200000);
         _service = new LiveSessionService(_workspace, new NativeCodeService(_workspace, new ServerOptions())) { Backend = _backend, ActivitySource = _source };
-        _tools = new LiveSessionTools(new ServerOptions { AllowLive = true }, _service);
+        _tools = new LiveSessionTools(new ServerOptions { AllowLive = true, AllowLiveAttach = true }, _service);
     }
 
     public void Dispose()
@@ -170,7 +170,7 @@ public sealed class LiveTimelineTests : IDisposable
         {
             Backend = new ScriptedLiveBackend(Sqlite, 0x7ff6_1000_0000, 0x200000), ActivitySource = new ScriptedActivitySource { Missing = "no reader here" },
         };
-        var tools = new LiveSessionTools(new ServerOptions { AllowLive = true }, service);
+        var tools = new LiveSessionTools(new ServerOptions { AllowLive = true, AllowLiveAttach = true }, service);
         await tools.LiveSession("attach", program: "4242");
         Assert.Equal(ErrorCode.ProviderUnavailable, (await Assert.ThrowsAsync<ToolError>(() => tools.LiveTimeline("live-1", "start"))).Code);
     }

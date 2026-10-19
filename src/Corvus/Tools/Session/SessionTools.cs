@@ -124,10 +124,15 @@ public sealed class SessionTools(AssemblyWorkspace workspace, IndexingService in
                 _ => "default auto: the functions, references and blocks of the first engine (IDA, then Ghidra) that has analyzed an image's bytes, open or saved, else the built-in index",
             } + $"; --engine auto|ours|ida|ghidra (or {ServerOptions.EngineVariable}) sets the default, each of those tools takes engine", null));
         capabilities.AddRange(ExternalToolCapabilities());
+        if (options.AllowLive)
+            capabilities.Add(options.LiveAllow.Count > 0
+                ? new("programs sessions may open", true, "limited to: " + string.Join(", ", options.LiveAllow), null)
+                : new("programs sessions may open", true, "any program the session switches allow",
+                    $"limit them with {ServerOptions.LiveAllowOption} <program or folder> (repeatable)"));
         int loaded = workspace.LoadedCount; // without the lock: status answers while a long call holds it
         var registered = (server?.ToolCollection?.Select(t => t.ProtocolTool.Name) ?? []).ToHashSet(StringComparer.Ordinal);
         var client = context?.Server?.ClientInfo;
-        var unavailable = Group(ToolAvailability.Of(registered, availability, options.IdaScripting, OperatingSystem.IsWindows(), options.AllowDeviceChanges, options.GhidraScripting, options.AllowLive, options.AllowLiveSpawn, options.LiveScripting));
+        var unavailable = Group(ToolAvailability.Of(registered, availability, options.IdaScripting, OperatingSystem.IsWindows(), options.AllowDeviceChanges, options.GhidraScripting, options.AllowLive, options.AllowLiveSpawn, options.LiveScripting, options.AllowLiveAttach));
         return new ServerStatus(ServerIdentity.Product, typeof(ServerOptions).Assembly.GetName().Version?.ToString(3) ?? "?", ServerIdentity.InformationalVersion,
             ServerIdentity.Executable, string.IsNullOrWhiteSpace(expectedExecutable) ? null : ServerIdentity.SamePath(expectedExecutable.Trim(), ServerIdentity.Executable),
             ServerIdentity.InstallKind, ServerIdentity.StartedAt, (long)(DateTimeOffset.UtcNow - ServerIdentity.StartedAt).TotalSeconds,

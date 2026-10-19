@@ -64,7 +64,7 @@ public sealed partial class LiveSessionTools
                     if (timeoutSeconds is < 1 or > 300)
                         throw new ToolError(ErrorCode.InvalidArgument, $"timeoutSeconds {timeoutSeconds} is out of range.", "timeoutSeconds=1-300");
                     var steps = LiveSessionService.ParseConsoleScript(script ?? []);
-                    var r = live.StartConsole(program, arguments ?? []);
+                    var r = live.StartConsole(Scoped(spawn: true, program), arguments ?? []);
                     var outcomes = await live.RunConsoleScriptAsync(r, steps, TimeSpan.FromSeconds(timeoutSeconds), cancellationToken).ConfigureAwait(false);
                     var text = new StringBuilder($"{r.Id} {Path.GetFileName(r.Program)} (pid {r.ProcessId}) in a {DefaultSize()} {r.Host}\n");
                     ConsoleSteps(r, outcomes, text);

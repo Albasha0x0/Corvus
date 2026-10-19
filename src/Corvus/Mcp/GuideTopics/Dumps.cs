@@ -23,7 +23,7 @@ public static partial class Guide
         opens only query and read handles, writes and suspends nothing, and closes every handle before returning. Pick the target
         by pid or name (a shared name is refused with the candidate pids).
         Sessions (off unless the server runs with --allow-live; Python with Frida's bindings): live_session attaches to a local
-        program, or spawns one suspended (--allow-live-spawn), and matches its modules to loaded images; live_break sets stop
+        program (--allow-live-attach), or spawns one suspended (--allow-live-spawn), both limited to --live-allow paths when set, and matches its modules to loaded images; live_break sets stop
         points by name, module!export, address or file:line, continue resumes held threads (and starts a spawned program), and
         wait returns the next stop with a named stack; live_read reads a held thread's registers and memory as typed values;
         live_watch records every call of a function with its arguments decoded (PDB prototype or known API) as call events;
