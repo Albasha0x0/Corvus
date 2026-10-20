@@ -57,6 +57,7 @@ public static class Blob
         if (AsarArchive.Looks(b)) return "asar";
         if (Hermes.HermesFile.Looks(b)) return "hermes bytecode";
         if (UnityWebData.Looks(b)) return "unitywebdata";
+        if (GodotPack.Looks(b)) return "godotpck";
         if (LooksLikeText(b)) return "text";
         return "data";
     }
