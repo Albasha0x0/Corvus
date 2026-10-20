@@ -50,6 +50,8 @@ public sealed class StackWalker
     /// <summary>Stack slots examined by all the scans of one walk.</summary>
     private const int MaxScanSlotsPerWalk = 0x10000;
     private int _scanBudget;
+    /// <summary>Slots the x86 caller searches may examine: a budget of their own, so many frames without a frame pointer leave the scan its share.</summary>
+    private int _callerBudget;
     private ulong _stackLow, _stackHigh;
 
     private readonly IProcessMemory _dump;
@@ -76,7 +78,7 @@ public sealed class StackWalker
             return new WalkResult([new WalkFrame(start.Ip, start.Sp, FrameMethod.Context, false, false, null)],
                 "unsupported_architecture", [$"stacks are walked for x64 and x86 dumps; this one is {_dump.Arch}"]);
         var ctx = start.Clone();
-        _scanBudget = MaxScanSlotsPerWalk;
+        (_scanBudget, _callerBudget) = (MaxScanSlotsPerWalk, MaxScanSlotsPerWalk);
         (_stackLow, _stackHigh) = (stackLow, stackHigh);
         frames.Add(new WalkFrame(ctx.Ip, ctx.Sp, FrameMethod.Context, false, false, start.Complete ? null : "register context is incomplete in the dump"));
         bool top = true;
@@ -442,11 +444,11 @@ public sealed class StackWalker
     {
         var buffer = new byte[0x400];
         var code = new byte[6];
-        for (ulong at = from & ~3UL; at <= limit && _scanBudget > 0;)
+        for (ulong at = from & ~3UL; at <= limit && _callerBudget > 0;)
         {
             int n = _dump.ReadMemory(at, buffer.AsSpan(0, (int)Math.Min((ulong)buffer.Length, limit - at + 4)));
             if (n < 4) return null;
-            for (int i = 0; i + 4 <= n && _scanBudget > 0; i += 4, _scanBudget--)
+            for (int i = 0; i + 4 <= n && _callerBudget > 0; i += 4, _callerBudget--)
             {
                 uint v = BinaryPrimitives.ReadUInt32LittleEndian(buffer.AsSpan(i));
                 if (v < 0x10000 || v - 6 < 0x10000) continue;
