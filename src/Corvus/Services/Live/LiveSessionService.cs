@@ -262,7 +262,11 @@ public sealed partial class LiveSessionService(AssemblyWorkspace workspace, Nati
         if (Backend.Unavailable() is { } missing)
             throw new ToolError(ErrorCode.ProviderUnavailable, missing.Reason, missing.Remediation);
         string target = program.Trim();
-        if (spawn) target = InputFiles.RequireRegularFile(target);
+        if (spawn)
+        {
+            target = InputFiles.RequireRegularFile(target, "program");
+            if (!File.Exists(target)) throw new ToolError(ErrorCode.NotFound, $"No program at {target}.", "program=<path to the program's file>");
+        }
         else LiveProgramScope.RefuseOwnChain(target);
         var worker = Backend.Start();
         var session = new LiveSession("live-" + Interlocked.Increment(ref _next), Backend.Name, target, spawn, worker);

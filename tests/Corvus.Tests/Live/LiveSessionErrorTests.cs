@@ -1,0 +1,126 @@
+using Corvus.Core;
+using Corvus.Services;
+using Corvus.Tools;
+
+namespace Corvus.Tests;
+
+/// <summary>Each session tool's refusals on a scripted backend: missing and bad arguments, unknown ids, a closed session, the session limit.</summary>
+public sealed class LiveSessionErrorTests : IDisposable
+{
+    private const ulong Base = 0x7ff6_1000_0000;
+    private static readonly string Sqlite = RealPackages.File("SQLitePCLRaw.lib.e_sqlite3", "2.1.11", "runtimes", "win-x64", "native", "e_sqlite3.dll");
+    private readonly AssemblyWorkspace _workspace = new();
+    private readonly LiveSessionService _service;
+    private readonly LiveSessionTools _tools;
+
+    public LiveSessionErrorTests()
+    {
+        _service = new LiveSessionService(_workspace, new NativeCodeService(_workspace, new ServerOptions())) { Backend = new ScriptedLiveBackend(Sqlite, Base, 0x200000) };
+        _tools = new LiveSessionTools(new ServerOptions { AllowLive = true, AllowLiveAttach = true, AllowLiveSpawn = true, LiveScripting = true }, _service);
+    }
+
+    public void Dispose()
+    {
+        _service.Dispose();
+        _workspace.Dispose();
+    }
+
+    private static async Task Refused(ErrorCode code, Func<Task<string>> call, string? message = null)
+    {
+        var e = await Assert.ThrowsAsync<ToolError>(call);
+        Assert.True(code == e.Code, $"{e.Code}: {e.Message}");
+        if (message != null) Assert.Contains(message, e.Message);
+        Assert.False(string.IsNullOrWhiteSpace(e.Remediation), e.Message);
+    }
+
+    [Fact]
+    public async Task Unknown_actions_and_missing_arguments_are_refused_with_the_next_step()
+    {
+        await _tools.LiveSession("attach", program: "4242");
+        await Refused(ErrorCode.InvalidArgument, () => _tools.LiveSession("open"), "Unknown action 'open'");
+        await Refused(ErrorCode.InvalidArgument, () => _tools.LiveSession("attach"), "needs program");
+        await Refused(ErrorCode.InvalidArgument, () => _tools.LiveSession("status"), "needs session");
+        await Refused(ErrorCode.InvalidArgument, () => _tools.LiveBreak("live-1", "step"), "Unknown action");
+        await Refused(ErrorCode.InvalidArgument, () => _tools.LiveBreak("live-1", "set"), "needs at");
+        await Refused(ErrorCode.InvalidArgument, () => _tools.LiveBreak("live-1", "clear"), "needs stopPoint");
+        await Refused(ErrorCode.InvalidArgument, () => _tools.LiveBreak("live-1", "continue", thread: "main"), "Bad thread id");
+        await Refused(ErrorCode.InvalidArgument, () => _tools.LiveWatchCalls("live-1", "pause"), "Unknown action");
+        await Refused(ErrorCode.InvalidArgument, () => _tools.LiveWatchCalls("live-1", "set"), "needs at");
+        await Refused(ErrorCode.InvalidArgument, () => _tools.LiveWatchCalls("live-1", "clear"), "needs watch");
+        await Refused(ErrorCode.InvalidArgument, () => _tools.LiveScriptCalls("live-1", "run"), "Unknown action");
+        await Refused(ErrorCode.InvalidArgument, () => _tools.LiveScriptCalls("live-1", "load"), "one of them");
+        await Refused(ErrorCode.InvalidArgument, () => _tools.LiveScriptCalls("live-1", "load", source: "send(1);", path: "a.js"), "one of them");
+        await Refused(ErrorCode.InvalidArgument, () => _tools.LiveScriptCalls("live-1", "unload"), "needs script");
+        await Refused(ErrorCode.InvalidArgument, () => _tools.LiveCoverage("live-1", "pause"), "Unknown action");
+        await Refused(ErrorCode.InvalidArgument, () => _tools.LiveCoverage(action: "start"), "needs session");
+        await Refused(ErrorCode.InvalidArgument, () => _tools.LiveTimeline("live-1", "pause"), "Unknown action");
+        await Refused(ErrorCode.InvalidArgument, () => _tools.LiveConsole("pause"), "Unknown action");
+    }
+
+    [Fact]
+    public async Task Unknown_ids_are_not_found()
+    {
+        await _tools.LiveSession("attach", program: "4242");
+        await Refused(ErrorCode.NotFound, () => _tools.LiveSession("status", session: "live-9"), "No session 'live-9'");
+        await Refused(ErrorCode.NotFound, () => _tools.LiveBreak("live-9"));
+        await Refused(ErrorCode.NotFound, () => _tools.LiveRead("live-9", memory: "0x10"));
+        await Refused(ErrorCode.NotFound, () => _tools.LiveEvents("live-9"));
+        await Refused(ErrorCode.NotFound, () => _tools.LiveBreak("live-1", "set", at: "no_such_function_anywhere"));
+        await Refused(ErrorCode.NotFound, () => _tools.LiveBreak("live-1", "clear", stopPoint: "s7"), "no stop point 's7'");
+        await Refused(ErrorCode.NotFound, () => _tools.LiveWatchCalls("live-1", "clear", watch: "w7"), "no watch 'w7'");
+        await Refused(ErrorCode.NotFound, () => _tools.LiveScriptCalls("live-1", "unload", script: "u7"), "no script 'u7'");
+        await Refused(ErrorCode.NotFound, () => _tools.LiveCoverage(action: "report", run: "cov-7"), "No coverage run 'cov-7'");
+        await Refused(ErrorCode.NotFound, () => _tools.LiveSession("spawn", program: Path.Combine(Path.GetTempPath(), "no-such-program-" + Guid.NewGuid().ToString("N") + ".exe")));
+        await _tools.LiveBreak("live-1", "set", at: "sqlite3_open");
+        Assert.Contains("s1 cleared", await _tools.LiveBreak("live-1", "clear", stopPoint: "s1"));
+        await Refused(ErrorCode.NotFound, () => _tools.LiveBreak("live-1", "clear", stopPoint: "s1"));
+    }
+
+    [Fact]
+    public async Task A_closed_session_refuses_changes_and_keeps_its_lists_and_events_readable()
+    {
+        await _tools.LiveSession("attach", program: "4242");
+        await _tools.LiveBreak("live-1", "set", at: "sqlite3_open");
+        await _tools.LiveSession("close", session: "live-1");
+        foreach (var call in new Func<Task<string>>[]
+                 {
+                     () => _tools.LiveBreak("live-1", "set", at: "sqlite3_close"), () => _tools.LiveBreak("live-1", "clear", stopPoint: "s1"),
+                     () => _tools.LiveBreak("live-1", "continue"), () => _tools.LiveWatchCalls("live-1", "set", at: "sqlite3_close"),
+                     () => _tools.LiveRead("live-1", memory: "0x10"), () => _tools.LiveScriptCalls("live-1", "load", source: "send(1);"),
+                     () => _tools.LiveCoverage("live-1", "start"), () => _tools.LiveSession("snapshot", session: "live-1"),
+                 })
+            await Refused(ErrorCode.Unsupported, call, "Session live-1 is closed");
+        Assert.Contains("live-1: closed, 1 stop point(s)", await _tools.LiveBreak("live-1"));
+        Assert.Contains("live-1: closed, 0 watch(es)", await _tools.LiveWatchCalls("live-1"));
+        Assert.Contains("live-1: closed, 0 script(s)", await _tools.LiveScriptCalls("live-1"));
+        Assert.Contains("session closed (closed by request)", await _tools.LiveEvents("live-1", kind: "exit"));
+        Assert.Contains("live-1 (scripted): ", await _tools.LiveSession("list"));
+    }
+
+    [Fact]
+    public async Task A_ninth_open_session_is_refused_until_one_closes()
+    {
+        for (int i = 0; i < LiveSessionService.MaxSessions; i++)
+        {
+            _service.Backend = new ScriptedLiveBackend(Sqlite, Base, 0x200000) { ProcessId = 5000 + i };
+            await _tools.LiveSession("attach", program: $"{5000 + i}");
+        }
+        _service.Backend = new ScriptedLiveBackend(Sqlite, Base, 0x200000) { ProcessId = 6000 };
+        await Refused(ErrorCode.LimitExceeded, () => _tools.LiveSession("attach", program: "6000"), $"{LiveSessionService.MaxSessions} sessions are open");
+        await _tools.LiveSession("close", session: "live-3");
+        Assert.Contains("live-9 (scripted)", await _tools.LiveSession("attach", program: "6000"));
+    }
+
+    [Fact]
+    public async Task A_script_loads_from_a_file_up_to_its_size_limit()
+    {
+        await _tools.LiveSession("attach", program: "4242");
+        using var dir = new TempDir();
+        File.WriteAllText(dir.File("trace.js"), "send('from a file');");
+        Assert.Contains($"u1 loaded ({dir.File("trace.js")})", await _tools.LiveScriptCalls("live-1", "load", path: dir.File("trace.js")));
+        File.WriteAllText(dir.File("big.js"), "//" + new string('x', 1 << 20));
+        await Refused(ErrorCode.LimitExceeded, () => _tools.LiveScriptCalls("live-1", "load", path: dir.File("big.js")), "over 1 MB");
+        await Refused(ErrorCode.LimitExceeded, () => _tools.LiveScriptCalls("live-1", "load", source: "//" + new string('x', 1 << 20)), "over 1 MB");
+        Assert.Contains("1 script(s)", await _tools.LiveScriptCalls("live-1"));
+    }
+}

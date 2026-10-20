@@ -645,6 +645,7 @@ public sealed class LiveSessionTests : IDisposable
             Assert.Contains("findstr.exe", await new MinidumpTools(dumps).OpenMinidump(id, "modules", limit: 200));
             Assert.False(child.HasExited);
             Assert.Equal(ErrorCode.Conflict, (await Assert.ThrowsAsync<ToolError>(() => tools.LiveSession("snapshot", session: "live-1", outputPath: path))).Code);
+            Assert.Contains($"written to {path}", await tools.LiveSession("snapshot", session: "live-1", outputPath: path, overwrite: true));
         }
         finally
         {
