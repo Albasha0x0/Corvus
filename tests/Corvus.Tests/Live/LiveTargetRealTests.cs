@@ -132,8 +132,8 @@ public sealed class LiveTargetRealTests(ITestOutputHelper output) : LiveToolCall
 
     [LiveTargetFact("win-x64")] public Task Attach_on_win_x64() => Attach(LiveTarget.WinX64);
     [LiveTargetFact("win-x86")] public Task Attach_on_win_x86() => Attach(LiveTarget.WinX86);
-    [LiveTargetFact("linux-x64")] public Task Attach_on_linux_x64() => Attach(LiveTarget.LinuxX64);
-    [LiveTargetFact("linux-x86")] public Task Attach_on_linux_x86() => Attach(LiveTarget.LinuxX86);
+    [LiveTargetFact("linux-x64", attaches: true)] public Task Attach_on_linux_x64() => Attach(LiveTarget.LinuxX64);
+    [LiveTargetFact("linux-x86", attaches: true)] public Task Attach_on_linux_x86() => Attach(LiveTarget.LinuxX86);
 
     private async Task Attach(LiveTarget target)
     {
@@ -179,6 +179,20 @@ public sealed class LiveTargetRealTests(ITestOutputHelper output) : LiveToolCall
             if (!program.HasExited) program.Kill();
             program.WaitForExit(10_000);
         }
+    }
+
+    // ---- musl libc: starting a program fails with Frida's own error, at once, and leaves nothing running
+
+    [MuslFact]
+    public async Task Starting_a_program_on_musl_fails_with_a_typed_error()
+    {
+        var exe = LiveTarget.LinuxX64.Build(_dir, "orders", LivePrograms.Orders);
+        await using var server = await Server();
+        var refused = await Refused(server, "live_session", new() { ["action"] = "spawn", ["program"] = exe, ["arguments"] = new[] { "3", "0" } }, "failed");
+        Assert.Contains("ProcessNotRespondingError", refused);
+        Assert.DoesNotMatch(@"pid \d+, (running|suspended|stopped)", await Ok(server, "live_session", new() { ["action"] = "list" }));
+        await Task.Delay(1_000);
+        Assert.Empty(Process.GetProcessesByName("orders"));
     }
 
     // ---- scripts: load, list, messages, unload

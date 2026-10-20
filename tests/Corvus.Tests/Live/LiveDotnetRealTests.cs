@@ -44,6 +44,7 @@ internal sealed class DotnetTarget
     {
         if (Windows ? !OperatingSystem.IsWindows() : !OperatingSystem.IsLinux()) return $"{Name} programs run on {(Windows ? "Windows" : "Linux")}.";
         if (new FridaBackend().Unavailable() is { } frida) return frida.Reason;
+        if (!Windows && LiveTarget.Musl) return LiveTarget.MuslStart;
         var (code, sdks) = Tools.Dotnet(null, "--list-sdks");
         if (code != 0 || !Regex.Matches(sdks, @"(?m)^(\d+)\.").Any(m => int.Parse(m.Groups[1].Value, CultureInfo.InvariantCulture) >= Major))
             return $"No .NET SDK that builds {Framework}.";

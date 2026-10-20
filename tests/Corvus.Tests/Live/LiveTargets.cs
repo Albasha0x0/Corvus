@@ -28,6 +28,11 @@ internal sealed class LiveTarget
         _missing = new(FindMissing);
     }
 
+    /// <summary>The C library is musl (Alpine): Frida attaches there, but a program it starts never answers its agent.</summary>
+    public static bool Musl { get; } = OperatingSystem.IsLinux() && Directory.Exists("/lib") && Directory.EnumerateFiles("/lib", "ld-musl-*.so.1").Any();
+
+    public const string MuslStart = "Frida does not start programs on musl libc (ProcessNotRespondingError); sessions attach to running programs there.";
+
     public static LiveTarget Of(string name) => new[] { WinX64, WinX86, LinuxX64, LinuxX86, LinuxArm64 }.Single(t => t.Name == name);
 
     /// <summary>Why this target's programs cannot be built and observed here; null when they can.</summary>
@@ -80,12 +85,23 @@ internal sealed class LiveTarget
     public override string ToString() => Name;
 }
 
-/// <summary>Runs when programs for the target can be built and observed on this machine.</summary>
+/// <summary>Runs when programs for the target can be built and observed on this machine (started by the session, unless <paramref name="attaches"/>).</summary>
 public sealed class LiveTargetFactAttribute : FactAttribute
 {
-    public LiveTargetFactAttribute(string target)
+    public LiveTargetFactAttribute(string target, bool attaches = false)
     {
         if (LiveTarget.Of(target).Missing is { } reason) Skip = reason;
+        else if (!attaches && LiveTarget.Musl) Skip = LiveTarget.MuslStart;
+    }
+}
+
+/// <summary>Runs where the C library is musl and Linux x64 programs can be built and observed.</summary>
+public sealed class MuslFactAttribute : FactAttribute
+{
+    public MuslFactAttribute()
+    {
+        if (LiveTarget.LinuxX64.Missing is { } reason) Skip = reason;
+        else if (!LiveTarget.Musl) Skip = "The C library here is not musl.";
     }
 }
 

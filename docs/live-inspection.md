@@ -192,5 +192,7 @@ of the same program (3,020 functions, statically linked C runtime): stop points 
 - On Linux, a server without CAP_SYS_PTRACE is bound by Yama's `ptrace_scope`: at 1 sessions on programs it starts
   work, while attaching to another program and `snapshot` fail with `access_denied` naming the setting; at 2 every
   session and snapshot fails that way.
+- On musl libc (Alpine), sessions attach to running programs; starting a program fails with Frida's
+  `ProcessNotRespondingError` and leaves nothing running.
 - Sessions on Linux report a thread's start from `pthread_create`; a thread made with a bare `clone` has only its `ended`
   event. A stop's stack is unwound from the 32 KiB above its stack pointer; deeper frames are the stack scan's.
