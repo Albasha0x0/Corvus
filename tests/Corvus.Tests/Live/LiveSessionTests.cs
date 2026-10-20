@@ -1,3 +1,4 @@
+using System.Text.RegularExpressions;
 using System.Diagnostics;
 using System.Text.Json.Nodes;
 using Corvus.Core;
@@ -266,8 +267,10 @@ public sealed class LiveSessionTests : IDisposable
         _backend.Load("old.dll", old, LibBase, 0x200000);
         var exportRva = Native.NativeImageLoader.Open(old).Exports.Single(e => e.Name == "sqlite3_close").Rva;
         await Task.Delay(100);
-        _backend.HitWith("s1", 9, 0x3e8, ulong.MaxValue, Base + 0x10, LibBase + exportRva + 2);
+        var entry = Base + new NativeCodeService(_workspace, new ServerOptions()).IndexOfOriginal(_workspace.Natives.Single(), default).AddressOfName("sqlite3_open")!.Value;
+        _backend.HitWith("s1", 9, 0x3e8, ulong.MaxValue, Base + 0x10, LibBase + exportRva + 2, entry);
         var stop = await _tools.LiveBreak("live-1", wait: true, waitSeconds: 10);
+        Assert.Single(Regex.Matches(stop, $@"#\d+ 0x{entry:X} "));
         Assert.DoesNotContain("0x3E8", stop);
         Assert.DoesNotContain("0xFFFFFFFFFFFFFFFF", stop);
         Assert.DoesNotContain($"0x{Base + 0x10:X}", stop);

@@ -416,7 +416,9 @@ public sealed partial class LiveSessionService(AssemblyWorkspace workspace, Nati
                 foreach (var r in body.GetProperty("registers").EnumerateObject())
                     if (r.Value.ValueKind == JsonValueKind.String) registers[r.Name] = r.Value.GetString()!;
                 var frames = body.GetProperty("frames").EnumerateArray().Select(f => Hex(f.GetString())).ToList();
-                frames = [.. frames.Where((f, i) => i == 0 || CouldBeCode(session, f))];
+                // a call returns past its call instruction, so the stopped address further down is the hook's saved copy (x86)
+                var at = frames.FirstOrDefault();
+                frames = [.. frames.Where((f, i) => i == 0 || (f != at && CouldBeCode(session, f)))];
                 int hits = body.TryGetProperty("hits", out var h) ? h.GetInt32() : 0;
                 if (session.StopPoints.TryGetValue(point, out var sp)) sp.Hits = hits;
                 var thread = Thread();
