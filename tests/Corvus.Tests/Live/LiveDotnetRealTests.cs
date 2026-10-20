@@ -57,8 +57,8 @@ internal sealed class DotnetTarget
         return runtimes.Contains($"Microsoft.NETCore.App {Major}.", StringComparison.Ordinal) ? null : $"No .NET {Major} runtime.";
     }
 
-    /// <summary>Builds <see cref="LiveDotnetRealTests.Readers"/> in <paramref name="dir"/>; returns the program's apphost.</summary>
-    public string Build(TempDir dir)
+    /// <summary>Builds <see cref="LiveDotnetRealTests.Readers"/> in <paramref name="dir"/>; returns the program's apphost, or its single-file bundle.</summary>
+    public string Build(TempDir dir, bool singleFile = false)
     {
         // the folder's own (empty) build files keep a parent folder's out of the build
         File.WriteAllText(dir.File("Directory.Build.props"), "<Project />");
@@ -74,7 +74,9 @@ internal sealed class DotnetTarget
             </Project>
             """);
         File.WriteAllText(dir.File("Program.cs"), LiveDotnetRealTests.Readers);
-        var (code, log) = Tools.Dotnet(dir.Path, "build", "-c", "Release", "-o", "out", "-nologo");
+        var (code, log) = singleFile
+            ? Tools.Dotnet(dir.Path, "publish", "-c", "Release", "-r", RuntimeIdentifier ?? Name, "--self-contained", "false", "-p:PublishSingleFile=true", "-o", "out", "-nologo")
+            : Tools.Dotnet(dir.Path, "build", "-c", "Release", "-o", "out", "-nologo");
         var exe = dir.File(Path.Combine("out", Windows ? "readers.exe" : "readers"));
         Assert.True(code == 0 && File.Exists(exe), log);
         return exe;
@@ -265,6 +267,23 @@ public sealed class LiveDotnetRealTests(ITestOutputHelper output) : LiveToolCall
                        @"  #1 0x[0-9A-F]+ readers\.dll!Readers\.ReadLoop\(System\.String, Int32, Int32\)\+0x[0-9A-F]+\r?\n", stop);
         Assert.Contains("compiled", await Events(server, "live-1", kind: "module"));
         await Refused(server, "live_break", new() { ["session"] = "live-1", ["action"] = "set", ["at"] = "Readers::ReadTwice" }, "not_found");
+        Assert.Contains("closed", await Ok(server, "live_session", new() { ["action"] = "close", ["session"] = "live-1" }));
+    }
+
+    /// <summary>A stop by name in an assembly bundled into a single-file program, which never loads as a module of its own.</summary>
+    [DotnetTargetFact("win-x64")]
+    public async Task Managed_stop_point_in_a_single_file_program_on_win_x64()
+    {
+        var exe = DotnetTarget.WinX64.Build(_dir, singleFile: true);
+        Assert.False(File.Exists(Path.ChangeExtension(exe, ".dll")));
+        var input = _dir.File(InputName);
+        File.WriteAllText(input, "x");
+        await using var server = await Server();
+        await Spawn(server, exe, "live-1", input, "1", "100000", "20");
+        await Refused(server, "live_break", new() { ["session"] = "live-1", ["action"] = "set", ["at"] = "readers.dll!Readers::ReadTwice" }, "not_found");
+        Assert.Contains("is compiled", await Ok(server, "live_break", new() { ["session"] = "live-1", ["action"] = "set", ["at"] = "readers.dll!Readers::ReadOnce" }));
+        var stop = await Ok(server, "live_break", new() { ["session"] = "live-1", ["action"] = "continue", ["wait"] = true, ["waitSeconds"] = 60 });
+        Assert.Matches(@"stopped at s1 \(readers\.dll!Readers\.ReadOnce\(System\.String\)\)\r?\n  #0 0x[0-9A-F]+ readers\.dll!Readers\.ReadOnce\(System\.String\)\r?\n", stop);
         Assert.Contains("closed", await Ok(server, "live_session", new() { ["action"] = "close", ["session"] = "live-1" }));
     }
 

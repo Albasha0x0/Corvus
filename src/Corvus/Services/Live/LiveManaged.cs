@@ -145,8 +145,37 @@ public sealed partial class LiveSessionService
         var path = session.Spawned ? session.Program : session.Modules.FirstOrDefault()?.Path;
         if (path == null) yield break;
         if (Managed(path) is { } own) yield return own;
-        else if (Managed(Path.ChangeExtension(path, ".dll")) is { } app) yield return app;
+        else if ((Managed(Path.ChangeExtension(path, ".dll")) ?? Bundled(path, Path.GetFileNameWithoutExtension(path) + ".dll")) is { } app) yield return app;
     }
+
+    private static string BundleCache => Native.Providers.DataFolder.Combine("bundles");
+
+    /// <summary>
+    /// An assembly bundled into the single-file app at <paramref name="program"/>, by its bundle-relative path, saved once to
+    /// a cache folder named for the app's path, size and time, and loaded; null when the app bundles no such assembly.
+    /// </summary>
+    private LoadedAssembly? Bundled(string program, string entry)
+    {
+        try
+        {
+            var info = new FileInfo(program);
+            if (!info.Exists) return null;
+            var key = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(
+                System.Text.Encoding.UTF8.GetBytes($"{info.FullName.ToUpperInvariant()}|{info.Length}|{info.LastWriteTimeUtc.Ticks}")))[..16];
+            var root = Path.Combine(BundleCache, key);
+            var file = SafeFile.UnderRoot(root, entry);
+            if (!File.Exists(file))
+            {
+                if (Containers.BundleEntry(program, entry, AnalysisLimits.Default, CancellationToken.None) is not { } bytes) return null;
+                SafeFile.WriteUnderRoot(root, entry, bytes, overwrite: true);
+            }
+            return Managed(file);
+        }
+        catch (Exception e) when (e is ToolError or IOException or UnauthorizedAccessException) { return null; }
+    }
+
+    /// <summary>True for an assembly <see cref="Bundled"/> saved: the runtime maps it from the app, never as a module of its own.</summary>
+    private static bool IsBundled(string path) => path.StartsWith(BundleCache + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase);
 
     /// <summary>A managed assembly the program has not loaded yet, by file name: its own, or one next to the program it starts.</summary>
     private LoadedAssembly? AssemblyToLoad(LiveSession session, string name)
@@ -155,7 +184,8 @@ public sealed partial class LiveSessionService
                                                            || Path.GetFileNameWithoutExtension(a.FilePath).Equals(name, StringComparison.OrdinalIgnoreCase)) is { } own)
             return own;
         if (!session.Spawned || Path.GetDirectoryName(session.Program) is not { } dir || name.Contains('/') || name.Contains('\\')) return null;
-        return Managed(Path.Combine(dir, name.EndsWith(".dll", StringComparison.OrdinalIgnoreCase) ? name : name + ".dll"));
+        var file = name.EndsWith(".dll", StringComparison.OrdinalIgnoreCase) ? name : name + ".dll";
+        return Managed(Path.Combine(dir, file)) ?? Bundled(session.Program, file);
     }
 
     /// <summary>Where a managed method has code in the program now; null when it has none yet (or the runtime cannot be read).</summary>
@@ -176,7 +206,7 @@ public sealed partial class LiveSessionService
     {
         if (await ManagedTargetAsync(session, where, ct).ConfigureAwait(false) is not { } target) return null;
         bool loaded;
-        lock (session.Modules) loaded = session.Modules.Any(m => InputFiles.SamePath(m.Path, target.Path));
+        lock (session.Modules) loaded = IsBundled(target.Path) || session.Modules.Any(m => InputFiles.SamePath(m.Path, target.Path));
         if (!loaded) return await DeferAsync(session, $"{target.File}!{target.Member}", watch, perSecond, rawArguments, ct, id).ConfigureAwait(false);
         if (await ManagedCodeAsync(session, target, ct).ConfigureAwait(false) != null) return null;
         var clr = session.Clr;

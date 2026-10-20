@@ -151,7 +151,7 @@ public static class Containers
     /// A single-file bundle: the apphost's bundle marker in <paramref name="image"/>, the manifest and entries read by
     /// <paramref name="read"/> (offset, count) from a file of <paramref name="length"/> bytes, where they follow the image.
     /// </summary>
-    private static ContainerContents? OpenBundle(ReadOnlySpan<byte> image, long length, Func<long, int, byte[]> read, AnalysisLimits limits, CancellationToken ct)
+    private static ContainerContents? OpenBundle(ReadOnlySpan<byte> image, long length, Func<long, int, byte[]> read, AnalysisLimits limits, CancellationToken ct, Func<string, bool>? only = null)
     {
         int sig = image.IndexOf(BundleSignature);
         if (sig < 8) return null;
@@ -179,6 +179,7 @@ public static class Containers
             long compressed = major >= 6 ? r.Int64() : 0;
             byte type = r.Byte();
             string path = r.String();
+            if (only != null && !only(path)) continue;
             long stored = compressed > 0 ? compressed : size;
             if (offset < 0 || size < 0 || stored < 0 || stored > int.MaxValue || offset > length - stored) // avoids overflow of offset + stored
             {
@@ -201,6 +202,21 @@ public static class Containers
             items.Add(new ExtractedItem(path, bytes, $"bundle entry ({BundleType(type)}{(compressed > 0 ? ", deflate" : "")})"));
         }
         return new ContainerContents(".NET single-file bundle", items, notes);
+    }
+
+    /// <summary>
+    /// The entry at <paramref name="entry"/> (its bundle-relative path, any case) of the single-file app at <paramref name="file"/>;
+    /// null when the file is no bundle or holds no such entry. Only the image and that entry are read.
+    /// </summary>
+    public static byte[]? BundleEntry(string file, string entry, AnalysisLimits limits, CancellationToken ct)
+    {
+        using var s = File.OpenRead(file);
+        byte[] Read(long at, int n) => ReadRange(s, at, n);
+        var head = Read(0, (int)Math.Min(s.Length, 1 << 20));
+        long end = ImageExtent.Of(head, s.Length, Read) ?? 0;
+        if (end <= 0 || end > Array.MaxLength) return null;
+        var bundle = OpenBundle(Read(0, (int)end), s.Length, Read, limits, ct, p => p.Replace('\\', '/').Equals(entry.Replace('\\', '/'), StringComparison.OrdinalIgnoreCase));
+        return bundle?.Items.FirstOrDefault()?.Bytes;
     }
 
     private static string BundleType(byte t) => t switch

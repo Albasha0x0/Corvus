@@ -111,7 +111,10 @@ public sealed class LiveClr : IDisposable
         }
     }
 
-    private static bool SamePath(string a, string b) => string.Equals(Path.GetFullPath(a), Path.GetFullPath(b), StringComparison.OrdinalIgnoreCase);
+    /// <summary>True when the runtime's module <paramref name="name"/> is the file at <paramref name="path"/>; a bundled assembly is named by its bundle-relative path.</summary>
+    private static bool SamePath(string name, string path) => Path.IsPathRooted(name)
+        ? string.Equals(Path.GetFullPath(name), Path.GetFullPath(path), StringComparison.OrdinalIgnoreCase)
+        : path.Replace('\\', '/').EndsWith('/' + name.Replace('\\', '/'), StringComparison.OrdinalIgnoreCase);
 
     private readonly Dictionary<string, Native.ReadyToRun.R2RImage?> _r2r = new(StringComparer.OrdinalIgnoreCase);
 

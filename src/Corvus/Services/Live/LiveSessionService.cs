@@ -1023,7 +1023,9 @@ public sealed partial class LiveSessionService(AssemblyWorkspace workspace, Nati
         bool loaded;
         lock (session.Modules) loaded = session.Modules.Any(m => ModuleNamed(m, module));
         if (loaded) return await DeferManagedAsync(session, t, watch, perSecond, rawArguments, id, ct).ConfigureAwait(false);
-        await ManagedTargetAsync(session, t, ct).ConfigureAwait(false); // a managed name that is ambiguous or unknown fails now, not at the load
+        // a managed name that is ambiguous or unknown fails now, not at the load
+        if (await ManagedTargetAsync(session, t, ct).ConfigureAwait(false) is { } managed && IsBundled(managed.Path))
+            return await DeferManagedAsync(session, t, watch, perSecond, rawArguments, id, ct).ConfigureAwait(false);
         var d = new LiveDeferred(id ?? (watch ? session.NextWatchId() : session.NextPointId()), where.Trim(), module, watch, perSecond, rawArguments);
         lock (session.Deferred) session.Deferred.Add(d);
         // a worker without the op still sets the point on the load event, after the module's first calls
