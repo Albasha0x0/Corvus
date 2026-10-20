@@ -1,3 +1,4 @@
+using System.Buffers.Binary;
 using System.Diagnostics;
 using System.Runtime.InteropServices;
 using Microsoft.Win32.SafeHandles;
@@ -11,12 +12,15 @@ namespace Corvus.Native.Diagnostics;
 /// </summary>
 public static class ProcessSnapshot
 {
+    /// <summary>A thread held at a stop: its registers become the dump's exception context, as a debugger's dump at a break records its last event.</summary>
+    public sealed record Stop(int ThreadId, byte[] Context, ulong Address);
+
     // MiniDumpWithFullMemory | WithHandleData | WithUnloadedModules | WithFullMemoryInfo | WithThreadInfo
     private const uint DumpType = 0x2 | 0x4 | 0x20 | 0x800 | 0x1000;
     private const uint ProcessAccess = 0x0400 | 0x0010 | 0x0040; // PROCESS_QUERY_INFORMATION | PROCESS_VM_READ | PROCESS_DUP_HANDLE (handle data)
 
     /// <summary>Writes the snapshot of <paramref name="pid"/> to <paramref name="path"/> (a temp file first, then placed); returns its size.</summary>
-    public static long Write(int pid, string path, bool overwrite, CancellationToken ct)
+    public static long Write(int pid, string path, bool overwrite, CancellationToken ct, Stop? stop = null)
     {
         var full = SafeFile.FullPath(path);
         if (File.Exists(full) && !overwrite)
@@ -25,7 +29,7 @@ public static class ProcessSnapshot
         var partial = full + ".partial";
         try
         {
-            if (OperatingSystem.IsWindows()) WriteMinidump(pid, partial);
+            if (OperatingSystem.IsWindows()) WriteMinidump(pid, partial, stop);
             else if (OperatingSystem.IsLinux()) WriteCore(pid, partial, ct);
             else throw new ToolError(ErrorCode.ProviderUnavailable, "Snapshots are written on Windows (MiniDumpWriteDump) and Linux (gcore).", "on macOS, lldb's process save-core writes one");
             File.Move(partial, full, overwrite);
@@ -37,7 +41,21 @@ public static class ProcessSnapshot
         }
     }
 
-    private static void WriteMinidump(int pid, string path)
+    /// <summary>An x64 CONTEXT (control and integer registers) from register values named as Frida and the dump reader name them.</summary>
+    public static byte[] ContextX64(IReadOnlyDictionary<string, ulong> registers)
+    {
+        var c = new byte[0x4D0];
+        BinaryPrimitives.WriteUInt32LittleEndian(c.AsSpan(0x30), 0x100003); // CONTEXT_AMD64 | CONTROL | INTEGER
+        BinaryPrimitives.WriteUInt16LittleEndian(c.AsSpan(0x38), 0x33); // user-mode cs
+        BinaryPrimitives.WriteUInt16LittleEndian(c.AsSpan(0x42), 0x2B); // user-mode ss
+        BinaryPrimitives.WriteUInt32LittleEndian(c.AsSpan(0x44), 0x202); // eflags: IF
+        string[] order = ["rax", "rcx", "rdx", "rbx", "rsp", "rbp", "rsi", "rdi", "r8", "r9", "r10", "r11", "r12", "r13", "r14", "r15", "rip"];
+        for (int i = 0; i < order.Length; i++)
+            if (registers.TryGetValue(order[i], out var v)) BinaryPrimitives.WriteUInt64LittleEndian(c.AsSpan(0x78 + 8 * i), v);
+        return c;
+    }
+
+    private static void WriteMinidump(int pid, string path, Stop? stop)
     {
         var process = OpenProcess(ProcessAccess, false, pid);
         if (process == IntPtr.Zero)
@@ -47,15 +65,35 @@ public static class ProcessSnapshot
                 ? new ToolError(ErrorCode.AccessDenied, $"Process {pid} cannot be opened for reading (access denied).", "run the server as the user who started the program")
                 : new ToolError(ErrorCode.NotFound, $"Process {pid} cannot be opened (error {error}); it may have exited.", "live_session action=status shows the session's state");
         }
+        IntPtr block = IntPtr.Zero, exception = IntPtr.Zero;
+        if (stop != null)
+        {
+            // one block, in this process (ClientPointers false): MINIDUMP_EXCEPTION_INFORMATION (pack 4), EXCEPTION_POINTERS,
+            // an EXCEPTION_RECORD for a breakpoint at the stop, and the CONTEXT 16-byte aligned
+            const int Info = 0, Pointers = 16, Record = 32, Context = 192;
+            block = Marshal.AllocHGlobal(Context + stop.Context.Length + 16);
+            var bytes = new byte[Context + stop.Context.Length + 16];
+            long context = ((block.ToInt64() + Context + 15) & ~15L) - block.ToInt64();
+            BinaryPrimitives.WriteInt32LittleEndian(bytes.AsSpan(Info), stop.ThreadId);
+            BinaryPrimitives.WriteInt64LittleEndian(bytes.AsSpan(Info + 4), block.ToInt64() + Pointers);
+            BinaryPrimitives.WriteInt64LittleEndian(bytes.AsSpan(Pointers), block.ToInt64() + Record);
+            BinaryPrimitives.WriteInt64LittleEndian(bytes.AsSpan(Pointers + 8), block.ToInt64() + context);
+            BinaryPrimitives.WriteUInt32LittleEndian(bytes.AsSpan(Record), 0x80000003); // EXCEPTION_BREAKPOINT
+            BinaryPrimitives.WriteUInt64LittleEndian(bytes.AsSpan(Record + 16), stop.Address);
+            stop.Context.CopyTo(bytes, context);
+            Marshal.Copy(bytes, 0, block, bytes.Length);
+            exception = block;
+        }
         try
         {
             using var file = new FileStream(path, FileMode.Create, FileAccess.ReadWrite, FileShare.None);
-            if (!MiniDumpWriteDump(process, (uint)pid, file.SafeFileHandle, DumpType, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero))
+            if (!MiniDumpWriteDump(process, (uint)pid, file.SafeFileHandle, DumpType, exception, IntPtr.Zero, IntPtr.Zero))
                 throw new ToolError(ErrorCode.IoError, $"MiniDumpWriteDump failed for process {pid} (error 0x{Marshal.GetLastPInvokeError():X}).", "check the disk space at the output path");
         }
         finally
         {
             CloseHandle(process);
+            if (block != IntPtr.Zero) Marshal.FreeHGlobal(block);
         }
     }
 

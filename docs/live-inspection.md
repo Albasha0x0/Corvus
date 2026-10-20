@@ -173,7 +173,9 @@ among the arguments, so the same run can be repeated.
 `action=snapshot` writes the session's process as a standard dump file with the operating system's own writer (MiniDumpWriteDump
 on Windows, as dotnet-dump and ProcDump write them; GDB's `gcore` on Linux) and opens it
 with the dump tools; the program keeps running. The dump goes to `outputPath`, else a new
-file under the temp folder's `corvus-snapshots`.
+file under the temp folder's `corvus-snapshots`. Saved while a thread of a 64-bit Windows program is held at a stop, the
+dump records that stop as its exception (a breakpoint, as a debugger's `.dump` at a break does), so `dump_stack` walks
+from the stop.
 
 `live_script` loads a script you wrote into the program (Frida's JavaScript API); what it sends arrives as `script`
 events, and a script that does not compile is refused with the compiler's message. A script runs inside the program

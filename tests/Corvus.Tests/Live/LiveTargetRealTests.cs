@@ -181,6 +181,29 @@ public sealed class LiveTargetRealTests(ITestOutputHelper output) : LiveToolCall
         }
     }
 
+    /// <summary>
+    /// A snapshot while a thread is held at a system DLL's export: the dump's exception is that stop, so the stack walk
+    /// starts at the export with the stop's registers and reaches the program, not the backend's wait.
+    /// </summary>
+    [LiveTargetFact("win-x64")]
+    public async Task A_snapshot_at_a_stop_walks_from_the_stop()
+    {
+        var exe = LiveTarget.WinX64.Build(_dir, "orders", LivePrograms.Orders);
+        await using var server = await Server();
+        await Spawn(server, exe, "live-1", "3", "0");
+        await Ok(server, "live_break", new() { ["session"] = "live-1", ["action"] = "set", ["at"] = "kernelbase!CreateFileA" });
+        var stop = await Ok(server, "live_break", new() { ["session"] = "live-1", ["action"] = "continue", ["wait"] = true });
+        Assert.Contains("stopped at s1", stop);
+        var snapshot = await Ok(server, "live_session", new() { ["action"] = "snapshot", ["session"] = "live-1", ["outputPath"] = _dir.File("stop.dmp") });
+        var stack = await Ok(server, "dump_stack", new() { ["dump"] = "stop.dmp" });
+        Assert.Matches(@"#0 0x[0-9A-F]+ KERNELBASE!CreateFileA", stack);
+        Assert.Matches(@"orders!Touch\+0x[0-9A-F]+", stack);
+        Assert.Matches(@"orders!main\+0x[0-9A-F]+", stack);
+        Assert.Contains("EXCEPTION_BREAKPOINT", await Ok(server, "open_minidump", new() { ["path"] = "stop.dmp" }));
+        Assert.Contains("the stop of thread " + Regex.Match(stop, @"thread (\d+) stopped").Groups[1].Value, snapshot);
+        await Ok(server, "live_session", new() { ["action"] = "close", ["session"] = "live-1" });
+    }
+
     // ---- musl libc: starting a program fails with Frida's own error, at once, and leaves nothing running
 
     [MuslFact]
