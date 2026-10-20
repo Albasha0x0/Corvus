@@ -118,7 +118,7 @@ public sealed class LiveProgramScopeTests : IDisposable
         Assert.Null(_backend.LastOpen);
 
         await Tools(allow: allowed).LiveSession("spawn", program: Path.Combine(_dir.Path, "in", "tool.exe"));
-        Assert.Equal(inside, (string?)_backend.LastOpen!["spawn"]); // the backend starts the file that was checked
+        Assert.Equal(LiveProgramScope.Canonical(inside), (string?)_backend.LastOpen!["spawn"]); // the backend starts the file that was checked
     }
 
     [Fact]
