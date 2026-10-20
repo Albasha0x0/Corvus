@@ -230,7 +230,8 @@ public sealed class LiveFridaRealTests(ITestOutputHelper output) : IDisposable
         var (loaded, failed) = await Call(server, "live_script", new()
         {
             ["session"] = "live-1", ["action"] = "load",
-            ["source"] = "send({ pid: Process.id, main: Process.enumerateModules()[0].name });",
+            // Frida lists modules in no fixed order on Windows (its mainModule can be a system DLL): the script picks the .exe
+            ["source"] = "send({ pid: Process.id, main: Process.enumerateModules().find(m => m.name.endsWith('.exe')).name });",
         });
         Assert.False(failed, loaded);
         Assert.Contains("u1 loaded (inline)", loaded);
