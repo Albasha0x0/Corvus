@@ -71,10 +71,7 @@ public sealed class Il2CppRawTests(ITestOutputHelper output) : IDisposable
         // A package without Il2Cpp metadata says so, not that it is no PE file.
         var apk = _dir.File("plain.apk");
         using (var zip = System.IO.Compression.ZipFile.Open(apk, System.IO.Compression.ZipArchiveMode.Create)) zip.CreateEntry("classes.dex");
-        var previousCache = Environment.GetEnvironmentVariable(Il2CppRawLoader.RootVariable);
-        Environment.SetEnvironmentVariable(Il2CppRawLoader.RootVariable, _dir.File("cache"));
-        try { Assert.Contains("reason no_il2cpp_metadata", (await Assert.ThrowsAsync<ToolError>(() => tools.LoadAssembly(apk))).Message); }
-        finally { Environment.SetEnvironmentVariable(Il2CppRawLoader.RootVariable, previousCache); }
+        Assert.Contains("reason no_il2cpp_metadata", (await Assert.ThrowsAsync<ToolError>(() => tools.LoadAssembly(apk))).Message);
     }
 
     [Fact]
@@ -189,7 +186,7 @@ public sealed class Il2CppRawTests(ITestOutputHelper output) : IDisposable
     {
         var files = Il2CppGameFiles.Find(RealData.Path(GameVariable)) ?? throw new InvalidOperationException("not an Il2Cpp game");
         using var raw = new AssemblyWorkspace(new ServerOptions { WatchFiles = false });
-        var cache = Environment.GetEnvironmentVariable(Il2CppRawLoader.RootVariable) is { Length: > 0 } c ? c : _dir.File("il2cpp-cache");
+        var cache = Il2CppRawLoader.DefaultRoot; // apply_il2cpp_names below reads the default cache
         var watch = Stopwatch.StartNew();
         var result = new Il2CppRawLoader(raw).Load(files, loadBinary: false, m => output.WriteLine($"  [{watch.Elapsed.TotalSeconds:0.0} s] {m}"), default, cache);
         output.WriteLine(Il2CppRawLoader.Describe(result));
@@ -205,9 +202,6 @@ public sealed class Il2CppRawTests(ITestOutputHelper output) : IDisposable
         Assert.Empty(result.Load.Skipped);
 
         // apply_il2cpp_names on the bare binary reads the metadata beside it first (from the cache here).
-        var previousCache = Environment.GetEnvironmentVariable(Il2CppRawLoader.RootVariable);
-        Environment.SetEnvironmentVariable(Il2CppRawLoader.RootVariable, cache);
-        try
         {
             using var bare = new AssemblyWorkspace(new ServerOptions { WatchFiles = false });
             var bareIl2cpp = new Il2CppService(bare);
@@ -221,7 +215,6 @@ public sealed class Il2CppRawTests(ITestOutputHelper output) : IDisposable
             Assert.Contains("from the cache", text);
             Assert.Contains("functions named:", text);
         }
-        finally { Environment.SetEnvironmentVariable(Il2CppRawLoader.RootVariable, previousCache); }
 
         var rawIl2cpp = new Il2CppService(raw);
         var rawStrings = new Il2CppStringService(raw, rawIl2cpp);

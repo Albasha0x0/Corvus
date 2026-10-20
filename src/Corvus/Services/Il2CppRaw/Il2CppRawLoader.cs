@@ -22,6 +22,7 @@ public sealed class Il2CppRawLoader(AssemblyWorkspace workspace, string? cacheRo
     public const string RootVariable = "CORVUS_IL2CPP_CACHE";
     public const string DummyFolder = "DummyDll";
     public const int MaxEntries = 8;
+    internal static readonly TimeSpan InUseWindow = TimeSpan.FromMinutes(10);
     private const int CacheFormat = 2; // bump when the reader's output changes: older entries are then read again
 
     public static string DefaultRoot =>
@@ -166,8 +167,11 @@ public sealed class Il2CppRawLoader(AssemblyWorkspace workspace, string? cacheRo
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
     }
 
-    /// <summary>Removes the least recently used entries beyond <see cref="MaxEntries"/>, except <paramref name="keep"/> and loaded ones.</summary>
-    private void Trim(string root, string keep)
+    /// <summary>
+    /// Removes the least recently used entries beyond <see cref="MaxEntries"/>, except <paramref name="keep"/>, loaded ones,
+    /// and ones used within <see cref="InUseWindow"/> (another workspace or server may be reading them).
+    /// </summary>
+    internal void Trim(string root, string keep)
     {
         try
         {
@@ -175,8 +179,9 @@ public sealed class Il2CppRawLoader(AssemblyWorkspace workspace, string? cacheRo
             var entries = Directory.EnumerateDirectories(root)
                 .Where(d => File.Exists(Path.Combine(d, MarkerFileName)) && !d.Equals(keep, StringComparison.OrdinalIgnoreCase))
                 .OrderByDescending(Directory.GetLastWriteTimeUtc).ToList();
+            var recent = DateTime.UtcNow - InUseWindow;
             foreach (var old in entries.Skip(MaxEntries - 1))
-                if (!loaded.Any(p => p.StartsWith(old + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))) TryDelete(old);
+                if (Directory.GetLastWriteTimeUtc(old) < recent && !loaded.Any(p => p.StartsWith(old + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))) TryDelete(old);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
     }

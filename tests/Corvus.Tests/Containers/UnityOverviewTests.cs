@@ -119,20 +119,14 @@ public sealed class UnityOverviewTests : IDisposable
         var desktop = Path.Combine(_dir.Path, "title.zip");
         Zip(desktop, ("Title v1.0/Title.exe", File.ReadAllBytes(Path.Combine(Path.GetDirectoryName(Env.FixturePath)!, "Corvus.Tests.dll"))),
             ("Title v1.0/Title_Data/data.unity3d", header), ("Title v1.0/Title_Data/Managed/Assembly-CSharp.dll", assembly));
-        var previous = Environment.GetEnvironmentVariable(Services.Il2CppRawLoader.RootVariable);
-        Environment.SetEnvironmentVariable(Services.Il2CppRawLoader.RootVariable, Path.Combine(_dir.Path, "cache"));
-        try
-        {
-            var r = UnityOverview.Inspect(apk, false, default);
-            Assert.Equal(("il2cpp", "readable", "2021.1.5f1"), (r.Backend.Kind, r.Backend.MetadataState, r.Engine.Version));
-            Assert.Contains(r.Notes, n => n.StartsWith($"Read from the game files of {apk}", StringComparison.Ordinal));
-            var m = UnityOverview.Inspect(mono, false, default);
-            Assert.Equal(("mono", "android", "2021.1.5f1"), (m.Backend.Kind, m.Platform, m.Engine.Version));
-            var d = UnityOverview.Inspect(desktop, false, default);
-            Assert.Equal(("mono", "2021.1.5f1"), (d.Backend.Kind, d.Engine.Version));
-            Assert.EndsWith("Title.exe", d.Executable);
-        }
-        finally { Environment.SetEnvironmentVariable(Services.Il2CppRawLoader.RootVariable, previous); }
+        var r = UnityOverview.Inspect(apk, false, default);
+        Assert.Equal(("il2cpp", "readable", "2021.1.5f1"), (r.Backend.Kind, r.Backend.MetadataState, r.Engine.Version));
+        Assert.Contains(r.Notes, n => n.StartsWith($"Read from the game files of {apk}", StringComparison.Ordinal));
+        var m = UnityOverview.Inspect(mono, false, default);
+        Assert.Equal(("mono", "android", "2021.1.5f1"), (m.Backend.Kind, m.Platform, m.Engine.Version));
+        var d = UnityOverview.Inspect(desktop, false, default);
+        Assert.Equal(("mono", "2021.1.5f1"), (d.Backend.Kind, d.Engine.Version));
+        Assert.EndsWith("Title.exe", d.Executable);
     }
 
     [Fact]
@@ -159,15 +153,9 @@ public sealed class UnityOverviewTests : IDisposable
         using (var gz = new System.IO.Compression.GZipStream(File.Create(Path.Combine(build, "web.data.gz")), System.IO.Compression.CompressionLevel.Fastest))
             gz.Write(table.ToArray());
         File.WriteAllBytes(Path.Combine(build, "web.wasm"), [.. "\0asm"u8, 1, 0, 0, 0]);
-        var previous = Environment.GetEnvironmentVariable(Services.Il2CppRawLoader.RootVariable);
-        Environment.SetEnvironmentVariable(Services.Il2CppRawLoader.RootVariable, Path.Combine(_dir.Path, "cache"));
-        try
-        {
-            var r = UnityOverview.Inspect(Path.Combine(_dir.Path, "web"), false, default);
-            Assert.Equal(("webgl", "il2cpp", "2022.3.10f1", 29), (r.Platform, r.Backend.Kind, r.Engine.Version, r.Backend.MetadataVersion));
-            Assert.Contains(r.Notes, n => n.StartsWith("WebGL code: web.wasm, WebAssembly", StringComparison.Ordinal));
-        }
-        finally { Environment.SetEnvironmentVariable(Services.Il2CppRawLoader.RootVariable, previous); }
+        var r = UnityOverview.Inspect(Path.Combine(_dir.Path, "web"), false, default);
+        Assert.Equal(("webgl", "il2cpp", "2022.3.10f1", 29), (r.Platform, r.Backend.Kind, r.Engine.Version, r.Backend.MetadataVersion));
+        Assert.Contains(r.Notes, n => n.StartsWith("WebGL code: web.wasm, WebAssembly", StringComparison.Ordinal));
         var failures = FormatFuzz.Run(table.ToArray(), b => { try { UnityWebGl.Entries(b, "x.data"); } catch (ToolError) { } }, 500);
         Assert.True(failures.Count == 0, string.Join("\n", failures.Take(10)));
     }

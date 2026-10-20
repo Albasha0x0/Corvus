@@ -228,16 +228,10 @@ public sealed class Il2CppMobileTests(ITestOutputHelper output) : IDisposable
     {
         var apk = Put("in/enc.apk", Zip(("lib/arm64-v8a/libil2cpp.so", File.ReadAllBytes(NativeFixtures.LinuxArm64DbgShim)),
             ("assets/bin/Data/Managed/Metadata/global-metadata.dat", [0xDE, 0xAD, 0xBE, 0xEF, 31, 0, 0, 0])));
-        var previous = Environment.GetEnvironmentVariable(Il2CppRawLoader.RootVariable);
-        Environment.SetEnvironmentVariable(Il2CppRawLoader.RootVariable, _dir.File("cache"));
-        try
-        {
-            using var ws = new AssemblyWorkspace();
-            var error = await Assert.ThrowsAsync<ToolError>(() => Tools(ws).LoadAssembly(apk));
-            Assert.Contains("encrypted_or_transformed", error.Message);
-            Assert.Empty(ws.Assemblies);
-        }
-        finally { Environment.SetEnvironmentVariable(Il2CppRawLoader.RootVariable, previous); }
+        using var ws = new AssemblyWorkspace();
+        var error = await Assert.ThrowsAsync<ToolError>(() => Tools(ws).LoadAssembly(apk));
+        Assert.Contains("encrypted_or_transformed", error.Message);
+        Assert.Empty(ws.Assemblies);
     }
 
     private static Corvus.Tools.WorkspaceTools Tools(AssemblyWorkspace ws)
@@ -246,6 +240,25 @@ public sealed class Il2CppMobileTests(ITestOutputHelper output) : IDisposable
         var il2cpp = new Il2CppService(ws);
         return new Corvus.Tools.WorkspaceTools(ws, il2cpp, new IndexingService(ws, new CallGraphService(ws), options),
             new Corvus.Services.Analysis.UnpackService(ws));
+    }
+
+    [Fact]
+    public void CacheTrimLeavesEntriesUsedRecentlyForOtherReaders()
+    {
+        var root = _dir.File("trim");
+        string Entry(string name, TimeSpan age)
+        {
+            var dir = Directory.CreateDirectory(Path.Combine(root, name)).FullName;
+            File.WriteAllText(Path.Combine(dir, Il2CppRawLoader.MarkerFileName), "{}");
+            Directory.SetLastWriteTimeUtc(dir, DateTime.UtcNow - age);
+            return dir;
+        }
+        var recent = Enumerable.Range(0, Il2CppRawLoader.MaxEntries + 2).Select(i => Entry($"recent{i}", TimeSpan.FromSeconds(i))).ToList();
+        var old = Enumerable.Range(0, 2).Select(i => Entry($"old{i}", TimeSpan.FromHours(1 + i))).ToList();
+        using var ws = new AssemblyWorkspace();
+        new Il2CppRawLoader(ws).Trim(root, recent[0]);
+        Assert.All(recent, d => Assert.True(Directory.Exists(d), d)); // beyond the limit, but maybe in use elsewhere
+        Assert.All(old, d => Assert.False(Directory.Exists(d), d));
     }
 
     [Fact]
@@ -287,36 +300,30 @@ public sealed class Il2CppMobileTests(ITestOutputHelper output) : IDisposable
         var root = RealData.Path(MobileVariable);
         var inputs = Directory.EnumerateFiles(root).Where(Il2CppPackages.IsPackage).Concat(Directory.EnumerateDirectories(root)).Order(StringComparer.Ordinal).ToList();
         Assert.NotEmpty(inputs);
-        var previous = Environment.GetEnvironmentVariable(Il2CppRawLoader.RootVariable);
-        if (previous == null) Environment.SetEnvironmentVariable(Il2CppRawLoader.RootVariable, _dir.File("cache"));
         int read = 0;
-        try
-        {
-            foreach (var input in inputs)
-                foreach (var abi in new string?[] { null, "armeabi-v7a" })
+        foreach (var input in inputs)
+            foreach (var abi in new string?[] { null, "armeabi-v7a" })
+            {
+                using var ws = new AssemblyWorkspace(new ServerOptions { WatchFiles = false });
+                var watch = System.Diagnostics.Stopwatch.StartNew();
+                try
                 {
-                    using var ws = new AssemblyWorkspace(new ServerOptions { WatchFiles = false });
-                    var watch = System.Diagnostics.Stopwatch.StartNew();
-                    try
-                    {
-                        var text = await Tools(ws).LoadAssembly(input, slice: abi);
-                        read++;
-                        var model = Il2CppRawLoader.Model(Path.Combine(Path.GetDirectoryName(ws.Assemblies[0].FilePath)!, "..", Il2CppGameModel.FileName));
-                        output.WriteLine($"{Path.GetFileName(input)} [{abi ?? "default"}] {watch.Elapsed.TotalSeconds:0.0} s: metadata v{model.HeaderVersion}, Unity {model.UnityVersion}, " +
-                                         $"{model.Types} types, {model.MethodDefinitions} methods ({model.MethodsWithCode} with code), {model.Methods.Count} script methods, " +
-                                         $"{ws.Assemblies.Count} dummy assemblies, native {ws.Natives.FirstOrDefault()?.Image.Arch}");
-                        Assert.True(model.MethodsWithCode > 0);
-                        Assert.Contains("Read Il2Cpp game", text);
-                        Downstream(ws, model, abi);
-                    }
-                    catch (ToolError e)
-                    {
-                        output.WriteLine($"{Path.GetFileName(input)} [{abi ?? "default"}] {watch.Elapsed.TotalSeconds:0.0} s: {e.Message}");
-                        Assert.Matches("reason [a-z0-9_]+|no lib/", e.Message);
-                    }
+                    var text = await Tools(ws).LoadAssembly(input, slice: abi);
+                    read++;
+                    var model = Il2CppRawLoader.Model(Path.Combine(Path.GetDirectoryName(ws.Assemblies[0].FilePath)!, "..", Il2CppGameModel.FileName));
+                    output.WriteLine($"{Path.GetFileName(input)} [{abi ?? "default"}] {watch.Elapsed.TotalSeconds:0.0} s: metadata v{model.HeaderVersion}, Unity {model.UnityVersion}, " +
+                                     $"{model.Types} types, {model.MethodDefinitions} methods ({model.MethodsWithCode} with code), {model.Methods.Count} script methods, " +
+                                     $"{ws.Assemblies.Count} dummy assemblies, native {ws.Natives.FirstOrDefault()?.Image.Arch}");
+                    Assert.True(model.MethodsWithCode > 0);
+                    Assert.Contains("Read Il2Cpp game", text);
+                    Downstream(ws, model, abi);
                 }
-        }
-        finally { Environment.SetEnvironmentVariable(Il2CppRawLoader.RootVariable, previous); }
+                catch (ToolError e)
+                {
+                    output.WriteLine($"{Path.GetFileName(input)} [{abi ?? "default"}] {watch.Elapsed.TotalSeconds:0.0} s: {e.Message}");
+                    Assert.Matches("reason [a-z0-9_]+|no lib/", e.Message);
+                }
+            }
         Assert.True(read > 0);
     }
 
