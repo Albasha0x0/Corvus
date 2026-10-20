@@ -107,6 +107,8 @@ public sealed class LiveSession
     public uint? ExitCode { get; internal set; }
     public string? Ended { get; internal set; }
     public bool Closed { get; internal set; }
+    /// <summary>Why the session closed (closed by request, deadline, server exit); null while open.</summary>
+    public string? CloseReason { get; internal set; }
     /// <summary>Events the ring dropped, oldest first.</summary>
     public long Dropped { get; private set; }
     /// <summary>Exception events recorded, dropped ones included.</summary>
@@ -480,7 +482,10 @@ public sealed partial class LiveSessionService(AssemblyWorkspace workspace, Nati
                 session.Add("error", null, null, "session script: " + body.GetProperty("message").GetString());
                 break;
             case "exit":
-                session.Ended = "exited: " + body.GetProperty("reason").GetString() + ExitText(session);
+                // after close, the exit is the session's doing (Frida ends a started program with its own code): say so instead
+                session.Ended = session.CloseReason is { } why
+                    ? $"{(session.Spawned ? "ended" : "detached")} when the session closed ({why})"
+                    : "exited: " + body.GetProperty("reason").GetString() + ExitText(session);
                 // the worker's exception event can be lost when the process dies at once; the exit code still names it
                 if (session is { Exceptions: 0, ExitCode: >= 0xC000_0000 and not StatusControlCExit and { } code } && Native.Dump.ExceptionCodes.Name(code) is { } exception)
                     session.Add("exception", null, null, $"{exception} (0x{code:X8}), from the exit code: the program ended before the exception's address was reported");
@@ -541,6 +546,10 @@ public sealed partial class LiveSessionService(AssemblyWorkspace workspace, Nati
 
     private static readonly TimeSpan ExitCodeWait = TimeSpan.FromSeconds(1);
 
+    // bound here, not in Native.Live: the process inspector there binds no API that changes a process
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern bool TerminateProcess(Native.Live.SafeKernelHandle process, uint exitCode);
+
     /// <summary>How long a program may stay in its exit (exit code set, process not ended) before it is ended.</summary>
     internal static TimeSpan StuckExit { get; set; } = TimeSpan.FromSeconds(10);
 
@@ -548,10 +557,6 @@ public sealed partial class LiveSessionService(AssemblyWorkspace workspace, Nati
     /// Ends a program that called ExitProcess but whose exit does not finish (a module's DLL shutdown waits forever: Frida's
     /// agent can, after a watch on x86), with the exit code it chose; the backend then reports the exit as usual.
     /// </summary>
-    // bound here, not in Native.Live: the process inspector there binds no API that changes a process
-    [DllImport("kernel32.dll", SetLastError = true)]
-    private static extern bool TerminateProcess(Native.Live.SafeKernelHandle process, uint exitCode);
-
     private void CheckExit(LiveSession session)
     {
         try
@@ -1058,7 +1063,9 @@ public sealed partial class LiveSessionService(AssemblyWorkspace workspace, Nati
     public async Task CloseAsync(LiveSession session, string reason)
     {
         if (session.Closed) return;
+        session.CloseReason = reason;
         session.Closed = true;
+        session.Add("exit", null, null, "session closed (" + reason + ")");
         session.Deadline?.Dispose();
         session.ExitCheck?.Dispose();
         if (session.Worker.IsAlive)
@@ -1068,7 +1075,7 @@ public sealed partial class LiveSessionService(AssemblyWorkspace workspace, Nati
         session.ReleaseAll();
         EndCoverage(session);
         EndTimeline(session);
-        session.Add("exit", null, null, "session closed (" + reason + ")");
+        session.Ended ??= $"{(session.Spawned ? "ended" : "detached")} when the session closed ({reason})";
     }
 
     public void Dispose()

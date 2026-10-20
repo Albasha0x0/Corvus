@@ -323,6 +323,18 @@ public sealed class LiveSessionTests : IDisposable
         Assert.Equal(ErrorCode.InvalidArgument, (await Assert.ThrowsAsync<ToolError>(() => _tools.LiveSession("spawn", program: Sqlite, environment: ["NOEQUALS"]))).Code);
     }
 
+    [Fact]
+    public async Task Status_after_a_close_names_why_the_session_closed()
+    {
+        await _tools.LiveSession("spawn", program: Sqlite);
+        var service = _service;
+        await service.CloseAsync(service.Get("live-1"), "deadline");
+        var status = await _tools.LiveSession("status", session: "live-1");
+        Assert.Contains("closed (ended when the session closed (deadline))", status);
+        Assert.DoesNotContain("exit code", status);
+        Assert.Contains("session closed (deadline)", await _tools.LiveEvents("live-1", kind: "exit"));
+    }
+
     [LiveTargetFact("win-x64")]
     [Trait("Speed", "Slow")]
     public async Task A_program_whose_exit_never_finishes_is_ended_with_its_exit_code()
