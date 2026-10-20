@@ -101,9 +101,7 @@ public sealed partial class LiveSessionService
                 if (Match(m) != null) return null;
                 if (Managed(m.Path) is { } asm) candidates.Add(asm);
             }
-            else if (ProgramAssemblies(session).FirstOrDefault(a => Path.GetFileName(a.FilePath).Equals(name, StringComparison.OrdinalIgnoreCase)
-                                                                    || Path.GetFileNameWithoutExtension(a.FilePath).Equals(name, StringComparison.OrdinalIgnoreCase)) is { } own)
-                candidates.Add(own);
+            else if (AssemblyToLoad(session, name) is { } later) candidates.Add(later);
         }
         else
         {
@@ -148,6 +146,16 @@ public sealed partial class LiveSessionService
         if (path == null) yield break;
         if (Managed(path) is { } own) yield return own;
         else if (Managed(Path.ChangeExtension(path, ".dll")) is { } app) yield return app;
+    }
+
+    /// <summary>A managed assembly the program has not loaded yet, by file name: its own, or one next to the program it starts.</summary>
+    private LoadedAssembly? AssemblyToLoad(LiveSession session, string name)
+    {
+        if (ProgramAssemblies(session).FirstOrDefault(a => Path.GetFileName(a.FilePath).Equals(name, StringComparison.OrdinalIgnoreCase)
+                                                           || Path.GetFileNameWithoutExtension(a.FilePath).Equals(name, StringComparison.OrdinalIgnoreCase)) is { } own)
+            return own;
+        if (!session.Spawned || Path.GetDirectoryName(session.Program) is not { } dir || name.Contains('/') || name.Contains('\\')) return null;
+        return Managed(Path.Combine(dir, name.EndsWith(".dll", StringComparison.OrdinalIgnoreCase) ? name : name + ".dll"));
     }
 
     /// <summary>Where a managed method has code in the program now; null when it has none yet (or the runtime cannot be read).</summary>

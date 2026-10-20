@@ -257,6 +257,8 @@ public sealed class LiveDotnetRealTests(ITestOutputHelper output) : LiveToolCall
         File.WriteAllText(input, "x");
         await using var server = await Server();
         await Spawn(server, exe, "live-1", input, "1", "100000", "20");
+        // a name the assembly does not define fails when set, before the assembly loads
+        await Refused(server, "live_break", new() { ["session"] = "live-1", ["action"] = "set", ["at"] = "readers.dll!Readers::ReadTwice" }, "not_found");
         Assert.Contains("deferred until readers.dll loads", await Ok(server, "live_break", new() { ["session"] = "live-1", ["action"] = "set", ["at"] = "Readers::ReadOnce" }));
         var stop = await Ok(server, "live_break", new() { ["session"] = "live-1", ["action"] = "continue", ["wait"] = true, ["waitSeconds"] = 60 });
         Assert.Matches(@"stopped at s1 \(readers\.dll!Readers\.ReadOnce\(System\.String\)\)\r?\n  #0 0x[0-9A-F]+ readers\.dll!Readers\.ReadOnce\(System\.String\)\r?\n" +
