@@ -154,6 +154,9 @@ public sealed partial class LiveSessionService
     private readonly ConcurrentDictionary<string, LiveCoverageRun> _coverage = new(StringComparer.OrdinalIgnoreCase);
     private int _nextCoverage;
 
+    /// <summary>Tests: runs just before a coverage run is created.</summary>
+    internal Func<Task>? BeforeCoverageRun { get; set; }
+
     public IReadOnlyList<LiveCoverageRun> CoverageRuns => _coverage.Values.OrderBy(r => int.Parse(r.Id[4..], CultureInfo.InvariantCulture)).ToList();
 
     public LiveCoverageRun GetCoverage(string id) =>
@@ -225,11 +228,13 @@ public sealed partial class LiveSessionService
                     : "narrow it with match=<part of the names>, or module!part for another module");
         }
 
+        if (BeforeCoverageRun is { } before) await before().ConfigureAwait(false);
         var run = new LiveCoverageRun("cov-" + Interlocked.Increment(ref _nextCoverage), session, image, points, hitLimit, m?.Base ?? 0) { DetachFunctions = detach.Count, Refusals = refused };
         _coverage[run.Id] = run;
         if (m != null)
         {
             await ArmCoverageAsync(session, run, ct).ConfigureAwait(false);
+            EndedMeanwhile(session, run);
             return run;
         }
         run.Wait(module!.Trim());
@@ -357,6 +362,12 @@ public sealed partial class LiveSessionService
         return names;
     }
 
+    /// <summary>A run whose program ended while it started missed the exit that ends runs: it is ended here.</summary>
+    private static void EndedMeanwhile(LiveSession session, LiveCoverageRun run)
+    {
+        if (session.Ended != null) run.Finish("ended");
+    }
+
     private static readonly TimeSpan ManagedSamplePeriod = TimeSpan.FromSeconds(1);
 
     /// <summary>
@@ -376,6 +387,7 @@ public sealed partial class LiveSessionService
             throw new ToolError(ErrorCode.NotFound, $"No method of {file}{(filter != null ? $" has a name containing '{filter}'" : " has a body")}.", "search_symbols shows the assembly's methods");
         if (await ClrAsync(session, ct).ConfigureAwait(false) is { Unavailable: { } reason } && !reason.StartsWith("load_failed", StringComparison.Ordinal))
             throw new ToolError(ErrorCode.Unsupported, $"The program's runtime cannot be read: {reason}.", "count a native module with match=module!part");
+        if (BeforeCoverageRun is { } before) await before().ConfigureAwait(false);
         var run = new LiveCoverageRun("cov-" + Interlocked.Increment(ref _nextCoverage), session, file, asm.OriginalSha256, points);
         var tokens = points.Select(p => p.Rva).ToHashSet();
         var path = asm.FilePath;
@@ -404,6 +416,7 @@ public sealed partial class LiveSessionService
         catch (ToolError e) when (e.Code is ErrorCode.NotFound or ErrorCode.Unsupported) { } // then the methods of the last second before exit are missed
         await run.Sample().ConfigureAwait(false);
         run.Sampler = new Timer(_ => _ = run.Sample(), null, ManagedSamplePeriod, ManagedSamplePeriod);
+        EndedMeanwhile(session, run);
         return run;
     }
 
