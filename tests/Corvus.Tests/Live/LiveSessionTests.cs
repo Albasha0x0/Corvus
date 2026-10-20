@@ -23,6 +23,9 @@ internal sealed class ScriptedLiveBackend(string mainPath, ulong mainBase, uint 
     /// <summary>Bytes the program holds, by address.</summary>
     public readonly Dictionary<ulong, byte[]> Memory = [];
     private readonly Dictionary<string, ulong> _points = [];
+    private bool _suspended;
+    /// <summary>Held threads, one entry per stop waiting for its resume.</summary>
+    private readonly List<long> _held = [];
     /// <summary>Addresses the backend cannot hook, as Frida refuses a function too short for its jump.</summary>
     public readonly HashSet<ulong> Unhookable = [];
     /// <summary>What the session script was told to read for each watch.</summary>
@@ -44,7 +47,7 @@ internal sealed class ScriptedLiveBackend(string mainPath, ulong mainBase, uint 
     }
 
     /// <summary>A thread hitting stop point <paramref name="id"/>, called from <paramref name="caller"/>.</summary>
-    public void Hit(string id, long thread, ulong caller) => Worker!.Emit(new JsonObject
+    public void Hit(string id, long thread, ulong caller) => Stop(thread, new JsonObject
     {
         ["event"] = "stop", ["point"] = id, ["tid"] = thread, ["hits"] = 1,
         ["registers"] = new JsonObject { ["pc"] = $"0x{_points[id]:x}", ["rcx"] = "0x5000", ["rsp"] = "0x9000" },
@@ -52,7 +55,7 @@ internal sealed class ScriptedLiveBackend(string mainPath, ulong mainBase, uint 
     });
 
     /// <summary>A thread hitting stop point <paramref name="id"/> with the given stack values, as the worker reports them.</summary>
-    public void HitWith(string id, long thread, params ulong[] frames) => Worker!.Emit(new JsonObject
+    public void HitWith(string id, long thread, params ulong[] frames) => Stop(thread, new JsonObject
     {
         ["event"] = "stop", ["point"] = id, ["tid"] = thread, ["hits"] = 1,
         ["registers"] = new JsonObject { ["pc"] = $"0x{_points[id]:x}" },
@@ -60,13 +63,19 @@ internal sealed class ScriptedLiveBackend(string mainPath, ulong mainBase, uint 
     });
 
     /// <summary>A thread hitting stop point <paramref name="id"/> with the stack bytes at <paramref name="sp"/> and the frames the backend's own walk gave.</summary>
-    public void HitWithStack(string id, long thread, ulong sp, byte[] stack, params ulong[] frames) => Worker!.Emit(new JsonObject
+    public void HitWithStack(string id, long thread, ulong sp, byte[] stack, params ulong[] frames) => Stop(thread, new JsonObject
     {
         ["event"] = "stop", ["point"] = id, ["tid"] = thread, ["hits"] = 1,
         ["registers"] = new JsonObject { ["pc"] = $"0x{_points[id]:x}", ["sp"] = $"0x{sp:x}", ["rsp"] = $"0x{sp:x}", ["rbp"] = "0x0" },
         ["frames"] = new JsonArray([.. new[] { _points[id] }.Concat(frames).Select(f => (JsonNode)$"0x{f:x}")]),
         ["stack"] = Convert.ToHexStringLower(stack),
     });
+
+    private void Stop(long thread, JsonObject stop)
+    {
+        lock (_held) _held.Add(thread);
+        Worker!.Emit(stop);
+    }
 
     /// <summary>The program loading <paramref name="name"/> from <paramref name="path"/> at <paramref name="at"/>; <paramref name="heldBy"/>: the loading thread the worker holds.</summary>
     public void Load(string name, string path, ulong at, uint size, long? heldBy = null) => Worker!.Emit(new JsonObject
@@ -92,6 +101,7 @@ internal sealed class ScriptedLiveBackend(string mainPath, ulong mainBase, uint 
             case "hello": return new JsonObject { ["frida"] = "test" };
             case "open":
                 LastOpen = (JsonObject)args.DeepClone();
+                _suspended = args["spawn"] != null;
                 JsonNode program = new JsonObject { ["name"] = Path.GetFileName(mainPath), ["base"] = $"0x{mainBase:x}", ["size"] = mainSize, ["path"] = mainPath };
                 JsonNode system = new JsonObject { ["name"] = "system.dll", ["base"] = "0x7ffe00000000", ["size"] = 0x10000, ["path"] = "/nowhere/system.dll" };
                 return new JsonObject
@@ -118,7 +128,16 @@ internal sealed class ScriptedLiveBackend(string mainPath, ulong mainBase, uint 
             case "unload_script": return new JsonObject { ["unloaded"] = true };
             case "resume":
                 BeforeResumeReply?.Invoke();
-                return new JsonObject { ["resumed"] = args["thread"] is { } t ? new JsonArray((long)t) : new JsonArray(), ["started"] = true };
+                // as the worker: a program started suspended runs on the first resume of every thread
+                var started = _suspended && args["thread"] == null;
+                if (started) _suspended = false;
+                long[] resumed;
+                lock (_held)
+                {
+                    resumed = [.. _held.Where(h => args["thread"] is not { } t || h == (long)t).Distinct()];
+                    foreach (var r in resumed) _held.Remove(r);
+                }
+                return new JsonObject { ["resumed"] = new JsonArray([.. resumed.Select(r => (JsonNode)r)]), ["started"] = started };
             case "read":
                 // as Frida reads: the whole range or nothing; the pages Memory touches are readable, zero outside its bytes
                 ulong at = Convert.ToUInt64(((string)args["address"]!)[2..], 16);
@@ -184,6 +203,15 @@ public sealed class LiveSessionTests : IDisposable
         var again = await _tools.LiveBreak("live-1", wait: true, waitSeconds: 5);
         Assert.True(again.Contains("thread 77 stopped at s1"), again);
         Assert.Contains("live-1: stopped", again);
+    }
+
+    [Fact]
+    public async Task Continue_of_one_thread_leaves_a_suspended_program_suspended_and_says_so()
+    {
+        await _tools.LiveSession("spawn", program: Sqlite);
+        Assert.Contains("no thread was held; the program is still suspended: continue without thread starts it", await _tools.LiveBreak("live-1", "continue", thread: "5"));
+        Assert.Contains("program started", await _tools.LiveBreak("live-1", "continue"));
+        Assert.Contains("no thread was held\n", (await _tools.LiveBreak("live-1", "continue")).ReplaceLineEndings("\n"));
     }
 
     [Fact]

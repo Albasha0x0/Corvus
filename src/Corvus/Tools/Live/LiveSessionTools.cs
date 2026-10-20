@@ -236,7 +236,8 @@ public sealed partial class LiveSessionTools(ServerOptions options, LiveSessionS
                 case "continue":
                     var (resumed, started) = await live.ResumeAsync(s, ThreadId(thread), cancellationToken).ConfigureAwait(false);
                     head.AppendLine(started ? "program started" + (resumed.Count > 0 ? $"; resumed {resumed.Count} thread(s)" : "")
-                        : resumed.Count == 0 ? "no thread was held" : $"resumed thread(s) {string.Join(", ", resumed)}");
+                        : resumed.Count == 0 ? "no thread was held" + (s.State == "suspended" ? "; the program is still suspended: continue without thread starts it" : "")
+                        : $"resumed thread(s) {string.Join(", ", resumed)}");
                     break;
                 default:
                     throw new ToolError(ErrorCode.InvalidArgument, $"Unknown action '{action}'.", "action=list, set, clear or continue");
