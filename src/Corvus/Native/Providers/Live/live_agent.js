@@ -36,13 +36,17 @@ function stackFrom(sp) {
   }
 }
 
-function stopsIn(id, context) {
+// A bare point (a coverage count) sends only where it stopped: no stack, no registers.
+function stopsIn(id, context, bare) {
   const tid = Process.getCurrentThreadId();
   hits[id] = (hits[id] || 0) + 1;
-  const frames = [context.pc.toString()].concat(
-    Thread.backtrace(context, BACKTRACER).slice(0, 31).map(p => p.toString()));
   expect('resume-' + tid);
-  send({ type: 'stop', point: id, tid, hits: hits[id], registers: JSON.parse(JSON.stringify(context)), frames }, stackFrom(context.sp));
+  if (bare) send({ type: 'stop', point: id, tid, hits: hits[id], registers: {}, frames: [context.pc.toString()] });
+  else {
+    const frames = [context.pc.toString()].concat(
+      Thread.backtrace(context, BACKTRACER).slice(0, 31).map(p => p.toString()));
+    send({ type: 'stop', point: id, tid, hits: hits[id], registers: JSON.parse(JSON.stringify(context)), frames }, stackFrom(context.sp));
+  }
   waitFor('resume-' + tid);
 }
 
@@ -248,9 +252,9 @@ rpc.exports = {
     return { arch: Process.arch, platform: Process.platform, pointerSize: Process.pointerSize, pid: Process.id,
       modules: Process.enumerateModules().map(moduleRow) };
   },
-  set(id, address) {
+  set(id, address, bare) {
     // a probe: the onEnter form takes the stack top for a return address, which past a function's start is a saved register
-    points[id] = Interceptor.attach(ptr(address), function () { stopsIn(id, this.context); });
+    points[id] = Interceptor.attach(ptr(address), function () { stopsIn(id, this.context, bare === true); });
     return true;
   },
   clear(id) {

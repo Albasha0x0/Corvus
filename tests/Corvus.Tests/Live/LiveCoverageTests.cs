@@ -47,6 +47,8 @@ public sealed class LiveCoverageTests : IDisposable
         var n = int.Parse(Regex.Match(start, @"cov-1 counting (\d+) functions of e_sqlite3\.dll").Groups[1].Value);
         Assert.True(n >= 2, start);
         Assert.Equal(n, Count("set"));
+        // a coverage stop needs no stack or registers
+        lock (_backend.Bare) Assert.Equal(n, _backend.Bare.Count(id => id.StartsWith("cov-1.", StringComparison.Ordinal)));
         // sqlite3_open_v2 is one jmp: a stop point there lands in the function it leads to, counting every caller of that one
         Assert.Contains("1 function left out: a single jump", start);
         Assert.Contains("a single jump", _service.GetCoverage("cov-1").Unplaced[_service.GetCoverage("cov-1").Points.Single(p => p.Name == "sqlite3_open_v2").Rva]);

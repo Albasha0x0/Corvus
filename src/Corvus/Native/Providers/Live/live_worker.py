@@ -281,7 +281,7 @@ def handle(state, op, args):
     if op == "info":
         return state.require().info()
     if op == "set":
-        return state.require().set(args["id"], args["address"])
+        return state.require().set(args["id"], args["address"], bool(args.get("bare", False)))
     if op == "clear":
         return state.require().clear(args["id"])
     if op == "watch":

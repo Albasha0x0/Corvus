@@ -15,6 +15,8 @@ internal sealed class ScriptedLiveBackend(string mainPath, ulong mainBase, uint 
     public const int Pid = 4242;
     public FakeWorkerProcess? Worker { get; private set; }
     public readonly List<string> Ops = [];
+    /// <summary>Stop points set bare (no stack or registers sent).</summary>
+    public readonly HashSet<string> Bare = [];
     public string? Missing { get; init; }
     /// <summary>The arguments of the last open request (what the backend was asked to start or attach to).</summary>
     public JsonObject? LastOpen { get; private set; }
@@ -113,6 +115,7 @@ internal sealed class ScriptedLiveBackend(string mainPath, ulong mainBase, uint 
                 throw new InvalidOperationException($"Error: unable to intercept function at {args["address"]}; please file a bug");
             case "set":
                 _points[(string)args["id"]!] = Convert.ToUInt64(((string)args["address"]!)[2..], 16);
+                if (args["bare"] is { } bare && (bool)bare) lock (Bare) Bare.Add((string)args["id"]!);
                 return true;
             case "clear": return _points.Remove((string)args["id"]!);
             case "watch":

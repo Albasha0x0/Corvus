@@ -187,7 +187,7 @@ public sealed partial class LiveSessionService
                 }
                 run.Arm(id, points[i].Rva);
                 session.CoveragePoints[id] = run;
-                try { await session.Worker.RequestAsync("set", new JsonObject { ["id"] = id, ["address"] = $"0x{m.Base + points[i].Rva:X}" }, RequestTimeout, ct).ConfigureAwait(false); }
+                try { await session.Worker.RequestAsync("set", new JsonObject { ["id"] = id, ["address"] = $"0x{m.Base + points[i].Rva:X}", ["bare"] = true }, RequestTimeout, ct).ConfigureAwait(false); }
                 catch (ToolError e) when (e.Code is ErrorCode.Failed or ErrorCode.InvalidArgument or ErrorCode.Unsupported or ErrorCode.NotFound) { run.Refused(id, points[i].Rva, "the stop point was refused: " + e.Message); }
             }
         }
@@ -202,7 +202,7 @@ public sealed partial class LiveSessionService
             var id = $"{run.Id}.exit{++n}";
             run.ArmExit(id);
             session.CoveragePoints[id] = run;
-            try { await session.Worker.RequestAsync("set", new JsonObject { ["id"] = id, ["address"] = $"0x{m.Base + f.Start:X}" }, RequestTimeout, ct).ConfigureAwait(false); }
+            try { await session.Worker.RequestAsync("set", new JsonObject { ["id"] = id, ["address"] = $"0x{m.Base + f.Start:X}", ["bare"] = true }, RequestTimeout, ct).ConfigureAwait(false); }
             catch (ToolError e) when (e.Code is ErrorCode.Failed or ErrorCode.InvalidArgument or ErrorCode.Unsupported) { run.Retire(id); }
         }
         return run;
