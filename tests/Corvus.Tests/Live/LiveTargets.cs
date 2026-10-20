@@ -195,6 +195,60 @@ internal static class LivePrograms
         }
         """;
 
+    /// <summary>
+    /// lifecycle [steps] [calls]: steps joined by '+'; "line" waits for a line on stdin, "sleep" pauses 10 minutes, then
+    /// AddLine runs that many times (default 1000), the program prints the line count and ends: "fastexit" by _exit(3),
+    /// "fault" by a write through a null pointer, "stuck" by returning 7 with a TLS callback that holds the exit forever
+    /// (MSVC), otherwise by returning 5. AtExit is registered with atexit.
+    /// </summary>
+    public const string Lifecycle = Platform + """
+        #include <string.h>
+        struct Order { int id; int lines; double total; };
+        static volatile int g_sink, g_stuck;
+        NOINLINE int AddLine(struct Order* o, int qty)
+        {
+            o->lines += 1;
+            o->total += qty * 2.5;
+            return o->lines;
+        }
+        NOINLINE void AtExit(void)
+        {
+            g_sink += 1;
+        }
+        #ifdef _MSC_VER
+        static void NTAPI OnTls(PVOID h, DWORD reason, PVOID r) { if (reason == DLL_PROCESS_DETACH && g_stuck) for (;;) Sleep(10); }
+        #ifdef _M_IX86
+        #pragma comment(linker, "/INCLUDE:__tls_used")
+        #pragma comment(linker, "/INCLUDE:_tls_callback")
+        #else
+        #pragma comment(linker, "/INCLUDE:_tls_used")
+        #pragma comment(linker, "/INCLUDE:tls_callback")
+        #endif
+        #pragma const_seg(".CRT$XLB")
+        EXTERN_C const PIMAGE_TLS_CALLBACK tls_callback = OnTls;
+        #pragma const_seg()
+        #endif
+        int main(int argc, char** argv)
+        {
+            const char* steps = argc > 1 ? argv[1] : "";
+            int calls = argc > 2 ? atoi(argv[2]) : 1000;
+            struct Order o = { 7, 0, 0.0 };
+        #ifdef _WIN32
+            SetErrorMode(SEM_FAILCRITICALERRORS | SEM_NOGPFAULTERRORBOX);
+        #endif
+            atexit(AtExit);
+            if (strstr(steps, "line")) { char line[16]; if (!fgets(line, sizeof line, stdin)) return 9; }
+            if (strstr(steps, "sleep")) for (int i = 0; i < 6000; i++) Pause(100);
+            for (int i = 0; i < calls; i++) g_sink = AddLine(&o, i + 1);
+            printf("lines %d\n", o.lines);
+            fflush(stdout);
+            if (strstr(steps, "fastexit")) _exit(3);
+            if (strstr(steps, "fault")) *(volatile int*)0 = o.lines;
+            if (strstr(steps, "stuck")) { g_stuck = 1; return 7; }
+            return 5;
+        }
+        """;
+
     /// <summary>What workers prints for <paramref name="calls"/> calls per thread.</summary>
     public static long WorkersTotal(int calls) => WorkerThreads * Enumerable.Range(0, calls).Sum(i => (long)(i % 7));
 

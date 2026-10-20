@@ -14,6 +14,7 @@ internal sealed class InProcessServer : IAsyncDisposable
     private readonly IHost _host;
     private readonly Pipe _toServer = new(), _toClient = new();
     public McpClient Client { get; private set; } = null!;
+    public IServiceProvider Services => _host.Services;
 
     private InProcessServer(ServerOptions options) =>
         _host = ServerHost.Build(options, Guide.Core, server => server.WithStreamServerTransport(_toServer.Reader.AsStream(), _toClient.Writer.AsStream()));
