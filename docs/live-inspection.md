@@ -149,7 +149,8 @@ function are not counted. A run whose program ends first reads `ended` and keeps
 kernel file, registry, network and process providers, as PerfView and Process Monitor collect them, keeping the
 session program's events. Each entry is a time, a category (`file`, `registry`, `network`, `process`) and the name the
 OS reports: a file path with its drive letter, a registry key or value as `HKLM\...` / `HKCU\...`, a TCP connect or
-accept and each UDP endpoint once, a child program's image. `action=list` pages entries with a cursor (`category=`,
+accept and each UDP endpoint once, a child program's image. The files of the session's own agent are left out.
+`action=list` pages entries with a cursor (`category=`,
 `match=` filter), `action=report` lists each name once with its count and first time; a timeline keeps the latest
 100,000 entries, and it completes on `stop` or when the program exits, once the OS has delivered its buffers. Event
 tracing needs administrator rights or membership in Performance Log Users (`access_denied` otherwise); other platforms

@@ -120,7 +120,12 @@ public sealed partial class LiveSessionService
         if (_timelines.Values.Count(r => r.State == "recording") >= MaxSessions)
             throw new ToolError(ErrorCode.LimitExceeded, $"{MaxSessions} timelines are recording.", "stop one with live_timeline action=stop");
         var run = new LiveTimelineRun("tl-" + Interlocked.Increment(ref _nextTimeline), session, ActivitySource.Name);
-        run.Trace = ActivitySource.Start(session.ProcessId, run.Add);
+        // the session's own helpers (the agent and the DLLs it unpacks) are opened from the server's workers folder, never by the program
+        var own = Path.Combine(Native.Providers.AnalysisCache.DefaultRoot, "workers") + Path.DirectorySeparatorChar;
+        run.Trace = ActivitySource.Start(session.ProcessId, e =>
+        {
+            if (e.Category != "file" || !e.Name.StartsWith(own, StringComparison.OrdinalIgnoreCase)) run.Add(e);
+        });
         _timelines[run.Id] = run;
         return run;
     }

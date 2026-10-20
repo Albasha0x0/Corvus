@@ -141,6 +141,19 @@ public sealed class LiveTimelineTests : IDisposable
     }
 
     [Fact]
+    public async Task Files_of_the_sessions_own_helpers_are_left_out()
+    {
+        await _tools.LiveSession("attach", program: "4242");
+        await _tools.LiveTimeline("live-1", "start");
+        _source.Send("file", Path.Combine(Corvus.Native.Providers.AnalysisCache.DefaultRoot, "workers", "live-temp", "1a2b3c", "x86_64", "dbghelp.dll"));
+        _source.Send("file", @"C:\data\orders.txt");
+        var list = await _tools.LiveTimeline(action: "list", run: "tl-1");
+        Assert.DoesNotContain("dbghelp.dll", list);
+        Assert.Contains("#1 ", list);
+        Assert.Contains("orders.txt", list);
+    }
+
+    [Fact]
     public async Task A_report_page_of_long_names_holds_its_limit()
     {
         await _tools.LiveSession("attach", program: "4242");
