@@ -149,10 +149,18 @@ public sealed class LiveSession
         }
     }
 
-    internal void Release(IEnumerable<long> threads)
+    /// <summary>The last event sequence: a resume sent after it releases only the stops held up to it.</summary>
+    internal long Sequence
+    {
+        get { lock (_gate) return _sequence; }
+    }
+
+    /// <summary>Releases the threads' stops recorded up to <paramref name="upTo"/>; a thread that stopped again since keeps its new stop.</summary>
+    internal void Release(IEnumerable<long> threads, long upTo)
     {
         lock (_gate)
-            foreach (var t in threads) _held.Remove(t);
+            foreach (var t in threads)
+                if (_held.TryGetValue(t, out var h) && h.Sequence <= upTo) _held.Remove(t);
     }
 
     internal void ReleaseAll()
@@ -279,8 +287,19 @@ public sealed partial class LiveSessionService(AssemblyWorkspace workspace, Nati
             session.Platform = info.TryGetProperty("platform", out var platform) ? platform.GetString() ?? "" : "";
             session.Suspended = info.TryGetProperty("suspended", out var s) && s.GetBoolean();
             lock (session.Modules)
+            {
                 foreach (var m in info.GetProperty("modules").EnumerateArray().Select(Module))
                     if (!session.Modules.Any(x => x.Base == m.Base)) session.Modules.Add(m); // a load event may have come first
+                // Frida lists modules in no fixed order (and names a system DLL as the main module of a program started
+                // suspended): the program's own module, by the path the OS reports, leads, as the rest of the session expects
+                var mainPath = spawn ? target : LiveProgramScope.ImagePath(session.ProcessId);
+                if (mainPath != null && session.Modules.FindIndex(x => SamePath(x.Path, mainPath)) is > 0 and var at)
+                {
+                    var own = session.Modules[at];
+                    session.Modules.RemoveAt(at);
+                    session.Modules.Insert(0, own);
+                }
+            }
         }
         catch
         {
@@ -927,7 +946,7 @@ public sealed partial class LiveSessionService(AssemblyWorkspace workspace, Nati
         if (thread != null) args["thread"] = thread;
         var r = await session.Worker.RequestAsync("resume", args, RequestTimeout, ct).ConfigureAwait(false);
         var resumed = r.GetProperty("resumed").EnumerateArray().Select(x => x.GetInt64()).ToList();
-        session.Release(resumed);
+        session.Release(resumed, upTo);
         var started = r.GetProperty("started").GetBoolean();
         if (started) session.Suspended = false;
         return (resumed, started);
@@ -941,6 +960,8 @@ public sealed partial class LiveSessionService(AssemblyWorkspace workspace, Nati
         return r.GetProperty("bytes").GetString() is { } hex ? Convert.FromHexString(hex) : null;
     }
 
+        // a resumed thread can stop again before the reply arrives
+        var upTo = session.Sequence;
     internal static void Live(LiveSession session)
     {
         if (session.Closed || session.Ended != null)
@@ -957,6 +978,16 @@ public sealed partial class LiveSessionService(AssemblyWorkspace workspace, Nati
         if (session.Worker.IsAlive)
             await session.Worker.ShutdownAsync("close", new JsonObject { ["end"] = session.Spawned }, TimeSpan.FromSeconds(5)).ConfigureAwait(false);
         session.Worker.Dispose();
+    private static bool SamePath(string a, string b)
+    {
+        static string Full(string p)
+        {
+            try { return Path.GetFullPath(p.StartsWith(@"\\?\", StringComparison.Ordinal) ? p[4..] : p); }
+            catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException) { return p; }
+        }
+        return string.Equals(Full(a), Full(b), OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal);
+    }
+
         session.ProcessHandle?.Dispose();
         session.ReleaseAll();
         EndCoverage(session);

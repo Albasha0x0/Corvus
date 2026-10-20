@@ -25,6 +25,10 @@ internal sealed class ScriptedLiveBackend(string mainPath, ulong mainBase, uint 
     public readonly HashSet<ulong> Unhookable = [];
     /// <summary>What the session script was told to read for each watch.</summary>
     public readonly Dictionary<string, List<string>> WatchedKinds = [];
+    /// <summary>Lists the program's module after the system one, as Frida may order them.</summary>
+    public bool MainListedLast { get; init; }
+    /// <summary>Runs before the reply to a resume, as when a resumed thread stops again before the worker answers.</summary>
+    public Action? BeforeResumeReply { get; set; }
 
     public string Name => "scripted";
     public (string Reason, string Remediation)? Unavailable() => Missing == null ? null : (Missing, "install it");
@@ -75,12 +79,12 @@ internal sealed class ScriptedLiveBackend(string mainPath, ulong mainBase, uint 
             case "hello": return new JsonObject { ["frida"] = "test" };
             case "open":
                 LastOpen = (JsonObject)args.DeepClone();
+                JsonNode program = new JsonObject { ["name"] = Path.GetFileName(mainPath), ["base"] = $"0x{mainBase:x}", ["size"] = mainSize, ["path"] = mainPath };
+                JsonNode system = new JsonObject { ["name"] = "system.dll", ["base"] = "0x7ffe00000000", ["size"] = 0x10000, ["path"] = "/nowhere/system.dll" };
                 return new JsonObject
                 {
                     ["pid"] = ProcessId, ["arch"] = "x64", ["suspended"] = args["spawn"] != null,
-                    ["modules"] = new JsonArray(
-                        new JsonObject { ["name"] = Path.GetFileName(mainPath), ["base"] = $"0x{mainBase:x}", ["size"] = mainSize, ["path"] = mainPath },
-                        new JsonObject { ["name"] = "system.dll", ["base"] = "0x7ffe00000000", ["size"] = 0x10000, ["path"] = "/nowhere/system.dll" }),
+                    ["modules"] = MainListedLast ? new JsonArray(system, program) : new JsonArray(program, system),
                 };
             case "set" or "watch" when Unhookable.Contains(Convert.ToUInt64(((string)args["address"]!)[2..], 16)):
                 throw new InvalidOperationException($"Error: unable to intercept function at {args["address"]}; please file a bug");
@@ -99,7 +103,9 @@ internal sealed class ScriptedLiveBackend(string mainPath, ulong mainBase, uint 
                     _ = Task.Delay(20).ContinueWith(_ => Worker!.Emit(new JsonObject { ["event"] = "user_script", ["script"] = (string)args["id"]!, ["error"] = "Error: on purpose" }), TaskScheduler.Default);
                 return new JsonObject { ["loaded"] = (string)args["id"]! };
             case "unload_script": return new JsonObject { ["unloaded"] = true };
-            case "resume": return new JsonObject { ["resumed"] = args["thread"] is { } t ? new JsonArray((long)t) : new JsonArray(), ["started"] = true };
+            case "resume":
+                BeforeResumeReply?.Invoke();
+                return new JsonObject { ["resumed"] = args["thread"] is { } t ? new JsonArray((long)t) : new JsonArray(), ["started"] = true };
             case "read":
                 var at = Convert.ToUInt64(((string)args["address"]!)[2..], 16);
                 return new JsonObject { ["bytes"] = Memory.TryGetValue(at, out var b) ? Convert.ToHexStringLower(b.AsSpan(0, Math.Min(b.Length, (int)args["length"]!))) : null };
@@ -129,6 +135,33 @@ public sealed class LiveSessionTests : IDisposable
     {
         _service.Dispose();
         _workspace.Dispose();
+    }
+
+    [Fact]
+    public async Task The_programs_own_module_is_found_wherever_the_backend_lists_it()
+    {
+        var service = new LiveSessionService(_workspace, new NativeCodeService(_workspace, new ServerOptions())) { Backend = new ScriptedLiveBackend(Sqlite, Base, 0x200000) { MainListedLast = true } };
+        var tools = new LiveSessionTools(new ServerOptions { AllowLiveSpawn = true }, service);
+        await tools.LiveSession("spawn", program: Sqlite);
+        Assert.Contains("e_sqlite3.dll!sqlite3_open", await tools.LiveBreak("live-1", "set", at: "sqlite3_open"));
+        Assert.Matches(@"matched to loaded images:\s+0x7FF610000000 e_sqlite3\.dll", await tools.LiveSession("status", session: "live-1"));
+        service.Dispose();
+    }
+
+    [Fact]
+    public async Task A_thread_that_stops_again_before_the_resume_reply_keeps_its_new_stop()
+    {
+        await _tools.LiveSession("spawn", program: Sqlite);
+        await _tools.LiveBreak("live-1", "set", at: "e_sqlite3!sqlite3_open");
+        await _tools.LiveBreak("live-1", "continue");
+        _backend.Hit("s1", 77, Base + 0x1010);
+        Assert.Contains("thread 77 stopped at s1", await _tools.LiveBreak("live-1", wait: true, waitSeconds: 10));
+
+        _backend.BeforeResumeReply = () => _backend.Hit("s1", 77, Base + 0x1020);
+        await _tools.LiveBreak("live-1", "continue", thread: "77");
+        var again = await _tools.LiveBreak("live-1", wait: true, waitSeconds: 5);
+        Assert.True(again.Contains("thread 77 stopped at s1"), again);
+        Assert.Contains("live-1: stopped", again);
     }
 
     [Fact]
