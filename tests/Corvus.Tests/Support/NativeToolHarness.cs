@@ -76,6 +76,8 @@ internal sealed class NativeToolHarness : IDisposable
         ErrorCode? error = null;
         string? errorText = null;
         Exception? unexpected = null;
+        // the server's budget for this tool, so list pages are cut as a client receives them
+        Core.OutputCall.Begin(new Core.OutputCall(tool, Mcp.CallFilter.FitTokens(Mcp.CallFilter.Budget(tool, null, null)), null));
         // A call that ignores its cancellation is abandoned after a grace period and reported as a hang.
         try { text = await call(cts.Token).WaitAsync(bound + TimeSpan.FromSeconds(30)); }
         catch (ToolError e) { error = e.Code; errorText = e.Render(tool); }
