@@ -78,8 +78,10 @@ public sealed class LiveProgramScopeTests : IDisposable
     {
         var inside = Program("allowed");
         await Tools(allow: Path.Combine(_dir.Path, "allowed")).LiveSession("spawn", program: inside);
-        Assert.Equal(inside, (string?)_backend.LastOpen!["spawn"]);
-        Assert.Equal(Path.GetDirectoryName(inside), (string?)_backend.LastOpen!["cwd"]);
+        // the backend gets the final path (macOS: the temporary folder under /var is /private/var)
+        var final = LiveProgramScope.Canonical(inside);
+        Assert.Equal(final, (string?)_backend.LastOpen!["spawn"]);
+        Assert.Equal(Path.GetDirectoryName(final), (string?)_backend.LastOpen!["cwd"]);
     }
 
     [Fact]
@@ -130,6 +132,12 @@ public sealed class LiveProgramScopeTests : IDisposable
         var link = Path.Combine(_dir.Path, "link-to-allowed");
         Links.CreateDirectoryLink(link, allowed);
         Assert.True(LiveProgramScope.Contains([link], inside));
+        // a link whose target passes through another link
+        var parent = Path.Combine(_dir.Path, "link-to-dir");
+        Links.CreateDirectoryLink(parent, _dir.Path);
+        var through = Path.Combine(_dir.Path, "link-through");
+        Links.CreateDirectoryLink(through, Path.Combine(parent, "allowed"));
+        Assert.True(LiveProgramScope.Contains([through], inside));
     }
 
     [Fact]

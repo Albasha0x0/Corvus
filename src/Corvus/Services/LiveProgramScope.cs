@@ -68,7 +68,7 @@ public static class LiveProgramScope
     }
 
     /// <summary>The final path: junctions, symbolic links and short names resolved in every folder along it, not only the last.</summary>
-    private static string Canonical(string path)
+    internal static string Canonical(string path)
     {
         var full = Path.GetFullPath(path);
         return Path.TrimEndingDirectorySeparator((OperatingSystem.IsWindows() ? FinalPathOnWindows(full) : FinalPathByLinks(full)) ?? full);
@@ -86,7 +86,7 @@ public static class LiveProgramScope
             : final.StartsWith(@"\\?\", StringComparison.Ordinal) ? final[4..] : final;
     }
 
-    private static string FinalPathByLinks(string full)
+    private static string FinalPathByLinks(string full, int depth = 0)
     {
         var root = Path.GetPathRoot(full) ?? "";
         var current = root;
@@ -96,7 +96,9 @@ public static class LiveProgramScope
             try
             {
                 FileSystemInfo info = Directory.Exists(current) ? new DirectoryInfo(current) : new FileInfo(current);
-                if (info.LinkTarget != null && info.ResolveLinkTarget(returnFinalTarget: true) is { } target) current = Path.GetFullPath(target.FullName);
+                // a target's own folders can be links too (macOS: /var is /private/var); 40 is the kernel's limit on links followed
+                if (info.LinkTarget != null && info.ResolveLinkTarget(returnFinalTarget: true) is { } target)
+                    current = depth < 40 ? FinalPathByLinks(Path.GetFullPath(target.FullName), depth + 1) : Path.GetFullPath(target.FullName);
             }
             catch (Exception e) when (e is IOException or UnauthorizedAccessException) { }
         }
