@@ -12,8 +12,8 @@ public sealed class LiveJumpTests : IDisposable
 {
     private const ulong Base = 0x7ff6_2000_0000;
     private const ulong ImageBase = 0x140000000;
-    private const uint CfgStub = 0x1000, DirectJump = 0x1010, Function = 0x1020, SlotJump = 0x1030;
-    private const uint DispatchSlot = 0x2010, PointerSlot = 0x2018, LoadConfig = 0x2040;
+    private const uint CfgStub = 0x1000, DirectJump = 0x1010, Function = 0x1020, SlotJump = 0x1030, BoundJump = 0x1038, FirstCall = 0x1040;
+    private const uint DispatchSlot = 0x2010, PointerSlot = 0x2018, LoadConfig = 0x2040, BoundSlot = 0x3000;
     private readonly TempDir _dir = new();
     private readonly AssemblyWorkspace _workspace = new();
     private readonly LiveSessionService _service;
@@ -24,7 +24,7 @@ public sealed class LiveJumpTests : IDisposable
     {
         var path = Path.Combine(_dir.Path, "stubs.exe");
         File.WriteAllBytes(path, Image());
-        _backend = new ScriptedLiveBackend(path, Base, 0x3000);
+        _backend = new ScriptedLiveBackend(path, Base, 0x4000);
         _service = new LiveSessionService(_workspace, new NativeCodeService(_workspace, new ServerOptions())) { Backend = _backend };
         _tools = new LiveSessionTools(new ServerOptions { AllowLive = true, AllowLiveAttach = true }, _service);
     }
@@ -40,12 +40,14 @@ public sealed class LiveJumpTests : IDisposable
     private static byte[] Image()
     {
         static byte[] Rel(uint from, int length, uint to) => BitConverter.GetBytes((int)(to - (from + (uint)length)));
-        var text = Enumerable.Repeat((byte)0xCC, 0x40).ToArray();
+        var text = Enumerable.Repeat((byte)0xCC, 0x50).ToArray();
         void Put(uint rva, params byte[][] parts) => parts.SelectMany(p => p).ToArray().CopyTo(text, (int)(rva - 0x1000));
         Put(CfgStub, [0xFF, 0x25], Rel(CfgStub, 6, DispatchSlot));        // jmp [__guard_dispatch_icall_fptr]
         Put(DirectJump, [0xE9], Rel(DirectJump, 5, Function));             // jmp Function
         Put(Function, [0x55, 0x48, 0x89, 0xE5, 0x31, 0xC0, 0x5D, 0xC3]);    // push rbp; mov rbp, rsp; xor eax, eax; pop rbp; ret
         Put(SlotJump, [0xFF, 0x25], Rel(SlotJump, 6, PointerSlot));        // jmp [pointer]
+        Put(BoundJump, [0xFF, 0x25], Rel(BoundJump, 6, BoundSlot));        // jmp [writable pointer]
+        Put(FirstCall, [0x53, 0x48, 0x83, 0xEC, 0x20, 0x48, 0x83, 0xC4, 0x20, 0x5B, 0xC3]); // the stub the pointer holds until first use
 
         var rdata = new PeBlob(0x2000);
         rdata.Zero((int)(DispatchSlot - 0x2000));
@@ -60,6 +62,7 @@ public sealed class LiveJumpTests : IDisposable
         var pe = new PeBuilder { EntryPoint = Function, ImageBase = ImageBase };
         pe.Add(".text", text, 0x60000020);
         pe.Add(".rdata", rdata.ToArray());
+        pe.Add(".data", BitConverter.GetBytes(ImageBase + FirstCall), 0xC0000040);
         pe.Directories[10] = (LoadConfig, (uint)config.Length);
         return pe.Build();
     }
@@ -116,5 +119,26 @@ public sealed class LiveJumpTests : IDisposable
 
         var watch = await _tools.LiveWatchCalls("live-1", "set", at: At(DirectJump));
         Assert.Contains($"set at 0x{Base + Function:X}", watch);
+    }
+
+    /// <summary>A jump through a writable pointer the program rebinds later: the stop point moves to the bound code.</summary>
+    [Fact]
+    public async Task A_stop_point_through_a_pointer_the_program_rebinds_moves_with_it()
+    {
+        await _tools.LiveSession("attach", program: "4242");
+        var pointer = BitConverter.GetBytes(Base + FirstCall);
+        _backend.Memory[Base + BoundSlot] = pointer;
+
+        var set = await _tools.LiveBreak("live-1", "set", at: At(BoundJump));
+        Assert.Contains($"set at 0x{Base + FirstCall:X}", set);
+        BitConverter.GetBytes(Base + Function).CopyTo(pointer, 0); // the program binds it
+        string list = "";
+        for (int i = 0; i < 50 && !list.Contains($"0x{Base + Function:X}"); i++)
+        {
+            await Task.Delay(100);
+            list = await _tools.LiveBreak("live-1", "list");
+        }
+        Assert.Contains($"s1 {At(BoundJump)} at 0x{Base + Function:X}", list);
+        Assert.Contains("moved from", await _tools.LiveEvents("live-1"));
     }
 }

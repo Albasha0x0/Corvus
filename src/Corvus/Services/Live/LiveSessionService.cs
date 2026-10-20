@@ -26,6 +26,8 @@ public sealed record LiveStopPointState(string Id, string Where, ulong Address, 
     public int Hits { get; set; }
     /// <summary>Set when the location was a jump and the point went where it leads.</summary>
     public string? Followed { get; init; }
+    /// <summary>The writable pointer the jump went through and the value it held, which the program may still rebind (delay-load, first-call stubs).</summary>
+    internal (ulong Address, ulong Value)? Slot { get; init; }
 }
 
 /// <summary>A stop point or watch on a module the program has not loaded yet; set when the module loads.</summary>
@@ -793,7 +795,15 @@ public sealed partial class LiveSessionService(AssemblyWorkspace workspace, Nati
     /// </summary>
     internal async Task<(ulong Address, string? Followed)> FollowJumpsAsync(LiveSession session, ulong address, CancellationToken ct)
     {
+        var (a, followed, _) = await FollowJumpsThroughAsync(session, address, ct).ConfigureAwait(false);
+        return (a, followed);
+    }
+
+    /// <summary><see cref="FollowJumpsAsync"/>, also giving the last pointer in a writable section the path went through.</summary>
+    private async Task<(ulong Address, string? Followed, (ulong Address, ulong Value)? Slot)> FollowJumpsThroughAsync(LiveSession session, ulong address, CancellationToken ct)
+    {
         var start = address;
+        (ulong, ulong)? writable = null;
         for (int hop = 0; hop < 8; hop++)
         {
             LiveModuleState? m;
@@ -813,13 +823,60 @@ public sealed partial class LiveSessionService(AssemblyWorkspace workspace, Nati
                 int size = native.Image.Is64Bit ? 8 : 4;
                 if (await ReadAsync(session, m.Base + slot, size, ct).ConfigureAwait(false) is not { } b || b.Length < size) break;
                 next = size == 8 ? BitConverter.ToUInt64(b) : BitConverter.ToUInt32(b);
+                if (native.Image.Sections.FirstOrDefault(x => x.Contains(slot)) is { } sec && (sec.Access & SectionAccess.Write) != 0) writable = (m.Base + slot, next);
             }
             else break;
             if (next == 0 || next == address) break;
             lock (session.Modules) if (!session.Modules.Any(x => x.Contains(next))) break; // a target outside every module is no code to set a point on
             address = next;
         }
-        return address == start ? (start, null) : (address, $"{Name(session, start, ct: ct).Display} jumps to {Name(session, address, ct: ct).Display}, so it is set there");
+        return address == start ? (start, null, null) : (address, $"{Name(session, start, ct: ct).Display} jumps to {Name(session, address, ct: ct).Display}, so it is set there", writable);
+    }
+
+    private static readonly TimeSpan RebindPoll = TimeSpan.FromMilliseconds(100);
+
+    /// <summary>
+    /// Moves a stop point set through a writable pointer when the program rewrites the pointer (a delay-load import is bound,
+    /// a first-call stub fills its table): the code it pointed to at set time runs once or never. Calls between the rewrite
+    /// and the move are not seen.
+    /// </summary>
+    private async Task FollowRebindAsync(LiveSession session, string id, (ulong Address, ulong Value) slot)
+    {
+        int size = session.Arch is "ia32" or "arm" ? 4 : 8;
+        var seen = slot.Value;
+        while (!session.Closed && session.Ended == null)
+        {
+            LiveStopPointState? point;
+            lock (session.StopPoints) point = session.StopPoints.GetValueOrDefault(id);
+            if (point == null || point.Slot != slot) return;
+            try
+            {
+                var b = await ReadAsync(session, slot.Address, size, CancellationToken.None).ConfigureAwait(false);
+                if (b == null || b.Length < size) return;
+                var value = size == 8 ? BitConverter.ToUInt64(b) : BitConverter.ToUInt32(b);
+                if (value != seen)
+                {
+                    bool code;
+                    lock (session.Modules) code = session.Modules.Any(x => x.Contains(value));
+                    // cleared or pointed outside every module (a sentinel while it binds): keep waiting for a code address
+                    if (!code) { await Task.Delay(RebindPoll).ConfigureAwait(false); continue; }
+                    var (address, _, again) = await FollowJumpsThroughAsync(session, value, CancellationToken.None).ConfigureAwait(false);
+                    seen = value;
+                    if (address == point.Address) continue;
+                    await session.Worker.RequestAsync("clear", new JsonObject { ["id"] = id }, RequestTimeout, CancellationToken.None).ConfigureAwait(false);
+                    await session.Worker.RequestAsync("set", new JsonObject { ["id"] = id, ["address"] = $"0x{address:X}" }, RequestTimeout, CancellationToken.None).ConfigureAwait(false);
+                    var at = Name(session, address);
+                    var moved = point with { Address = address, At = at, Followed = $"{point.Where} went through a pointer the program rebound; it moved to {at.Display}", Slot = again };
+                    lock (session.StopPoints) session.StopPoints[id] = moved;
+                    session.Add("module", null, address, $"{id} moved from {point.At.Display} to {at.Display}: the program rebound the pointer at 0x{slot.Address:X}");
+                    if (again is not { } next) return;
+                    (slot, seen) = (next, next.Value);
+                    continue;
+                }
+            }
+            catch (Exception e) when (e is ToolError or TimeoutException or OperationCanceledException) { return; }
+            await Task.Delay(RebindPoll).ConfigureAwait(false);
+        }
     }
 
     /// <summary>RVAs of the image's CFG check and dispatch pointers (the load configuration's guard function pointers).</summary>
@@ -972,7 +1029,7 @@ public sealed partial class LiveSessionService(AssemblyWorkspace workspace, Nati
 
     public async Task<LiveStopPointState> SetAsync(LiveSession session, string where, CancellationToken ct, string? id = null)
     {
-        var (address, followed) = await FollowJumpsAsync(session, await ResolveAsync(session, where, ct).ConfigureAwait(false), ct).ConfigureAwait(false);
+        var (address, followed, slot) = await FollowJumpsThroughAsync(session, await ResolveAsync(session, where, ct).ConfigureAwait(false), ct).ConfigureAwait(false);
         await CheckInstructionStartAsync(session, address, ct).ConfigureAwait(false);
         CheckCoverageOverlap(session, address, "This stop point", ct);
         List<LiveWatchState> watches;
@@ -991,8 +1048,9 @@ public sealed partial class LiveSessionService(AssemblyWorkspace workspace, Nati
         id ??= session.NextPointId();
         try { await session.Worker.RequestAsync("set", new JsonObject { ["id"] = id, ["address"] = $"0x{address:X}" }, RequestTimeout, ct).ConfigureAwait(false); }
         catch (ToolError e) when (Unhookable(e)) { throw HookRefused(session, address, "stop point", ct); }
-        var point = new LiveStopPointState(id, where.Trim(), address, Name(session, address, ct: ct)) { Followed = followed };
+        var point = new LiveStopPointState(id, where.Trim(), address, Name(session, address, ct: ct)) { Followed = followed, Slot = slot };
         lock (session.StopPoints) session.StopPoints[id] = point;
+        if (slot is { } pointer) _ = Task.Run(() => FollowRebindAsync(session, id, pointer));
         return point;
     }
 

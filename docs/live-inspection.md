@@ -118,7 +118,9 @@ or by name: a session held there would freeze the client driving it.
 
 A stop point or watch on `module!name` whose module is not loaded yet is deferred, as a debugger defers an unresolved
 breakpoint: the loading thread waits at the module's load, before any of the module's code runs, until the point is set
-(a `module` event says so), so its first call is caught. An address inside an instruction, a stop point in the first 16 bytes of a watched or counted function (or a watch or count over one),
+(a `module` event says so), so its first call is caught. A stop point on a jump is set where the jump leads; when it leads
+through a pointer in a writable section (a delay-load import, an export that jumps through a table filled on first use),
+the point moves when the program rebinds the pointer, and a `module` event says so. An address inside an instruction, a stop point in the first 16 bytes of a watched or counted function (or a watch or count over one),
 two stop points whose hook jumps would overlap (closer than 5 bytes on 32-bit x86, 16 elsewhere), a watch past a function's
 start, and a function too short for a hook's jump are refused with the nearest place that works. The `exit` event carries the
 exit code the system reports (`exit code 0xC0000005 (EXCEPTION_ACCESS_VIOLATION)`; on Linux the status passed to `_exit`). On Windows, a program that called
