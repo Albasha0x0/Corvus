@@ -1,41 +1,5 @@
 # Known issues
 
-## Saving re-encodes invalid original method bodies silently
-
-**Status: resolved** (faithful saving with a report; the contract is in [saving.md](saving.md)).
-
-### What happened
-
-Once an assembly had an edit, `save_assembly` wrote the whole module again with dnlib (`LoadedAssembly.Write`), which
-re-encodes every method body from its parsed instructions. Original bodies dnlib cannot represent came back different,
-with its errors suppressed (`DummyLogger.NoThrowInstance`) and nothing in the save result:
-
-- **Empty bodies** (an RVA, zero instructions) were written with no body at all.
-- **Truncated bodies** (a branch past the end) had the branch written to offset 0.
-
-Found by the simplify_methods library sweep in the .NET Framework 4.8 reference assemblies: `mscorlib.dll` (20,906
-empty bodies, 5 truncated, e.g. `System.DefaultBinder::SelectProperty`) and `System.Xml.dll` (9,165 empty). No other
-swept library had a body the writer changed.
-
-### Outcome
-
-- **Faithful by default.** Every method body no edit changed is written with its original bytes, including bodies dnlib
-  cannot represent. Every signature no edit changed points at its original blob. Edits are encoded by dnlib as before.
-  An unmodified assembly is still saved as its original bytes.
-- **Checked and reported.** The written image is compared with the original, method by method and signature by
-  signature. The save result lists anything that differs although no edit asked for it, and anything invalid in the
-  original that was kept, one line per member with a reason code in the fallback-reason style. With dnlib's errors
-  collected, a writer error on an edited or added member is listed too.
-- **Strict mode.** `strict=true` refuses a save with any byte change it did not ask for, lists the members and writes
-  nothing.
-- **Result on the sweep.** The two reference assemblies now save their 20,921 (mscorlib) and 9,165 (System.Xml) invalid
-  bodies byte-for-byte and list them as kept. Across all 24 sweep libraries (about 144,000 methods), a rewrite changes
-  no body and no signature. `SaveFidelitySweepTests` keeps this as a permanent contract; `SaveFidelityTests` pins each
-  invalid shape, edits next to them, strict mode, and damaged images.
-
-What can still change on save is reported, never silent: a body whose header or code lies outside the image's
-sections cannot be copied, and is written as dnlib decoded it (`unreadable-body`).
-
 ## .NET 10 JIT crash: a conditional branch to its own fall-through at nested try regions
 
 **Status: worked around in simplify_methods; a runtime-level issue, not reported upstream yet.**

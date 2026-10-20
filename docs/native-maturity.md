@@ -1,4 +1,4 @@
-# Native track: tool-level reliability
+# Native tools: reliability and accuracy
 
 What was run against the native tools (`get_pe_info`, `list_imports`, `list_exports`, `resolve_address`,
 `search_bytes`, `read_bytes`, `list_resources` / `get_resource`, `list_functions`, `disassemble`, `get_cfg`,
@@ -61,33 +61,6 @@ The existing native sweeps still pass after the fixes: `NativeCodeSweepTests` (S
 Live memory measured step by step on codex.exe (317 MB): 369 MB after loading, 1.15 GB with its index (peak 2.1 GB
 while building), 33 MB after unloading. msedge.dll: 988,220 functions, 69 M instructions, 17.5 M references, index
 retained 883 MB. A build cancelled by an unload stops within about 5 s on these images.
-
-## Bugs found and fixed
-
-| Tool / area | Input | Symptom | Root cause | Fix |
-|---|---|---|---|---|
-| code index (`list_functions` and every code tool) | mutated section table: raw size far past the end of the file, section past SizeOfImage | 20 s-minutes on a 20 KB file, up to 1 GB allocated | code regions were the section's raw size, zero fill included | regions are the file-backed part inside SizeOfImage (`FileBackedLength`) |
-| `list_cpp_classes` | mutated headers (huge virtual sizes, SizeOfImage 0xFFFFFFFF) | over 120 s, a buffer of up to 512 MB per section | RTTI loaded each section's mapped size | only file-backed bytes, 2x the section limit in total |
-| `search_bytes` | the same | 30 s+ scanning gigabytes of zero fill | scanned the mapped size | scans file-backed bytes; matches of all-zero patterns in zero fill are counted |
-| `search_bytes` | any image, `limit` 10,000 | up to 350,000 characters (over the response budget); one allocation of the section's whole virtual size (up to 512 MB) | rows not paged; one buffer per section | 1 MB chunks, rows stop at the page size, `offset` parameter |
-| `search_bytes` | 500 MB images | 15 s text search | byte-by-byte comparison | vectorized search for the pattern's fixed prefix (2-3 s) |
-| `get_cfg` | ARM64 / unknown-machine image | `Error (internal)`: NotSupportedException | no architecture check (`disassemble` had one) | `unsupported` error |
-| code tools | unload or reload while a call waits for the index | OperationCanceledException (not a tool error) | the build's cancellation reached the caller | `conflict` error (`LoadedNative.Gone`) |
-| workspace | a call that resolved the image before an unload | a new index build nothing cancels | analysis created after the unload | unload / reload mark the image released; later disposable analysis is disposed and the call gets `conflict` |
-| workspace | two concurrent reloads of one image | two entries with the same id, one never released | the stale entry was not checked | stale unload / reload is a `conflict` (as main also does) |
-| workspace | `Dispose` | index builds and IDA sessions kept running | natives not released | released on dispose |
-| `decompile_native` | unload during IDA auto-analysis | the worker kept analyzing (minutes) | open not tied to the image's lifetime | open ends with the image; the waiting call gets `conflict` (57 ms) |
-| code index progress | msedge.dll over stdio | no progress for 56 s | progress was the phase's count, which restarts each phase and progress going backwards is dropped | progress is seconds waited; phase and counts in the message |
-| code index progress | msedge.dll | 26 s without a report in discovery | candidate verification and gap scans did not report | report at least every 0.5 s |
-| function discovery | image reaching the function limit (4 M) | gap scan loops forever | candidate accepted although nothing was added | rejected at the limit |
-| `read_bytes`, `native_call_tree` | 64 KB dump, large tree | output cut at 60,000 characters with a footer asking for an `offset` the tools did not take | missing parameters | `offset` / `maxChars` |
-
-## Adapters
-
-`CodeTestImage` and `MsvcTestImage` agree with `PeFile` on every image compared (image fields, imports, exports,
-`.pdata`, relocations, TLS callbacks, function starts, reference / string / instruction counts, RTTI classes).
-Tests on real files now use `PeFile`; the adapters remain for synthetic images built from code bytes
-(`CodeTestImage.Synthetic`) and for reading an image without its relocations (`MsvcTestImage`).
 
 ## Tested engine versions
 

@@ -90,6 +90,7 @@ tests/
   TestFixture.Consumer/   second assembly that uses the first (cross-assembly and virtual-dispatch references)
   Corvus.Tests/ service, patching, concurrency, protocol and real-assembly tests
 samples/Notes/            v1 and v2 of the guides' sample program (docs/guides, docs/showcase), built by the test project
+docs/                     user and contributor documentation; index in docs/README.md
 ```
 
 To add a tool, put the logic in a service, then add a `[McpServerTool]` method in `Tools/` that wraps it in

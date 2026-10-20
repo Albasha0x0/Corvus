@@ -96,7 +96,7 @@ Amazon Q, Kiro, Antigravity, Devin, Command Code, Grok Build, OMP and Pi. Any ot
 
 [Installation](docs/installation.md) · [Configuration](docs/configuration.md) · [Features](docs/features.md) · [Tool reference](docs/tools.md) ·
 [Command line](docs/cli.md) · [Errors](docs/errors.md) · [Troubleshooting](docs/troubleshooting.md) ·
-[FAQ](docs/faq.md) · [Release notes](docs/release-notes.md)
+[FAQ](docs/faq.md) · [Release notes](docs/release-notes.md) · [All pages](docs/README.md)
 
 Guides: [first session](docs/guides/1-first-session.md) · [decode and patch](docs/guides/2-decode-and-patch.md) ·
 [new build](docs/guides/3-new-build.md).
