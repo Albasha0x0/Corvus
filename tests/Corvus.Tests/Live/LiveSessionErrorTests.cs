@@ -112,6 +112,37 @@ public sealed class LiveSessionErrorTests : IDisposable
     }
 
     [Fact]
+    public async Task Inspect_process_takes_a_session_id_only_while_its_program_runs()
+    {
+        if (!OperatingSystem.IsWindows()) return;
+        static System.Diagnostics.Process Child() => System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(
+            Path.Combine(Environment.SystemDirectory, "findstr.exe"), "x") { RedirectStandardInput = true, UseShellExecute = false, CreateNoWindow = true })!;
+        using var observed = Child();
+        using var other = Child();
+        var backend = new ScriptedLiveBackend(Sqlite, Base, 0x200000) { ProcessId = observed.Id };
+        using var service = new LiveSessionService(_workspace, new NativeCodeService(_workspace, new ServerOptions())) { Backend = backend };
+        using var dumps = new MinidumpService();
+        var inspect = new LiveProcessTools(new LiveProcessService(dumps), service);
+        try
+        {
+            await new LiveSessionTools(new ServerOptions { AllowLiveAttach = true }, service).LiveSession("attach", program: $"{observed.Id}");
+            Assert.Contains($"{observed.Id}", await inspect.InspectProcess("live-1"));
+            await Refused(ErrorCode.NotFound, () => inspect.InspectProcess("live-2"), "No session 'live-2'");
+            observed.StandardInput.Close();
+            await observed.WaitForExitAsync();
+            backend.Worker!.Emit(new System.Text.Json.Nodes.JsonObject { ["event"] = "exit", ["reason"] = "process-terminated" });
+            for (int i = 0; i < 100 && service.Get("live-1").State != "exited"; i++) await Task.Delay(50);
+            service.Get("live-1").ProcessId = other.Id; // the id given to a new process
+            await Refused(ErrorCode.NotFound, () => inspect.InspectProcess("live-1"), "The program of session live-1 has ended");
+        }
+        finally
+        {
+            other.Kill();
+            if (!observed.HasExited) observed.Kill();
+        }
+    }
+
+    [Fact]
     public async Task A_script_loads_from_a_file_up_to_its_size_limit()
     {
         await _tools.LiveSession("attach", program: "4242");

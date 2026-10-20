@@ -1,5 +1,6 @@
 using System.ComponentModel;
 using ModelContextProtocol.Server;
+using Corvus.Core;
 using Corvus.Mcp;
 using Corvus.Services;
 
@@ -26,9 +27,14 @@ public sealed class LiveProcessTools(LiveProcessService live, LiveSessionService
         [Description(ToolSupport.MaxTokensDescription)] int? maxTokens = null,
         CancellationToken cancellationToken = default) => Task.Run(async () =>
     {
-        // a session id names the process that session observes
-        if (process.Trim().StartsWith("live-", StringComparison.OrdinalIgnoreCase) && sessions.Sessions.FirstOrDefault(s => s.Id.Equals(process.Trim(), StringComparison.OrdinalIgnoreCase)) is { } session)
+        // a session id names the process that session observes, while it runs: after its exit the id may name another process
+        if (System.Text.RegularExpressions.Regex.IsMatch(process.Trim(), @"^live-\d+$", System.Text.RegularExpressions.RegexOptions.IgnoreCase))
+        {
+            var session = sessions.Get(process);
+            if (session.State is "exited" or "failed" || session.Closed && session.Spawned)
+                throw new ToolError(ErrorCode.NotFound, $"The program of session {session.Id} has ended ({session.Ended}).", "open_minidump reads a snapshot saved while it ran (live_session action=snapshot)");
             process = session.ProcessId.ToString(System.Globalization.CultureInfo.InvariantCulture);
+        }
         var r = await live.Inspect(process, view, thread, offset, limit, regionFilter, maxFrames, imageDirectories, timeoutSeconds, cancellationToken);
         var header = DumpText.LiveHeader(r);
         return r.View switch
