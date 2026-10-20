@@ -226,7 +226,7 @@ public sealed class NativeCallTools(AssemblyWorkspace workspace, NativeCodeServi
     }
 
     private static string Where(NativeCodeIndex index, uint rva) =>
-        index.FunctionAt(rva) is { } f ? $"{f.Name}+0x{rva - f.Start:X}" : NativeAddress.Va(index.Image, rva);
+        index.FunctionAt(rva) is { } f ? Format.Within(f.Name, f.Start, rva) : NativeAddress.Va(index.Image, rva);
 
     /// <summary>get_pe_info view=code: late-bound imports and modules loaded by name at run time.</summary>
     internal static string DynamicSection(NativeCodeIndex index, CancellationToken ct)

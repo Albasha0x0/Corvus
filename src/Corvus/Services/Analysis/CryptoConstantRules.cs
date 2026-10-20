@@ -1,3 +1,4 @@
+using Corvus.Core;
 using Corvus.Native;
 
 namespace Corvus.Services.Analysis;
@@ -75,7 +76,7 @@ internal sealed class CryptoConstantRules : ISurveyRuleProvider
                     uint rva = section.Rva + (uint)(from + at);
                     count++;
                     if (locations.Count < MaxLocations)
-                        locations.Add($"{constant.Algorithm} @{NativeAddress.Va(image, rva)}" + (index.FunctionAt(rva) is { } f ? $" in {f.Name}+0x{rva - f.Start:X}" : $" in {section.Name}"));
+                        locations.Add($"{constant.Algorithm} @{NativeAddress.Va(image, rva)}" + (index.FunctionAt(rva) is { } f ? $" in {Format.Within(f.Name, f.Start, rva)}" : $" in {section.Name}"));
                     from += at + pattern.Length;
                 }
         }

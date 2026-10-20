@@ -184,7 +184,7 @@ public sealed class NativeTypeInfoTools(AssemblyWorkspace workspace, NativeCodeS
     {
         private readonly Dictionary<string, IReadOnlyList<NativeTypeEnumerator>?> _enums = new(StringComparer.Ordinal);
 
-        private string? NameAt(uint rva) => index?.NameAt(rva) ?? (index?.FunctionAt(rva) is { } f ? $"{f.Name}+0x{rva - f.Start:X}" : null);
+        private string? NameAt(uint rva) => index?.NameAt(rva) ?? (index?.FunctionAt(rva) is { } f ? Format.Within(f.Name, f.Start, rva) : null);
 
         public async Task<List<NativeTypeField>> Fields(uint at, List<NativeTypeField> fields, CancellationToken ct)
         {

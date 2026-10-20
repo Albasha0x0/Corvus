@@ -102,7 +102,7 @@ internal sealed class Arm32Trace : ITraceHost
     {
         var index = a.Index;
         string Va(uint r) => NativeAddress.Va(index.Image, r);
-        string Where(uint r) => index.FunctionAt(r) is { } f ? $"{f.Name}+0x{r - f.Start:X}" : Va(r);
+        string Where(uint r) => index.FunctionAt(r) is { } f ? Format.Within(f.Name, f.Start, r) : Va(r);
         var fn = index.FunctionAt(rva);
         if (!string.IsNullOrWhiteSpace(argument))
         {

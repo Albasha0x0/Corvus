@@ -252,7 +252,7 @@ public sealed class NativeFunctionTools(AssemblyWorkspace workspace, NativeCodeS
     {
         var image = index.Image;
         string Va(uint r) => NativeAddress.Va(image, r);
-        string Where(uint r) => index.FunctionAt(r) is { } fn ? $"{index.NameAt(fn.Start) ?? fn.Name}+0x{r - fn.Start:X}" : Va(r);
+        string Where(uint r) => index.FunctionAt(r) is { } fn ? Format.Within(index.NameAt(fn.Start) ?? fn.Name, fn.Start, r) : Va(r);
         var calls = CallAnalysis.Supports(index) ? CallAnalysis.For(index) : null;
         var name = index.NameAt(f.Start) ?? f.Name;
         var ranges = index.Ranges(f).ToList();

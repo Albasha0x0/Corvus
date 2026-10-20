@@ -32,7 +32,7 @@ internal sealed class NativeFeatureScan(NativeCodeIndex index, CancellationToken
 
     private string Va(uint rva) => NativeAddress.Va(index.Image, rva);
 
-    private string Where(uint rva) => index.FunctionAt(rva) is { } f ? $"{f.Name}+0x{rva - f.Start:X} @{Va(rva)}" : $"@{Va(rva)}";
+    private string Where(uint rva) => index.FunctionAt(rva) is { } f ? $"{Format.Within(f.Name, f.Start, rva)} @{Va(rva)}" : $"@{Va(rva)}";
 
     public Evidence? Evaluate(string feature)
     {

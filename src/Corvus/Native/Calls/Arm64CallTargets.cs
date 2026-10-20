@@ -1,5 +1,6 @@
 using System.Runtime.CompilerServices;
 using AsmArm64;
+using Corvus.Core;
 using Corvus.Native.Code;
 
 namespace Corvus.Native.Calls;
@@ -159,7 +160,7 @@ internal static class Arm64CallTargets
         var index = a.Index;
         var targets = new List<CallTarget>();
         var unknown = new List<string>();
-        string Where(uint r) => index.FunctionAt(r) is { } f ? $"{f.Name}+0x{r - f.Start:X}" : a.Va(r);
+        string Where(uint r) => index.FunctionAt(r) is { } f ? Format.Within(f.Name, f.Start, r) : a.Va(r);
         var writers = index.RefsTo(g).Where(x => x.Kind == XrefKind.Write).DistinctBy(x => x.From).ToList();
         Span<byte> buffer = stackalloc byte[8];
         if (a.IsRelocated(g) && index.Image.Read(g, buffer) == 8 && BitConverter.ToUInt64(buffer) is var p

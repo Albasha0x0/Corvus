@@ -288,7 +288,7 @@ public sealed partial class NativeCodeTools
         private static partial Regex Literal();
     }
 
-    private static string Where(NativeFunction? f, uint rva) => f != null ? $"{f.Name}+0x{rva - f.Start:X}" : "-";
+    private static string Where(NativeFunction? f, uint rva) => f != null ? Format.Within(f.Name, f.Start, rva) : "-";
 
     private static InstructionScan ScanIndex(NativeCodeIndex index, List<(uint Start, uint End, NativeFunction? Function)> ranges, ScanState state,
         int fromRange, uint fromRva, CancellationToken ct)

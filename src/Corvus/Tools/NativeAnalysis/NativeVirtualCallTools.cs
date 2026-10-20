@@ -134,7 +134,7 @@ public sealed class NativeVirtualCallTools(AssemblyWorkspace workspace, NativeCo
         string? ClassOf(VirtualCallSite s) => s.ClassTypeDescriptor != 0 ? classNames.GetValueOrDefault(s.ClassTypeDescriptor)
             : aotTypes?.ByRva.GetValueOrDefault(s.VftableRva)?.Name; // NativeAOT: the MethodTable holds the vtable
         string Va(uint r) => NativeAddress.Va(index.Image, r);
-        string Where(uint r) => index.FunctionAt(r) is { } f ? $"{f.Name}+0x{r - f.Start:X}" : Va(r);
+        string Where(uint r) => index.FunctionAt(r) is { } f ? Format.Within(f.Name, f.Start, r) : Va(r);
         int start = Math.Clamp(offset, 0, list.Count);
         var page = list.Skip(start).Take(Math.Clamp(limit, 1, 1000)).Select(s =>
         {

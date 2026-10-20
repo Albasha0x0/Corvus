@@ -326,7 +326,7 @@ public sealed partial class NativeCodeTools
         var from = index.RefsFrom(c.Rva, c.Rva + (uint)insn.Length).Select(x => new InstructionReference(Va(x.From), Va(x.To), x.Kind.ToString(), Name(x.To))).ToList();
         if (from.Count > 0) sb.AppendLine("  references from: " + string.Join("; ", from.Select(r => $"{r.Kind} {r.To}{(r.Name != null ? " " + r.Name : "")}")));
         int toCount = index.CountRefsTo(c.Rva);
-        string Where(uint r) => index.FunctionAt(r) is { } fn ? $"{fn.Name}+0x{r - fn.Start:X}" : Va(r);
+        string Where(uint r) => index.FunctionAt(r) is { } fn ? Format.Within(fn.Name, fn.Start, r) : Va(r);
         var to = index.RefsTo(c.Rva, 8).Select(x => new InstructionReference(Va(x.From), Va(x.To), x.Kind.ToString(), Where(x.From))).ToList();
         if (toCount > 0) sb.AppendLine($"  references to: {toCount} (" + string.Join("; ", to.Select(r => $"{r.Kind} from {r.Name}")) + (toCount > to.Count ? "; ..." : "") + ")");
 
@@ -405,7 +405,7 @@ public sealed partial class NativeCodeTools
     private static string? TargetItem(NativeCodeIndex index, AddressClassifier? classifier, uint target, bool memory, CancellationToken ct)
     {
         var parts = new List<string>();
-        if (index.FunctionAt(target) is { } f) parts.Add(target == f.Start ? "function" : $"inside {f.Name}+0x{target - f.Start:X}");
+        if (index.FunctionAt(target) is { } f) parts.Add(target == f.Start ? "function" : $"inside {Format.Within(f.Name, f.Start, target)}");
         else if (classifier?.DataItemAt(target, null, ct) is { } item)
             parts.Add(item.Start == target ? $"{item.Kind}: {item.Text}" : $"{item.Kind} at +0x{target - item.Start:X}: {item.Text}");
         else if (index.Image.SectionAt(target) is { } s) parts.Add($"{s.Name} data");

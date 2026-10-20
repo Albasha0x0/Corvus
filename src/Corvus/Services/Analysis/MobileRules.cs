@@ -1,4 +1,5 @@
 using System.Text.RegularExpressions;
+using Corvus.Core;
 using Corvus.Core.Mobile;
 using Corvus.Native;
 using Corvus.Native.Code;
@@ -296,7 +297,7 @@ internal sealed class MobileRules : ISurveyRuleProvider
         var image = index.Image;
         var found = new List<string>();
         int count = 0;
-        string Where(uint rva) => index.FunctionAt(rva) is { } f ? $"{index.NameAt(f.Start) ?? f.Name}+0x{rva - f.Start:X} @{NativeAddress.Va(image, rva)}" : $"@{NativeAddress.Va(image, rva)}";
+        string Where(uint rva) => index.FunctionAt(rva) is { } f ? $"{Format.Within(index.NameAt(f.Start) ?? f.Name, f.Start, rva)} @{NativeAddress.Va(image, rva)}" : $"@{NativeAddress.Va(image, rva)}";
         void Refs(ObjcReference r, string what)
         {
             var sites = index.RefsTo((uint)(r.Va - image.ImageBase), 1000);

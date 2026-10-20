@@ -14,6 +14,9 @@ public static class Format
     public static string Percent(double ratio, int decimals = 0) =>
         Math.Round(ratio * 100, decimals, MidpointRounding.AwayFromZero).ToString(decimals == 0 ? "0" : "0." + new string('0', decimals), System.Globalization.CultureInfo.InvariantCulture) + "%";
 
+    /// <summary>"name+0x1A", or "name-0x1A" for code of the function placed before its entry (a cold chunk).</summary>
+    public static string Within(string name, uint start, uint at) => at >= start ? $"{name}+0x{at - start:X}" : $"{name}-0x{start - at:X}";
+
     /// <summary>The file name of a path recorded on another OS (PDB modules, Windows paths read on Linux): splits on both separators.</summary>
     public static string ForeignFileName(string path) => path[(path.LastIndexOfAny(['\\', '/']) + 1)..];
 

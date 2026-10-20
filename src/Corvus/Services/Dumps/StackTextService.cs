@@ -352,7 +352,7 @@ public sealed class StackTextService(AssemblyWorkspace workspace, NativeCodeServ
         if (found == null && native.Image.Exports.Where(e => e.ForwardedTo == null && e.Rva <= rva && e.Name != null).MaxBy(e => e.Rva) is { } export)
             found = (export.Name!, "nearest_export", export.Rva);
         if (found is not { } n) return (null, "none");
-        return (rva == n.Start ? n.Name : $"{n.Name}+0x{rva - n.Start:X}", n.Source);
+        return (rva == n.Start ? n.Name : Format.Within(n.Name, n.Start, rva), n.Source);
     }
 
     private sealed record ManagedMatch(string Kind, string? Resolved, string? Assembly, string? Token, string Check, string? Detail, string? Next)

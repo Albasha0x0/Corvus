@@ -41,12 +41,12 @@ public sealed record LiveRingEvent(long Sequence, string Kind, long? Thread, ulo
 /// An address joined to the static model: its module, the loaded image and RVA, the containing function's name and offset,
 /// the PDB source line, and the function start a saved record names (null when the image gives no name).
 /// </summary>
-public sealed record LiveFrameName(ulong Address, string? Module, LoadedNative? Image, uint Rva, string? Function, uint Offset, string? Source,
+public sealed record LiveFrameName(ulong Address, string? Module, LoadedNative? Image, uint Rva, string? Function, long Offset, string? Source,
     EvidenceName? Named)
 {
     public string Display => Module == null ? $"0x{Address:X}"
         : Function == null ? $"{Module}+0x{Rva:X}"
-        : Offset == 0 ? $"{Module}!{Function}" : $"{Module}!{Function}+0x{Offset:X}";
+        : Offset == 0 ? $"{Module}!{Function}" : Offset > 0 ? $"{Module}!{Function}+0x{Offset:X}" : $"{Module}!{Function}-0x{-Offset:X}";
 }
 
 /// <summary>A function start by image, SHA-256 and RVA with the name it had, for read_result format=verify.</summary>
@@ -682,13 +682,13 @@ public sealed partial class LiveSessionService(AssemblyWorkspace workspace, Nati
             return NearestExport(module.Path, rva) is { } e ? new(address, module.Name, null, rva, e.Name, rva - e.Rva, null, null)
                 : new(address, module.Name, null, rva, null, 0, null, null);
         string? function = null, source = null;
-        uint offset = 0;
+        long offset = 0;
         EvidenceName? named = null;
         if (code.Ready(native) is { } index && index.FunctionAt(rva) is { } f)
         {
             var name = index.NameAt(f.Start);
             function = name ?? $"sub_{native.Image.ImageBase + f.Start:X}";
-            offset = rva - f.Start;
+            offset = (long)rva - f.Start; // negative in a chunk placed before the entry
             if (name != null) named = new(native.Id, native.OriginalSha256, f.Start, name);
         }
         if (PdbService.StateOf(native)?.Pdb.Source is { } lines && lines.Lookup([returnAddress && rva > 0 ? rva - 1 : rva], ct)[0] is { } at)

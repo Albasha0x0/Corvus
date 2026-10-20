@@ -1,4 +1,5 @@
 using System.Buffers.Binary;
+using Corvus.Core;
 using Corvus.Native.Code;
 
 namespace Corvus.Native.Calls;
@@ -830,7 +831,7 @@ public sealed class ValueTrace
         return (TraceNodeKind.Const, $"{(v < 10 ? v.ToString() : $"0x{v:X}")} (initial contents)", v, null);
     }
 
-    private string Where(uint rva) => Index.FunctionAt(rva) is { } f ? $"{f.Name}+0x{rva - f.Start:X}" : Va(rva);
+    private string Where(uint rva) => Index.FunctionAt(rva) is { } f ? Format.Within(f.Name, f.Start, rva) : Va(rva);
 
     private static string AppendNote(string derivation, string note) => derivation.Length == 0 ? note : derivation + "; " + note;
 

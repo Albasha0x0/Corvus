@@ -468,7 +468,7 @@ public sealed partial class NativeTools(AssemblyWorkspace workspace, OutputPager
     private static Facets CodeFacets(StringBuilder sb, NativeCodeIndex index, uint rva, CancellationToken ct)
     {
         string Va(uint r) => NativeAddress.Va(index.Image, r);
-        string? function = index.FunctionAt(rva) is { } f ? (rva == f.Start ? f.Name : $"{f.Name}+0x{rva - f.Start:X}") : null;
+        string? function = index.FunctionAt(rva) is { } f ? (rva == f.Start ? f.Name : Format.Within(f.Name, f.Start, rva)) : null;
         if (function != null) sb.AppendLine($"  in function {function}");
         string? status = null, containing = null, item = null;
         if (index.Support == CodeSupport.Full)

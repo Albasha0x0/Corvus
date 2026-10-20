@@ -1,4 +1,5 @@
 using System.Text;
+using Corvus.Core;
 using Corvus.Native;
 using Corvus.Native.Code;
 
@@ -21,7 +22,7 @@ public sealed partial class NativeCodeTools
     private static string OurCallSites(NativeCodeIndex index, NativeFunction fn, CallEdgeFilter edges, CancellationToken ct)
     {
         string Va(uint r) => NativeAddress.Va(index.Image, r);
-        string Where(uint from) => index.FunctionAt(from) is { } f ? $"{index.NameAt(f.Start) ?? f.Name}+0x{from - f.Start:X}" : "(no function)";
+        string Where(uint from) => index.FunctionAt(from) is { } f ? Format.Within(index.NameAt(f.Start) ?? f.Name, f.Start, from) : "(no function)";
         var callers = index.Callers(fn, edges);
         var callees = index.Callees(fn, edges);
         ct.ThrowIfCancellationRequested();

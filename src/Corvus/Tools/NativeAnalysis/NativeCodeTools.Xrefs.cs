@@ -251,7 +251,7 @@ public sealed partial class NativeCodeTools
 
     private const string UnconfirmedPointer = "unconfirmed: no relocations, accepted by address range";
 
-    private static string Where(NativeCodeIndex index, uint from) => index.FunctionAt(from) is { } f ? $"{f.Name}+0x{from - f.Start:X}" : "(no function)";
+    private static string Where(NativeCodeIndex index, uint from) => index.FunctionAt(from) is { } f ? Format.Within(f.Name, f.Start, from) : "(no function)";
 
     /// <summary>A target's name, pointer name or string.</summary>
     private static string? Target(NativeCodeIndex index, uint rva, CancellationToken ct) =>

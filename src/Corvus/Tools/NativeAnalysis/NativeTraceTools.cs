@@ -187,7 +187,7 @@ public sealed class NativeTraceTools(AssemblyWorkspace workspace, NativeCodeServ
         var index = a.Index;
         var rva = NativeCodeTools.Address(index, address);
         string Va(uint r) => NativeAddress.Va(index.Image, r);
-        string Where(uint r) => index.FunctionAt(r) is { } f ? $"{f.Name}+0x{r - f.Start:X}" : Va(r);
+        string Where(uint r) => index.FunctionAt(r) is { } f ? Format.Within(f.Name, f.Start, r) : Va(r);
         var fn = index.FunctionAt(rva);
         var slices = a.Slices;
         if (!string.IsNullOrWhiteSpace(argument))
@@ -262,7 +262,7 @@ public sealed class NativeTraceTools(AssemblyWorkspace workspace, NativeCodeServ
         var index = a.Index;
         var rva = NativeCodeTools.Address(index, address);
         string Va(uint r) => NativeAddress.Va(index.Image, r);
-        string Where(uint r) => index.FunctionAt(r) is { } f ? $"{f.Name}+0x{r - f.Start:X}" : Va(r);
+        string Where(uint r) => index.FunctionAt(r) is { } f ? Format.Within(f.Name, f.Start, r) : Va(r);
         var fn = index.FunctionAt(rva);
         if (!string.IsNullOrWhiteSpace(argument))
         {
