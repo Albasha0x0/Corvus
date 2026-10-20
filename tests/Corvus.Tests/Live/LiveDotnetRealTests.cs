@@ -57,8 +57,8 @@ internal sealed class DotnetTarget
         return runtimes.Contains($"Microsoft.NETCore.App {Major}.", StringComparison.Ordinal) ? null : $"No .NET {Major} runtime.";
     }
 
-    /// <summary>Builds <see cref="LiveDotnetRealTests.Readers"/> in <paramref name="dir"/>; returns the program's apphost, or its single-file bundle (ReadyToRun on request).</summary>
-    public string Build(TempDir dir, bool singleFile = false, bool readyToRun = false)
+    /// <summary>Builds <see cref="LiveDotnetRealTests.Readers"/> (or <paramref name="source"/>) in <paramref name="dir"/>; returns the program's apphost, or its single-file bundle (ReadyToRun on request).</summary>
+    public string Build(TempDir dir, bool singleFile = false, bool readyToRun = false, string? source = null)
     {
         // the folder's own (empty) build files keep a parent folder's out of the build
         File.WriteAllText(dir.File("Directory.Build.props"), "<Project />");
@@ -73,7 +73,7 @@ internal sealed class DotnetTarget
               </PropertyGroup>
             </Project>
             """);
-        File.WriteAllText(dir.File("Program.cs"), LiveDotnetRealTests.Readers);
+        File.WriteAllText(dir.File("Program.cs"), source ?? LiveDotnetRealTests.Readers);
         var (code, log) = singleFile
             ? Tools.Dotnet(dir.Path, "publish", "-c", "Release", "-r", RuntimeIdentifier ?? Name, "--self-contained", "false", "-p:PublishSingleFile=true", $"-p:PublishReadyToRun={readyToRun}", "-o", "out", "-nologo")
             : Tools.Dotnet(dir.Path, "build", "-c", "Release", "-o", "out", "-nologo");
@@ -328,6 +328,57 @@ public sealed class LiveDotnetRealTests(ITestOutputHelper output) : LiveToolCall
         Assert.Contains(" call ", calls);
         Assert.Contains("running", await Ok(server, "live_session", new() { ["action"] = "status", ["session"] = "live-1" }));
         Assert.Contains("closed", await Ok(server, "live_session", new() { ["action"] = "close", ["session"] = "live-1" }));
+    }
+
+    /// <summary>
+    /// A stop at JIT-compiled code, then many more methods compiled after it, which the runtime places next to the stopped
+    /// one: a write to the code must not leave the program running stale copies of those pages.
+    /// </summary>
+    [DotnetTargetFact("win-x64")]
+    public async Task Methods_compiled_after_a_stop_run_on_win_x64()
+    {
+        const int methods = 400;
+        var source = $$"""
+            using System.Runtime.CompilerServices;
+
+            static class Compiled
+            {
+                static long s_sum;
+
+                static int Main()
+                {
+                    for (int i = 0; i < 1000; i++) { Once(); Thread.Sleep(10); }
+                    {{string.Concat(Enumerable.Range(0, methods).Select(i => $"M{i}(); "))}}
+                    Console.WriteLine(s_sum);
+                    return 0;
+                }
+
+                [MethodImpl(MethodImplOptions.NoInlining)] static void Once() => s_sum += 1;
+                {{string.Concat(Enumerable.Range(0, methods).Select(i => $"[MethodImpl(MethodImplOptions.NoInlining)] static void M{i}() => s_sum += {i} * (s_sum | 1) % 7; "))}}
+            }
+            """;
+        var exe = DotnetTarget.WinX64.Build(_dir, source: source);
+        await using var server = await Server();
+        var pid = await Spawn(server, exe, "live-1");
+        await Ok(server, "live_break", new() { ["session"] = "live-1", ["action"] = "set", ["at"] = "readers.dll!Compiled::Once" });
+        Assert.Contains("stopped at s1", await Ok(server, "live_break", new() { ["session"] = "live-1", ["action"] = "continue", ["wait"] = true, ["waitSeconds"] = 60 }));
+        await Ok(server, "live_break", new() { ["session"] = "live-1", ["action"] = "clear", ["stopPoint"] = "s1" });
+        await Ok(server, "live_break", new() { ["session"] = "live-1", ["action"] = "continue" });
+        Assert.Matches(@"exit code 0(?![0-9xX])", await Exited(server, "live-1", pid));
+        Assert.Contains("closed", await Ok(server, "live_session", new() { ["action"] = "close", ["session"] = "live-1" }));
+
+        // with W^X turned back on, a point there is refused rather than set
+        await Ok(server, "live_session", new() { ["action"] = "spawn", ["program"] = exe, ["environment"] = new[] { "DOTNET_EnableWriteXorExecute=1" } });
+        await Ok(server, "live_break", new() { ["session"] = "live-2", ["action"] = "set", ["at"] = "readers.dll!Compiled::Once" });
+        await Ok(server, "live_break", new() { ["session"] = "live-2", ["action"] = "continue" });
+        string errors = "";
+        for (int i = 0; i < 100 && !errors.Contains("could not be set", StringComparison.Ordinal); i++)
+        {
+            await Task.Delay(100);
+            errors = await Events(server, "live-2", kind: "error", log: false);
+        }
+        Assert.Contains("shared memory view", errors);
+        Assert.Contains("closed", await Ok(server, "live_session", new() { ["action"] = "close", ["session"] = "live-2" }));
     }
 
     /// <summary>A stop by name in a .NET Framework assembly whose native image (name.ni.dll) loads in its place.</summary>

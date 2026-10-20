@@ -113,6 +113,9 @@ A session ends on `close`, after `CORVUS_LIVE_MAX_MINUTES` (default 30) and with
 thread, and a program the session started is ended. A started program runs in its own folder and its output arrives
 as `output` events. It gets a minimal environment (`PATH`, `TEMP`, the user folders) plus `DOTNET_ROOT*` from the server;
 `environment=["NAME=value"]` on spawn sets more. Other server variables, such as tokens, are not passed on.
+A started program also gets `DOTNET_EnableWriteXorExecute=0`: with W^X on, a .NET runtime keeps JIT-compiled code in a
+shared memory view that a stop point cannot write, so in an attached program, or one started with W^X turned back on,
+a point on JIT-compiled code is refused.
 
 Attach refuses the server's own process and the processes it runs under (the MCP client, its terminal, the editor), by id
 or by name: a session held there would freeze the client driving it.

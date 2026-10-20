@@ -282,6 +282,7 @@ function win() {
     query: new NativeFunction(k.getExportByName('VirtualQuery'), 'size_t', ['pointer', 'pointer', 'size_t']),
     protect: new NativeFunction(k.getExportByName('VirtualProtect'), 'int', ['pointer', 'size_t', 'uint32', 'pointer']),
     flush: new NativeFunction(k.getExportByName('FlushInstructionCache'), 'int', ['pointer', 'pointer', 'size_t']),
+    mappedFile: new NativeFunction(k.getExportByName('K32GetMappedFileNameW'), 'uint32', ['pointer', 'pointer', 'pointer', 'uint32']),
     process: new NativeFunction(k.getExportByName('GetCurrentProcess'), 'pointer', []),
   };
   return winApi;
@@ -306,6 +307,10 @@ function writeCode(p, bytes) {
 function hookAt(p) {
   if (!inMappedView(p)) return { at: p, undo() {} };
   if (Process.arch !== 'x64' && Process.arch !== 'ia32') throw new Error('code in a mapped file view is hooked on x86 and x64 only');
+  // A copy-on-write page of a shared memory view stops seeing what the owner writes through its other view: the .NET
+  // runtime's W^X code heap would run stale code on that page. A file view (a single-file bundle) is never rewritten.
+  if (win().mappedFile(win().process(), p, Memory.alloc(1024), 512) === 0)
+    throw new Error('the code at ' + p + ' is in a shared memory view (the .NET runtime W^X code heap); start the program in a session, which sets DOTNET_EnableWriteXorExecute=0');
   const stub = stubNear(p);
   const w = new X86Writer(stub, { pc: stub });
   w.putNopPadding(16); // room for Gum's own hook on the stub

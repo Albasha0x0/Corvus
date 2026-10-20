@@ -193,6 +193,8 @@ class Session:
             self.device.on("output", self.on_output)
             # The worker's TEMP is its own (Frida unpacks helpers there); the program gets the user's.
             env = {k: args[k.lower()] for k in ("TEMP", "TMP") if args.get(k.lower())}
+            # W^X keeps .NET JIT code in a shared memory view that hooks cannot write; the caller may still turn it back on.
+            env["DOTNET_EnableWriteXorExecute"] = "0"
             env.update({k: v for k, v in (args.get("environment") or {}).items() if v is not None})
             try:
                 self.pid = self.device.spawn(argv, stdio="pipe", env=env or None, cwd=args.get("cwd") or None)
