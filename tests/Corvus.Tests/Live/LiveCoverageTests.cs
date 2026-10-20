@@ -185,6 +185,23 @@ public sealed class LiveCoverageTests : IDisposable
         Assert.Matches(@"\s1\s+0x[0-9A-F]+\s+sqlite3_open\n", await _tools.LiveCoverage(action: "report", run: "cov-1"));
     }
 
+    /// <summary>A loaded module with no loaded image has its file read, as a module!name stop point reads it; one with no file is refused.</summary>
+    [Fact]
+    public async Task A_run_on_a_loaded_module_reads_its_image_from_its_file()
+    {
+        using var dir = new TempDir();
+        var plugin = dir.File("plugin.dll");
+        File.Copy(RealPackages.File("SQLitePCLRaw.lib.e_sqlite3", "2.1.2", "runtimes", "win-x64", "native", "e_sqlite3.dll"), plugin);
+        await _tools.LiveSession("attach", program: "4242");
+        _backend.Load("plugin.dll", plugin, 0x7ff7_0000_0000, 0x200000);
+        await Until(() => _service.Get("live-1").Modules.Any(m => m.Name == "plugin.dll"));
+
+        Assert.Matches(@"^cov-1 counting \d+ functions of plugin\.dll", await _tools.LiveCoverage("live-1", "start", match: "plugin!sqlite3_open"));
+        var missing = await Assert.ThrowsAsync<ToolError>(() => _tools.LiveCoverage("live-1", "start", match: "system!open"));
+        Assert.Equal(ErrorCode.Unsupported, missing.Code);
+        Assert.Contains("/nowhere/system.dll", missing.Message);
+    }
+
     /// <summary>A run waiting for its module says up front what it leaves out, and counts what it then sets.</summary>
     [Fact]
     public async Task A_run_waiting_for_its_module_counts_what_it_sets_on_the_load()

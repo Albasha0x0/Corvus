@@ -420,6 +420,16 @@ public sealed partial class LiveSessionService(AssemblyWorkspace workspace, Nati
         return m.Image;
     }
 
+    /// <summary>The module's loaded image, else its file loaded now; null when the file is missing or holds no native image.</summary>
+    private LoadedNative? ImageOf(LiveModuleState m)
+    {
+        if (Match(m) is { } native) return native;
+        if (!File.Exists(m.Path)) return null;
+        native = workspace.LoadAny(m.Path).Native;
+        if (native != null) m.Image = native;
+        return native;
+    }
+
     private void OnEvent(LiveSession session, Native.Providers.WorkerMessage.Event e)
     {
         var body = e.Body;
@@ -753,12 +763,7 @@ public sealed partial class LiveSessionService(AssemblyWorkspace workspace, Nati
             var m = modules.FirstOrDefault(x => x.Name.Equals(name, StringComparison.OrdinalIgnoreCase)
                                                || Path.GetFileNameWithoutExtension(x.Name).Equals(name, StringComparison.OrdinalIgnoreCase))
                     ?? throw new ToolError(ErrorCode.NotFound, $"The program has no module '{name}'.", "live_session action=status lists its modules");
-            var native = Match(m);
-            if (native == null && File.Exists(m.Path))
-            {
-                native = workspace.LoadAny(m.Path).Native;
-                if (native != null) m.Image = native;
-            }
+            var native = ImageOf(m);
             if (native == null) throw new ToolError(ErrorCode.Unsupported, $"{m.Path} could not be loaded as a native image.", "pass a live address instead");
             return m.Base + await RvaOf(native, t[(bang + 1)..], ct).ConfigureAwait(false);
         }

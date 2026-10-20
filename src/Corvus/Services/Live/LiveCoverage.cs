@@ -150,7 +150,14 @@ public sealed partial class LiveSessionService
         lock (session.Modules)
             m = string.IsNullOrWhiteSpace(module) ? session.Modules.FirstOrDefault() : session.Modules.FirstOrDefault(x => ModuleNamed(x, module));
         LoadedNative image;
-        if (m != null) image = Match(m) ?? throw new ToolError(ErrorCode.Unsupported, $"{m.Name} matches no loaded image, so it has no static functions to count.", $"load_assembly path={m.Path}");
+        if (m != null)
+        {
+            LoadedNative? own = null;
+            try { own = ImageOf(m); }
+            catch (ToolError) { /* the error below names the file */ }
+            image = own ?? throw new ToolError(ErrorCode.Unsupported, $"{m.Name}'s image ({m.Path}) cannot be found or read as a native image, so it has no static functions to count.",
+                "count another module with match=<module>!<part>, or set stop points by live address (live_break at=0x...)");
+        }
         else if (string.IsNullOrWhiteSpace(module)) throw new ToolError(ErrorCode.NotFound, "The program has no modules yet.", "live_session action=status lists its modules");
         else
             // a module the program loads later (a plug-in, a runtime) is counted from its first call, as a deferred stop point is set
