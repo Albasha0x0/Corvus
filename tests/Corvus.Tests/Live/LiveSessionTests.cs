@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Text.Json.Nodes;
 using Corvus.Core;
 using Corvus.Native.Providers;
@@ -308,6 +309,42 @@ public sealed class LiveSessionTests : IDisposable
         var inside = await Assert.ThrowsAsync<ToolError>(() => _tools.LiveWatchCalls("live-1", "set", at: $"{name}+0x{far:X}"));
         Assert.Equal(ErrorCode.InvalidArgument, inside.Code);
         Assert.Contains($"watch {name}", inside.Remediation);
+    }
+
+    [LiveTargetFact("win-x64")]
+    [Trait("Speed", "Slow")]
+    public async Task A_program_whose_exit_never_finishes_is_ended_with_its_exit_code()
+    {
+        // a TLS callback that never returns on process detach holds the exit, as a stuck DLL shutdown does
+        const string Source = """
+            #include <windows.h>
+            static void NTAPI OnTls(PVOID h, DWORD reason, PVOID r) { if (reason == DLL_PROCESS_DETACH) for (;;) Sleep(10); }
+            #pragma comment(linker, "/INCLUDE:_tls_used")
+            #pragma comment(linker, "/INCLUDE:tls_callback")
+            #pragma const_seg(".CRT$XLB")
+            EXTERN_C const PIMAGE_TLS_CALLBACK tls_callback = OnTls;
+            #pragma const_seg()
+            int main(void) { Sleep(2000); return 7; }
+            """;
+        using var dir = new TempDir();
+        using var program = Process.Start(LiveTarget.WinX64.Build(dir, "stuckexit", Source))!;
+        var backend = new ScriptedLiveBackend(Sqlite, Base, 0x200000) { ProcessId = program.Id };
+        using var service = new LiveSessionService(_workspace, new NativeCodeService(_workspace, new ServerOptions())) { Backend = backend };
+        var tools = new LiveSessionTools(new ServerOptions { AllowLive = true, AllowLiveAttach = true }, service);
+        var stuck = LiveSessionService.StuckExit;
+        LiveSessionService.StuckExit = TimeSpan.FromSeconds(1);
+        try
+        {
+            await tools.LiveSession("attach", program: $"{program.Id}");
+            Assert.True(program.WaitForExit(30_000), "the program's exit was not finished");
+            Assert.Equal(7, program.ExitCode);
+            Assert.Contains("called ExitProcess(7) but its exit did not finish", await tools.LiveEvents("live-1", kind: "error"));
+        }
+        finally
+        {
+            LiveSessionService.StuckExit = stuck;
+            if (!program.HasExited) program.Kill();
+        }
     }
 
     [Fact]

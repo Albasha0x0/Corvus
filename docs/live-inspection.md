@@ -115,7 +115,8 @@ breakpoint: the loading thread waits at the module's load, before any of the mod
 (a `module` event says so), so its first call is caught. An address inside an instruction, a stop point in the first 16 bytes of a watched or counted function (or a watch or count over one),
 two stop points whose hook jumps would overlap (closer than 5 bytes on 32-bit x86, 16 elsewhere), a watch past a function's
 start, and a function too short for a hook's jump are refused with the nearest place that works. The `exit` event carries the
-exit code the system reports (`exit code 0xC0000005 (EXCEPTION_ACCESS_VIOLATION)`). An access violation, illegal
+exit code the system reports (`exit code 0xC0000005 (EXCEPTION_ACCESS_VIOLATION)`). On Windows, a program that called
+`ExitProcess` but is still in a module's shutdown 10 seconds later is ended with the exit code it chose, and an `error` event says so. An access violation, illegal
 instruction, stack overflow or arithmetic fault waits until the server has its `exception` event, so a crash keeps its
 address; when no event came, one is recorded from the exit code, without an address. Stack values that cannot be
 return addresses (small values, header bytes, non-executable pages) are left out of a stop's frames.

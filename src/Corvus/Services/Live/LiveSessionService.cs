@@ -88,6 +88,10 @@ public sealed class LiveSession
     public string Platform { get; internal set; } = "";
     internal WorkerConnection Worker { get; }
     internal Timer? Deadline { get; set; }
+    /// <summary>Checks each second for a program whose exit is stuck in a module's shutdown.</summary>
+    internal Timer? ExitCheck { get; set; }
+    /// <summary>When the program's exit code was first seen set while its process had not yet ended.</summary>
+    internal DateTime? ExitingSince { get; set; }
     internal List<Task> Indexing { get; } = [];
     public List<LiveModuleState> Modules { get; } = [];
     public Dictionary<string, LiveStopPointState> StopPoints { get; } = new(StringComparer.Ordinal);
@@ -321,6 +325,7 @@ public sealed partial class LiveSessionService(AssemblyWorkspace workspace, Nati
         _sessions[session.Id] = session;
         var minutes = int.TryParse(Environment.GetEnvironmentVariable(MaxMinutesVariable), out var n) && n > 0 ? n : 30;
         session.Deadline = new Timer(_ => _ = CloseAsync(session, "deadline"), null, TimeSpan.FromMinutes(minutes), Timeout.InfiniteTimeSpan);
+        if (session.ProcessHandle != null) session.ExitCheck = new Timer(_ => CheckExit(session), null, TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(1));
         _ = worker.Closed.ContinueWith(_ =>
         {
             if (!session.Closed && session.Ended == null)
@@ -533,6 +538,40 @@ public sealed partial class LiveSessionService(AssemblyWorkspace workspace, Nati
     }
 
     private static readonly TimeSpan ExitCodeWait = TimeSpan.FromSeconds(1);
+
+    /// <summary>How long a program may stay in its exit (exit code set, process not ended) before it is ended.</summary>
+    internal static TimeSpan StuckExit { get; set; } = TimeSpan.FromSeconds(10);
+
+    /// <summary>
+    /// Ends a program that called ExitProcess but whose exit does not finish (a module's DLL shutdown waits forever: Frida's
+    /// agent can, after a watch on x86), with the exit code it chose; the backend then reports the exit as usual.
+    /// </summary>
+    // bound here, not in Native.Live: the process inspector there binds no API that changes a process
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern bool TerminateProcess(Native.Live.SafeKernelHandle process, uint exitCode);
+
+    private void CheckExit(LiveSession session)
+    {
+        try
+        {
+            if (session.Closed || session.Ended != null || session.ProcessHandle is not { IsInvalid: false } h) return;
+            if (Native.Live.LiveNative.WaitForSingleObject(h, 0) == 0 || !Native.Live.LiveNative.GetExitCodeProcess(h, out var code)
+                || code == Native.Live.LiveNative.STILL_ACTIVE)
+            {
+                session.ExitingSince = null;
+                return;
+            }
+            session.ExitingSince ??= DateTime.UtcNow;
+            if (DateTime.UtcNow - session.ExitingSince < StuckExit) return;
+            session.ExitCheck?.Dispose();
+            session.Add("error", null, null, $"the program called ExitProcess({(code < 0x10000 ? code : $"0x{code:X8}")}) but its exit did not finish in {StuckExit.TotalSeconds:0} s " +
+                "(a module's shutdown is stuck): ended with that exit code");
+            const uint ProcessTerminate = 0x0001;
+            using var end = Native.Live.LiveNative.OpenProcess(ProcessTerminate, false, session.ProcessId);
+            if (!end.IsInvalid) TerminateProcess(end, code);
+        }
+        catch (ObjectDisposedException) { } // closed meanwhile
+    }
 
     /// <summary>", exit code N" from the program's handle once it has ended (crash codes named); empty when it cannot be read.</summary>
     private const uint StatusControlCExit = 0xC000_013A;
@@ -1001,6 +1040,7 @@ public sealed partial class LiveSessionService(AssemblyWorkspace workspace, Nati
         if (session.Closed) return;
         session.Closed = true;
         session.Deadline?.Dispose();
+        session.ExitCheck?.Dispose();
         if (session.Worker.IsAlive)
             await session.Worker.ShutdownAsync("close", new JsonObject { ["end"] = session.Spawned }, TimeSpan.FromSeconds(5)).ConfigureAwait(false);
         session.Worker.Dispose();
