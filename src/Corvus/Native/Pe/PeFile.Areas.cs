@@ -73,6 +73,7 @@ public sealed partial class PeFile
     private Area<PeChecksum> checksum = null!;
     private Area<PeOverlay?> overlay = null!;
     private Area<CertificateInfo> certificate = null!;
+    private Area<IReadOnlyList<ImageSymbol>> symbols = null!;
 
     private void InitAreas()
     {
@@ -90,10 +91,11 @@ public sealed partial class PeFile
         checksum = new("checksum", _ => ComputeChecksum(), new PeChecksum(Optional.CheckSum, 0));
         overlay = new("overlay", _ => FindOverlay(), null);
         certificate = new("certificate", _ => Certificates.Read(data), new CertificateInfo(false, Problem: "not read"));
+        symbols = new("symbol table", ParseSymbols, []);
     }
 
     private IEnumerable<IArea> AllAreas() =>
-        [imports, delayImports, boundImports, exports, relocations, tls, runtimeFunctions, debug, loadConfig, resources, rich, checksum, overlay];
+        [imports, delayImports, boundImports, exports, relocations, tls, runtimeFunctions, debug, loadConfig, resources, rich, checksum, overlay, symbols];
 
     /// <summary>Regular imports followed by delay-load imports.</summary>
     public IReadOnlyList<NativeImport> Imports => allImports ??= [.. imports.Value.Functions, .. delayImports.Value.Functions];
@@ -114,6 +116,15 @@ public sealed partial class PeFile
     public PeTlsDirectory? TlsDirectory => tls.Value.Directory;
 
     public IReadOnlyList<RuntimeFunction> RuntimeFunctions => runtimeFunctions.Value;
+
+    /// <summary>Functions and data of the COFF symbol table, sorted by RVA; empty when the image is stripped.</summary>
+    public IReadOnlyList<ImageSymbol> Symbols => symbols.Value;
+
+    /// <summary>The COFF function symbols in code, as function starts (with the size their definition record gives).</summary>
+    public IReadOnlyList<DeclaredFunction> DeclaredFunctions => declared ??= [.. Symbols
+        .Where(s => s.Kind == ImageSymbolKind.Function && SectionAt(s.Rva) is { IsExecutable: true }).DistinctBy(s => s.Rva)
+        .Select(s => new DeclaredFunction(s.Rva, s.Size is > 0 and <= uint.MaxValue ? (uint)s.Size : null, DeclaredSource.Symbol))];
+    private IReadOnlyList<DeclaredFunction>? declared;
 
     public IReadOnlyList<PeDebugEntry> DebugEntries => debug.Value.Entries;
     /// <summary>The first CodeView record (RSDS or NB10).</summary>

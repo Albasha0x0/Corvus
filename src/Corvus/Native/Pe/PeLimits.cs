@@ -14,6 +14,7 @@ public static class PeLimits
     public const int MaxExports = 1 << 18;
     public const int MaxBoundImports = 1024;
     public const int MaxNameLength = 4096;
+    public const int MaxSymbols = 1 << 22;
     public const int MaxRelocations = 1 << 23;
     public const int MaxTlsCallbacks = 4096;
     public const int MaxRuntimeFunctions = 1 << 22;

@@ -101,7 +101,8 @@ it. A session runs a worker on Frida's Python bindings
 | End | `live_session action=close` |
 
 Addresses are joined to the static model: the program's own image is loaded and indexed when the session opens, so a
-stack reads `orders.exe!AddLine+0x1B  orders.c:9`, not a bare address; other modules join once loaded with
+stack reads `orders.exe!AddLine+0x1B  orders.c:9`, not a bare address (names from the PDB, the exports, and the COFF
+symbol table a MinGW-style link keeps in the image); other modules join once loaded with
 `load_assembly`. Source lines and `file:line` stop points come from the PDB line tables on Windows and the DWARF line
 tables on Linux; on Linux a stop's frames are unwound from its stack with each module's `.eh_frame` CFI, as `dump_stack`
 walks a core. Stop points hold only the thread that hits them; other threads run on. Memory is read, never written: a `cstring` or

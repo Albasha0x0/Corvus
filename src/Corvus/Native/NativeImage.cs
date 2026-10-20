@@ -87,8 +87,8 @@ public enum ImageSymbolBinding
 }
 
 /// <summary>
-/// A defined symbol of the image's own symbol tables (ELF .dynsym/.symtab, Mach-O nlist). <see cref="Version"/> is the
-/// ELF symbol version. PE images list none: PDB symbols are separate.
+/// A defined symbol of the image's own symbol tables (ELF .dynsym/.symtab, Mach-O nlist, a PE's COFF symbol table when
+/// its linker kept it). <see cref="Version"/> is the ELF symbol version. PDB symbols are separate.
 /// </summary>
 public sealed record ImageSymbol(string Name, uint Rva, ulong Size, ImageSymbolKind Kind, ImageSymbolBinding Binding, string? Section, string? Version = null);
 
