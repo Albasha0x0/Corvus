@@ -722,6 +722,23 @@ public sealed class LiveSessionTests : IDisposable
     }
 
     [Fact]
+    public async Task Events_refuse_an_unknown_kind_or_source_and_count_what_the_ring_dropped()
+    {
+        await _tools.LiveSession("attach", program: "4242");
+        Assert.Equal(ErrorCode.InvalidArgument, (await Assert.ThrowsAsync<ToolError>(() => _tools.LiveEvents("live-1", kind: "stops"))).Code);
+        Assert.Equal(ErrorCode.NotFound, (await Assert.ThrowsAsync<ToolError>(() => _tools.LiveEvents("live-1", from: "w1"))).Code);
+        Assert.Equal(ErrorCode.InvalidArgument, (await Assert.ThrowsAsync<ToolError>(() => _tools.LiveEvents("live-1", cursor: "next"))).Code);
+        await _tools.LiveWatchCalls("live-1", "set", at: "sqlite3_open");
+        await _tools.LiveWatchCalls("live-1", "clear", watch: "w1");
+        Assert.Contains("No events.", await _tools.LiveEvents("live-1", from: "w1")); // a cleared watch keeps its id
+        for (int i = 1; i <= Services.LiveSession.RingCapacity + 50; i++) _backend.ScriptMessage("u1", new JsonObject { ["n"] = i });
+        for (int i = 0; i < 100 && _service.Get("live-1").Dropped < 50; i++) await Task.Delay(20);
+        var page = await _tools.LiveEvents("live-1", cursor: "1", limit: 1);
+        Assert.Contains($"50 event(s) before this page were dropped (the ring keeps {Services.LiveSession.RingCapacity:N0})", page);
+        Assert.Contains("#51 script", page);
+    }
+
+    [Fact]
     public async Task A_missing_backend_names_its_next_step()
     {
         var service = new LiveSessionService(_workspace, new NativeCodeService(_workspace, new ServerOptions())) { Backend = new ScriptedLiveBackend(Sqlite, Base, 1) { Missing = "no frida" } };

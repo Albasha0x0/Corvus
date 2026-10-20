@@ -579,8 +579,13 @@ public sealed partial class LiveSessionTools(ServerOptions options, LiveSessionS
             long start = 0;
             if (!string.IsNullOrWhiteSpace(cursor) && !long.TryParse(cursor.Trim(), NumberStyles.None, CultureInfo.InvariantCulture, out start))
                 throw new ToolError(ErrorCode.InvalidArgument, $"Bad cursor '{cursor}'.", "pass the cursor of an earlier page");
-            var (events, firstKept, last) = s.Page(start, kind?.Trim().ToLowerInvariant(), ThreadId(thread), ToolSupport.ClampLimit(limit, 1_000),
-                string.IsNullOrWhiteSpace(from) ? null : from.Trim());
+            var k = string.IsNullOrWhiteSpace(kind) ? null : kind.Trim().ToLowerInvariant();
+            if (k != null && !EventKinds.Contains(k))
+                throw new ToolError(ErrorCode.InvalidArgument, $"Unknown kind '{kind}'.", $"kind={string.Join(", ", EventKinds)}");
+            var source = string.IsNullOrWhiteSpace(from) ? null : from.Trim();
+            if (source != null && !s.Issued(source))
+                throw new ToolError(ErrorCode.NotFound, $"Session {s.Id} has no watch or script '{from}'.", "live_watch and live_script action=list show their ids");
+            var (events, firstKept, last) = s.Page(start, k, ThreadId(thread), ToolSupport.ClampLimit(limit, 1_000), source);
             var named = new List<EvidenceName>();
             var text = new StringBuilder();
             int dropped = start > 0 && start < firstKept ? (int)Math.Min(int.MaxValue, firstKept - start) : 0;
@@ -612,6 +617,8 @@ public sealed partial class LiveSessionTools(ServerOptions options, LiveSessionS
             }
             return FitPage(rows.Count, Render);
         }, cancellationToken);
+
+    private static readonly string[] EventKinds = ["stop", "call", "script", "exception", "module", "thread", "output", "error", "exit"];
 
     /// <summary>
     /// A cursor page cut to the call's output budget by rows, before its cursor is set: the cursor follows the last row shown,

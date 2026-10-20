@@ -139,6 +139,11 @@ public sealed class LiveSession
     internal string NextWatchId() => "w" + Interlocked.Increment(ref _nextWatch);
     internal string NextScriptId() => "u" + Interlocked.Increment(ref _nextScript);
 
+    /// <summary>Whether <paramref name="id"/> is a watch or script id this session gave out (cleared and unloaded ones too).</summary>
+    public bool Issued(string id) =>
+        id.Length > 1 && int.TryParse(id.AsSpan(1), NumberStyles.None, CultureInfo.InvariantCulture, out var n) && n > 0
+        && n <= (id[0] switch { 'w' => Volatile.Read(ref _nextWatch), 'u' => Volatile.Read(ref _nextScript), _ => 0 });
+
     internal long Add(string kind, long? thread, ulong? address, string text, Func<long, LiveHeldStop>? held = null, string? source = null)
     {
         lock (_gate)
