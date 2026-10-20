@@ -134,7 +134,7 @@ public sealed partial class LiveSessionTools
         long start = 0;
         if (!string.IsNullOrWhiteSpace(cursor) && !long.TryParse(cursor.Trim(), NumberStyles.None, CultureInfo.InvariantCulture, out start))
             throw new ToolError(ErrorCode.InvalidArgument, $"Bad cursor '{cursor}'.", "pass the cursor of an earlier page");
-        var (page, firstKept, last) = r.Page(start, category, match, limit);
+        var (page, firstKept, last, more) = r.Page(start, category, match, limit);
         long dropped = start > 0 && start < firstKept ? firstKept - start : 0;
         (string, object) Render(int count)
         {
@@ -142,8 +142,10 @@ public sealed partial class LiveSessionTools
             var text = new StringBuilder();
             if (dropped > 0) text.AppendLine($"{dropped:N0} entries before this page were dropped (a timeline keeps {LiveTimelineRun.Capacity:N0})");
             foreach (var e in entries) text.AppendLine($"#{e.Sequence} {Since(r, e.Time)} {e.Category} {e.Name}{(e.ProcessId is { } pid ? $" (process {pid})" : "")}");
-            var next = entries.Count > 0 ? entries[^1].Sequence + 1 : Math.Max(start, firstKept);
-            string? nextCursor = (entries.Count == limit || count < page.Count) && entries[^1].Sequence < last ? next.ToString(CultureInfo.InvariantCulture) : null;
+            // past the last match the whole ring was scanned: the next poll starts after its end
+            var cut = entries.Count > 0 && (count < page.Count || more);
+            var next = cut ? entries[^1].Sequence + 1 : Math.Max(Math.Max(start, firstKept), last + 1);
+            string? nextCursor = cut ? next.ToString(CultureInfo.InvariantCulture) : null;
             text.AppendLine(entries.Count == 0 && start <= 1 ? $"No entries ({r.State})."
                 : nextCursor != null ? $"more: cursor={nextCursor}"
                 : r.State == "recording" ? $"end of the timeline so far; poll again with cursor={next}" : "end of the timeline (complete)");

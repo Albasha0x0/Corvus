@@ -112,6 +112,23 @@ public sealed class LiveTimelineTests : IDisposable
     }
 
     [Fact]
+    public async Task A_filtered_page_with_every_match_ends_the_timeline_and_its_poll_starts_past_the_rest()
+    {
+        await _tools.LiveSession("attach", program: "4242");
+        await _tools.LiveTimeline("live-1", "start");
+        _source.Send("file", @"C:\data\orders.txt");
+        _source.Send("file", @"C:\data\old.cfg");
+        _source.Send("registry", @"HKLM\SOFTWARE\Orders\Path");
+        _source.Send("network", "tcp 127.0.0.1:8080");
+
+        var files = await _tools.LiveTimeline(action: "list", run: "tl-1", category: "file", limit: 2);
+        Assert.Contains("#2 ", files);
+        Assert.DoesNotContain("more:", files);
+        Assert.Contains("end of the timeline so far; poll again with cursor=5", files);
+        Assert.Contains("more: cursor=2", await _tools.LiveTimeline(action: "list", run: "tl-1", category: "file", limit: 1));
+    }
+
+    [Fact]
     public async Task Entry_pages_cut_to_the_output_budget_skip_no_entry()
     {
         await _tools.LiveSession("attach", program: "4242");

@@ -129,6 +129,7 @@ public sealed class LiveConsoleTests : IDisposable
         Assert.Matches(@"#1 name\? line 1\r?\n#2 line 2\r?\nmore: cursor=3\r?\n", first);
         var rest = await _tools.LiveConsole("transcript", run: "con-1", cursor: "3");
         Assert.Matches(@"#3 line 3\r?\n#4 line 4\r?\n#5 more\? \r?\nend of the transcript so far; poll again with cursor=5", rest);
+        Assert.Equal(rest, await _tools.LiveConsole("transcript", run: "con-1", cursor: "3", limit: 3)); // a page of exactly the rest ends the transcript
         // the partial line comes again with what was written since
         _host.Last.Show("yes\r\n");
         Assert.Contains("#5 more? yes", await _tools.LiveConsole("transcript", run: "con-1", cursor: "5"));

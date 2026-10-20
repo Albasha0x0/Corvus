@@ -61,13 +61,16 @@ public sealed class LiveTimelineRun
         }
     }
 
-    /// <summary>Entries from <paramref name="from"/> (a sequence) on, filtered; the first sequence kept tells what was dropped.</summary>
-    public (IReadOnlyList<LiveTimelineEntry> Entries, long FirstKept, long Last) Page(long from, string? category, string? match, int limit)
+    /// <summary>Entries from <paramref name="from"/> (a sequence) on, filtered; the first sequence kept tells what was dropped, More that a match follows the page.</summary>
+    public (IReadOnlyList<LiveTimelineEntry> Entries, long FirstKept, long Last, bool More) Page(long from, string? category, string? match, int limit)
     {
         lock (_ring)
         {
             var first = _ring.Count > 0 ? _ring.Peek().Sequence : _sequence + 1;
-            return (Kept(category, match).Where(e => e.Sequence >= from).Take(limit).ToList(), first, _sequence);
+            var rows = Kept(category, match).Where(e => e.Sequence >= from).Take(limit + 1).ToList();
+            var more = rows.Count > limit;
+            if (more) rows.RemoveAt(limit);
+            return (rows, first, _sequence, more);
         }
     }
 
