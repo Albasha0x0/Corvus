@@ -71,25 +71,25 @@ internal sealed class LiveTarget
     /// <summary>The file a shared library <c>name</c> builds to: name.dll, or libname.so.</summary>
     public string Library(string name) => Windows ? name + ".dll" : "lib" + name + ".so";
 
-    /// <summary>Compiles <paramref name="source"/> into the shared library <see cref="Library"/> in <paramref name="dir"/>, unoptimized with full debug information.</summary>
-    public string BuildLibrary(TempDir dir, string name, string source)
+    /// <summary>Compiles <paramref name="source"/> into the shared library <see cref="Library"/> in <paramref name="dir"/>, unoptimized, with full debug information or none.</summary>
+    public string BuildLibrary(TempDir dir, string name, string source, bool debugInfo = true)
     {
         File.WriteAllText(dir.File(name + ".c"), source);
-        var (code, log) = Tools.Run(Windows ? Msvc(dir, name, library: true) : Gcc(dir, name, library: true), 300_000);
+        var (code, log) = Tools.Run(Windows ? Msvc(dir, name, library: true, debugInfo) : Gcc(dir, name, library: true, debugInfo), 300_000);
         Assert.True(code == 0 && File.Exists(dir.File(Library(name))), log);
         return dir.File(Library(name));
     }
 
-    private ProcessStartInfo Msvc(TempDir dir, string name, bool library = false) => new("cmd.exe")
+    private ProcessStartInfo Msvc(TempDir dir, string name, bool library = false, bool debugInfo = true) => new("cmd.exe")
     {
         WorkingDirectory = dir.Path,
-        Arguments = $"/s /c \"\"{VisualStudio.VcVarsAll()}\" {(Is64 ? "x64" : "x86")} >nul && cl /nologo /Od /Zi {(library ? "/LD " : "")}{name}.c /link /DEBUG:FULL /INCREMENTAL:NO /OUT:{(library ? Library(name) : name + ".exe")}\"",
+        Arguments = $"/s /c \"\"{VisualStudio.VcVarsAll()}\" {(Is64 ? "x64" : "x86")} >nul && cl /nologo /Od {(debugInfo ? "/Zi " : "")}{(library ? "/LD " : "")}{name}.c /link {(debugInfo ? "/DEBUG:FULL" : "/DEBUG:NONE")} /INCREMENTAL:NO /OUT:{(library ? Library(name) : name + ".exe")}\"",
     };
 
-    private ProcessStartInfo Gcc(TempDir dir, string name, bool library = false)
+    private ProcessStartInfo Gcc(TempDir dir, string name, bool library = false, bool debugInfo = true)
     {
         var psi = new ProcessStartInfo("gcc") { WorkingDirectory = dir.Path };
-        foreach (var a in new[] { "-g", "-O0", "-fno-omit-frame-pointer", Arm64 ? "" : Is64 ? "-m64" : "-m32" })
+        foreach (var a in new[] { debugInfo ? "-g" : "-g0", "-O0", "-fno-omit-frame-pointer", Arm64 ? "" : Is64 ? "-m64" : "-m32" })
             if (a.Length > 0) psi.ArgumentList.Add(a);
         foreach (var a in library ? ["-fPIC", "-shared", "-o", Library(name), name + ".c"] : new[] { "-o", name, name + ".c", "-lpthread", "-ldl" }) psi.ArgumentList.Add(a);
         return psi;

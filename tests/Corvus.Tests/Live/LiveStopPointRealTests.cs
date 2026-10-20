@@ -160,6 +160,40 @@ public sealed class LiveStopPointRealTests(ITestOutputHelper output) : LiveToolC
         Ended(pid);
     }
 
+    // ---- a function with no prototype: its calls are recorded as raw values
+
+    [LiveTargetFact("win-x64")] public Task Raw_values_on_win_x64() => RawValues(LiveTarget.WinX64);
+    [LiveTargetFact("win-x86")] public Task Raw_values_on_win_x86() => RawValues(LiveTarget.WinX86);
+    [LiveTargetFact("linux-x64")] public Task Raw_values_on_linux_x64() => RawValues(LiveTarget.LinuxX64);
+    [LiveTargetFact("linux-x86")] public Task Raw_values_on_linux_x86() => RawValues(LiveTarget.LinuxX86);
+
+    private async Task RawValues(LiveTarget target)
+    {
+        var plugin = target.BuildLibrary(_dir, "plugin", LivePrograms.Plugin, debugInfo: false);
+        var exe = target.Build(_dir, "loader", LivePrograms.Loader);
+        var module = Path.GetFileNameWithoutExtension(target.Library("plugin"));
+        const int calls = 50;
+        await using var server = await Server();
+        var pid = await Spawn(server, exe, "live-1", plugin, $"{calls}");
+
+        Assert.Contains("w1 deferred: ", await Ok(server, "live_watch", new() { ["session"] = "live-1", ["action"] = "set", ["at"] = $"{module}!PluginOther", ["arguments"] = 2 }));
+        await Ok(server, "live_break", new() { ["session"] = "live-1", ["action"] = "continue" });
+        Assert.Matches(@"exit code 0(?![0-9xX])", await UntilExited(server, "live-1"));
+        await Task.Delay(500); // the last batch
+        var list = await Ok(server, "live_watch", new() { ["session"] = "live-1" });
+        Assert.Contains($"w1 {target.Library("plugin")}!PluginOther: {calls} call(s) recorded", list);
+
+        var events = await Events(server, "live-1", from: "w1");
+        var rows = Regex.Matches(events, @"PluginOther\(a0=0x([0-9A-F]+), a1=0x[0-9A-F]+\) -> 0x([0-9A-F]+)\r?\n");
+        Assert.True(rows.Count == calls, events);
+        // PluginOther(i) is called with i = 0..calls-1 and returns 2i
+        var passed = rows.Select(r => (A: Convert.ToUInt64(r.Groups[1].Value, 16), Ret: Convert.ToUInt64(r.Groups[2].Value, 16))).ToList();
+        Assert.Equal(Enumerable.Range(0, calls).Select(i => (ulong)i), passed.Select(p => p.A));
+        Assert.All(passed, p => Assert.Equal(2 * p.A, p.Ret));
+        await Ok(server, "live_session", new() { ["action"] = "close", ["session"] = "live-1" });
+        Ended(pid);
+    }
+
     /// <summary>The held thread's first integer argument at a function's entry.</summary>
     private async Task<ulong> FirstArgument(InProcessServer server, LiveTarget target)
     {
