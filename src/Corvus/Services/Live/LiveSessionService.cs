@@ -420,9 +420,10 @@ public sealed partial class LiveSessionService(AssemblyWorkspace workspace, Nati
                     if (r.Value.ValueKind == JsonValueKind.String) registers[r.Name] = r.Value.GetString()!;
                 var reported = body.GetProperty("frames").EnumerateArray().Select(f => Hex(f.GetString())).ToList();
                 var frames = Unwound(session, registers, body, reported) ?? [.. reported.Where((f, i) => i == 0 || CouldBeCode(session, f))];
-                // a call returns past its call instruction, so the stopped address further down is the hook's saved copy (x86)
+                // a call returns past its call instruction, so the stopped address further down is the hook's saved copy (x86),
+                // and the return address beside that copy repeats frame #1
                 var at = frames[0];
-                frames = [.. frames.Where((f, i) => i == 0 || f != at)];
+                frames = [.. frames.Where((f, i) => i == 0 || f != at && !(i > 1 && f == frames[1] && frames[i - 1] == at))];
                 int hits = body.TryGetProperty("hits", out var h) ? h.GetInt32() : 0;
                 if (session.StopPoints.TryGetValue(point, out var sp)) sp.Hits = hits;
                 var thread = Thread();

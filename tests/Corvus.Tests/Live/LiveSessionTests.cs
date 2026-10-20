@@ -277,9 +277,10 @@ public sealed class LiveSessionTests : IDisposable
         var exportRva = Native.NativeImageLoader.Open(old).Exports.Single(e => e.Name == "sqlite3_close").Rva;
         await Task.Delay(100);
         var entry = Base + new NativeCodeService(_workspace, new ServerOptions()).IndexOfOriginal(_workspace.Natives.Single(), default).AddressOfName("sqlite3_open")!.Value;
-        _backend.HitWith("s1", 9, 0x3e8, ulong.MaxValue, Base + 0x10, LibBase + exportRva + 2, entry);
+        _backend.HitWith("s1", 9, 0x3e8, ulong.MaxValue, Base + 0x10, LibBase + exportRva + 2, entry, LibBase + exportRva + 2);
         var stop = await _tools.LiveBreak("live-1", wait: true, waitSeconds: 10);
         Assert.Single(Regex.Matches(stop, $@"#\d+ 0x{entry:X} "));
+        Assert.Single(Regex.Matches(stop, $@"#\d+ 0x{LibBase + exportRva + 2:X} ")); // the return address beside the hook's copy
         Assert.DoesNotContain("0x3E8", stop);
         Assert.DoesNotContain("0xFFFFFFFFFFFFFFFF", stop);
         Assert.DoesNotContain($"0x{Base + 0x10:X}", stop);
