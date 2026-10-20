@@ -821,4 +821,12 @@ public sealed class LiveSessionTests : IDisposable
         Assert.Equal(ErrorCode.ProviderUnavailable, e.Code);
         Assert.Equal("install it", e.Remediation);
     }
+
+    [Fact]
+    public void Sessions_on_macOS_are_refused_before_the_backend_is_probed()
+    {
+        Assert.Contains("macOS is not supported", FridaBackend.PlatformProblem(macOS: true)!.Value.Reason);
+        Assert.Null(FridaBackend.PlatformProblem(macOS: false));
+        if (OperatingSystem.IsMacOS()) Assert.Contains("macOS", new FridaBackend().Unavailable()!.Value.Reason);
+    }
 }

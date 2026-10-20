@@ -199,6 +199,8 @@ of the same program (3,020 functions, statically linked C runtime): stop points 
 - Processes of another user, elevated processes (from a non-elevated server) and protected processes fail with
   `access_denied`. A process that has exited fails with `not_found` (reason `process_exited`).
 - Managed (JIT) frames are identified, not decoded; use a managed debugger or SOS for those.
+- Sessions run on Windows and Linux. On macOS `live_session` fails with `provider_unavailable`, so no session opens;
+  minidumps and core files open with `open_minidump` on any OS.
 - On Linux, a server without CAP_SYS_PTRACE is bound by Yama's `ptrace_scope`: at 1 sessions on programs it starts
   work, while attaching to another program and `snapshot` fail with `access_denied` naming the setting; at 2 every
   session and snapshot fails that way.

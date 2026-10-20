@@ -24,8 +24,15 @@ public sealed class FridaBackend : ILiveBackend
 
     public string Name => "frida";
 
-    public (string Reason, string Remediation)? Unavailable() => _python.Value.Problem is { } problem
-        ? (problem, $"Install Frida's Python bindings (python -m pip install frida) in a 64-bit Python 3, or set {PythonVariable} to that python.")
+    public (string Reason, string Remediation)? Unavailable() => PlatformProblem(OperatingSystem.IsMacOS())
+        ?? (_python.Value.Problem is { } problem
+            ? (problem, $"Install Frida's Python bindings (python -m pip install frida) in a 64-bit Python 3, or set {PythonVariable} to that python.")
+            : null);
+
+    /// <summary>The session script is written and tested for Windows and Linux only.</summary>
+    internal static (string Reason, string Remediation)? PlatformProblem(bool macOS) => macOS
+        ? ("Live sessions run on Windows and Linux; macOS is not supported yet.",
+            "Run the server on Windows or Linux for live sessions; the static tools and open_minidump work on macOS.")
         : null;
 
     /// <summary>The interpreter sessions use, for server_status; null when none imports frida.</summary>
