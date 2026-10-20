@@ -176,7 +176,8 @@ file under the temp folder's `corvus-snapshots`.
 
 `live_script` loads a script you wrote into the program (Frida's JavaScript API); what it sends arrives as `script`
 events, and a script that does not compile is refused with the compiler's message. A script runs inside the program
-with its rights and can change it, so the tool is off unless the server also starts with `--live-scripting`.
+with its rights and can change it, so the tool is off unless the server also starts with `--live-scripting`. On Windows, Frida 17 lists modules in no
+fixed order and its `Process.mainModule` can name a system DLL; find the program's module by name instead.
 
 Measured on a small MSVC-built program (Windows 11, x64): session open with modules matched 1.1-1.5 s; a held stop to
 its named stack 1 ms; a stop point set by name 0.6 s on the first call (the image's index), then under 10 ms; a watched
