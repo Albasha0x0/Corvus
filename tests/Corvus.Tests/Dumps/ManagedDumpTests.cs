@@ -247,4 +247,26 @@ public sealed class ManagedDumpTests
         }
         finally { Environment.SetEnvironmentVariable("CORVUS_OFFLINE", previous); }
     }
+
+    /// <summary>
+    /// A scan from JIT code that finds the return address an inlined P/Invoke's frame record keeps on the stack gives no
+    /// second frame for a managed frame the runtime named; two runtime frames at one return address (recursion) both stay.
+    /// </summary>
+    [Fact]
+    public void A_scanned_copy_of_a_named_return_address_is_not_a_second_frame()
+    {
+        const ulong api = 0x7FF9_1DBC_7887, readAllBytes = 0x7FF7_A3FF_ABF6, readOnce = 0x7FF7_A3FF_A93A;
+        WalkFrame Native(ulong ip, ulong sp, string method) => new(ip, sp, method, method == FrameMethod.Scan, true, null);
+        ManagedFrame Clr(ulong ip, ulong sp, string name) => new(ip, sp, true, name, 0x06000001, 0, null, null, null);
+        var merged = MinidumpService.Merge(
+            [Native(api, 0x1D0, FrameMethod.UnwindInfo), Native(readAllBytes, 0x230, FrameMethod.UnwindInfo), Native(readAllBytes, 0x300, FrameMethod.Scan), Native(readOnce, 0x3F0, FrameMethod.Scan)],
+            [Clr(readAllBytes, 0x230, "File.ReadAllBytes"), Clr(readOnce, 0x3F0, "Readers.ReadOnce")]);
+        Assert.Equal([api, readAllBytes, readOnce], merged.Select(f => f.Managed?.Ip ?? f.Native!.Ip));
+        Assert.Equal([null, "File.ReadAllBytes", "Readers.ReadOnce"], merged.Select(f => f.Managed?.Name));
+
+        var recursive = MinidumpService.Merge(
+            [Native(readOnce, 0x100, FrameMethod.UnwindInfo), Native(readOnce, 0x180, FrameMethod.Scan)],
+            [Clr(readOnce, 0x100, "Readers.ReadOnce"), Clr(readOnce, 0x180, "Readers.ReadOnce")]);
+        Assert.Equal(2, recursive.Count(f => f.Managed != null));
+    }
 }

@@ -269,7 +269,7 @@ public sealed partial class MinidumpService
     }
 
     /// <summary>Native frames and the CLR's managed frames merged by stack pointer: a managed frame at a native frame's address or stack pointer names it.</summary>
-    private static List<(WalkFrame? Native, ManagedFrame? Managed)> Merge(IReadOnlyList<WalkFrame> native, IReadOnlyList<ManagedFrame> managed)
+    internal static List<(WalkFrame? Native, ManagedFrame? Managed)> Merge(IReadOnlyList<WalkFrame> native, IReadOnlyList<ManagedFrame> managed)
     {
         var merged = native.Select(f => ((WalkFrame?)f, (ManagedFrame?)null)).ToList();
         var used = new bool[managed.Count];
@@ -283,6 +283,10 @@ public sealed partial class MinidumpService
             used[k] = true;
             merged[i] = (f, managed[k]);
         }
+        // a scan from JIT code finds return addresses the runtime keeps on the stack (an inlined P/Invoke's frame record):
+        // a scanned frame at a return address of a managed frame named elsewhere is that copy, not another call
+        var named = managed.Where((m, j) => used[j]).Select(m => m.Ip).ToHashSet();
+        merged.RemoveAll(x => x.Item2 == null && x.Item1!.Heuristic && named.Contains(x.Item1.Ip));
         for (int j = 0; j < managed.Count; j++)
         {
             if (used[j] || !managed[j].IsMethod) continue;
