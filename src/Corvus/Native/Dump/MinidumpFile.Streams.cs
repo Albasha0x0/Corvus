@@ -256,6 +256,8 @@ public sealed partial class MinidumpFile
             if (size == 0) Issue("ModuleList", $"module {path} has a size of 0");
         }
         MainModule = modules.FirstOrDefault();
+        // a 64-bit writer lists a WoW64 program's image in both its 64-bit and 32-bit module lists
+        modules = [.. modules.DistinctBy(m => (m.Base, m.Size, m.Path.ToUpperInvariant()))];
         modules.Sort((x, y) => x.Base.CompareTo(y.Base));
         for (int i = 1; i < modules.Count; i++)
             if (modules[i].Base < modules[i - 1].End)

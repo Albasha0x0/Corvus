@@ -285,6 +285,22 @@ internal static class SyntheticCrashX86
 
 public sealed class MinidumpTests
 {
+    /// <summary>A 32-bit program dumped by a 64-bit writer lists its image twice, once per module list: one module, no issue.</summary>
+    [Fact]
+    public void A_module_listed_twice_reads_once()
+    {
+        var d = new MinidumpBuilder();
+        d.Modules.Add(new MinidumpBuilder.Module(0xCA0000, 0x169000, 0x66036A1C, @"C:\app\app.exe"));
+        d.Modules.Add(new MinidumpBuilder.Module(0x7FF9_2066_0000, 0x200000, 0, @"C:\Windows\System32\ntdll.dll"));
+        d.Modules.Add(new MinidumpBuilder.Module(0xCA0000, 0x169000, 0x66036A1C, @"C:\app\app.exe"));
+        d.Modules.Add(new MinidumpBuilder.Module(0xCA1000, 0x1000, 0, @"C:\app\inside.dll"));
+        using var dump = MinidumpFile.FromBytes(d.Build());
+        Assert.Equal(["app.exe", "inside.dll", "ntdll.dll"], dump.Modules.Select(m => m.FileName));
+        Assert.Equal("app.exe", dump.MainModule!.FileName);
+        Assert.Single(dump.Issues, i => i.Message.Contains("overlaps"));
+        Assert.Contains(dump.Issues, i => i.Message.Contains("inside.dll"));
+    }
+
     /// <summary>x86 frames without a frame pointer are found by the return address whose call targets the function, not lost to the EBP chain.</summary>
     [Fact]
     public async Task X86FramePointerOmittedFramesAreWalked()
