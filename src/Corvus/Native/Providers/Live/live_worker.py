@@ -6,7 +6,7 @@ unload_script {id}; read {address, length}; resume {thread}; close.
 Events: ready, stop (with stack: the bytes from the stack pointer up, outside Windows), calls, module, thread, exception, exit_status, output, exit, script_error, user_script.
 A program started here stays suspended until the first resume; close resumes every held thread, and ends the
 program only when this worker started it. A module named by defer_module holds its loading thread (module event with
-held) until release_load; a fatal exception event, and exit_status {code} (outside Windows), hold their thread until the
+held) until release_load; a fatal exception event, and exit_status {code}, hold their thread until the
 worker has read them.
 """
 import json

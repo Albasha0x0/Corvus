@@ -105,19 +105,28 @@ Process.setExceptionHandler(d => {
   return false; // the program's own handlers decide
 });
 
-// The exit status, which the detach reason does not carry outside Windows: exit() and a return from main end in _exit.
-// The thread waits for the worker to receive it, as for a fatal exception.
-if (Process.platform !== 'windows') {
-  const _exit = globalExport('_exit');
-  if (_exit !== null) {
-    Interceptor.attach(_exit, {
-      onEnter(a) {
-        const tid = Process.getCurrentThreadId();
-        send({ type: 'exit_status', tid, code: a[0].toInt32(), ack: true });
-        recv('exit-' + tid, () => {}).wait();
-      },
+// Before the process exits, the last watch batches and the exit status (which the detach reason does not carry outside
+// Windows) go out, and the thread waits for the worker to have them, as for a fatal exception. Sent later, from dispose
+// during the exit itself, the batches can hold Frida's unload forever, and the program never finishes exiting.
+let exiting = false;
+function beforeExit(code) {
+  const tid = Process.getCurrentThreadId();
+  flushAll();
+  exiting = true;
+  send({ type: 'exit_status', tid, code, ack: true });
+  recv('exit-' + tid, () => {}).wait();
+}
+if (Process.platform === 'windows') {
+  // ExitProcess and a return from main end in RtlExitUserProcess; a probe, so no hook frame is left during the exit
+  const exitUser = Process.getModuleByName('ntdll.dll').findExportByName('RtlExitUserProcess');
+  if (exitUser !== null)
+    Interceptor.attach(exitUser, function () {
+      beforeExit(Process.arch === 'x64' ? this.context.rcx.toInt32() : this.context.sp.add(4).readS32());
     });
-  }
+} else {
+  // exit() and a return from main end in _exit
+  const _exit = globalExport('_exit');
+  if (_exit !== null) Interceptor.attach(_exit, { onEnter(a) { beforeExit(a[0].toInt32()); } });
 }
 
 // Watched functions: each call's arguments (strings read while the call runs) and return value, sent in batches;
@@ -144,6 +153,10 @@ function readArg(kind, p) {
   }
 }
 
+function flushAll() {
+  for (const id in watches) flush(watches[id]);
+}
+
 function flush(w) {
   if (w.rows.length === 0 && w.skipped === 0) return;
   send({ type: 'calls', watch: w.id, rows: w.rows, skipped: w.skipped });
@@ -151,7 +164,7 @@ function flush(w) {
   w.skipped = 0;
 }
 
-setInterval(() => { for (const id in watches) flush(watches[id]); }, FLUSH_MS);
+setInterval(flushAll, FLUSH_MS);
 
 function watch(id, address, args, perSecond) {
   const w = { id, rows: [], skipped: 0, tokens: perSecond, last: Date.now() };
@@ -177,9 +190,9 @@ function watch(id, address, args, perSecond) {
 }
 
 rpc.exports = {
-  // runs before the script is unloaded, also when the program exits: the batches still held are sent
+  // runs before the script is unloaded; once the program is exiting, beforeExit has sent the batches
   dispose() {
-    for (const id in watches) flush(watches[id]);
+    if (!exiting) flushAll();
   },
   info() {
     return { arch: Process.arch, platform: Process.platform, pointerSize: Process.pointerSize, pid: Process.id,

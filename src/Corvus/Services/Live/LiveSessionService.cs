@@ -482,7 +482,9 @@ public sealed partial class LiveSessionService(AssemblyWorkspace workspace, Nati
                         ? $" ({mem.GetProperty("operation").GetString()} of 0x{Hex(mem.GetProperty("address").GetString()):X})" : ""));
                 break;
             case "exit_status":
-                session.ExitCode = (uint)(body.GetProperty("code").GetInt32() & 0xFF); // the low 8 bits, as waitpid reports them
+                // Windows keeps all 32 bits; elsewhere the low 8, as waitpid reports them
+                var status = body.GetProperty("code").GetInt32();
+                session.ExitCode = session.Platform == "windows" ? (uint)status : (uint)(status & 0xFF);
                 break;
             case "output":
                 session.Add("output", null, null, $"{body.GetProperty("stream").GetString()}: {body.GetProperty("text").GetString()}");

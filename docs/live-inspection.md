@@ -129,7 +129,7 @@ the known-API table (parameter names, ANSI and wide strings, flags and enumerati
 the PDB or DWARF prototype (parameter names from the procedure's frame records or entries, types from the type records,
 enums by name; on Linux x64 a prototype with floating-point or structure arguments falls back to names), DWARF
 parameter names, else `arguments` raw values. Strings are read while the call runs, up to 256 characters. The session
-script sends calls in batches (512 calls or every 100 ms, and at exit); calls over a watch's `rateLimit` (default 10,000
+script sends calls in batches (512 calls or every 100 ms, and when the program starts to exit, before its modules shut down); calls over a watch's `rateLimit` (default 10,000
 a second) are counted, not recorded, so a hot function does not slow the program. Each call is a `call` event named by
 its caller: `orders.exe!main+0xDC: AddLine(o=0xE1BAFFE50, qty=3) -> 3`.
 

@@ -245,26 +245,30 @@ public sealed class LiveTargetRealTests(ITestOutputHelper output) : LiveToolCall
         await Ok(server, "live_break", new() { ["session"] = "live-1", ["action"] = "continue" });
         Assert.Matches(@"exit code 0(?![0-9xX])", await UntilExited(server, "live-1"));
         Assert.Contains($"total {LivePrograms.WorkersTotal(calls)}", await Events(server, "live-1", kind: "output"));
-        var started = await Events(server, "live-1", kind: "thread");
-        Assert.True(Regex.Count(started, "thread started") >= LivePrograms.WorkerThreads, started);
+        var threadEvents = await Events(server, "live-1", kind: "thread");
+        Assert.True(Regex.Count(threadEvents, "thread started") >= LivePrograms.WorkerThreads, threadEvents);
+        Assert.True(Regex.Count(threadEvents, "thread ended") >= LivePrograms.WorkerThreads, threadEvents);
         Ended(pid);
 
-        // watch: 16 threads x 2,000 calls, each recorded or counted over the limit
+        // watch: 16 threads x 2,000 calls, each recorded or counted over the limit; repeated, since a program
+        // could stay in its exit when the last batches were sent during it (1 run in 4 on x86)
         const int burst = 2_000;
-        await Spawn(server, exe, "live-2", $"{burst}", "0");
-        await Ok(server, "live_watch", new() { ["session"] = "live-2", ["action"] = "set", ["at"] = "Work", ["rateLimit"] = 100_000 });
-        await Ok(server, "live_break", new() { ["session"] = "live-2", ["action"] = "continue" });
-        Assert.Matches(@"exit code 0(?![0-9xX])", await UntilExited(server, "live-2"));
-        await Task.Delay(500);
-        var list = await Ok(server, "live_watch", new() { ["session"] = "live-2" });
-        var w = Regex.Match(list, @"w1 [^:]+: ([\d,]+) call\(s\) recorded(?:.*?, ([\d,]+) over the rate limit)?");
-        Assert.True(w.Success, list);
         long Count(Group g) => g.Success ? long.Parse(g.Value.Replace(",", ""), CultureInfo.InvariantCulture) : 0;
-        Assert.Equal(LivePrograms.WorkerThreads * burst, Count(w.Groups[1]) + Count(w.Groups[2]));
-        Assert.Contains($"total {LivePrograms.WorkersTotal(burst)}", await Events(server, "live-2", kind: "output"));
-        // 32,000 calls overflow the ring, so only the latest thread events are kept
-        var threadEvents = await Events(server, "live-2", kind: "thread");
-        Assert.True(Regex.Count(threadEvents, "thread ended") >= LivePrograms.WorkerThreads, threadEvents);
+        for (int run = 2; run <= 9; run++)
+        {
+            var session = $"live-{run}";
+            await Spawn(server, exe, session, $"{burst}", "0");
+            await Ok(server, "live_watch", new() { ["session"] = session, ["action"] = "set", ["at"] = "Work", ["rateLimit"] = 100_000 });
+            await Ok(server, "live_break", new() { ["session"] = session, ["action"] = "continue" });
+            Assert.Matches(@"exit code 0(?![0-9xX])", await UntilExited(server, session, seconds: 30));
+            var list = await Ok(server, "live_watch", new() { ["session"] = session });
+            var w = Regex.Match(list, @"w1 [^:]+: ([\d,]+) call\(s\) recorded(?:.*?, ([\d,]+) over the rate limit)?");
+            Assert.True(w.Success, list);
+            Assert.Equal(LivePrograms.WorkerThreads * burst, Count(w.Groups[1]) + Count(w.Groups[2]));
+            Assert.Contains($"total {LivePrograms.WorkersTotal(burst)}", await Events(server, session, kind: "output"));
+            Assert.DoesNotContain("did not finish", await Events(server, session, kind: "error"));
+            await Ok(server, "live_session", new() { ["action"] = "close", ["session"] = session });
+        }
     }
 
     // ---- the Windows-only tools answer provider_unavailable on Linux
