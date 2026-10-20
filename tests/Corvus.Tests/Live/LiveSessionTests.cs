@@ -311,6 +311,18 @@ public sealed class LiveSessionTests : IDisposable
         Assert.Contains($"watch {name}", inside.Remediation);
     }
 
+    [Fact]
+    public async Task A_started_program_gets_the_runtime_location_and_the_callers_variables_but_not_the_servers_others()
+    {
+        var server = new System.Collections.Hashtable { ["DOTNET_ROOT"] = "/opt/dotnet", ["DOTNET_ROOT_X86"] = "/opt/x86", ["API_TOKEN"] = "kept-out" };
+        var env = LiveSessionService.ProgramEnvironment(["APP_MODE=test", "EMPTY="], server);
+        Assert.Equal(["APP_MODE", "DOTNET_ROOT", "DOTNET_ROOT_X86", "EMPTY"], env.Select(p => p.Key).Order());
+        Assert.Equal(("/opt/dotnet", "test", ""), ((string?)env["DOTNET_ROOT"], (string?)env["APP_MODE"], (string?)env["EMPTY"]));
+        await _tools.LiveSession("spawn", program: Sqlite, environment: ["APP_MODE=test"]);
+        Assert.Equal("test", (string?)_backend.LastOpen!["environment"]!["APP_MODE"]);
+        Assert.Equal(ErrorCode.InvalidArgument, (await Assert.ThrowsAsync<ToolError>(() => _tools.LiveSession("spawn", program: Sqlite, environment: ["NOEQUALS"]))).Code);
+    }
+
     [LiveTargetFact("win-x64")]
     [Trait("Speed", "Slow")]
     public async Task A_program_whose_exit_never_finishes_is_ended_with_its_exit_code()

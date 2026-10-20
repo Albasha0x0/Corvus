@@ -245,7 +245,8 @@ public sealed partial class LiveSessionService(AssemblyWorkspace workspace, Nati
             : throw new ToolError(ErrorCode.NotFound, $"No session '{id}'.", "live_session action=list shows the sessions; action=attach or spawn opens one");
 
     /// <summary>Attaches to a process (id or name) or starts <paramref name="program"/>; returns the open session.</summary>
-    public async Task<LiveSession> OpenAsync(bool spawn, string program, IReadOnlyList<string> arguments, CancellationToken ct)
+    public async Task<LiveSession> OpenAsync(bool spawn, string program, IReadOnlyList<string> arguments, CancellationToken ct,
+        IReadOnlyList<string>? environment = null)
     {
         if (_sessions.Values.Count(s => !s.Closed) >= MaxSessions)
             throw new ToolError(ErrorCode.LimitExceeded, $"{MaxSessions} sessions are open.", "close one with live_session action=close");
@@ -269,6 +270,7 @@ public sealed partial class LiveSessionService(AssemblyWorkspace workspace, Nati
                     ["cwd"] = Path.GetDirectoryName(target),
                     // the worker's own TEMP is private (see FridaBackend); a started program gets the user's
                     ["temp"] = Environment.GetEnvironmentVariable("TEMP"), ["tmp"] = Environment.GetEnvironmentVariable("TMP"),
+                    ["environment"] = ProgramEnvironment(environment ?? []),
                 }
                 : new JsonObject { ["attach"] = target };
             var info = await worker.RequestAsync("open", args, RequestTimeout, ct).ConfigureAwait(false);
@@ -1015,6 +1017,24 @@ public sealed partial class LiveSessionService(AssemblyWorkspace workspace, Nati
         Live(session);
         var r = await session.Worker.RequestAsync("read", new JsonObject { ["address"] = $"0x{address:X}", ["length"] = length }, RequestTimeout, ct).ConfigureAwait(false);
         return r.GetProperty("bytes").GetString() is { } hex ? Convert.FromHexString(hex) : null;
+    }
+
+    /// <summary>
+    /// Variables a started program gets beyond the worker's minimal set: the .NET runtime location an apphost needs, then
+    /// the caller's NAME=value entries. The rest of the server's environment (tokens, keys) never reaches the program.
+    /// </summary>
+    internal static JsonObject ProgramEnvironment(IReadOnlyList<string> entries, System.Collections.IDictionary? server = null)
+    {
+        var env = new JsonObject();
+        foreach (System.Collections.DictionaryEntry e in server ?? Environment.GetEnvironmentVariables())
+            if (e.Key is string name && name.StartsWith("DOTNET_ROOT", StringComparison.OrdinalIgnoreCase)) env[name] = e.Value as string;
+        foreach (var entry in entries)
+        {
+            var eq = entry.IndexOf('=');
+            if (eq <= 0) throw new ToolError(ErrorCode.InvalidArgument, $"environment entry '{entry}' is not NAME=value.", "environment=[\"NAME=value\"]");
+            env[entry[..eq]] = entry[(eq + 1)..];
+        }
+        return env;
     }
 
     private static bool SamePath(string a, string b)

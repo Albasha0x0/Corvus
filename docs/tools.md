@@ -2844,6 +2844,7 @@ Open, list, inspect or close a session on a local program. Returns the session i
 | `action` | string |  | `list` | list, processes, attach, spawn, status, snapshot or close. Values: list, processes, attach, spawn, status, snapshot, close. |
 | `program` | string |  |  | attach: process id or name; spawn: program path, started suspended; processes: a name filter. |
 | `arguments` | string[] |  |  | spawn: program arguments. |
+| `environment` | string[] |  |  | spawn: NAME=value variables for the program, beyond the minimal set and DOTNET_ROOT. |
 | `session` | string |  |  | Session id from live_session. |
 | `outputPath` | string |  |  | snapshot: the dump file (default: the temp folder). |
 | `overwrite` | boolean |  |  | Replace outputPath if it exists. |

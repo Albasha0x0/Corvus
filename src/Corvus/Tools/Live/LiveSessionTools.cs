@@ -109,6 +109,7 @@ public sealed partial class LiveSessionTools(ServerOptions options, LiveSessionS
         [Description("list, processes, attach, spawn, status, snapshot or close.")] string action = "list",
         [Description("attach: process id or name; spawn: program path, started suspended; processes: a name filter.")] string? program = null,
         [Description("spawn: program arguments.")] string[]? arguments = null,
+        [Description("spawn: NAME=value variables for the program, beyond the minimal set and DOTNET_ROOT.")] string[]? environment = null,
         [Description(SessionDescription)] string? session = null,
         [Description("snapshot: the dump file (default: the temp folder).")] string? outputPath = null,
         [Description("Replace outputPath if it exists.")] bool overwrite = false,
@@ -131,7 +132,8 @@ public sealed partial class LiveSessionTools(ServerOptions options, LiveSessionS
                 case "attach" or "spawn":
                     if (string.IsNullOrWhiteSpace(program))
                         throw new ToolError(ErrorCode.InvalidArgument, $"action={a} needs program.", a == "spawn" ? "program=<path to the program>" : "program=<process id or name>");
-                    var opened = await live.OpenAsync(a == "spawn", Scoped(a == "spawn", program), arguments ?? [], cancellationToken).ConfigureAwait(false);
+                    var opened = await live.OpenAsync(a == "spawn", Scoped(a == "spawn", program), arguments ?? [], cancellationToken,
+                        a == "spawn" ? environment : null).ConfigureAwait(false);
                     return Report(a, opened);
                 case "status":
                     return Report(a, live.Get(RequireSession(session)));
