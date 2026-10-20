@@ -99,6 +99,7 @@ const FATAL_KINDS = new Set(['abort', 'access-violation', 'guard-page', 'illegal
 Process.setExceptionHandler(d => {
   const tid = Process.getCurrentThreadId();
   const ack = FATAL_KINDS.has(d.type);
+  if (ack) flushAll(); // calls recorded just before the fault
   send({ type: 'exception', tid, kind: d.type, address: d.address.toString(), ack,
     memory: d.memory ? { operation: d.memory.operation, address: d.memory.address.toString() } : null });
   if (ack) recv('exception-' + tid, () => {}).wait();
