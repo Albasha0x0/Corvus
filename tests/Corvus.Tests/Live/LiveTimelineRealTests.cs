@@ -80,4 +80,36 @@ public sealed class LiveTimelineRealTests(ITestOutputHelper output) : IDisposabl
         var page = await Call(server, "live_timeline", new() { ["action"] = "list", ["run"] = "tl-1", ["match"] = "timeline-out", ["limit"] = 5 });
         Assert.Matches(@"#\d+ \+\d+\.\d{3}s file ", page);
     }
+
+    /// <summary>A stop's stack is named without the program looking up symbol files: no PDB probes in the trace.</summary>
+    [FridaFact]
+    public async Task A_stop_leaves_no_symbol_file_lookups_in_the_trace()
+    {
+        if (!Environment.IsPrivilegedProcess)
+        {
+            output.WriteLine("skipped: an event tracing session needs an elevated test run");
+            return;
+        }
+        var exe = LiveFridaRealTests.Build(_dir, "settings", Source);
+        await using var server = await InProcessServer.StartAsync(options: new ServerOptions
+        {
+            BackgroundIndexing = false, WatchFiles = false, AllowLive = true, AllowLiveSpawn = true,
+        });
+
+        await Call(server, "live_session", new() { ["action"] = "spawn", ["program"] = exe, ["arguments"] = new[] { _dir.File("stop-out.txt") } });
+        await Call(server, "live_timeline", new() { ["session"] = "live-1", ["action"] = "start" });
+        await Call(server, "live_break", new() { ["session"] = "live-1", ["action"] = "set", ["at"] = "kernelbase!CreateFileW" });
+        Assert.Contains("stopped at s1", await Call(server, "live_break", new() { ["session"] = "live-1", ["action"] = "continue", ["wait"] = true }));
+        await Call(server, "live_break", new() { ["session"] = "live-1", ["action"] = "clear", ["stopPoint"] = "s1" });
+        await Call(server, "live_break", new() { ["session"] = "live-1", ["action"] = "continue" });
+        string list = "";
+        for (int i = 0; i < 300 && !list.Contains("complete"); i++)
+        {
+            await Task.Delay(100);
+            list = await Call(server, "live_timeline", new() { ["action"] = "list" });
+        }
+        Assert.Contains("complete", list);
+        Assert.Contains("stop-out.txt", await Call(server, "live_timeline", new() { ["action"] = "report", ["run"] = "tl-1", ["category"] = "file" }));
+        Assert.Contains("0 names", await Call(server, "live_timeline", new() { ["action"] = "report", ["run"] = "tl-1", ["match"] = ".pdb" }));
+    }
 }
