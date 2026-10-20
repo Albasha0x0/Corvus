@@ -344,7 +344,8 @@ public sealed partial class MinidumpService(AssemblyWorkspace? workspace = null,
         // a known name that is no export came from the image's symbol table
         if (found is { Source: "export" } known && mc.Names?.Lookup(known.Start) is { Source: "symbol", Start: var at } && at == known.Start)
             found = known with { Source = "symbol" };
-        if (found is not { Source: "user" } && navigator?.FrameName(rva, module.FileName) is { } il2cpp)
+        // a method's range runs to the next method, over the runtime's own code between: the index's function bounds it
+        if (found is not { Source: "user" } && navigator?.FrameName(rva, module.FileName) is { } il2cpp && (found == null || found.Value.Start == il2cpp.Start))
             found = il2cpp;
         if (found is null or { Source: "discovered" } && mc.Names?.Lookup(rva) is { Name: not null } light)
             found = (light.Name, light.Source, light.Start!.Value);

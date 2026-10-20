@@ -223,6 +223,29 @@ public sealed class StackTextTests : IDisposable
         Assert.StartsWith($"get_il2cpp_info assembly={env.Fixture.Id} symbol=0x06", managed.NextStep);
     }
 
+    /// <summary>Runtime code after the last method (::Second at 0x1100) is a function of its own, not Second plus an offset.</summary>
+    [Fact]
+    public async Task CodeBetweenIl2CppMethodsIsNotNamedAfterTheMethodBelow()
+    {
+        using var env = new Env();
+        var game = _dir.File("GameAssembly.dll");
+        var text = Enumerable.Repeat((byte)0xCC, 0x400).ToArray();
+        new byte[] { 0xE8, 0xFB, 0x00, 0x00, 0x00, 0xC3 }.CopyTo(text, 0x100); // Second: call 0x1200; ret
+        new byte[] { 0x55, 0x48, 0x89, 0xE5, 0x31, 0xC0, 0x5D, 0xC3 }.CopyTo(text, 0x200); // the runtime's function
+        var pe = new PeBuilder { EntryPoint = 0x1100, ImageBase = 0x180000000 };
+        pe.Add(".text", text, 0x60000020);
+        File.WriteAllBytes(game, pe.Build());
+        env.Workspace.LoadAny(game);
+        var service = new StackTextService(env.Workspace, new NativeCodeService(env.Workspace, new ServerOptions()), env.Il2CppNavigator);
+        var r = await service.Symbolize("""
+            0x00007FFB00001205 (GameAssembly) (function-name not available)
+            0x00007FFB00001105 (GameAssembly) (function-name not available)
+            C:\Game\GameAssembly.dll:GameAssembly.dll (00007FFB00000000), size: 8192 (result: 0), fileVersion: 0.0.0.0
+            """, null, null, null, null, 0, 50, default);
+        Assert.DoesNotContain("Second", r.Items[0].Resolved);
+        Assert.Contains("Second", r.Items[1].Resolved);
+    }
+
     /// <summary>Android tombstones name libil2cpp.so: its frames get the Il2Cpp names too, not only GameAssembly's.</summary>
     [Fact]
     public async Task AndroidTombstoneFramesInLibIl2CppAreNamedThroughTheDummyAssemblies()
