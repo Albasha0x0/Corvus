@@ -30,6 +30,15 @@ public abstract class LiveToolCalls(ITestOutputHelper output)
         return text;
     }
 
+    /// <summary>Calls <paramref name="tool"/> expecting the error <paramref name="code"/> within a minute; returns its text.</summary>
+    private protected async Task<string> Refused(InProcessServer server, string tool, Dictionary<string, object?> args, string code)
+    {
+        var (text, failed) = await Call(server, tool, args).WaitAsync(TimeSpan.FromMinutes(1));
+        Assert.True(failed, text);
+        Assert.Contains($"Error ({code}", text);
+        return text;
+    }
+
     private protected static Task<InProcessServer> Server(bool scripting = false) => InProcessServer.StartAsync(options: new ServerOptions
     {
         BackgroundIndexing = false, WatchFiles = false, AllowLiveAttach = true, AllowLiveSpawn = true, LiveScripting = scripting,

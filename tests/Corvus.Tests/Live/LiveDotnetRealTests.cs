@@ -218,7 +218,37 @@ public sealed class LiveDotnetRealTests(ITestOutputHelper output) : LiveToolCall
         Assert.Contains("s1 cleared", await Ok(server, "live_break", new() { ["session"] = "live-1", ["action"] = "clear", ["stopPoint"] = "s1" }));
         await Ok(server, "live_break", new() { ["session"] = "live-1", ["action"] = "continue" });
 
-        // a snapshot of the running program; the stopped thread is still in its read loop
+        // a snapshot of the running program; the stopped thread is still in its read loop. gcore is not the program's parent.
+        if (Corvus.Native.Live.PtraceScope.Refusing(started: false) is { } scope)
+            Assert.Contains($"ptrace_scope is {scope}", await Refused(server, "live_session", new() { ["action"] = "snapshot", ["session"] = "live-1" }, "access_denied"));
+        else await Snapshot(server, target, thread);
+
+        var exited = await Exited(server, "live-1", pid);
+        Assert.Matches(@"exit code 0(?![0-9xX])", exited);
+        await Task.Delay(500); // the last batch
+        const int total = threads * rounds;
+        Assert.Contains($"read {total * 1000} bytes in {total} opens", await Events(server, "live-1", kind: "output"));
+        var watched = await Events(server, "live-1", from: "w1", log: false);
+        Assert.Equal(total, opened.Count(watched));
+        Assert.Contains("closed", await Ok(server, "live_session", new() { ["action"] = "close", ["session"] = "live-1" }));
+        Ended(pid);
+
+        // close ends a program the session started
+        var pid2 = await Spawn(server, exe, "live-2", input, "2", "100000", "20");
+        await Ok(server, "live_break", new() { ["session"] = "live-2", ["action"] = "continue" });
+        await Task.Delay(2_000);
+        Assert.Contains($"pid {pid2}, running", await Ok(server, "live_session", new() { ["action"] = "status", ["session"] = "live-2" }));
+        Assert.Contains($"pid {pid2}, closed", await Ok(server, "live_session", new() { ["action"] = "close", ["session"] = "live-2" }));
+        Ended(pid2);
+
+        // a return address is never the entry of the function stopped at
+        var entry = Regex.Match(stop, @"#0 (0x[0-9A-F]+) ").Groups[1].Value;
+        Assert.DoesNotMatch($@"#[1-9]\d* {entry} ", stop);
+    }
+
+    /// <summary>Saves a snapshot of the running program and reads its stacks.</summary>
+    private async Task Snapshot(InProcessServer server, DotnetTarget target, string thread)
+    {
         var snapshot = await Ok(server, "live_session", new() { ["action"] = "snapshot", ["session"] = "live-1" });
         var dump = Regex.Match(snapshot, @"written to (.+?) \(([\d,]+) bytes\), opened as (\S+);");
         Assert.True(dump.Success, snapshot);
@@ -244,28 +274,6 @@ public sealed class LiveDotnetRealTests(ITestOutputHelper output) : LiveToolCall
             else Output.WriteLine(stack + "\n" + main); // a Linux core's stacks are shown, not yet checked
         }
         finally { File.Delete(dump.Groups[1].Value); }
-
-        var exited = await Exited(server, "live-1", pid);
-        Assert.Matches(@"exit code 0(?![0-9xX])", exited);
-        await Task.Delay(500); // the last batch
-        const int total = threads * rounds;
-        Assert.Contains($"read {total * 1000} bytes in {total} opens", await Events(server, "live-1", kind: "output"));
-        var watched = await Events(server, "live-1", from: "w1", log: false);
-        Assert.Equal(total, opened.Count(watched));
-        Assert.Contains("closed", await Ok(server, "live_session", new() { ["action"] = "close", ["session"] = "live-1" }));
-        Ended(pid);
-
-        // close ends a program the session started
-        var pid2 = await Spawn(server, exe, "live-2", input, "2", "100000", "20");
-        await Ok(server, "live_break", new() { ["session"] = "live-2", ["action"] = "continue" });
-        await Task.Delay(2_000);
-        Assert.Contains($"pid {pid2}, running", await Ok(server, "live_session", new() { ["action"] = "status", ["session"] = "live-2" }));
-        Assert.Contains($"pid {pid2}, closed", await Ok(server, "live_session", new() { ["action"] = "close", ["session"] = "live-2" }));
-        Ended(pid2);
-
-        // a return address is never the entry of the function stopped at
-        var entry = Regex.Match(stop, @"#0 (0x[0-9A-F]+) ").Groups[1].Value;
-        Assert.DoesNotMatch($@"#[1-9]\d* {entry} ", stop);
     }
 
     /// <summary>Waits for the program's exit; on a timeout writes what its threads wait on and the session's last events.</summary>

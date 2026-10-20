@@ -312,10 +312,13 @@ public sealed partial class LiveSessionService(AssemblyWorkspace workspace, Nati
                 }
             }
         }
-        catch
+        catch (Exception e)
         {
             worker.Kill("open failed");
             worker.Dispose();
+            // the backend sees only that tracing failed (a started program exits with status 1); the setting says why
+            if (e is ToolError { Code: ErrorCode.Failed or ErrorCode.AccessDenied } t && Native.Live.PtraceScope.Refusing(started: spawn) is { } scope)
+                throw Native.Live.PtraceScope.Refusal(scope, t.Message);
             throw;
         }
         // The program's own image joins the static model: loaded (it is the file being analyzed) and indexed in the background.

@@ -119,6 +119,12 @@ public sealed class LiveTargetRealTests(ITestOutputHelper output) : LiveToolCall
         try
         {
             await using var server = await Server();
+            // the session's worker is not the program's parent
+            if (Corvus.Native.Live.PtraceScope.Refusing(started: false) is { } scope)
+            {
+                Assert.Contains($"ptrace_scope is {scope}", await Refused(server, "live_session", new() { ["action"] = "attach", ["program"] = $"{program.Id}" }, "access_denied"));
+                return;
+            }
             var open = await Ok(server, "live_session", new() { ["action"] = "attach", ["program"] = $"{program.Id}" });
             Assert.Contains("live-1 (frida): ", open);
             Assert.DoesNotContain("suspended", open);

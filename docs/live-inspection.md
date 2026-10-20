@@ -189,5 +189,8 @@ of the same program (3,020 functions, statically linked C runtime): stop points 
 - Processes of another user, elevated processes (from a non-elevated server) and protected processes fail with
   `access_denied`. A process that has exited fails with `not_found` (reason `process_exited`).
 - Managed (JIT) frames are identified, not decoded; use a managed debugger or SOS for those.
+- On Linux, a server without CAP_SYS_PTRACE is bound by Yama's `ptrace_scope`: at 1 sessions on programs it starts
+  work, while attaching to another program and `snapshot` fail with `access_denied` naming the setting; at 2 every
+  session and snapshot fails that way.
 - Sessions on Linux report a thread's start from `pthread_create`; a thread made with a bare `clone` has only its `ended`
   event. A stop's stack is unwound from the 32 KiB above its stack pointer; deeper frames are the stack scan's.

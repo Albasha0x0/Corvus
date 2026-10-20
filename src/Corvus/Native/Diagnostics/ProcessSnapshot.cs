@@ -71,7 +71,11 @@ public static class ProcessSnapshot
         if (!p.WaitForExit(TimeSpan.FromMinutes(5))) { p.Kill(true); throw new ToolError(ErrorCode.Timeout, "gcore did not finish within 5 minutes."); }
         var written = $"{prefix}.{pid}";
         if (p.ExitCode != 0 || !File.Exists(written))
-            throw new ToolError(ErrorCode.IoError, $"gcore failed (exit {p.ExitCode}): {stderr.Result.Trim()}", "ptrace may be restricted: see /proc/sys/kernel/yama/ptrace_scope");
+        {
+            var failure = $"gcore failed (exit {p.ExitCode}): {stderr.Result.Trim()}";
+            // gcore is never the program's parent: a refusal is permanent, not a retryable I/O error
+            throw Live.PtraceScope.Refusing(started: false) is { } scope ? Live.PtraceScope.Refusal(scope, failure) : new ToolError(ErrorCode.IoError, failure, "check the disk space at the output path");
+        }
         File.Move(written, path, true);
     }
 
