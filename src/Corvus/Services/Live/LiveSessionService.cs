@@ -609,6 +609,34 @@ public sealed partial class LiveSessionService(AssemblyWorkspace workspace, Nati
         catch (ObjectDisposedException) { } // closed meanwhile
     }
 
+    /// <summary>
+    /// After a close, a program that is in its exit still gets <see cref="StuckExit"/> to finish it, then is ended with its
+    /// exit code: an unload that meets the start of an exit (seen on x86) can leave the exit unable to finish. The watch
+    /// lasts twice that long; a program still running then goes on unobserved, as a detached program does.
+    /// </summary>
+    private async Task WatchExitAfterClose(LiveSession session, Native.Live.SafeKernelHandle handle)
+    {
+        using (handle)
+        {
+            session.ExitingSince = null;
+            for (var watched = TimeSpan.Zero; watched < 2 * StuckExit; watched += TimeSpan.FromSeconds(1))
+            {
+                if (Native.Live.LiveNative.WaitForSingleObject(handle, 0) == 0 || !Native.Live.LiveNative.GetExitCodeProcess(handle, out var code)) return;
+                if (code == Native.Live.LiveNative.STILL_ACTIVE) session.ExitingSince = null;
+                else if ((session.ExitingSince ??= DateTime.UtcNow) <= DateTime.UtcNow - StuckExit)
+                {
+                    session.Add("error", null, null, $"the program's exit (code {(code < 0x10000 ? code : $"0x{code:X8}")}) did not finish within {StuckExit.TotalSeconds:0} s " +
+                        "of the session's close: ended with that exit code");
+                    const uint ProcessTerminate = 0x0001;
+                    using var end = Native.Live.LiveNative.OpenProcess(ProcessTerminate, false, session.ProcessId);
+                    if (!end.IsInvalid) TerminateProcess(end, code);
+                    return;
+                }
+                await Task.Delay(TimeSpan.FromSeconds(1)).ConfigureAwait(false);
+            }
+        }
+    }
+
     private const uint StatusControlCExit = 0xC000_013A;
 
     /// <summary>
@@ -619,7 +647,7 @@ public sealed partial class LiveSessionService(AssemblyWorkspace workspace, Nati
     {
         // the exit event can come just before the process object is signaled
         const uint WaitObject0 = 0;
-        if (session.ProcessHandle is { IsInvalid: false } h
+        if (session.ProcessHandle is { IsInvalid: false, IsClosed: false } h
             && Native.Live.LiveNative.WaitForSingleObject(h, (uint)ExitCodeWait.TotalMilliseconds) == WaitObject0
             && Native.Live.LiveNative.GetExitCodeProcess(h, out var status))
             session.ExitCode = status;
@@ -1104,7 +1132,8 @@ public sealed partial class LiveSessionService(AssemblyWorkspace workspace, Nati
         if (session.Worker.IsAlive)
             await session.Worker.ShutdownAsync("close", new JsonObject { ["end"] = session.Spawned }, TimeSpan.FromSeconds(5)).ConfigureAwait(false);
         session.Worker.Dispose();
-        session.ProcessHandle?.Dispose();
+        if (session.ProcessHandle is { IsInvalid: false } handle) _ = WatchExitAfterClose(session, handle);
+        else session.ProcessHandle?.Dispose();
         session.ReleaseAll();
         EndCoverage(session);
         EndTimeline(session);
