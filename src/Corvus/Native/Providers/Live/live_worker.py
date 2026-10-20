@@ -47,6 +47,9 @@ class Session:
         self.spawned = False
         self.suspended = False
         self.exited = False
+        self.ended = threading.Event()  # the process is gone
+        self.closing = False
+        self.exit_released = False  # an exit_status was answered: the process is past the script's last hook
         self.held = set()
         self.loading = set()  # threads held at the load of a deferred module
         self.lock = threading.Lock()
@@ -69,7 +72,12 @@ class Session:
         ack = kind in ("exception", "exit_status") and payload.pop("ack", False)
         payload["event"] = kind
         emit(payload)
-        if ack and self.script is not None:
+        with self.lock:
+            # once a close begins it answers what is awaited itself, so it knows whether an exit was let through
+            if not ack or self.closing or self.script is None:
+                return
+            if kind == "exit_status":
+                self.exit_released = True
             self.script.post({"type": "%s-%d" % ("exception" if kind == "exception" else "exit", payload.get("tid"))})
 
     def on_output(self, pid, fd, data):
@@ -79,6 +87,8 @@ class Session:
 
     def on_detached(self, reason, crash):
         self.exited = str(reason) == "process-terminated"
+        if self.exited:
+            self.ended.set()
         emit({"event": "exit", "reason": str(reason), "crash": None if crash is None else str(crash.summary)})
 
     def open(self, args):
@@ -205,6 +215,14 @@ class Session:
                 self.unload_script({"id": sid})
             except Exception:
                 pass
+        with self.lock:
+            self.closing = True
+            released = self.exit_released
+        if self.script is not None and released:
+            # the process is exiting past the last hook: a call into the script or its unload would block on the
+            # process's shutdown, which waits on Frida; the exit finishes on its own
+            self.ended.wait(10)
+            self.script = self.session = None
         if self.script is not None:
             try:
                 with self.lock:
@@ -216,7 +234,21 @@ class Session:
                     self.script.post({"type": "resume-%d" % tid})
                 for tid in loading:
                     self.script.post({"type": "load-%d" % tid})
-                self.script.unload()
+                # replies still in flight (a stop, an exit or a fault the worker has not read yet) never come after the unload
+                exiting = False
+                try:
+                    state = self.script.exports_sync.close_begin()
+                    for reply in state["awaited"]:
+                        self.script.post({"type": reply})
+                    exiting = state["exiting"]
+                except (frida.InvalidOperationError, frida.core.RPCException):
+                    pass
+                # an exit finishes on its own; an unload during it blocks the process's exit and itself
+                if exiting:
+                    self.ended.wait(10)
+                    self.script = self.session = None
+                else:
+                    self.script.unload()
             except frida.InvalidOperationError:
                 pass
         if self.session is not None:

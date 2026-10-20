@@ -4,6 +4,20 @@
 const points = {};
 const hits = {};
 let observing = false; // the observers first replay what is already there; open's info() reports that instead
+// The replies threads wait for. The worker posts every one of them before it unloads the script (closeBegin): a
+// reply still in flight would otherwise never come, and nothing ends recv().wait().
+const awaited = new Set();
+let closing = false;
+
+// Call before the send the reply answers, so closeBegin sees the wait even if the reply is not yet awaited.
+function expect(type) {
+  awaited.add(type);
+}
+
+function waitFor(type) {
+  if (!closing) recv(type, () => {}).wait();
+  awaited.delete(type);
+}
 
 // Outside Windows a stop also sends the stack from the stack pointer up, for the server to unwind with the modules'
 // CFI: Frida's backtrace there starts with the word at the stack pointer, a return address only at a function's start,
@@ -27,8 +41,9 @@ function stopsIn(id, context) {
   hits[id] = (hits[id] || 0) + 1;
   const frames = [context.pc.toString()].concat(
     Thread.backtrace(context, BACKTRACER).slice(0, 31).map(p => p.toString()));
+  expect('resume-' + tid);
   send({ type: 'stop', point: id, tid, hits: hits[id], registers: JSON.parse(JSON.stringify(context)), frames }, stackFrom(context.sp));
-  recv('resume-' + tid, () => {}).wait();
+  waitFor('resume-' + tid);
 }
 
 function moduleRow(m) {
@@ -51,8 +66,9 @@ if (typeof Process.attachModuleObserver === 'function') {
       if (!observing) return;
       const held = deferredModules.size > 0 && isDeferred(m);
       const tid = Process.getCurrentThreadId();
+      if (held) expect('load-' + tid);
       send({ type: 'module', action: 'loaded', module: moduleRow(m), held, tid });
-      if (held) recv('load-' + tid, () => {}).wait();
+      if (held) waitFor('load-' + tid);
     },
     onRemoved(m) { if (observing) send({ type: 'module', action: 'unloaded', module: moduleRow(m) }); },
   });
@@ -99,10 +115,13 @@ const FATAL_KINDS = new Set(['abort', 'access-violation', 'guard-page', 'illegal
 Process.setExceptionHandler(d => {
   const tid = Process.getCurrentThreadId();
   const ack = FATAL_KINDS.has(d.type);
-  if (ack) flushAll(); // calls recorded just before the fault
+  if (ack) {
+    flushAll(); // calls recorded just before the fault
+    expect('exception-' + tid);
+  }
   send({ type: 'exception', tid, kind: d.type, address: d.address.toString(), ack,
     memory: d.memory ? { operation: d.memory.operation, address: d.memory.address.toString() } : null });
-  if (ack) recv('exception-' + tid, () => {}).wait();
+  if (ack) waitFor('exception-' + tid);
   return false; // the program's own handlers decide
 });
 
@@ -114,8 +133,9 @@ function beforeExit(code) {
   const tid = Process.getCurrentThreadId();
   flushAll();
   exiting = true;
+  expect('exit-' + tid);
   send({ type: 'exit_status', tid, code, ack: true });
-  recv('exit-' + tid, () => {}).wait();
+  waitFor('exit-' + tid);
 }
 if (Process.platform === 'windows') {
   // ExitProcess and a return from main end in RtlExitUserProcess; a probe, so no hook frame is left during the exit
@@ -194,6 +214,11 @@ rpc.exports = {
   // runs before the script is unloaded; once the program is exiting, beforeExit has sent the batches
   dispose() {
     if (!exiting) flushAll();
+  },
+  // the replies still awaited, and whether the program is exiting; a wait that starts later returns at once
+  closeBegin() {
+    closing = true;
+    return { awaited: [...awaited], exiting };
   },
   info() {
     return { arch: Process.arch, platform: Process.platform, pointerSize: Process.pointerSize, pid: Process.id,
