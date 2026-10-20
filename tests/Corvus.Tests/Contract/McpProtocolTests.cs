@@ -695,7 +695,8 @@ public abstract class McpProtocolTests : IAsyncLifetime
                 var result = await _client.CallToolAsync(tool, args, new SyncProgress(_ => { }));
                 Assert.NotEqual(true, result.IsError);
                 for (int i = 0; i < 500 && !updates.Any(u => phase(u.Progress.Message ?? "")); i++) await Task.Delay(20);
-                return updates.Select(u => u.Progress.Message ?? "").ToList();
+                // the client SDK handles each incoming message on the thread pool, so handlers can run out of arrival order
+                return updates.OrderBy(u => u.Progress.Progress).Select(u => u.Progress.Message ?? "").ToList();
             }
             // Updates closer than OrderedProgress.MinInterval are coalesced: the first and the latest are sent.
             static bool Compile(string m) => m.StartsWith("compiling against", StringComparison.Ordinal) || m.StartsWith("applying to", StringComparison.Ordinal);
