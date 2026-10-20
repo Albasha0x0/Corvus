@@ -190,6 +190,9 @@ public sealed partial class LiveSessionService
             return run;
         }
         run.Wait(module!.Trim());
+        // known before the load, so the start reply counts what will be set
+        for (int i = 0; i < points.Count; i++)
+            if (refused.TryGetValue(points[i].Rva, out var reason)) run.Refused($"{run.Id}.{i + 1}", points[i].Rva, reason);
         // the worker holds the module's loading thread until the points are set; one without the op sets them after its first calls
         try { await session.Worker.RequestAsync("defer_module", new JsonObject { ["name"] = run.PendingModule }, RequestTimeout, ct).ConfigureAwait(false); }
         catch (ToolError) { }

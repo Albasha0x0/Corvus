@@ -185,6 +185,24 @@ public sealed class LiveCoverageTests : IDisposable
         Assert.Matches(@"\s1\s+0x[0-9A-F]+\s+sqlite3_open\n", await _tools.LiveCoverage(action: "report", run: "cov-1"));
     }
 
+    /// <summary>A run waiting for its module says up front what it leaves out, and counts what it then sets.</summary>
+    [Fact]
+    public async Task A_run_waiting_for_its_module_counts_what_it_sets_on_the_load()
+    {
+        using var dir = new TempDir();
+        var plugin = dir.File("plugin.dll");
+        File.Copy(RealPackages.File("SQLitePCLRaw.lib.e_sqlite3", "2.1.2", "runtimes", "win-x64", "native", "e_sqlite3.dll"), plugin);
+        await _tools.LiveSession("attach", program: "4242");
+        _workspace.LoadAny(plugin);
+
+        var start = await _tools.LiveCoverage("live-1", "start", match: "plugin!sqlite3_");
+        var counted = int.Parse(System.Text.RegularExpressions.Regex.Match(start, @"then counts ([\d,]+) function").Groups[1].Value.Replace(",", ""));
+        Assert.Contains(" left out: ", start);
+        _backend.Load("plugin.dll", plugin, 0x7ff7_0000_0000, 0x200000, heldBy: 77);
+        await Until(() => Count("release_load") == 1);
+        Assert.Equal(counted, _service.GetCoverage("cov-1").Placed.Count);
+    }
+
     [Fact]
     public async Task Runs_of_two_builds_a_graph_too_large_and_unknown_names_are_refused()
     {
