@@ -39,6 +39,27 @@ public sealed class LiveCoverageTests : IDisposable
         Assert.True(done());
     }
 
+    /// <summary>
+    /// A managed run's last read waits for a periodic read in progress instead of skipping, and a read that ends after the
+    /// run is complete adds nothing: the counts reported complete stay as reported.
+    /// </summary>
+    [Fact]
+    public async Task Last_read_of_a_managed_run_waits_for_the_one_in_progress()
+    {
+        var run = new LiveCoverageRun("cov-1", new LiveSession("live-1", "scripted", "app.exe", true, null!), "app.dll", "", [new(0x06000001, "A"), new(0x06000002, "B")]);
+        var inProgress = new TaskCompletionSource();
+        var periodic = run.SampleAsync(async () => { await inProgress.Task; run.MarkRan(0x06000001); }, wait: false);
+        await run.SampleAsync(() => Task.CompletedTask, wait: false); // skipped while one is in progress
+        var last = run.SampleAsync(() => { run.MarkRan(0x06000002); return Task.CompletedTask; }, wait: true);
+        Assert.False(last.IsCompleted);
+        inProgress.SetResult();
+        await Task.WhenAll(periodic, last);
+        Assert.Equal(2, run.Ran);
+        run.Finish("complete");
+        await run.SampleAsync(() => { run.MarkRan(0x06000003); return Task.CompletedTask; }, wait: true);
+        Assert.Equal(2, run.Ran);
+    }
+
     [Fact]
     public async Task Stops_at_function_starts_are_counted_resumed_and_cleared_at_the_hit_limit()
     {

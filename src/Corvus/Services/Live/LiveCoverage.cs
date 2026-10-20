@@ -102,12 +102,25 @@ public sealed class LiveCoverageRun
 
     internal bool IsExit(string pointId) => _exits.ContainsKey(pointId);
 
-    /// <summary>A managed run: records the methods that have run so far.</summary>
-    internal Func<Task>? Sample { get; set; }
+    /// <summary>A managed run: records the methods that have run so far; with wait, after a read in progress ends (a last read before the run is complete).</summary>
+    internal Func<bool, Task>? Sample { get; set; }
     internal Timer? Sampler { get; set; }
-    internal int Sampling;
+    private readonly SemaphoreSlim _sampling = new(1, 1);
 
-    internal void MarkRan(uint token) => _hits.TryAdd(token, 1);
+    /// <summary>Runs <paramref name="read"/> unless one is in progress; with <paramref name="wait"/>, after it ends.</summary>
+    internal async Task SampleAsync(Func<Task> read, bool wait)
+    {
+        if (!await _sampling.WaitAsync(wait ? Timeout.Infinite : 0).ConfigureAwait(false)) return;
+        try { await read().ConfigureAwait(false); }
+        finally { _sampling.Release(); }
+    }
+
+    // a read that ends after the run is complete adds nothing: the report already counted
+    internal void MarkRan(uint token)
+    {
+        lock (_live)
+            if (_state == "recording") _hits.TryAdd(token, 1);
+    }
 
     internal IReadOnlyList<string> ExitPoints => [.. _exits.Keys];
 
@@ -391,9 +404,8 @@ public sealed partial class LiveSessionService
         var run = new LiveCoverageRun("cov-" + Interlocked.Increment(ref _nextCoverage), session, file, asm.OriginalSha256, points);
         var tokens = points.Select(p => p.Rva).ToHashSet();
         var path = asm.FilePath;
-        run.Sample = async () =>
+        run.Sample = wait => run.SampleAsync(async () =>
         {
-            if (Interlocked.Exchange(ref run.Sampling, 1) == 1) return;
             try
             {
                 if (run.State == "recording" && await ClrAsync(session, CancellationToken.None).ConfigureAwait(false) is { Unavailable: null } clr)
@@ -401,8 +413,7 @@ public sealed partial class LiveSessionService
                         if (tokens.Contains(token)) run.MarkRan(token);
             }
             catch (Exception e) when (e is ToolError or InvalidOperationException or ObjectDisposedException or OperationCanceledException) { }
-            finally { Volatile.Write(ref run.Sampling, 0); }
-        };
+        }, wait);
         _coverage[run.Id] = run;
         try
         {
@@ -414,8 +425,8 @@ public sealed partial class LiveSessionService
             catch (ToolError e) when (e.Code is ErrorCode.Failed or ErrorCode.InvalidArgument or ErrorCode.Unsupported) { run.Retire(id); }
         }
         catch (ToolError e) when (e.Code is ErrorCode.NotFound or ErrorCode.Unsupported) { } // then the methods of the last second before exit are missed
-        await run.Sample().ConfigureAwait(false);
-        run.Sampler = new Timer(_ => _ = run.Sample(), null, ManagedSamplePeriod, ManagedSamplePeriod);
+        await run.Sample(true).ConfigureAwait(false);
+        run.Sampler = new Timer(_ => _ = run.Sample(false), null, ManagedSamplePeriod, ManagedSamplePeriod);
         EndedMeanwhile(session, run);
         return run;
     }
@@ -453,7 +464,7 @@ public sealed partial class LiveSessionService
     /// <summary>Clears the run's points that are still set (a managed run reads the runtime a last time); its counts stay.</summary>
     public async Task StopCoverageAsync(LiveSession session, LiveCoverageRun run, CancellationToken ct)
     {
-        if (run.Sample is { } sample && session.Ended == null) await sample().ConfigureAwait(false);
+        if (run.Sample is { } sample && session.Ended == null) await sample(true).ConfigureAwait(false);
         await ClearPoints(session, run, "complete", ct).ConfigureAwait(false);
     }
 
@@ -501,7 +512,7 @@ public sealed partial class LiveSessionService
                     // past exit nothing resumes a held thread, so every point goes before this one resumes; managed runs read the runtime first
                     var runs = session.CoveragePoints.Values.Distinct().ToList();
                     foreach (var r in runs)
-                        if (r.Sample is { } sample) await sample().ConfigureAwait(false);
+                        if (r.Sample is { } sample) await sample(true).ConfigureAwait(false);
                     foreach (var r in runs) await ClearPoints(session, r, "complete").ConfigureAwait(false);
                     await Resume(session, thread).ConfigureAwait(false);
                 }
