@@ -195,7 +195,7 @@ public sealed class LiveDotnetRealTests(ITestOutputHelper output) : LiveToolCall
             opens = await Events(server, "live-1", from: "w1", log: false);
             await Task.Delay(100);
         }
-        Assert.Matches(opened, opens);
+        if (!opened.IsMatch(opens)) Assert.Fail($"no open of {InputName}:\n{opens}\n{await Events(server, "live-1", log: false)}");
 
         // a stop at the file-open API, on a call that opens the input file
         Assert.Contains("s1 set", await Ok(server, "live_break", new() { ["session"] = "live-1", ["action"] = "set", ["at"] = target.FileOpen }));
@@ -240,7 +240,7 @@ public sealed class LiveDotnetRealTests(ITestOutputHelper output) : LiveToolCall
                 Assert.Matches(@"#\d+ 0x[0-9A-F]+ \?  managed, frame_pointer", stack);
                 Assert.Contains("kernel32!BaseThreadInitThunk", stack);
             }
-            else Output.WriteLine("DUMP-CALIBRATION\n" + stack + "\n" + main);
+            else Output.WriteLine(stack + "\n" + main); // a Linux core's stacks are shown, not yet checked
         }
         finally { File.Delete(dump.Groups[1].Value); }
 
