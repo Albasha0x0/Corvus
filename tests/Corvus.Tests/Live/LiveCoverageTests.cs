@@ -70,6 +70,20 @@ public sealed class LiveCoverageTests : IDisposable
     }
 
     [Fact]
+    public async Task A_run_whose_program_ended_stays_ended_when_stopped()
+    {
+        await _tools.LiveSession("attach", program: "4242");
+        await _tools.LiveCoverage("live-1", "start", match: "sqlite3_open");
+        _backend.Worker!.Emit(new System.Text.Json.Nodes.JsonObject { ["event"] = "exit", ["reason"] = "process-terminated" });
+        await Until(() => _service.GetCoverage("cov-1").State == "ended");
+
+        var stop = await _tools.LiveCoverage(action: "stop", run: "cov-1");
+        Assert.StartsWith("cov-1 ended with its program, before the stop: 0 of ", stop);
+        Assert.Equal("ended", _service.GetCoverage("cov-1").State);
+        Assert.Contains("ended", await _tools.LiveCoverage(action: "list"));
+    }
+
+    [Fact]
     public async Task A_stop_point_inside_a_function_start_and_coverage_of_that_function_exclude_each_other()
     {
         await _tools.LiveSession("attach", program: "4242");

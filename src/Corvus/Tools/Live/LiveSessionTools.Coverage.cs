@@ -79,7 +79,9 @@ public sealed partial class LiveSessionTools
                 {
                     var r = live.GetCoverage(RequireRun(run, session));
                     await live.StopCoverageAsync(live.Get(r.Session), r, cancellationToken).ConfigureAwait(false);
-                    return ToolOutput.With($"{r.Id} complete: {r.Ran:N0} of {ToolSupport.Plural(r.Placed.Count, "function")} ran\n",
+                    // a run whose program ended first keeps that state: its counts stop at the end, not at this stop
+                    var state = r.State == "ended" ? "ended with its program, before the stop" : r.State;
+                    return ToolOutput.With($"{r.Id} {state}: {r.Ran:N0} of {ToolSupport.Plural(r.Placed.Count, "function")} ran\n",
                         new LiveCoverageReport(Summary(r), [], 0, 0, []));
                 }
                 case "list":

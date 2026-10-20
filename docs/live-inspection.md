@@ -143,7 +143,7 @@ a function whose first block is too short is refused with the reason "too short 
 `action=report` lists the functions that ran (`show=missed` or `all`), busiest first, and `format=dot` draws them on
 the static call graph in Graphviz DOT, functions that never ran dashed. `action=diff` compares two runs of the same
 build: the functions that ran only in each, in both and in neither. Counting covers function entries; blocks inside a
-function are not counted.
+function are not counted. A run whose program ends first reads `ended` and keeps its counts; `action=stop` leaves it so.
 
 `live_timeline` collects a timestamped trace from the OS diagnostics channel: an event tracing session (ETW) with the
 kernel file, registry, network and process providers, as PerfView and Process Monitor collect them, keeping the
