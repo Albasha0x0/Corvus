@@ -1,3 +1,3 @@
 # surviving mutants (survived or not covered) per target of tests/mutation.json may only fall
 # Measured ratchet: values may only fall (tests/Corvus.Tests/Support/CountRatchet.cs).
-sqlite = 474
+sqlite = 464

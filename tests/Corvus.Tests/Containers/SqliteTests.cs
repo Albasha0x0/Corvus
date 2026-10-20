@@ -42,6 +42,19 @@ public sealed class SqliteTests
         Assert.Empty(f.Notes);
     }
 
+    [Theory]
+    [InlineData(3_045_001u, "3.45.1")]
+    [InlineData(3_000_000u, "3.0.0")]
+    [InlineData(3_999_999u, "3.999.999")]
+    [InlineData(2_999_999u, null)]
+    [InlineData(4_000_000u, null)]
+    public void The_writer_version_is_read_from_the_header_only_for_sqlite_3(uint version, string? expected)
+    {
+        var bytes = (byte[])Fixture.Value.Clone();
+        System.Buffers.Binary.BinaryPrimitives.WriteUInt32BigEndian(bytes.AsSpan(96), version); // SQLITE_VERSION_NUMBER of the last writer
+        Assert.Equal(expected, SqliteDatabase.Open(bytes)!.WriterVersion);
+    }
+
     [Fact]
     public void Preview_shows_rowid_alias_clipped_overflow_text_and_without_rowid_key_order()
     {
