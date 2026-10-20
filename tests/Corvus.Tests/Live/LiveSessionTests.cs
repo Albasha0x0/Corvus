@@ -746,7 +746,9 @@ public sealed class LiveSessionTests : IDisposable
             Assert.Contains($"  {value}\n", (await _tools.LiveRead("live-1", memory: "0x5000", type: type)).ReplaceLineEndings("\n"));
         Assert.Contains("  0.5\n", (await _tools.LiveRead("live-1", memory: "0x6000", type: "float")).ReplaceLineEndings("\n"));
         Assert.Contains("  2.5\n", (await _tools.LiveRead("live-1", memory: "0x6004", type: "double")).ReplaceLineEndings("\n"));
-        foreach (var bad in new[] { "int128", "uint32[0]", "uint32[x]", "uint8[5000]" })
+        foreach (var spaced in new[] { "uint16 [2]", "uint16[ 2 ]", " UINT16 [2] " })
+            Assert.Matches(@"uint16\[2\]\r?\n  \[0\] 65535\r?\n  \[1\] 65535\r?\n", await _tools.LiveRead("live-1", memory: "0x5000", type: spaced));
+        foreach (var bad in new[] { "int128", "uint32[0]", "uint32[x]", "uint8[5000]", "uint 32[2]" })
             Assert.Equal(ErrorCode.InvalidArgument, (await Assert.ThrowsAsync<ToolError>(() => _tools.LiveRead("live-1", memory: "0x5000", type: bad))).Code);
     }
 

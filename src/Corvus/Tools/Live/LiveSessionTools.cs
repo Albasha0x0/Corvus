@@ -499,9 +499,10 @@ public sealed partial class LiveSessionTools(ServerOptions options, LiveSessionS
         int count = 1;
         if (t.EndsWith(']') && t.IndexOf('[') is > 0 and var open)
         {
-            if (!int.TryParse(t[(open + 1)..^1], NumberStyles.None, CultureInfo.InvariantCulture, out count) || count < 1)
+            // spaces around the count and before the bracket are allowed, as in a C declaration
+            if (!int.TryParse(t[(open + 1)..^1].Trim(), NumberStyles.None, CultureInfo.InvariantCulture, out count) || count < 1)
                 throw new ToolError(ErrorCode.InvalidArgument, $"Bad array count in '{type}'.", "type=uint32[4]");
-            t = t[..open];
+            t = t[..open].TrimEnd();
         }
         if (t is "cstring" or "utf16") return (t, Math.Clamp(length ?? MaxRead, 2, MaxRead), 1);
         var size = t == "pointer" ? pointerSize : Sizes.GetValueOrDefault(t);
