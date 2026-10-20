@@ -28,10 +28,10 @@ public sealed record LiveStopPointState(string Id, string Where, ulong Address, 
     public string? Followed { get; init; }
 }
 
-/// <summary>A thread held at a stop point until it is resumed: its general registers and return addresses.</summary>
 /// <summary>A stop point or watch on a module the program has not loaded yet; set when the module loads.</summary>
 public sealed record LiveDeferred(string Id, string Where, string Module, bool Watch, int PerSecond, int RawArguments);
 
+/// <summary>A thread held at a stop point until it is resumed: its general registers and return addresses.</summary>
 public sealed record LiveHeldStop(long Sequence, long Thread, string Point, IReadOnlyDictionary<string, string> Registers, IReadOnlyList<ulong> Frames);
 
 /// <summary>An event; <see cref="Source"/> is the watch or user script it came from.</summary>
@@ -1032,8 +1032,10 @@ public sealed partial class LiveSessionService(AssemblyWorkspace workspace, Nati
         w.Cleared = true;
     }
 
-    /// <summary>Loads a user-supplied script into the session's program; its messages and errors go into the event ring.</summary>
-    /// <summary>Loads a script; Error is what it reported failing within <see cref="ScriptErrorWait"/> (an exception in its top-level code).</summary>
+    /// <summary>
+    /// Loads a user-supplied script into the session's program; its messages and errors go into the event ring. Error is
+    /// what it reported failing within <see cref="ScriptErrorWait"/> (an exception in its top-level code).
+    /// </summary>
     public async Task<(string Id, string? Error)> LoadScriptAsync(LiveSession session, string source, string origin, CancellationToken ct)
     {
         Live(session);
