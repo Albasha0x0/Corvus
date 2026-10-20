@@ -160,6 +160,9 @@ public sealed class LiveTimelineTests : IDisposable
         Assert.Matches(@"only in tl-1:\r?\n\s+file\s+C:\\data\\old\.cfg\r?\n\s+network\s+tcp 127\.0\.0\.1:8080\r?\n\s+only in tl-2:\r?\n\s+file\s+C:\\data\\new\.cfg\r?\n\s+process\s+C:\\tools\\child\.exe\r?\n", text);
         Assert.DoesNotContain("orders.txt", text);
         Assert.DoesNotContain(@"Orders\Path", text);
+        // every entry at one column, under its heading or not
+        Assert.Single(text.Split('\n').Where(l => l.TrimStart().StartsWith("file ") || l.TrimStart().StartsWith("network ") || l.TrimStart().StartsWith("process "))
+            .Select(l => l.Length - l.TrimStart().Length).Distinct());
 
         var files = await _tools.LiveTimeline(action: "diff", a: "tl-1", b: "tl-2", category: "file");
         Assert.Contains("1 name only in tl-1, 1 only in tl-2, 1 in both", files);

@@ -177,9 +177,9 @@ public sealed partial class LiveSessionTools
             .Concat(onlyB.Select((p, i) => new TimelineDiffRow(onlyA.Count + i, false, p.Category, p.Name))).ToList();
         var head = $"{a.Id} {Path.GetFileName(a.Program)} and {b.Id} {Path.GetFileName(b.Program)}: {ToolSupport.Plural(onlyA.Count, "name")} only in {a.Id}, " +
                    $"{onlyB.Count:N0} only in {b.Id}, {common:N0} in both\n";
-        // a heading row's entry continues on the next line, indented 4 past the row (ToolOutput.Line); other entries match it
+        // a heading row's entry continues on the next line at column 4 (ToolOutput.Line); other entries, after the row's 2, match it
         string Render(TimelineDiffRow x) =>
-            (x.Index == Math.Max(0, offset) || x.Index == onlyA.Count ? $"only in {(x.InA ? a.Id : b.Id)}:\n" : "    ") + $"{x.Category,-8}  {x.Name}";
+            (x.Index == Math.Max(0, offset) || x.Index == onlyA.Count ? $"only in {(x.InA ? a.Id : b.Id)}:\n" : "  ") + $"{x.Category,-8}  {x.Name}";
         return ToolOutput.List(rows, offset, limit, Render, page => new LiveTimelinePage(TimelineSummary(a), [], null, [])
         {
             Diff = new LiveTimelineDiff(TimelineSummary(b), [.. page.Where(x => x.InA).Select(x => new LiveTimelinePair(x.Category, x.Name))],
