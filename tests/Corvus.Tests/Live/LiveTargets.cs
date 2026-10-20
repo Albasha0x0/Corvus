@@ -68,17 +68,30 @@ internal sealed class LiveTarget
         return dir.File(Exe(name));
     }
 
-    private ProcessStartInfo Msvc(TempDir dir, string name) => new("cmd.exe")
+    /// <summary>The file a shared library <c>name</c> builds to: name.dll, or libname.so.</summary>
+    public string Library(string name) => Windows ? name + ".dll" : "lib" + name + ".so";
+
+    /// <summary>Compiles <paramref name="source"/> into the shared library <see cref="Library"/> in <paramref name="dir"/>, unoptimized with full debug information.</summary>
+    public string BuildLibrary(TempDir dir, string name, string source)
+    {
+        File.WriteAllText(dir.File(name + ".c"), source);
+        var (code, log) = Tools.Run(Windows ? Msvc(dir, name, library: true) : Gcc(dir, name, library: true), 300_000);
+        Assert.True(code == 0 && File.Exists(dir.File(Library(name))), log);
+        return dir.File(Library(name));
+    }
+
+    private ProcessStartInfo Msvc(TempDir dir, string name, bool library = false) => new("cmd.exe")
     {
         WorkingDirectory = dir.Path,
-        Arguments = $"/s /c \"\"{VisualStudio.VcVarsAll()}\" {(Is64 ? "x64" : "x86")} >nul && cl /nologo /Od /Zi {name}.c /link /DEBUG:FULL /INCREMENTAL:NO /OUT:{name}.exe\"",
+        Arguments = $"/s /c \"\"{VisualStudio.VcVarsAll()}\" {(Is64 ? "x64" : "x86")} >nul && cl /nologo /Od /Zi {(library ? "/LD " : "")}{name}.c /link /DEBUG:FULL /INCREMENTAL:NO /OUT:{(library ? Library(name) : name + ".exe")}\"",
     };
 
-    private ProcessStartInfo Gcc(TempDir dir, string name)
+    private ProcessStartInfo Gcc(TempDir dir, string name, bool library = false)
     {
         var psi = new ProcessStartInfo("gcc") { WorkingDirectory = dir.Path };
-        foreach (var a in new[] { "-g", "-O0", "-fno-omit-frame-pointer", Arm64 ? "" : Is64 ? "-m64" : "-m32", "-o", name, name + ".c", "-lpthread" })
+        foreach (var a in new[] { "-g", "-O0", "-fno-omit-frame-pointer", Arm64 ? "" : Is64 ? "-m64" : "-m32" })
             if (a.Length > 0) psi.ArgumentList.Add(a);
+        foreach (var a in library ? ["-fPIC", "-shared", "-o", Library(name), name + ".c"] : new[] { "-o", name, name + ".c", "-lpthread", "-ldl" }) psi.ArgumentList.Add(a);
         return psi;
     }
 
@@ -262,6 +275,97 @@ internal static class LivePrograms
             if (strstr(steps, "fault")) *(volatile int*)0 = o.lines;
             if (strstr(steps, "stuck")) { g_stuck = 1; return 7; }
             return 5;
+        }
+        """;
+
+    /// <summary>
+    /// values [rounds] [pause ms]: Show once per round with a 300-character string and its UTF-16 copy, then the count;
+    /// a global of each scalar type.
+    /// </summary>
+    public const string Values = Platform + """
+        #include <string.h>
+        #ifdef _WIN32
+        typedef wchar_t Text16;
+        #else
+        typedef unsigned short Text16;
+        #endif
+        int g_count = 42;
+        double g_ratio = 2.5;
+        float g_scale = 0.5f;
+        long long g_big = -5000000000LL;
+        unsigned char g_bytes[4] = { 1, 2, 3, 4 };
+        static char g_text[301];
+        static Text16 g_wide[301];
+        NOINLINE int Show(const char* text, const Text16* wide, int round)
+        {
+            return (int)strlen(text) + wide[0] + round;
+        }
+        int main(int argc, char** argv)
+        {
+            int rounds = argc > 1 ? atoi(argv[1]) : 1, pause = argc > 2 ? atoi(argv[2]) : 0;
+            for (int i = 0; i < 300; i++) { g_text[i] = (char)('a' + i % 26); g_wide[i] = (Text16)('A' + i % 26); }
+            for (int i = 0; i < rounds; i++) { g_count += Show(g_text, g_wide, i) > 0; if (pause) Pause(pause); }
+            if (g_ratio + g_scale + (double)g_big + g_bytes[0] == 0) puts("never");
+            printf("count %d\n", g_count);
+            fflush(stdout);
+            return 0;
+        }
+        """;
+
+    /// <summary>plugin (a shared library): PluginWork and PluginOther, each returning twice its argument.</summary>
+    public const string Plugin = """
+        #ifdef _WIN32
+        #define EXPORT __declspec(dllexport) __declspec(noinline)
+        #else
+        #define EXPORT __attribute__((visibility("default"), noinline))
+        #endif
+        EXPORT int PluginWork(int i) { return i * 2; }
+        EXPORT int PluginOther(int i) { return i * 2; }
+        """;
+
+    /// <summary>loader [library] [calls]: loads the library after a pause, calls PluginWork and PluginOther that many times, prints the sum.</summary>
+    public const string Loader = Platform + """
+        #ifndef _WIN32
+        #include <dlfcn.h>
+        #endif
+        typedef int (*Fn)(int);
+        int main(int argc, char** argv)
+        {
+            int calls = argc > 2 ? atoi(argv[2]) : 1;
+            long total = 0;
+            Pause(300);
+        #ifdef _WIN32
+            HMODULE lib = LoadLibraryA(argv[1]);
+            Fn work = lib ? (Fn)GetProcAddress(lib, "PluginWork") : NULL, other = lib ? (Fn)GetProcAddress(lib, "PluginOther") : NULL;
+        #else
+            void* lib = dlopen(argv[1], RTLD_NOW);
+            Fn work = lib ? (Fn)dlsym(lib, "PluginWork") : NULL, other = lib ? (Fn)dlsym(lib, "PluginOther") : NULL;
+        #endif
+            if (!work || !other) { printf("no plugin\n"); return 2; }
+            for (int i = 0; i < calls; i++) total += work(i) + other(i);
+            printf("plugin %ld\n", total);
+            fflush(stdout);
+            return 0;
+        }
+        """;
+
+    /// <summary>probe [arg] [seconds]: prints PROBE_MODE, PROBE_SECRET, its working folder and arguments, then waits; exits 3.</summary>
+    public const string Probe = Platform + """
+        #ifdef _WIN32
+        #include <direct.h>
+        #define getcwd _getcwd
+        #endif
+        int main(int argc, char** argv)
+        {
+            char cwd[4096];
+            const char* mode = getenv("PROBE_MODE");
+            const char* secret = getenv("PROBE_SECRET");
+            printf("mode=%s\nsecret=%s\ncwd=%s\nargc=%d arg1=%s\n", mode ? mode : "(none)", secret ? secret : "(none)",
+                getcwd(cwd, sizeof cwd) ? cwd : "?", argc, argc > 1 ? argv[1] : "");
+            fflush(stdout);
+            int seconds = argc > 2 ? atoi(argv[2]) : 0;
+            for (int i = 0; i < seconds * 10; i++) Pause(100);
+            return 3;
         }
         """;
 

@@ -223,6 +223,24 @@ public sealed class LiveTargetRealTests(ITestOutputHelper output) : LiveToolCall
         Assert.Contains($"script: u1: {{\"pid\":{pid},\"arch\":\"{(target.Is64 ? "x64" : "ia32")}\",\"bits\":{(target.Is64 ? 64 : 32)}}}", events);
         Assert.Contains("u1 unloaded", await Ok(server, "live_script", new() { ["session"] = "live-1", ["action"] = "unload", ["script"] = "u1" }));
         Assert.Contains("0 script(s)", await Ok(server, "live_script", new() { ["session"] = "live-1" }));
+
+        // an error in the top-level code, a later one with a message carrying data, and a script from a file
+        Assert.Contains("u2 reported error: Error: on purpose",
+            await Ok(server, "live_script", new() { ["session"] = "live-1", ["action"] = "load", ["source"] = "throw new Error('on purpose');" }));
+        await Ok(server, "live_script", new()
+        {
+            ["session"] = "live-1", ["action"] = "load",
+            ["source"] = "setTimeout(() => { send({ late: 1 }, new Uint8Array([1, 2, 3]).buffer); throw new Error('later'); }, 50);",
+        });
+        File.WriteAllText(_dir.File("trace.js"), "send({ file: Process.arch });");
+        Assert.Contains($"u4 loaded ({_dir.File("trace.js")})", await Ok(server, "live_script", new() { ["session"] = "live-1", ["action"] = "load", ["path"] = _dir.File("trace.js") }));
+        string late = "", fromFile = "";
+        for (int i = 0; i < 100 && !(late.Contains("u3: error: Error: later") && fromFile.Contains("\"file\"")); i++, await Task.Delay(100))
+            (late, fromFile) = (await Events(server, "live-1", from: "u3"), await Events(server, "live-1", from: "u4"));
+        Assert.Contains("u3: {\"late\":1} (+3 bytes of data)", late);
+        Assert.Contains("u3: error: Error: later", late);
+        Assert.Contains($"u4: {{\"file\":\"{(target.Is64 ? "x64" : "ia32")}\"}}", fromFile);
+        Assert.DoesNotContain("u4", late);
         await Ok(server, "live_session", new() { ["action"] = "close", ["session"] = "live-1" });
         Ended(pid);
     }
