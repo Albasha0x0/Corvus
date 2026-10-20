@@ -1,8 +1,6 @@
 using System.Diagnostics;
 using System.Globalization;
 using System.Text.RegularExpressions;
-using Corvus.Core;
-using ModelContextProtocol.Protocol;
 using Xunit.Abstractions;
 
 namespace Corvus.Tests;
@@ -15,83 +13,11 @@ namespace Corvus.Tests;
 [Trait("Speed", "Slow")]
 [Trait("Data", "Real")]
 [Collection(LiveSessions.Collection)]
-public sealed class LiveTargetRealTests(ITestOutputHelper output) : IDisposable
+public sealed class LiveTargetRealTests(ITestOutputHelper output) : LiveToolCalls(output), IDisposable
 {
     private readonly TempDir _dir = new();
 
     public void Dispose() => _dir.Dispose();
-
-    private async Task<(string Text, bool IsError)> Call(InProcessServer server, string tool, Dictionary<string, object?> args)
-    {
-        var sw = Stopwatch.StartNew();
-        var r = await server.Client.CallToolAsync(tool, args);
-        var text = string.Concat(r.Content.OfType<TextContentBlock>().Select(b => b.Text));
-        output.WriteLine($"{tool} {string.Join(" ", args.Select(a => $"{a.Key}={(a.Value is string[] l ? string.Join(",", l) : a.Value)}"))} ({sw.ElapsedMilliseconds} ms):\n{text}");
-        return (text, r.IsError == true);
-    }
-
-    private async Task<string> Ok(InProcessServer server, string tool, Dictionary<string, object?> args)
-    {
-        var (text, failed) = await Call(server, tool, args);
-        Assert.False(failed, text);
-        return text;
-    }
-
-    private static Task<InProcessServer> Server(bool scripting = false) => InProcessServer.StartAsync(options: new ServerOptions
-    {
-        BackgroundIndexing = false, WatchFiles = false, AllowLiveAttach = true, AllowLiveSpawn = true, LiveScripting = scripting,
-    });
-
-    private async Task<int> Spawn(InProcessServer server, string exe, string session, params string[] arguments)
-    {
-        var open = await Ok(server, "live_session", new() { ["action"] = "spawn", ["program"] = exe, ["arguments"] = arguments });
-        Assert.Contains($"{session} (frida): ", open);
-        Assert.Contains("suspended", open);
-        return int.Parse(Regex.Match(open, @"pid (\d+)").Groups[1].Value, CultureInfo.InvariantCulture);
-    }
-
-    private async Task<string> UntilExited(InProcessServer server, string session, int seconds = 120)
-    {
-        for (int i = 0; i < seconds * 10; i++)
-        {
-            var (status, _) = await Call(server, "live_session", new() { ["action"] = "status", ["session"] = session });
-            if (status.Contains(", exited")) return status;
-            await Task.Delay(100);
-        }
-        Assert.Fail($"{session} did not exit within {seconds} s");
-        return "";
-    }
-
-    /// <summary>All events of one kind, every page.</summary>
-    private async Task<string> Events(InProcessServer server, string session, string? kind = null, string? from = null)
-    {
-        var all = new System.Text.StringBuilder();
-        string? cursor = null;
-        for (int page = 0; page < 200; page++)
-        {
-            var args = new Dictionary<string, object?> { ["session"] = session, ["limit"] = 500 };
-            if (kind != null) args["kind"] = kind;
-            if (from != null) args["from"] = from;
-            if (cursor != null) args["cursor"] = cursor;
-            var (text, failed) = await Call(server, "live_events", args);
-            Assert.False(failed, text);
-            all.Append(text);
-            var next = Regex.Match(text, @"cursor=(\S+)");
-            if (!next.Success || !text.Contains("more", StringComparison.OrdinalIgnoreCase)) break;
-            cursor = next.Groups[1].Value;
-        }
-        return all.ToString();
-    }
-
-    private static void Ended(int pid)
-    {
-        try
-        {
-            using var p = Process.GetProcessById(pid);
-            Assert.True(p.WaitForExit(10_000), $"process {pid} is still running");
-        }
-        catch (ArgumentException) { /* already gone */ }
-    }
 
     /// <summary>The address of the Order the held thread's first argument points at.</summary>
     private async Task<string> FirstArgument(InProcessServer server, LiveTarget target)
@@ -313,7 +239,7 @@ public sealed class LiveTargetRealTests(ITestOutputHelper output) : IDisposable
             Assert.True(m.Success, $"stop {i}: {stop}");
             threads.Add(m.Groups[1].Value);
         }
-        output.WriteLine($"300 stops in {sw.ElapsedMilliseconds} ms, {threads.Count} threads");
+        Output.WriteLine($"300 stops in {sw.ElapsedMilliseconds} ms, {threads.Count} threads");
         Assert.True(threads.Count >= LivePrograms.WorkerThreads / 2, $"{threads.Count} threads stopped");
         await Ok(server, "live_break", new() { ["session"] = "live-1", ["action"] = "clear", ["stopPoint"] = "s1" });
         await Ok(server, "live_break", new() { ["session"] = "live-1", ["action"] = "continue" });
