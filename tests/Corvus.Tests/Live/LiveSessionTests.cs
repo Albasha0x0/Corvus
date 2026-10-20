@@ -337,6 +337,18 @@ public sealed class LiveSessionTests : IDisposable
     }
 
     [Fact]
+    public async Task A_wait_the_program_ends_says_the_program_ended()
+    {
+        await _tools.LiveSession("attach", program: "4242");
+        var wait = _tools.LiveBreak("live-1", wait: true, waitSeconds: 60);
+        await Task.Delay(200);
+        _backend.Worker!.Emit(new JsonObject { ["event"] = "exit", ["reason"] = "process-terminated" });
+        var text = await wait.WaitAsync(TimeSpan.FromSeconds(10));
+        Assert.Contains("the program ended before a stop (exited: process-terminated", text);
+        Assert.DoesNotContain("no stop within", text);
+    }
+
+    [Fact]
     public async Task Status_after_a_close_names_why_the_session_closed()
     {
         await _tools.LiveSession("spawn", program: Sqlite);

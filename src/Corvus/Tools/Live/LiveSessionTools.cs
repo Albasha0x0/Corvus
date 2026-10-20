@@ -246,7 +246,10 @@ public sealed partial class LiveSessionTools(ServerOptions options, LiveSessionS
             if (wait)
             {
                 var held = await s.NextStopAsync(TimeSpan.FromSeconds(Math.Clamp(waitSeconds, 1, 300)), cancellationToken).ConfigureAwait(false);
-                if (held == null) head.AppendLine($"no stop within {Math.Clamp(waitSeconds, 1, 300)} s; the session is {s.State}");
+                if (held == null)
+                    head.AppendLine(s.Ended is { } ended ? $"the program ended before a stop ({ended})"
+                        : s.Closed ? "the session closed before a stop"
+                        : $"no stop within {Math.Clamp(waitSeconds, 1, 300)} s; the session is {s.State}");
                 else
                 {
                     await live.IndexedAsync(s, TimeSpan.FromSeconds(15), cancellationToken).ConfigureAwait(false);
