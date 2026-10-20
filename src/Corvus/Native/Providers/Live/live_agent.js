@@ -5,12 +5,27 @@ const points = {};
 const hits = {};
 let observing = false; // the observers first replay what is already there; open's info() reports that instead
 
+// Outside Windows a stop also sends the stack from the stack pointer up, for the server to unwind with the modules'
+// CFI: Frida's backtrace there starts with the word at the stack pointer, a return address only at a function's start.
+const STACK_BYTES = 32768;
+
+function stackFrom(sp) {
+  if (Process.platform === 'windows') return null;
+  try {
+    const range = Process.findRangeByAddress(sp);
+    if (range === null) return null;
+    return sp.readByteArray(Math.min(STACK_BYTES, range.base.add(range.size).sub(sp).toInt32()));
+  } catch (e) {
+    return null;
+  }
+}
+
 function stopsIn(id, context) {
   const tid = Process.getCurrentThreadId();
   hits[id] = (hits[id] || 0) + 1;
   const frames = [context.pc.toString()].concat(
     Thread.backtrace(context, Backtracer.ACCURATE).slice(0, 31).map(p => p.toString()));
-  send({ type: 'stop', point: id, tid, hits: hits[id], registers: JSON.parse(JSON.stringify(context)), frames });
+  send({ type: 'stop', point: id, tid, hits: hits[id], registers: JSON.parse(JSON.stringify(context)), frames }, stackFrom(context.sp));
   recv('resume-' + tid, () => {}).wait();
 }
 

@@ -3,7 +3,7 @@
 Ops: hello; open {attach | spawn, arguments, cwd, temp, tmp}; info; set {id, address}; clear {id}; watch {id, address, args,
 perSecond}; unwatch {id}; defer_module {name}; undefer_module {name}; release_load {thread}; load_script {id, source};
 unload_script {id}; read {address, length}; resume {thread}; close.
-Events: ready, stop, calls, module, thread, exception, exit_status, output, exit, script_error, user_script.
+Events: ready, stop (with stack: the bytes from the stack pointer up, outside Windows), calls, module, thread, exception, exit_status, output, exit, script_error, user_script.
 A program started here stays suspended until the first resume; close resumes every held thread, and ends the
 program only when this worker started it. A module named by defer_module holds its loading thread (module event with
 held) until release_load; a fatal exception event, and exit_status {code} (outside Windows), hold their thread until the
@@ -61,6 +61,8 @@ class Session:
         if kind == "stop":
             with self.lock:
                 self.held.add(payload.get("tid"))
+            if data:
+                payload["stack"] = data.hex()
         elif kind == "module" and payload.get("held"):
             with self.lock:
                 self.loading.add(payload.get("tid"))

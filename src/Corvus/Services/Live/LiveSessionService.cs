@@ -87,6 +87,8 @@ public sealed class LiveSession
     /// <summary>windows, linux or darwin (Frida's names).</summary>
     public string Platform { get; internal set; } = "";
     internal WorkerConnection Worker { get; }
+    /// <summary>Unwinds stops from the stack bytes they carry (outside Windows); null where the architecture has no register file.</summary>
+    internal LiveStackWalk? Stacks { get; set; }
     internal Timer? Deadline { get; set; }
     /// <summary>Checks each second for a program whose exit is stuck in a module's shutdown.</summary>
     internal Timer? ExitCheck { get; set; }
@@ -294,6 +296,7 @@ public sealed partial class LiveSessionService(AssemblyWorkspace workspace, Nati
             session.Arch = info.GetProperty("arch").GetString() ?? "";
             session.Platform = info.TryGetProperty("platform", out var platform) ? platform.GetString() ?? "" : "";
             session.Suspended = info.TryGetProperty("suspended", out var s) && s.GetBoolean();
+            session.Stacks = LiveStackWalk.For(session);
             lock (session.Modules)
             {
                 foreach (var m in info.GetProperty("modules").EnumerateArray().Select(Module))
@@ -415,10 +418,11 @@ public sealed partial class LiveSessionService(AssemblyWorkspace workspace, Nati
                 var registers = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
                 foreach (var r in body.GetProperty("registers").EnumerateObject())
                     if (r.Value.ValueKind == JsonValueKind.String) registers[r.Name] = r.Value.GetString()!;
-                var frames = body.GetProperty("frames").EnumerateArray().Select(f => Hex(f.GetString())).ToList();
+                var reported = body.GetProperty("frames").EnumerateArray().Select(f => Hex(f.GetString())).ToList();
+                var frames = Unwound(session, registers, body, reported) ?? [.. reported.Where((f, i) => i == 0 || CouldBeCode(session, f))];
                 // a call returns past its call instruction, so the stopped address further down is the hook's saved copy (x86)
-                var at = frames.FirstOrDefault();
-                frames = [.. frames.Where((f, i) => i == 0 || (f != at && CouldBeCode(session, f)))];
+                var at = frames[0];
+                frames = [.. frames.Where((f, i) => i == 0 || f != at)];
                 int hits = body.TryGetProperty("hits", out var h) ? h.GetInt32() : 0;
                 if (session.StopPoints.TryGetValue(point, out var sp)) sp.Hits = hits;
                 var thread = Thread();
@@ -500,6 +504,20 @@ public sealed partial class LiveSessionService(AssemblyWorkspace workspace, Nati
                 session.Add("exit", null, null, session.Ended);
                 break;
         }
+    }
+
+    /// <summary>
+    /// The stop's frames unwound from the stack bytes it carries; where the walk ends before the end of the stack, the backend's
+    /// frames past the last one reached follow. Null when the stop has no stack or the walk finds no caller.
+    /// </summary>
+    private List<ulong>? Unwound(LiveSession session, Dictionary<string, string> registers, JsonElement body, List<ulong> reported)
+    {
+        if (session.Stacks is not { } stacks || !body.TryGetProperty("stack", out var st) || st.GetString() is not { Length: > 0 } hex) return null;
+        if (stacks.Walk(registers, Convert.FromHexString(hex)) is not { Frames.Count: > 1 } walk) return null;
+        var frames = walk.Frames.Select(f => f.Ip).ToList();
+        if (walk.Stop != "end_of_stack" && reported.LastIndexOf(frames[^1]) is > 0 and var at)
+            frames.AddRange(reported.Skip(at + 1).Where(f => CouldBeCode(session, f)));
+        return frames;
     }
 
     /// <summary>

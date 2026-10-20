@@ -57,6 +57,15 @@ internal sealed class ScriptedLiveBackend(string mainPath, ulong mainBase, uint 
         ["frames"] = new JsonArray([.. new[] { _points[id] }.Concat(frames).Select(f => (JsonNode)$"0x{f:x}")]),
     });
 
+    /// <summary>A thread hitting stop point <paramref name="id"/> with the stack bytes at <paramref name="sp"/> and the frames the backend's own walk gave.</summary>
+    public void HitWithStack(string id, long thread, ulong sp, byte[] stack, params ulong[] frames) => Worker!.Emit(new JsonObject
+    {
+        ["event"] = "stop", ["point"] = id, ["tid"] = thread, ["hits"] = 1,
+        ["registers"] = new JsonObject { ["pc"] = $"0x{_points[id]:x}", ["sp"] = $"0x{sp:x}", ["rsp"] = $"0x{sp:x}", ["rbp"] = "0x0" },
+        ["frames"] = new JsonArray([.. new[] { _points[id] }.Concat(frames).Select(f => (JsonNode)$"0x{f:x}")]),
+        ["stack"] = Convert.ToHexStringLower(stack),
+    });
+
     /// <summary>The program loading <paramref name="name"/> from <paramref name="path"/> at <paramref name="at"/>; <paramref name="heldBy"/>: the loading thread the worker holds.</summary>
     public void Load(string name, string path, ulong at, uint size, long? heldBy = null) => Worker!.Emit(new JsonObject
     {
@@ -403,6 +412,25 @@ public sealed class LiveSessionTests : IDisposable
         backend.Worker!.Emit(new JsonObject { ["event"] = "exit", ["reason"] = "process-terminated" });
         for (int i = 0; i < 100 && service.Get("live-1").State != "exited"; i++) await Task.Delay(50);
         Assert.Contains("exited: process-terminated, exit code 1", await tools.LiveEvents("live-1", kind: "exit"));
+    }
+
+    [Fact]
+    public async Task A_stop_with_its_stack_is_unwound_by_the_modules_cfi()
+    {
+        var lib = NativeFormats.NativeFixtures.NativeAotLib("linux-x64", "libSystem.Native.so");
+        const ulong ElfBase = 0x7f00_0000_0000, Sp = 0x7ffc_0000_1000;
+        var backend = new ScriptedLiveBackend(lib, ElfBase, Corvus.Native.NativeImageLoader.Open(lib).SizeOfImage);
+        using var service = new LiveSessionService(_workspace, new NativeCodeService(_workspace, new ServerOptions())) { Backend = backend };
+        var tools = new LiveSessionTools(new ServerOptions { AllowLive = true, AllowLiveAttach = true }, service);
+        await tools.LiveSession("attach", program: "4242");
+        await tools.LiveBreak("live-1", "set", at: "SystemNative_FStat");
+        var index = new NativeCodeService(_workspace, new ServerOptions()).IndexOfOriginal(_workspace.Natives.Single(), default);
+        ulong caller = ElfBase + index.AddressOfName("SystemNative_StrErrorR")!.Value + 0x10;
+        // at the function's start the return address is at the stack pointer; the backend's walk put the word there twice
+        backend.HitWithStack("s1", 77, Sp, [.. BitConverter.GetBytes(caller), .. new byte[8]], caller, caller);
+        var stop = await tools.LiveBreak("live-1", wait: true, waitSeconds: 10);
+        Assert.Contains($"#1 0x{caller:X} libSystem.Native.so!SystemNative_StrErrorR+0x10", stop);
+        Assert.DoesNotContain("#2 ", stop);
     }
 
     [Fact]
