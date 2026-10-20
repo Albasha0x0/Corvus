@@ -65,11 +65,10 @@ public sealed class PdbLines : IDebugSourceLookup
     /// components, any case or separator); a line with no code moves to the next line that has some, as debuggers place a
     /// stop point. Empty when no file matches.
     /// </summary>
-    public IReadOnlyList<PdbLineAddress> Addresses(string file, int line)
+    public IReadOnlyList<PdbLineAddress> Addresses(string file, int line, CancellationToken ct = default)
     {
         var t = _table.Value;
-        var wanted = Components(file);
-        var files = Enumerable.Range(0, t.FileNames.Length).Where(f => EndsWith(Components(t.FileNames[f]), wanted)).ToHashSet();
+        var files = Enumerable.Range(0, t.FileNames.Length).Where(f => SourceFileMatches(t.FileNames[f], file)).ToHashSet();
         var result = new List<PdbLineAddress>();
         foreach (var f in files)
         {
@@ -83,12 +82,17 @@ public sealed class PdbLines : IDebugSourceLookup
         return [.. result.OrderBy(r => r.Rva)];
     }
 
+    /// <summary>Whether <paramref name="path"/> ends with <paramref name="tail"/>: whole path components, any case or separator.</summary>
+    internal static bool SourceFileMatches(string path, string tail)
+    {
+        var p = Components(path);
+        var t = Components(tail);
+        return t.Length > 0 && t.Length <= p.Length
+            && t.Select((c, i) => string.Equals(c, p[p.Length - t.Length + i], StringComparison.OrdinalIgnoreCase)).All(x => x);
+    }
+
     private static string[] Components(string path) =>
         path.Replace('\\', '/').Split('/', StringSplitOptions.RemoveEmptyEntries);
-
-    private static bool EndsWith(string[] path, string[] tail) =>
-        tail.Length > 0 && tail.Length <= path.Length
-        && tail.Select((c, i) => string.Equals(c, path[path.Length - tail.Length + i], StringComparison.OrdinalIgnoreCase)).All(x => x);
 
     private string? FunctionAt(uint rva)
     {

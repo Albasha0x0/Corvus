@@ -224,7 +224,7 @@ public sealed class LiveSession
 
 /// <summary>
 /// The sessions of this server (ids live-1, live-2, ...), each held by one backend worker. Joins what a session reports to
-/// the static model: modules to loaded images by path, addresses to function names, offsets and PDB source lines; stop
+/// the static model: modules to loaded images by path, addresses to function names, offsets and source lines; stop
 /// points accept names, module!export, file:line and addresses.
 /// </summary>
 public sealed partial class LiveSessionService(AssemblyWorkspace workspace, NativeCodeService code) : IDisposable
@@ -635,7 +635,7 @@ public sealed partial class LiveSessionService(AssemblyWorkspace workspace, Nati
     private static readonly Regex FileLine = new(@"^(?<file>.+\.[A-Za-z0-9+]{1,8}):(?<line>\d+)$", RegexOptions.CultureInvariant);
 
     /// <summary>
-    /// The live address of a name (in the program's image, then any matched image), module!export, file:line (PDB line
+    /// The live address of a name (in the program's image, then any matched image), module!export, file:line (PDB or DWARF line
     /// tables), an image VA (translated to where the module is loaded) or a live address. With <paramref name="data"/>, a
     /// module name is its base and an address outside every module (stack, heap) is taken as is.
     /// </summary>
@@ -651,11 +651,11 @@ public sealed partial class LiveSessionService(AssemblyWorkspace workspace, Nati
         {
             var line = int.Parse(fl.Groups["line"].Value, CultureInfo.InvariantCulture);
             foreach (var m in modules)
-                if (Match(m) is { } native && PdbService.StateOf(native)?.Pdb.Source is Native.Pdb.PdbLines lines
-                    && lines.Addresses(fl.Groups["file"].Value, line) is { Count: > 0 } found)
+                if (Match(m) is { } native && PdbService.StateOf(native)?.Pdb.Source is { } lines
+                    && lines.Addresses(fl.Groups["file"].Value, line, ct) is { Count: > 0 } found)
                     return m.Base + found[0].Rva;
-            throw new ToolError(ErrorCode.NotFound, $"No loaded image's PDB has code at {t}.",
-                "load the program's PDB (load_pdb) or check the file name; the line tables name files by their build path");
+            throw new ToolError(ErrorCode.NotFound, $"No loaded image's PDB or DWARF has code at {t}.",
+                "load the program's debug information (load_pdb) or check the file name; the line tables name files by their build path");
         }
         if (NameOffset.Match(t) is { Success: true } no && !t.StartsWith("0x", StringComparison.OrdinalIgnoreCase))
         {

@@ -300,6 +300,48 @@ internal static class DwarfDebugInfo
             return result;
         }
 
+        public IReadOnlyList<PdbLineAddress> Addresses(string file, int line, CancellationToken ct = default)
+        {
+            var result = new List<PdbLineAddress>();
+            for (int si = 0; si < sources.Count; si++)
+            {
+                var source = sources[si];
+                DebugContainer container;
+                DwarfReader reader;
+                try { container = source.Open(); reader = Open(container); }
+                catch (Exception ex) when (ex is ToolError or IOException or UnauthorizedAccessException) { continue; }
+                try
+                {
+                    for (int h = 0; h < reader.UnitHeaders.Count; h++)
+                    {
+                        ct.ThrowIfCancellationRequested();
+                        var unit = reader.Parse(reader.UnitHeaders[h], h, ct);
+                        if (unit.StmtList < 0 || reader.Line == null) continue;
+                        var lines = DwarfLineTable.Read(reader.Line, unit.StmtList, unit.AddressSize, reader.BigEndian, unit.CompDir, container.Section(".debug_str"),
+                            container.Section(".debug_line_str"), _ => null, source.Relocatable);
+                        var files = new HashSet<int>();
+                        for (int f = lines.FirstFile; f < lines.FirstFile + lines.Files.Count; f++)
+                            if (PdbLines.SourceFileMatches(lines.File(f)!, file)) files.Add(f);
+                        if (files.Count == 0) continue;
+                        int best = int.MaxValue;
+                        foreach (var r in lines.Rows)
+                            if (!r.End && files.Contains(r.File) && r.Line >= line && r.Line < best) best = r.Line;
+                        if (best == int.MaxValue) continue;
+                        foreach (var r in lines.Rows)
+                            if (!r.End && files.Contains(r.File) && r.Line == best
+                                && (source.Map == null ? r.Address : source.Map.Forward(r.Address)) is { } a && a >= imageBase && a - imageBase <= uint.MaxValue)
+                                result.Add(new PdbLineAddress(lines.File(r.File)!, best, (uint)(a - imageBase)));
+                    }
+                }
+                finally
+                {
+                    reader.Dispose();
+                    container.Dispose();
+                }
+            }
+            return [.. result.DistinctBy(r => r.Rva).OrderBy(r => r.Rva)];
+        }
+
         private IEnumerable<int> Units(ulong address)
         {
             int lo = 0, hi = units.Length - 1, last = -1;

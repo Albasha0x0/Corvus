@@ -53,6 +53,20 @@ public class DwarfReaderTests
     }
 
     [Fact]
+    public void Code_addresses_of_a_source_line_by_file_name()
+    {
+        var pdb = Read(NativeImageLoader.Open(Elf()), Elf(Library + ".dbg"));
+        var found = pdb.Source!.Addresses("pal_errno.c", 17);
+        Assert.NotEmpty(found);
+        Assert.All(found, f => Assert.Equal(17, f.Line));
+        Assert.Equal(found.OrderBy(f => f.Rva).Select(f => f.Rva), found.Select(f => f.Rva));
+        Assert.All(pdb.Source.Lookup([.. found.Select(f => f.Rva)]), at => Assert.EndsWith("pal_errno.c", at!.File));
+        Assert.Equal(found, pdb.Source.Addresses(@"SYSTEM.NATIVE\pal_errno.c", 17));
+        Assert.Empty(pdb.Source.Addresses("errno.c", 17));
+        Assert.Empty(pdb.Source.Addresses("pal_errno.c", 100_000));
+    }
+
+    [Fact]
     public void Compressed_debug_sections_read_like_plain_ones()
     {
         using var dir = new TempDir();

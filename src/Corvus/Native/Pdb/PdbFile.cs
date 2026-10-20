@@ -78,6 +78,11 @@ public interface IDebugSourceLookup
 {
     /// <summary>One answer per RVA; null where the debug information has none.</summary>
     IReadOnlyList<DebugSourceInfo?> Lookup(IReadOnlyList<uint> rvas, CancellationToken ct = default);
+    /// <summary>
+    /// The code addresses of <paramref name="line"/> in the files whose path ends with <paramref name="file"/>, lowest
+    /// first; a line with no code moves to the next line that has some, as debuggers place a stop point.
+    /// </summary>
+    IReadOnlyList<PdbLineAddress> Addresses(string file, int line, CancellationToken ct = default);
     /// <summary>Units with a line table.</summary>
     int LineTables { get; }
     /// <summary>Inlined function instances.</summary>
