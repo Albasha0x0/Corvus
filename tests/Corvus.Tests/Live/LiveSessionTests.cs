@@ -291,6 +291,26 @@ public sealed class LiveSessionTests : IDisposable
     }
 
     [Fact]
+    public async Task Stop_points_whose_hook_jumps_overlap_are_refused_and_a_watch_is_set_only_at_a_function_start()
+    {
+        await _tools.LiveSession("attach", program: "4242");
+        var index = new NativeCodeService(_workspace, new ServerOptions()).IndexOfOriginal(_workspace.Natives.Single(), default);
+        var f = index.Functions.Where(f => f.Size >= 64 && index.NameAt(f.Start) is not null).OrderBy(f => f.Start).First();
+        var name = index.NameAt(f.Start);
+        var starts = index.Disassemble(f.Start, 12).Select(l => l.Rva - f.Start).ToList();
+        var near = starts.First(o => o > 0);
+        var far = starts.First(o => o >= LiveSessionService.WatchPatchBytes);
+        await _tools.LiveBreak("live-1", "set", at: name);
+        var overlap = await Assert.ThrowsAsync<ToolError>(() => _tools.LiveBreak("live-1", "set", at: $"{name}+0x{near:X}"));
+        Assert.Equal(ErrorCode.Conflict, overlap.Code);
+        Assert.Contains($"{near} bytes from s1", overlap.Message);
+        Assert.Contains("s2 set", await _tools.LiveBreak("live-1", "set", at: $"{name}+0x{far:X}"));
+        var inside = await Assert.ThrowsAsync<ToolError>(() => _tools.LiveWatchCalls("live-1", "set", at: $"{name}+0x{far:X}"));
+        Assert.Equal(ErrorCode.InvalidArgument, inside.Code);
+        Assert.Contains($"watch {name}", inside.Remediation);
+    }
+
+    [Fact]
     public async Task A_function_too_short_to_hook_is_refused_with_its_size()
     {
         await _tools.LiveSession("attach", program: "4242");

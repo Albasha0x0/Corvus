@@ -125,7 +125,8 @@ rpc.exports = {
       modules: Process.enumerateModules().map(moduleRow) };
   },
   set(id, address) {
-    points[id] = Interceptor.attach(ptr(address), { onEnter() { stopsIn(id, this.context); } });
+    // a probe: the onEnter form takes the stack top for a return address, which past a function's start is a saved register
+    points[id] = Interceptor.attach(ptr(address), function () { stopsIn(id, this.context); });
     return true;
   },
   clear(id) {

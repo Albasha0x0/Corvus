@@ -706,6 +706,9 @@ public sealed partial class LiveSessionService(AssemblyWorkspace workspace, Nati
         return slots;
     }
 
+    /// <summary>Bytes a hook's jump can rewrite: 5 on 32-bit x86 (a jmp rel32 reaches the whole address space), else up to 16.</summary>
+    private static int HookBytes(LiveSession session) => session.Arch == "ia32" ? 5 : WatchPatchBytes;
+
     /// <summary>Bytes a watch rewrites at its function's start; a stop point inside them (past the first byte) silences the watch.</summary>
     internal const int WatchPatchBytes = 16;
 
@@ -841,6 +844,15 @@ public sealed partial class LiveSessionService(AssemblyWorkspace workspace, Nati
         lock (session.Watches) watches = session.Watches.Values.Where(w => !w.Cleared).ToList();
         foreach (var w in watches)
             CheckOverlap(session, address, w.Address, "This stop point", $"set it at the function's start or {WatchPatchBytes}+ bytes in, or clear watch {w.Id} first", ct);
+        List<LiveStopPointState> points;
+        lock (session.StopPoints) points = session.StopPoints.Values.ToList();
+        var reach = HookBytes(session);
+        foreach (var other in points.Select(p => (p.Id, p.Address)).Concat(watches.Select(w => (w.Id, w.Address))))
+            if (other.Address != address && (address > other.Address ? address - other.Address : other.Address - address) < (ulong)reach)
+                throw new ToolError(ErrorCode.Conflict,
+                    $"This stop point at {Name(session, address, ct: ct).Display} is {(address > other.Address ? address - other.Address : other.Address - address)} bytes from {other.Id} at {Name(session, other.Address, ct: ct).Display}: " +
+                    $"the jumps the two hooks write ({reach} bytes each) would overlap and corrupt the code.",
+                    $"set it {reach}+ bytes away, or clear {other.Id} first");
         id ??= session.NextPointId();
         try { await session.Worker.RequestAsync("set", new JsonObject { ["id"] = id, ["address"] = $"0x{address:X}" }, RequestTimeout, ct).ConfigureAwait(false); }
         catch (ToolError e) when (Unhookable(e)) { throw HookRefused(session, address, "stop point", ct); }
@@ -855,6 +867,10 @@ public sealed partial class LiveSessionService(AssemblyWorkspace workspace, Nati
         var (address, followed) = await FollowJumpsAsync(session, await ResolveAsync(session, where, ct).ConfigureAwait(false), ct).ConfigureAwait(false);
         await CheckInstructionStartAsync(session, address, ct).ConfigureAwait(false);
         CheckCoverageOverlap(session, address, "This watch", ct);
+        // a watch reads the return value through the return address, which only a function's start has on the stack top
+        if (Name(session, address, ct: ct) is { Image: not null, Function: not null, Offset: > 0 } inside)
+            throw new ToolError(ErrorCode.InvalidArgument, $"{inside.Display} is inside {inside.Function}: a watch records calls, from a function's start.",
+                $"watch {inside.Function}, or set a stop point here (live_break action=set)");
         List<LiveStopPointState> points;
         lock (session.StopPoints) points = session.StopPoints.Values.ToList();
         foreach (var p in points)
@@ -944,6 +960,8 @@ public sealed partial class LiveSessionService(AssemblyWorkspace workspace, Nati
         Live(session);
         var args = new JsonObject();
         if (thread != null) args["thread"] = thread;
+        // a resumed thread can stop again before the reply arrives
+        var upTo = session.Sequence;
         var r = await session.Worker.RequestAsync("resume", args, RequestTimeout, ct).ConfigureAwait(false);
         var resumed = r.GetProperty("resumed").EnumerateArray().Select(x => x.GetInt64()).ToList();
         session.Release(resumed, upTo);
@@ -960,8 +978,16 @@ public sealed partial class LiveSessionService(AssemblyWorkspace workspace, Nati
         return r.GetProperty("bytes").GetString() is { } hex ? Convert.FromHexString(hex) : null;
     }
 
-        // a resumed thread can stop again before the reply arrives
-        var upTo = session.Sequence;
+    private static bool SamePath(string a, string b)
+    {
+        static string Full(string p)
+        {
+            try { return Path.GetFullPath(p.StartsWith(@"\\?\", StringComparison.Ordinal) ? p[4..] : p); }
+            catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException) { return p; }
+        }
+        return string.Equals(Full(a), Full(b), OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal);
+    }
+
     internal static void Live(LiveSession session)
     {
         if (session.Closed || session.Ended != null)
@@ -978,16 +1004,6 @@ public sealed partial class LiveSessionService(AssemblyWorkspace workspace, Nati
         if (session.Worker.IsAlive)
             await session.Worker.ShutdownAsync("close", new JsonObject { ["end"] = session.Spawned }, TimeSpan.FromSeconds(5)).ConfigureAwait(false);
         session.Worker.Dispose();
-    private static bool SamePath(string a, string b)
-    {
-        static string Full(string p)
-        {
-            try { return Path.GetFullPath(p.StartsWith(@"\\?\", StringComparison.Ordinal) ? p[4..] : p); }
-            catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException) { return p; }
-        }
-        return string.Equals(Full(a), Full(b), OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal);
-    }
-
         session.ProcessHandle?.Dispose();
         session.ReleaseAll();
         EndCoverage(session);
