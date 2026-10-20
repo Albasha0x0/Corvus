@@ -19,6 +19,8 @@ public sealed class LiveChild(int processId, int parentId, string path, IReadOnl
     public string State { get; internal set; } = held ? "held" : "resumed";
     /// <summary>The session attached to the child, while it is attached.</summary>
     public string? Session { get; internal set; }
+    /// <summary>The gate let the child go stopped for its session's attach (Linux); that session starts it.</summary>
+    internal bool Stopped { get; set; }
 
     public string CommandLine => string.Join(" ", Arguments.Select(a => a.Length == 0 || a.Any(char.IsWhiteSpace) ? "\"" + a + "\"" : a));
 }
@@ -59,11 +61,31 @@ public sealed partial class LiveSessionService
                 : throw new ToolError(ErrorCode.NotFound, $"Session {parent.Id} holds no child process {pid}.", $"live_session action=children session={parent.Id}");
     }
 
-    /// <summary>Opens a session on a held child; it stays held until that session's first continue. It follows its own children as the parent does.</summary>
+    /// <summary>
+    /// Opens a session on a held child; it stays held until that session's first continue, and follows its own children as
+    /// the parent does. On Linux the gate lets the child go stopped (SIGSTOP), since only the gate's own tracer could
+    /// attach to it there; the child session's first continue then resumes it itself.
+    /// </summary>
     public async Task<LiveSession> AttachChildAsync(LiveSession parent, int pid, CancellationToken ct)
     {
         var child = HeldChild(parent, pid);
-        var session = await OpenAsync(false, pid.ToString(CultureInfo.InvariantCulture), [], ct, childNames: parent.ChildNames).ConfigureAwait(false);
+        var stopped = parent.Platform == "linux";
+        if (stopped)
+        {
+            await parent.Worker.RequestAsync("resume_child", new JsonObject { ["pid"] = pid, ["stopped"] = true }, RequestTimeout, ct).ConfigureAwait(false);
+            child.Stopped = true;
+            child.State = "running";
+        }
+        LiveSession session;
+        try
+        {
+            session = await OpenAsync(false, pid.ToString(CultureInfo.InvariantCulture), [], ct, childNames: parent.ChildNames, stopped: stopped).ConfigureAwait(false);
+        }
+        catch when (stopped)
+        {
+            Continue(pid); // a child let go stopped never stays stopped
+            throw;
+        }
         session.HeldBy = parent;
         session.Suspended = true;
         child.State = "attached";
@@ -79,20 +101,21 @@ public sealed partial class LiveSessionService
         child.State = "running";
     }
 
-    /// <summary>A child session's first continue: the parent's gate lets the program run. False when the parent no longer holds it.</summary>
+    /// <summary>A child session's first continue, when the parent's gate still holds the program: the gate lets it run.</summary>
     private async Task<bool> StartHeldChildAsync(LiveSession session, CancellationToken ct)
     {
         var parent = session.HeldBy!;
         LiveChild? child;
         lock (parent.Children) child = parent.Children.LastOrDefault(c => c.ProcessId == session.ProcessId && c.Session == session.Id);
-        if (child == null || parent.Closed || !parent.Worker.IsAlive) return false;
+        if (child == null || child.Stopped || !parent.Worker.IsAlive) return false;
         var r = await parent.Worker.RequestAsync("resume_child", new JsonObject { ["pid"] = session.ProcessId }, RequestTimeout, ct).ConfigureAwait(false);
         return r.GetProperty("resumed").GetBoolean();
     }
 
     /// <summary>
-    /// At a session's close: every child it still holds runs on (through the worker, or directly when the worker is gone), and
-    /// a child session that never continued goes back to its parent's hold.
+    /// At a session's close: every child it still holds runs on (through the worker, or directly when the worker is gone), an
+    /// attached child whose session has not continued too, and a child session that never continued goes back to its
+    /// parent's hold (on Linux it runs on, as its worker's close resumes it).
     /// </summary>
     private async Task CloseChildrenAsync(LiveSession session)
     {
@@ -100,29 +123,35 @@ public sealed partial class LiveSessionService
             lock (parent.Children)
                 foreach (var c in parent.Children.Where(c => c.Session == session.Id))
                 {
-                    c.State = "held";
+                    c.State = c.Stopped ? "running" : "held";
                     c.Session = null;
                 }
         foreach (var child in Holding(session))
         {
             try
             {
+                if (child.Session != null && _sessions.TryGetValue(child.Session, out var attached))
+                {
+                    await ResumeAsync(attached, null, CancellationToken.None).ConfigureAwait(false);
+                    attached.Add("child", null, null, $"started: {session.Id}, which held it at its start, closed");
+                    continue;
+                }
                 if (session.Worker.IsAlive)
                 {
                     await session.Worker.RequestAsync("resume_child", new JsonObject { ["pid"] = child.ProcessId }, TimeSpan.FromSeconds(5), CancellationToken.None).ConfigureAwait(false);
-                    Released(session, child);
+                    child.State = "running";
                     continue;
                 }
             }
             catch (ToolError) { }
-            ResumeDirectly(session, child);
+            ResumeDirectly(child);
         }
     }
 
     /// <summary>When the worker ended on its own, its held children are resumed through the OS (Windows).</summary>
     private void ResumeChildrenDirectly(LiveSession session)
     {
-        foreach (var child in Holding(session)) ResumeDirectly(session, child);
+        foreach (var child in Holding(session).Where(c => !c.Stopped)) ResumeDirectly(child);
     }
 
     /// <summary>The children the session's gate still holds: held ones, and attached ones whose session has not continued.</summary>
@@ -130,25 +159,26 @@ public sealed partial class LiveSessionService
     {
         lock (session.Children)
             return session.Children.Where(c => c.State == "held"
-                || c.State == "attached" && c.Session != null && _sessions.TryGetValue(c.Session, out var s) && s.Suspended).ToList();
+                || c.State == "attached" && c.Session != null && _sessions.TryGetValue(c.Session, out var s) && s.Suspended && !s.Closed).ToList();
     }
 
-    private void ResumeDirectly(LiveSession session, LiveChild child)
+    private void ResumeDirectly(LiveChild child)
     {
         if (!OperatingSystem.IsWindows()) return;
         const uint ProcessSuspendResume = 0x0800;
         using var h = Native.Live.LiveNative.OpenProcess(ProcessSuspendResume, false, child.ProcessId);
         if (h.IsInvalid || NtResumeProcess(h) < 0) return;
-        Released(session, child);
+        if (child.Session == null) child.State = "running";
+        else if (_sessions.TryGetValue(child.Session, out var attached)) attached.Suspended = false;
     }
 
-    private void Released(LiveSession session, LiveChild child)
+    [DllImport("libc", EntryPoint = "kill", SetLastError = true)]
+    private static extern int Kill(int pid, int signal);
+
+    /// <summary>Sends SIGCONT (Linux).</summary>
+    private static void Continue(int pid)
     {
-        child.State = "running";
-        if (child.Session != null && _sessions.TryGetValue(child.Session, out var attached) && attached.Suspended)
-        {
-            attached.Suspended = false;
-            attached.Add("child", null, null, $"started: {session.Id}, which held it at its start, closed");
-        }
+        const int SigCont = 18; // Linux
+        if (OperatingSystem.IsLinux()) _ = Kill(pid, SigCont);
     }
 }

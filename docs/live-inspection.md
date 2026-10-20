@@ -141,7 +141,9 @@ action=continue` starts it, and it follows its own children as its parent does. 
 unobserved. A child never stays suspended: when the session closes (by request, at its deadline or with the server),
 every child it still holds runs on, an attached child whose session has not continued too, and a child session closed
 before its first continue goes back to its parent's hold. On Linux a child is reported at its `exec`, by the program it
-runs; a fork that runs on without one is not held.
+runs (a fork that runs on without one is not held); `attach_child` there takes it from the hold stopped (`SIGSTOP`), with
+its libraries loaded, so a child session closed before its first continue lets it run; a session that follows children
+there does not report threads that end.
 
 A watch records each call's arguments and return value without stopping the program. They are decoded from, in order:
 the known-API table (parameter names, ANSI and wide strings, flags and enumerations by name: `dwDesiredAccess=GENERIC_READ`),

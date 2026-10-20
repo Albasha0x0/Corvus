@@ -1,8 +1,8 @@
 """Session worker: a local program observed through Frida, on the worker protocol (one JSON object per line).
 
-Ops: hello; open {attach | spawn, arguments, cwd, temp, tmp, children}; info; set {id, address}; clear {id}; watch {id, address, args,
+Ops: hello; open {attach, stopped | spawn, arguments, cwd, temp, tmp, children}; info; set {id, address}; clear {id}; watch {id, address, args,
 perSecond}; unwatch {id}; defer_module {name}; undefer_module {name}; release_load {thread}; load_script {id, source};
-unload_script {id}; read {address, length}; resume {thread}; resume_child {pid}; close.
+unload_script {id}; read {address, length}; resume {thread}; resume_child {pid, stopped}; close.
 Events: ready, stop (with stack: the bytes from the stack pointer up, outside Windows), calls, module, thread, exception, exit_status, output, exit, script_error, user_script, child.
 A program started here stays suspended until the first resume; close resumes every held thread, and ends the
 program only when this worker started it. A module named by defer_module holds its loading thread (module event with
@@ -10,9 +10,12 @@ held) until release_load; a fatal exception event, and exit_status {code}, hold 
 worker has read them.
 With children {names} on open, a program the process starts is held at its start (Frida's child gating) and reported
 as a child event; one whose image name is not in names (when given) is resumed at once. resume_child lets a held child
-run; close resumes every child still held.
+run, or with stopped (Linux) leaves it stopped for open {attach, stopped} in another worker; close resumes
+every child still held.
 """
 import json
+import os
+import signal
 import sys
 import threading
 
@@ -154,6 +157,12 @@ class Session:
         with self.lock:
             held = self.children.pop(pid, None) is not None
         if held:
+            if args.get("stopped"):
+                # The gate's ptrace hold keeps another worker from attaching, and a child held at its exec has no libc
+                # to load an agent with: an attach here runs it until its libraries are loaded, and it leaves the gate
+                # stopped by SIGSTOP for the next worker's attach.
+                self.device.attach(pid).detach()
+                os.kill(pid, signal.SIGSTOP)
             self.device.resume(pid)
         return {"resumed": held}
 
@@ -199,6 +208,8 @@ class Session:
                 except frida.ProcessNotFoundError as e:
                     raise Failure("not_found", str(e))
             self.pid = int(target)
+            # a child another worker's gate let go stopped (resume_child stopped): the first resume continues it
+            self.suspended = bool(args.get("stopped"))
         # a program started here is ended on any failure from here on: nothing else would end it
         try:
             try:
@@ -217,6 +228,8 @@ class Session:
             self.script = self.session.create_script(source)
             self.script.on("message", self.on_message)
             self.script.load()
+            if children is not None:
+                self.script.exports_sync.follow_children()
             result = self.script.exports_sync.info()
         except BaseException:
             if self.session is not None:

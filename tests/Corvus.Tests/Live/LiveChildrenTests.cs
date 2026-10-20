@@ -89,6 +89,25 @@ public sealed class LiveChildrenTests : IDisposable
     }
 
     [Fact]
+    public async Task On_linux_the_gate_lets_the_child_go_stopped_and_the_child_session_starts_it_itself()
+    {
+        var backend = new ScriptedLiveBackend(Sqlite, Base, 0x200000) { Platform = "linux" };
+        using var service = new LiveSessionService(_workspace, new NativeCodeService(_workspace, new ServerOptions())) { Backend = backend };
+        var tools = new LiveSessionTools(new ServerOptions { AllowLive = true, AllowLiveSpawn = true }, service);
+        await tools.LiveSession("spawn", program: Sqlite, followChildren: true);
+        backend.Child(backend.Worker!, 5001, "/app/child", held: true);
+        await Until(() => tools.LiveSession("children", session: "live-1"), "pid 5001 held");
+
+        Assert.Contains("live-2 (scripted): 5001 pid 5001, suspended", await tools.LiveSession("attach_child", session: "live-1", program: "5001"));
+        Assert.Equal([-5001], backend.ChildResumes);
+        Assert.Equal(true, (bool?)backend.LastOpen!["stopped"]);
+        Assert.Contains("program started", await tools.LiveBreak("live-2", "continue"));
+        Assert.Equal([-5001], backend.ChildResumes);
+        await tools.LiveSession("close", session: "live-1");
+        Assert.Equal([-5001], backend.ChildResumes);
+    }
+
+    [Fact]
     public async Task Without_followChildren_the_session_asks_for_no_child_gating()
     {
         await _tools.LiveSession("spawn", program: Sqlite);

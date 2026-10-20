@@ -119,8 +119,9 @@ function threadStarted(id) {
   send({ type: 'thread', action: 'started', tid: id });
 }
 
+let threadObserver = null;
 if (typeof Process.attachThreadObserver === 'function') {
-  Process.attachThreadObserver({
+  threadObserver = Process.attachThreadObserver({
     onAdded(t) { if (observing) threadStarted(t.id); },
     onRemoved(t) { if (observing) send({ type: 'thread', action: 'ended', tid: t.id }); },
   });
@@ -280,6 +281,14 @@ rpc.exports = {
   closeBegin() {
     closing = true;
     return { awaited: [...awaited], exiting };
+  },
+  // On Linux the thread observer keeps a fork from reaching child gating (Frida 17.24): its thread-ended events go there
+  followChildren() {
+    if (Process.platform === 'linux' && threadObserver !== null) {
+      threadObserver.detach();
+      threadObserver = null;
+    }
+    return true;
   },
   info() {
     return { arch: Process.arch, platform: Process.platform, pointerSize: Process.pointerSize, pid: Process.id,

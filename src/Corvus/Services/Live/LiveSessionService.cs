@@ -268,7 +268,7 @@ public sealed partial class LiveSessionService(AssemblyWorkspace workspace, Nati
 
     /// <summary>Attaches to a process (id or name) or starts <paramref name="program"/>; returns the open session.</summary>
     public async Task<LiveSession> OpenAsync(bool spawn, string program, IReadOnlyList<string> arguments, CancellationToken ct,
-        IReadOnlyList<string>? environment = null, IReadOnlyList<string>? childNames = null)
+        IReadOnlyList<string>? environment = null, IReadOnlyList<string>? childNames = null, bool stopped = false)
     {
         if (_sessions.Values.Count(s => !s.Closed) >= MaxSessions)
             throw new ToolError(ErrorCode.LimitExceeded, $"{MaxSessions} sessions are open.", "close one with live_session action=close");
@@ -299,6 +299,7 @@ public sealed partial class LiveSessionService(AssemblyWorkspace workspace, Nati
                     ["environment"] = ProgramEnvironment(environment ?? []),
                 }
                 : new JsonObject { ["attach"] = target };
+            if (stopped) args["stopped"] = true;
             if (childNames != null)
             {
                 session.ChildNames = childNames;
@@ -1211,7 +1212,7 @@ public sealed partial class LiveSessionService(AssemblyWorkspace workspace, Nati
         var resumed = r.GetProperty("resumed").EnumerateArray().Select(x => x.GetInt64()).ToList();
         session.Release(resumed, upTo);
         var started = r.GetProperty("started").GetBoolean();
-        if (thread == null && session.HeldBy != null && session.Suspended) started = await StartHeldChildAsync(session, ct).ConfigureAwait(false);
+        if (!started && thread == null && session.HeldBy != null && session.Suspended) started = await StartHeldChildAsync(session, ct).ConfigureAwait(false);
         if (started) session.Suspended = false;
         return (resumed, started);
     }

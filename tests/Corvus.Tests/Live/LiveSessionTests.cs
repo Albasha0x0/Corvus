@@ -40,8 +40,10 @@ internal sealed class ScriptedLiveBackend(string mainPath, ulong mainBase, uint 
     public Action? BeforeResumeReply { get; set; }
     /// <summary>Child processes the program started: an attach by one of these ids reports that id.</summary>
     public readonly HashSet<int> ChildPids = [];
-    /// <summary>The child process ids resume_child let run, in order.</summary>
+    /// <summary>The child process ids resume_child let run, in order (negative: let go stopped).</summary>
     public readonly List<int> ChildResumes = [];
+    /// <summary>The platform the program runs on, as Frida names it; null leaves it out of the open reply.</summary>
+    public string? Platform { get; init; }
 
     public string Name => "scripted";
     public (string Reason, string Remediation)? Unavailable() => Missing == null ? null : (Missing, "install it");
@@ -118,14 +120,14 @@ internal sealed class ScriptedLiveBackend(string mainPath, ulong mainBase, uint 
             case "hello": return new JsonObject { ["frida"] = "test" };
             case "open":
                 LastOpen = (JsonObject)args.DeepClone();
-                _suspended = args["spawn"] != null;
+                _suspended = args["spawn"] != null || args["stopped"] is { } stopped && (bool)stopped;
                 JsonNode program = new JsonObject { ["name"] = Path.GetFileName(mainPath), ["base"] = $"0x{mainBase:x}", ["size"] = mainSize, ["path"] = mainPath };
                 JsonNode system = new JsonObject { ["name"] = "system.dll", ["base"] = "0x7ffe00000000", ["size"] = 0x10000, ["path"] = "/nowhere/system.dll" };
                 int pid;
                 lock (ChildPids) pid = int.TryParse((string?)args["attach"], out var child) && ChildPids.Contains(child) ? child : ProcessId;
                 return new JsonObject
                 {
-                    ["pid"] = pid, ["arch"] = Arch, ["suspended"] = args["spawn"] != null,
+                    ["pid"] = pid, ["arch"] = Arch, ["platform"] = Platform, ["suspended"] = _suspended,
                     ["modules"] = MainListedLast ? new JsonArray(system, program) : new JsonArray(program, system),
                 };
             case "set" or "watch" when Unhookable.Contains(Convert.ToUInt64(((string)args["address"]!)[2..], 16)):
@@ -151,7 +153,7 @@ internal sealed class ScriptedLiveBackend(string mainPath, ulong mainBase, uint 
                 return new JsonObject { ["loaded"] = (string)args["id"]! };
             case "unload_script": return new JsonObject { ["unloaded"] = true };
             case "resume_child":
-                lock (ChildResumes) ChildResumes.Add((int)args["pid"]!);
+                lock (ChildResumes) ChildResumes.Add(args["stopped"] is { } let && (bool)let ? -(int)args["pid"]! : (int)args["pid"]!);
                 return new JsonObject { ["resumed"] = true };
             case "resume":
                 BeforeResumeReply?.Invoke();
