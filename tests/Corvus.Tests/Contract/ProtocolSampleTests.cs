@@ -258,6 +258,10 @@ public partial class ProtocolSampleTests
     [GeneratedRegex(@"\nNote: This host has no Windows system DLLs[^\n]*|,\s*""This host has no Windows system DLLs[^""]*""|""This host has no Windows system DLLs[^""]*""\s*,?")]
     private static partial Regex HostNote();
 
+    /// <summary>A measured duration depends on the machine.</summary>
+    [GeneratedRegex(@"(read in |this call )\d+\.\d s")]
+    private static partial Regex Duration();
+
     /// <summary>How many symbol folders a PDB lookup searched depends on the machine's symbol paths.</summary>
     [GeneratedRegex(@"\(\d+ places searched\)")]
     private static partial Regex PlacesSearched();
@@ -301,6 +305,7 @@ public partial class ProtocolSampleTests
         text = (json ? FixturePathJson() : FixturePath()).Replace(text, m => Backslashes().Replace(m.Value, "/"));
         text = Entropy().Replace(text, m => m.Groups[1].Value[0] == '"' ? m.Groups[1].Value + "\"<entropy>\"" : m.Groups[1].Value + "<entropy>");
         text = PlacesSearched().Replace(text, "(<n> places searched)");
+        text = Duration().Replace(text, "$1<t> s");
         text = HostNote().Replace(text, "");
         if (tool is "record_note" or "update_note" or "list_notes" or "read_result")
             text = Timestamp().Replace(NoteId().Replace(text, "<note>"), "<time>");
