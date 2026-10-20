@@ -29,6 +29,8 @@ internal sealed class ScriptedLiveBackend(string mainPath, ulong mainBase, uint 
     public readonly Dictionary<string, List<string>> WatchedKinds = [];
     /// <summary>Lists the program's module after the system one, as Frida may order them.</summary>
     public bool MainListedLast { get; init; }
+    /// <summary>The program's architecture as Frida names it.</summary>
+    public string Arch { get; init; } = "x64";
     /// <summary>Runs before the reply to a resume, as when a resumed thread stops again before the worker answers.</summary>
     public Action? BeforeResumeReply { get; set; }
 
@@ -94,7 +96,7 @@ internal sealed class ScriptedLiveBackend(string mainPath, ulong mainBase, uint 
                 JsonNode system = new JsonObject { ["name"] = "system.dll", ["base"] = "0x7ffe00000000", ["size"] = 0x10000, ["path"] = "/nowhere/system.dll" };
                 return new JsonObject
                 {
-                    ["pid"] = ProcessId, ["arch"] = "x64", ["suspended"] = args["spawn"] != null,
+                    ["pid"] = ProcessId, ["arch"] = Arch, ["suspended"] = args["spawn"] != null,
                     ["modules"] = MainListedLast ? new JsonArray(system, program) : new JsonArray(program, system),
                 };
             case "set" or "watch" when Unhookable.Contains(Convert.ToUInt64(((string)args["address"]!)[2..], 16)):
@@ -118,8 +120,17 @@ internal sealed class ScriptedLiveBackend(string mainPath, ulong mainBase, uint 
                 BeforeResumeReply?.Invoke();
                 return new JsonObject { ["resumed"] = args["thread"] is { } t ? new JsonArray((long)t) : new JsonArray(), ["started"] = true };
             case "read":
-                var at = Convert.ToUInt64(((string)args["address"]!)[2..], 16);
-                return new JsonObject { ["bytes"] = Memory.TryGetValue(at, out var b) ? Convert.ToHexStringLower(b.AsSpan(0, Math.Min(b.Length, (int)args["length"]!))) : null };
+                // as Frida reads: the whole range or nothing; the pages Memory touches are readable, zero outside its bytes
+                ulong at = Convert.ToUInt64(((string)args["address"]!)[2..], 16);
+                var bytes = new byte[(int)args["length"]!];
+                for (int i = 0; i < bytes.Length; i++)
+                {
+                    var a = at + (ulong)i;
+                    if (!Memory.Any(m => a / 4096 >= m.Key / 4096 && a / 4096 <= (m.Key + (ulong)m.Value.Length - 1) / 4096))
+                        return new JsonObject { ["bytes"] = null };
+                    bytes[i] = Memory.FirstOrDefault(m => a >= m.Key && a - m.Key < (ulong)m.Value.Length) is { Value: { } block, Key: var start } ? block[a - start] : (byte)0;
+                }
+                return new JsonObject { ["bytes"] = Convert.ToHexStringLower(bytes) };
             default: return null;
         }
     }
@@ -642,6 +653,72 @@ public sealed class LiveSessionTests : IDisposable
             dumps.Dispose();
             if (Directory.Exists(dir)) Directory.Delete(dir, true);
         }
+    }
+
+    [Fact]
+    public async Task Strings_read_to_their_terminator_a_page_at_a_time_and_say_where_they_stop_short()
+    {
+        await _tools.LiveSession("attach", program: "4242");
+        var text = new string('a', 300);
+        _backend.Memory[0x10000] = [.. System.Text.Encoding.UTF8.GetBytes(text), 0];
+        _backend.Memory[0x20000] = [.. System.Text.Encoding.Unicode.GetBytes(text), 0, 0];
+        Assert.Contains($"  \"{text}\"\n", (await _tools.LiveRead("live-1", memory: "0x10000", type: "cstring")).ReplaceLineEndings("\n"));
+        Assert.Contains($"  \"{text}\"\n", (await _tools.LiveRead("live-1", memory: "0x20000", type: "utf16")).ReplaceLineEndings("\n"));
+        Assert.Contains($"  \"{text[..16]}\" (cut: no terminator in 16 bytes)", await _tools.LiveRead("live-1", memory: "0x10000", type: "cstring", length: 16));
+        // a string that runs to the end of readable memory, and one across a page boundary
+        _backend.Memory[0x30FF0] = [.. Enumerable.Repeat((byte)'b', 16)];
+        Assert.Contains($"  \"{new string('b', 16)}\" (cut: unreadable memory at 0x31000)", await _tools.LiveRead("live-1", memory: "0x30FF0", type: "cstring"));
+        _backend.Memory[0x40F00] = [.. Enumerable.Repeat((byte)'c', 0x180), 0, .. new byte[0x100]];
+        Assert.Contains($"  \"{new string('c', 0x180)}\"\n", (await _tools.LiveRead("live-1", memory: "0x40F00", type: "cstring")).ReplaceLineEndings("\n"));
+        Assert.Equal(ErrorCode.NotFound, (await Assert.ThrowsAsync<ToolError>(() => _tools.LiveRead("live-1", memory: "0x50000", type: "utf16"))).Code);
+    }
+
+    [Theory]
+    [InlineData("x64", "0x8877665544332211")]
+    [InlineData("ia32", "0x44332211")]
+    public async Task A_pointer_is_as_wide_as_the_programs_pointers(string arch, string first)
+    {
+        var backend = new ScriptedLiveBackend(Sqlite, Base, 0x200000) { Arch = arch };
+        using var service = new LiveSessionService(_workspace, new NativeCodeService(_workspace, new ServerOptions())) { Backend = backend };
+        var tools = new LiveSessionTools(new ServerOptions { AllowLive = true, AllowLiveAttach = true }, service);
+        await tools.LiveSession("attach", program: "4242");
+        backend.Memory[0x5000] = [0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88, 0x99, 0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF, 0x10];
+        var read = await tools.LiveRead("live-1", memory: "0x5000", type: "pointer[2]");
+        Assert.Contains($"[0] {first}", read);
+        Assert.Contains(arch == "ia32" ? "[1] 0x88776655" : "[1] 0x10FFEEDDCCBBAA99", read);
+    }
+
+    [Fact]
+    public async Task Every_value_type_decodes_and_bad_types_are_refused()
+    {
+        await _tools.LiveSession("attach", program: "4242");
+        _backend.Memory[0x5000] = [0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF];
+        _backend.Memory[0x6000] = [.. BitConverter.GetBytes(0.5f), .. BitConverter.GetBytes(2.5)];
+        foreach (var (type, value) in new[] { ("int8", "-1"), ("uint8", "255"), ("int16", "-1"), ("uint16", "65535"), ("int32", "-1"), ("uint32", "4294967295"), ("int64", "-1"), ("uint64", "18446744073709551615") })
+            Assert.Contains($"  {value}\n", (await _tools.LiveRead("live-1", memory: "0x5000", type: type)).ReplaceLineEndings("\n"));
+        Assert.Contains("  0.5\n", (await _tools.LiveRead("live-1", memory: "0x6000", type: "float")).ReplaceLineEndings("\n"));
+        Assert.Contains("  2.5\n", (await _tools.LiveRead("live-1", memory: "0x6004", type: "double")).ReplaceLineEndings("\n"));
+        foreach (var bad in new[] { "int128", "uint32[0]", "uint32[x]", "uint8[5000]" })
+            Assert.Equal(ErrorCode.InvalidArgument, (await Assert.ThrowsAsync<ToolError>(() => _tools.LiveRead("live-1", memory: "0x5000", type: bad))).Code);
+    }
+
+    [Fact]
+    public async Task Registers_are_read_only_from_held_threads()
+    {
+        await _tools.LiveSession("attach", program: "4242");
+        var noThread = await Assert.ThrowsAsync<ToolError>(() => _tools.LiveRead("live-1"));
+        Assert.Equal(ErrorCode.InvalidArgument, noThread.Code);
+        _backend.Memory[0x5000] = [1, 0, 0, 0];
+        Assert.Contains("no thread is held", await _tools.LiveRead("live-1", registers: "pc", memory: "0x5000", type: "int32"));
+        await _tools.LiveBreak("live-1", "set", at: "sqlite3_open");
+        _backend.Hit("s1", 77, Base + 0x1010);
+        await _tools.LiveBreak("live-1", wait: true, waitSeconds: 10);
+        var unknown = await Assert.ThrowsAsync<ToolError>(() => _tools.LiveRead("live-1", registers: "pc,xmm9"));
+        Assert.Equal(ErrorCode.InvalidArgument, unknown.Code);
+        Assert.Contains("xmm9", unknown.Message);
+        Assert.Equal(ErrorCode.NotFound, (await Assert.ThrowsAsync<ToolError>(() => _tools.LiveRead("live-1", thread: "78"))).Code);
+        Assert.Equal(ErrorCode.InvalidArgument, (await Assert.ThrowsAsync<ToolError>(() => _tools.LiveRead("live-1", thread: "t77"))).Code);
+        Assert.Contains("thread 77 (held at s1)", await _tools.LiveRead("live-1", thread: "77"));
     }
 
     [Fact]

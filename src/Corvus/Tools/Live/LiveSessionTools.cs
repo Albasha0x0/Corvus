@@ -405,7 +405,7 @@ public sealed partial class LiveSessionTools(ServerOptions options, LiveSessionS
         [Description("Register names, comma-separated; default all.")] string? registers = null,
         [Description("An address, register or name to read.")] string? memory = null,
         [Description("memory: int8..uint64, float, double, pointer, cstring, utf16; [n] for arrays.")] string? type = null,
-        [Description("memory: bytes without a type (max 4096).")] int length = 64,
+        [Description("memory: untyped bytes, or a string's limit (max 4096).")] int? length = null,
         CancellationToken cancellationToken = default) =>
         Task.Run(async () =>
         {
@@ -439,14 +439,21 @@ public sealed partial class LiveSessionTools(ServerOptions options, LiveSessionS
             }
             else if (memory == null)
                 throw new ToolError(ErrorCode.InvalidArgument, "No thread is held, so there are no registers to read.", "pass memory=<address>, or live_break wait=true for a stop");
+            else if (registers != null) text.AppendLine("no thread is held: registers are read from threads held at a stop point");
             var values = new List<LiveValue>();
             if (memory != null)
             {
                 var address = held != null && held.Registers.TryGetValue(memory.Trim(), out var reg) && Number(reg) is { } r ? r
                     : await live.ResolveAsync(s, memory, cancellationToken, data: true).ConfigureAwait(false);
-                var (kind, size, count) = ParseType(type, length);
-                var bytes = await live.ReadAsync(s, address, size * count, cancellationToken).ConfigureAwait(false)
-                            ?? throw new ToolError(ErrorCode.NotFound, $"The program has no readable memory at {Hex(address)}.", "check the address with live_session action=status (module ranges)");
+                var (kind, size, count) = ParseType(type, length, s.Arch is "ia32" or "arm" ? 4 : 8);
+                string? cut = null;
+                byte[] bytes;
+                if (kind is "cstring" or "utf16")
+                {
+                    (bytes, cut) = await ReadStringAsync(s, address, kind == "utf16", size, cancellationToken).ConfigureAwait(false);
+                    size = bytes.Length;
+                }
+                else bytes = await live.ReadAsync(s, address, size * count, cancellationToken).ConfigureAwait(false) ?? throw Unreadable(address);
                 var at = live.Name(s, address, ct: cancellationToken);
                 if (at.Named is { } n) named.Add(n);
                 text.AppendLine($"{Hex(address)}{(at.Module != null ? " " + at.Display : "")}: {kind}{(type != null && count > 1 ? $"[{count}]" : "")}");
@@ -461,7 +468,7 @@ public sealed partial class LiveSessionTools(ServerOptions options, LiveSessionS
                     }
                     else
                 {
-                    var v = Decode(kind, bytes.AsSpan(i * size, size));
+                    var v = Decode(kind, bytes.AsSpan(i * size, size)) + (cut != null ? $" (cut: {cut})" : "");
                     var name = count == 1 ? memory.Trim() : $"{memory.Trim()}[{i}]";
                     values.Add(new LiveValue(name, kind, v, Hex(address + (ulong)(i * size))));
                     text.AppendLine(count == 1 ? $"  {v}" : $"  [{i}] {v}");
@@ -475,13 +482,18 @@ public sealed partial class LiveSessionTools(ServerOptions options, LiveSessionS
     private static readonly Dictionary<string, int> Sizes = new(StringComparer.Ordinal)
     {
         ["int8"] = 1, ["uint8"] = 1, ["int16"] = 2, ["uint16"] = 2, ["int32"] = 4, ["uint32"] = 4, ["int64"] = 8, ["uint64"] = 8,
-        ["float"] = 4, ["double"] = 8, ["pointer"] = 8,
+        ["float"] = 4, ["double"] = 8,
     };
 
-    /// <summary>The element kind, its size and the count to read; untyped reads are one "bytes" element of <paramref name="length"/>.</summary>
-    private static (string Kind, int Size, int Count) ParseType(string? type, int length)
+    private const int MaxRead = 4096;
+
+    /// <summary>
+    /// The element kind, its size and the count to read; untyped reads are one "bytes" element of <paramref name="length"/>
+    /// (default 64), strings one element whose size is the most bytes read (default <see cref="MaxRead"/>).
+    /// </summary>
+    private static (string Kind, int Size, int Count) ParseType(string? type, int? length, int pointerSize)
     {
-        if (string.IsNullOrWhiteSpace(type)) return ("bytes", Math.Clamp(length, 1, 4096), 1);
+        if (string.IsNullOrWhiteSpace(type)) return ("bytes", Math.Clamp(length ?? 64, 1, MaxRead), 1);
         var t = type.Trim().ToLowerInvariant();
         int count = 1;
         if (t.EndsWith(']') && t.IndexOf('[') is > 0 and var open)
@@ -490,8 +502,9 @@ public sealed partial class LiveSessionTools(ServerOptions options, LiveSessionS
                 throw new ToolError(ErrorCode.InvalidArgument, $"Bad array count in '{type}'.", "type=uint32[4]");
             t = t[..open];
         }
-        if (t is "cstring" or "utf16") return (t, Math.Clamp(length, 2, 4096), 1);
-        if (!Sizes.TryGetValue(t, out var size))
+        if (t is "cstring" or "utf16") return (t, Math.Clamp(length ?? MaxRead, 2, MaxRead), 1);
+        var size = t == "pointer" ? pointerSize : Sizes.GetValueOrDefault(t);
+        if (size == 0)
             throw new ToolError(ErrorCode.InvalidArgument, $"Unknown type '{type}'.", "int8-int64, uint8-uint64, float, double, pointer, cstring or utf16, with [n] for an array");
         if (size * count > 4096) throw new ToolError(ErrorCode.InvalidArgument, $"{type} is {size * count} bytes; at most 4096 per read.", "read fewer elements");
         return (t, size, count);
@@ -509,11 +522,35 @@ public sealed partial class LiveSessionTools(ServerOptions options, LiveSessionS
         "uint64" => BinaryPrimitives.ReadUInt64LittleEndian(b).ToString(CultureInfo.InvariantCulture),
         "float" => BinaryPrimitives.ReadSingleLittleEndian(b).ToString("R", CultureInfo.InvariantCulture),
         "double" => BinaryPrimitives.ReadDoubleLittleEndian(b).ToString("R", CultureInfo.InvariantCulture),
-        "pointer" => Hex(BinaryPrimitives.ReadUInt64LittleEndian(b)),
+        "pointer" => Hex(b.Length == 4 ? BinaryPrimitives.ReadUInt32LittleEndian(b) : BinaryPrimitives.ReadUInt64LittleEndian(b)),
         "cstring" => Quote(Encoding.UTF8.GetString(b[..Math.Max(0, b.IndexOf((byte)0) is var z and >= 0 ? z : b.Length)])),
         "utf16" => Quote(Utf16(b)),
         _ => Convert.ToHexStringLower(b),
     };
+
+    private static ToolError Unreadable(ulong address) =>
+        new(ErrorCode.NotFound, $"The program has no readable memory at {Hex(address)}.", "check the address with live_session action=status (module ranges)");
+
+    /// <summary>
+    /// A string's bytes up to its terminator, at most <paramref name="limit"/>, read a page at a time so a string that ends
+    /// just before unreadable memory still reads; Cut says why it stopped without a terminator.
+    /// </summary>
+    private async Task<(byte[] Bytes, string? Cut)> ReadStringAsync(Services.LiveSession s, ulong address, bool wide, int limit, CancellationToken ct)
+    {
+        const int Page = 4096;
+        var buffer = new List<byte>();
+        while (buffer.Count < limit)
+        {
+            var at = address + (ulong)buffer.Count;
+            var chunk = await live.ReadAsync(s, at, (int)Math.Min((ulong)(limit - buffer.Count), Page - at % Page), ct).ConfigureAwait(false);
+            if (chunk is not { Length: > 0 })
+                return buffer.Count == 0 ? throw Unreadable(address) : ([.. buffer], $"unreadable memory at {Hex(at)}");
+            buffer.AddRange(chunk);
+            for (int i = 0; i + (wide ? 1 : 0) < buffer.Count; i += wide ? 2 : 1)
+                if (buffer[i] == 0 && (!wide || buffer[i + 1] == 0)) return ([.. buffer.Take(i)], null);
+        }
+        return ([.. buffer], $"no terminator in {limit:N0} bytes");
+    }
 
     private static string Utf16(ReadOnlySpan<byte> b)
     {

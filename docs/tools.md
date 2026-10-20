@@ -2899,7 +2899,7 @@ Read a held thread's registers and program memory as typed values, named through
 | `registers` | string |  |  | Register names, comma-separated; default all. |
 | `memory` | string |  |  | An address, register or name to read. |
 | `type` | string |  |  | memory: int8..uint64, float, double, pointer, cstring, utf16; [n] for arrays. |
-| `length` | integer |  | `64` | memory: bytes without a type (max 4096). |
+| `length` | integer |  |  | memory: untyped bytes, or a string's limit (max 4096). |
 
 Structured output: `session`, `thread`, `registers`, `memory`, `namedAddresses`, `code`, `offset`, `nextOffset`, `totalChars`.
 
