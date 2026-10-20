@@ -106,18 +106,28 @@ class Session:
                 except frida.ProcessNotFoundError as e:
                     raise Failure("not_found", str(e))
             self.pid = int(target)
+        # a program started here is ended on any failure from here on: nothing else would end it
         try:
-            self.session = self.device.attach(self.pid)
-        except (frida.ProcessNotFoundError, frida.PermissionDeniedError) as e:
+            try:
+                self.session = self.device.attach(self.pid)
+            except (frida.ProcessNotFoundError, frida.PermissionDeniedError) as e:
+                raise Failure("not_found" if isinstance(e, frida.ProcessNotFoundError) else "access_denied", str(e))
+            self.session.on("detached", self.on_detached)
+            with open(self.agent_path, "r", encoding="utf-8") as f:
+                source = f.read()
+            self.script = self.session.create_script(source)
+            self.script.on("message", self.on_message)
+            self.script.load()
+            result = self.script.exports_sync.info()
+        except BaseException:
+            if self.session is not None:
+                try:
+                    self.session.detach()
+                except frida.InvalidOperationError:
+                    pass
             self.end_spawned()
-            raise Failure("not_found" if isinstance(e, frida.ProcessNotFoundError) else "access_denied", str(e))
-        self.session.on("detached", self.on_detached)
-        with open(self.agent_path, "r", encoding="utf-8") as f:
-            source = f.read()
-        self.script = self.session.create_script(source)
-        self.script.on("message", self.on_message)
-        self.script.load()
-        result = self.script.exports_sync.info()
+            self.script = self.session = None
+            raise
         result["suspended"] = self.suspended
         return result
 

@@ -283,4 +283,33 @@ public sealed class LiveLifecycleRealTests(ITestOutputHelper output) : LiveToolC
             }
         }
     }
+
+    // ---- a start that fails after the program is running
+
+    /// <summary>The worker ends a program it started as soon as the session cannot be set up (here: a script that does not load).</summary>
+    [LiveTargetFact("win-x64")]
+    public void A_start_that_fails_after_the_program_runs_ends_the_program()
+    {
+        var python = new Native.Providers.Live.FridaBackend().Python ?? throw new InvalidOperationException("no Python with Frida");
+        var exe = _dir.File($"failed-start-{Guid.NewGuid():N}.exe");
+        File.Copy(Build(LiveTarget.WinX64), exe);
+        var worker = _dir.File("live_worker.py");
+        File.WriteAllBytes(worker, Native.Providers.EmbeddedScript.Read("Corvus.Native.Providers.Live.live_worker.py"));
+        var agent = _dir.File("live_agent.js");
+        File.WriteAllText(agent, "this is not a script (");
+        using var p = Process.Start(new ProcessStartInfo(python.Executable, new[] { "-I", "-u", worker, agent })
+            { RedirectStandardInput = true, RedirectStandardOutput = true, UseShellExecute = false })!;
+        p.StandardInput.WriteLine(System.Text.Json.JsonSerializer.Serialize(new { id = 1, op = "open", args = new { spawn = exe, arguments = new[] { "line 50" } } }));
+        p.StandardInput.Flush();
+        string? reply;
+        while ((reply = p.StandardOutput.ReadLine()) != null && !reply.Contains("\"id\":1", StringComparison.Ordinal)) { }
+        Assert.NotNull(reply);
+        Assert.Contains("\"ok\":false", reply);
+        // the server ends a worker that failed to open without a close (its timeout, or its own end): nothing else ends the program
+        p.Kill();
+        Assert.True(p.WaitForExit(20_000), "the worker did not end");
+        var left = Process.GetProcessesByName(Path.GetFileNameWithoutExtension(exe)); // a unique name: only this start's program
+        foreach (var program in left) program.Kill();
+        Assert.Empty(left);
+    }
 }
