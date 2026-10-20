@@ -391,15 +391,15 @@ try {
     $trx = Join-Path $results 'full.trx'
     if ($familyKeys -and (Test-Path $trx)) {
         $passed = Get-PassedFamilies $trx $classMap $code
-        $all = if (Test-Path $familyStamps) { Get-Content $familyStamps -Raw | ConvertFrom-Json -AsHashtable } else { @{} }
+        $stamps = if (Test-Path $familyStamps) { Get-Content $familyStamps -Raw | ConvertFrom-Json -AsHashtable } else { @{} }
         $commit = (git -C $root rev-parse --short HEAD).Trim()
         foreach ($family in $passed) {
             # A sampled pass never replaces an exhaustive one on the same key.
-            if ($all[$family] -and $all[$family].key -eq $familyKeys[$family] -and $all[$family].mode -eq 'exhaustive') { continue }
-            $all[$family] = [ordered]@{ key = $familyKeys[$family]; mode = $mode; commit = $commit; at = (Get-Date -Format 'yyyy-MM-dd HH:mm') }
+            if ($stamps[$family] -and $stamps[$family].key -eq $familyKeys[$family] -and $stamps[$family].mode -eq 'exhaustive') { continue }
+            $stamps[$family] = [ordered]@{ key = $familyKeys[$family]; mode = $mode; commit = $commit; at = (Get-Date -Format 'yyyy-MM-dd HH:mm') }
         }
         $temp = "$familyStamps.tmp"
-        Set-Content -Path $temp -Value ($all | ConvertTo-Json -Depth 3) -NoNewline
+        Set-Content -Path $temp -Value ($stamps | ConvertTo-Json -Depth 3) -NoNewline
         Move-Item -Force $temp $familyStamps
         Write-Host "Recorded $mode passes for $($passed.Count) families."
     }
