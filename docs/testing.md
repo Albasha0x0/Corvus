@@ -22,7 +22,8 @@
   quarter of the real images and leaves out the tests marked `[Trait("Tier", "Release")]` (measurements, accuracy
   oracles against IDA, the largest inputs); `-Exhaustive` (gates and releases, `CORVUS_SWEEP=exhaustive`) takes
   every image and those tests. A `-Filter` given on the command line keeps them. `./test.ps1 -Full` records the clean tree it
-  passed on (in `.git`), and `-IfChanged` and `release.ps1` skip a second full run on that tree. Each full run on a
+  passed on (in `.git`), and `-IfChanged` and `release.ps1` skip a second full run on that tree. A run keeps its results
+  until the next one: if recording them fails, `./test.ps1 -Stamp` records them without a rerun, on the same tree only. Each full run on a
   clean tree also records which test families passed, under a key of the family's own folders, all shared code, the
   repository files its tests read, the SDK, the OS build and the `CORVUS_*` settings (`test-reuse.psm1`).
   `./test.ps1 -Full -Reuse` then runs only the families whose key changed, plus the contract tests and the classes

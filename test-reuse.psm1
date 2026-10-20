@@ -141,6 +141,18 @@ function Get-PassedFamilies([string]$trxPath, [hashtable]$classMap, [int]$exitCo
     @($ran.Keys | Where-Object { -not $failed[$_] } | Sort-Object)
 }
 
+# Records the families a run passed in the stamps file -Reuse reads; a sampled pass never replaces an exhaustive one on the same key.
+function Save-FamilyPasses([string]$stampsPath, [string[]]$passed, [hashtable]$keys, [string]$mode, [string]$commit) {
+    $stamps = if (Test-Path $stampsPath) { Get-Content $stampsPath -Raw | ConvertFrom-Json -AsHashtable } else { @{} }
+    foreach ($family in $passed) {
+        if ($stamps[$family] -and $stamps[$family].key -eq $keys[$family] -and $stamps[$family].mode -eq 'exhaustive') { continue }
+        $stamps[$family] = [ordered]@{ key = $keys[$family]; mode = $mode; commit = $commit; at = (Get-Date -Format 'yyyy-MM-dd HH:mm') }
+    }
+    $temp = "$stampsPath.tmp"
+    Set-Content -Path $temp -Value ($stamps | ConvertTo-Json -Depth 3) -NoNewline
+    Move-Item -Force $temp $stampsPath
+}
+
 # Whether every changed path (git's forward-slash form) is documentation outside src/ and tests/: such a change leaves
 # every family key but those of the families reading repository files, so a whole pass before it holds for the rest.
 function Test-DocsOnly([string[]]$paths) {
@@ -160,4 +172,4 @@ function Get-FailedTests([string]$trxPath) {
         ForEach-Object { $nameOf[$_.Node.testId] } | Sort-Object -Unique)
 }
 
-Export-ModuleMember -Function Get-RunEnvironment, Get-ReuseScope, Get-ClassMap, Get-RootReaders, Get-FamilyKeys, Read-CoverageMap, Get-CoveredFiles, Get-StaleFamilies, Get-ReuseFilter, Get-PassedFamilies, Test-DocsOnly, Get-FailedTests
+Export-ModuleMember -Function Get-RunEnvironment, Get-ReuseScope, Get-ClassMap, Get-RootReaders, Get-FamilyKeys, Read-CoverageMap, Get-CoveredFiles, Get-StaleFamilies, Get-ReuseFilter, Get-PassedFamilies, Save-FamilyPasses, Test-DocsOnly, Get-FailedTests

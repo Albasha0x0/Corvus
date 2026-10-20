@@ -14,6 +14,7 @@ $env:CORVUS_ALL_TESTS=1; dotnet test   # everything (or dotnet test -p:CORVUS_AL
                                      #   hook starts it on every push to main: git config core.hooksPath .githooks
 ./test.ps1 -Affected                 # the slow tests of the families you changed, in the foreground
 ./test.ps1 -Full -IfChanged          # everything, skipped when it already passed on this exact tree
+./test.ps1 -Stamp                    # records the last full run's passes when its recording step failed (same tree only)
 ```
 
 Run the quick set while iterating and the full set before a pull request. Tests that need real-world data (application

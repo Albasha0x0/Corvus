@@ -13,6 +13,7 @@
 #                                         #   -Whole: exhaustive without reuse, the pass a minor release gates on)
 #         ./test.ps1 -SecondGhidra        # the Engines tests with CORVUS_SECOND_GHIDRA_DIR, unless they passed on these inputs
 #         ./test.ps1 -Status              # the last background run: passed / failed / running, and its log
+#         ./test.ps1 -Stamp               # records the last full run's passes when its recording step failed (same tree only)
 #         ./test.ps1 -Full -Coverage      # also collects line coverage (coverlet) and checks Ratchets/coverage.txt
 #         ./test.ps1 -CoverageMap         # which source files each family's tests run (weekly): -Reuse keys families on them
 #         ./test.ps1 -Mutation [-Target sqlite,pe]  # mutation testing of the core readers (Stryker.NET; tests/mutation.json),
@@ -34,7 +35,8 @@ param(
     [switch]$Coverage,
     [switch]$CoverageMap,
     [switch]$Mutation,
-    [string[]]$Target
+    [string[]]$Target,
+    [switch]$Stamp
 )
 
 $ErrorActionPreference = 'Stop'
@@ -249,12 +251,21 @@ function Get-CleanTree {
 }
 # "<tree> <mode>", with " reused" when reused family passes made up part of it; the whole-suite stamp names the last tree
 # an exhaustive run passed on without reuse (release.ps1: a minor release gates on it).
-$stamp = Join-Path $gitDir 'corvus-full-suite.stamp'
+$treeStamp = Join-Path $gitDir 'corvus-full-suite.stamp'
 $wholeStamp = Join-Path $gitDir 'corvus-whole-suite.stamp'
+function Write-TreeStamp([string]$tree, [string]$mode, [bool]$reused) {
+    $value = "$tree $mode" + $(if ($reused) { ' reused' } else { '' })
+    Set-Content -Path $treeStamp -Value $value -NoNewline
+    if ($mode -eq 'exhaustive' -and -not $reused) { Set-Content -Path $wholeStamp -Value $tree -NoNewline }
+    Write-Host "Stamped $value."
+}
+# The last whole-suite run's results and what recording them needs, so -Stamp can record them without a rerun.
+$lastRun = Join-Path $gitDir 'corvus-last-run.json'
+$lastTrx = Join-Path $gitDir 'corvus-last-run.trx'
 
 if ($Full -and $IfChanged) {
     $tree = Get-CleanTree
-    $have = if (Test-Path $stamp) { (Get-Content $stamp -Raw).Trim() } else { '' }
+    $have = if (Test-Path $treeStamp) { (Get-Content $treeStamp -Raw).Trim() } else { '' }
     $done = if ($Exhaustive) { $have -in "$tree exhaustive", "$tree exhaustive reused" } else { $have -like "$tree *" }
     if ($tree -and $done) {
         Write-Host "The full suite already passed on tree $tree; skipped."
@@ -269,6 +280,21 @@ $coverageMapFile = Join-Path $gitDir 'corvus-coverage-map.json'
 $mode = if ($Exhaustive) { 'exhaustive' } else { 'sampled' }
 $familyKeys = $null
 $wholeSuite = $Full -and -not $Filter
+
+# Records the saved run's passes (a run whose recording step failed), for the tree it ran on only.
+if ($Stamp) {
+    if (-not ((Test-Path $lastRun) -and (Test-Path $lastTrx))) { Write-Host 'No saved full run to record.' -ForegroundColor Red; exit 2 }
+    $run = Get-Content $lastRun -Raw | ConvertFrom-Json -AsHashtable
+    $tree = Get-CleanTree
+    if ($tree -ne $run.tree) { Write-Host "The saved run was on tree $($run.tree); this tree is $(if ($tree) { $tree } else { 'not clean' }). Run the suite again." -ForegroundColor Red; exit 2 }
+    Import-Module (Join-Path $root 'test-reuse.psm1') -Force
+    $passed = Get-PassedFamilies $lastTrx (Get-ClassMap $tests) $run.code
+    Save-FamilyPasses $familyStamps $passed $run.keys $run.mode $run.commit
+    Write-Host "Recorded $($run.mode) passes for $($passed.Count) families from the run of $($run.at)."
+    if ($run.code -ne 0) { Write-Host "The saved run failed (exit $($run.code)): the tree is not stamped." -ForegroundColor Red; exit 1 }
+    Write-TreeStamp $tree $run.mode $run.reused
+    exit 0
+}
 
 # The Engines tests again with a second Ghidra (the oldest supported, say), keyed like a family with that Ghidra in the
 # settings: unchanged inputs skip it, and a retry under the same key runs only the tests that failed.
@@ -389,19 +415,22 @@ try {
     & dotnet @arguments
     $code = $LASTEXITCODE
     $trx = Join-Path $results 'full.trx'
+    $recordFailed = $false
     if ($familyKeys -and (Test-Path $trx)) {
-        $passed = Get-PassedFamilies $trx $classMap $code
-        $stamps = if (Test-Path $familyStamps) { Get-Content $familyStamps -Raw | ConvertFrom-Json -AsHashtable } else { @{} }
         $commit = (git -C $root rev-parse --short HEAD).Trim()
-        foreach ($family in $passed) {
-            # A sampled pass never replaces an exhaustive one on the same key.
-            if ($stamps[$family] -and $stamps[$family].key -eq $familyKeys[$family] -and $stamps[$family].mode -eq 'exhaustive') { continue }
-            $stamps[$family] = [ordered]@{ key = $familyKeys[$family]; mode = $mode; commit = $commit; at = (Get-Date -Format 'yyyy-MM-dd HH:mm') }
+        # saved before recording, so a recording step that fails costs no rerun (-Stamp)
+        Copy-Item $trx $lastTrx -Force
+        $run = [ordered]@{ tree = $tree; mode = $mode; reused = [bool]$Filter; code = $code; keys = $familyKeys; commit = $commit; at = (Get-Date -Format 'yyyy-MM-dd HH:mm') }
+        Set-Content -Path $lastRun -Value ($run | ConvertTo-Json -Depth 3) -NoNewline
+        try {
+            $passed = Get-PassedFamilies $trx $classMap $code
+            Save-FamilyPasses $familyStamps $passed $familyKeys $mode $commit
+            Write-Host "Recorded $mode passes for $($passed.Count) families."
         }
-        $temp = "$familyStamps.tmp"
-        Set-Content -Path $temp -Value ($stamps | ConvertTo-Json -Depth 3) -NoNewline
-        Move-Item -Force $temp $familyStamps
-        Write-Host "Recorded $mode passes for $($passed.Count) families."
+        catch {
+            $recordFailed = $true
+            Write-Host "Recording the passes failed ($_); the results are kept: ./test.ps1 -Stamp records them without a rerun." -ForegroundColor Red
+        }
     }
     if ($Coverage) {
         $reports = @(Get-ChildItem $results -Recurse -Filter coverage.cobertura.xml -ErrorAction SilentlyContinue)
@@ -423,11 +452,9 @@ try {
     if (Test-Path $results) { Remove-Item -Recurse -Force $results }
     if ($missingEngines) { Write-Host "Engine tests were skipped: $($missingEngines -join ', ')." -ForegroundColor Yellow }
     if ($code -ne 0) { exit $code }
-    if ($tree) {
-        $value = "$tree $mode" + $(if ($Filter) { ' reused' } else { '' })
-        Set-Content -Path $stamp -Value $value -NoNewline
-        if ($Exhaustive -and -not $Filter) { Set-Content -Path $wholeStamp -Value $tree -NoNewline }
-        Write-Host "Stamped $value."
+    if ($tree -and -not $recordFailed) {
+        try { Write-TreeStamp $tree $mode ([bool]$Filter) }
+        catch { Write-Host "Stamping the tree failed ($_); the results are kept: ./test.ps1 -Stamp records them without a rerun." -ForegroundColor Red }
     }
     if ($wholeSuite -and -not $Coverage -and $env:CORVUS_SECOND_GHIDRA_DIR) {
         $code = Invoke-SecondGhidra

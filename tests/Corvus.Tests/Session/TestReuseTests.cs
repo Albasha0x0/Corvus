@@ -72,6 +72,32 @@ public class TestReuseTests
 
     [Fact]
     [Trait("Speed", "Slow")]
+    public void PassesAreRecordedWithoutReplacingAnExhaustivePassOnTheSameKey()
+    {
+        var module = Path.Combine(DocsTests.RepoRoot(), "test-reuse.psm1");
+        var stamps = Path.Combine(Path.GetTempPath(), $"corvus-stamps-{Guid.NewGuid():N}.json");
+        File.WriteAllText(stamps, """{ "Dotnet": { "key": "k1", "mode": "exhaustive", "commit": "a", "at": "x" }, "Web": { "key": "w1", "mode": "sampled", "commit": "a", "at": "x" } }""");
+        try
+        {
+            var lines = Run($$"""
+                Import-Module '{{module.Replace("'", "''")}}'
+                Save-FamilyPasses '{{stamps}}' @('Dotnet', 'Engines') @{ Dotnet = 'k1'; Engines = 'e1' } 'sampled' 'b'
+                $s = Get-Content '{{stamps}}' -Raw | ConvertFrom-Json
+                'dotnet=' + $s.Dotnet.mode + ',' + $s.Dotnet.commit
+                'engines=' + $s.Engines.key + ',' + $s.Engines.mode + ',' + $s.Engines.commit
+                'web=' + $s.Web.key
+                """);
+            if (lines is ["skip"]) return; // no pwsh on this machine
+            string Line(string name) => lines.Single(l => l.StartsWith(name + "=")).Substring(name.Length + 1);
+            Assert.Equal("exhaustive,a", Line("dotnet"));  // a sampled pass leaves the exhaustive one on the same key
+            Assert.Equal("e1,sampled,b", Line("engines")); // a new family is recorded
+            Assert.Equal("w1", Line("web"));               // families the run did not pass are kept
+        }
+        finally { File.Delete(stamps); }
+    }
+
+    [Fact]
+    [Trait("Speed", "Slow")]
     public void DocumentationOnlyChangesAndFailedTestsAreNamed()
     {
         var module = Path.Combine(DocsTests.RepoRoot(), "test-reuse.psm1");
