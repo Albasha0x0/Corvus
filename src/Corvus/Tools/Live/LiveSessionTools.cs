@@ -156,17 +156,19 @@ public sealed partial class LiveSessionTools(ServerOptions options, LiveSessionS
             ? Path.Combine(Path.GetTempPath(), "corvus-snapshots", $"{s.Id}-{s.ProcessId}-{DateTime.UtcNow:yyyyMMdd-HHmmss-fff}{(OperatingSystem.IsWindows() ? ".dmp" : ".core")}")
             : outputPath;
         // a held thread waits inside the backend: its stop's registers, as the dump's exception, let the walk start at the stop
-        // (x64 only: a 64-bit writer records a WoW64 program's 64-bit side)
+        // (an x86 program's x86 CONTEXT: the dump reader takes it as the WoW64 thread's 32-bit side)
         Native.Diagnostics.ProcessSnapshot.Stop? stop = null;
         var held = s.Held.FirstOrDefault();
-        if (OperatingSystem.IsWindows() && s.Arch == "x64" && held != null)
+        if (OperatingSystem.IsWindows() && s.Arch is "x64" or "ia32" && held != null)
         {
             var registers = new Dictionary<string, ulong>(StringComparer.OrdinalIgnoreCase);
             foreach (var (name, value) in held.Registers)
                 if (ulong.TryParse(value.StartsWith("0x", StringComparison.OrdinalIgnoreCase) ? value[2..] : value, NumberStyles.HexNumber, CultureInfo.InvariantCulture, out var v))
                     registers[name] = v;
-            if (registers.TryGetValue("rip", out var rip) && registers.ContainsKey("rsp"))
+            if (s.Arch == "x64" && registers.TryGetValue("rip", out var rip) && registers.ContainsKey("rsp"))
                 stop = new((int)held.Thread, Native.Diagnostics.ProcessSnapshot.ContextX64(registers), rip);
+            else if (s.Arch == "ia32" && registers.TryGetValue("eip", out var eip) && registers.ContainsKey("esp"))
+                stop = new((int)held.Thread, Native.Diagnostics.ProcessSnapshot.ContextX86(registers), eip);
         }
         var bytes = Native.Diagnostics.ProcessSnapshot.Write(s.ProcessId, path, overwrite, ct, stop);
         var full = Path.GetFullPath(path);

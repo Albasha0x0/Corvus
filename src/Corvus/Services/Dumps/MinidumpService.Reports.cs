@@ -335,7 +335,7 @@ public sealed partial class MinidumpService
         var e = d.Exception!;
         var location = await Locate(s, e.Address, false, ct);
         var (insn, bytes, source) = Instruction(s, e.Address);
-        var ctx = d.ReadContext(e.Context);
+        var ctx = Wow64.ExceptionContext(d, e.ThreadId) ?? d.ReadContext(e.Context);
         return new ExceptionSummary($"0x{e.Code:X8}", ExceptionCodes.Name(e.Code), ExceptionCodes.Describe(e.Code, e.Parameters, d.Is64Bit), Hex(d, e.Address),
             e.ThreadId, location.Module?.FileName, location.Symbol, location.Source,
             insn != null ? $"{insn} ({bytes})" : null, source, e.Parameters.Select(p => $"0x{p:X}").ToList(), ctx?.Format(),
@@ -456,7 +456,8 @@ public sealed partial class MinidumpService
         var t = PickThread(d, thread);
         DumpContext? ctx = null;
         string contextKind = "thread";
-        if (exceptionContext && d.Exception is { } e && e.ThreadId == t.Id && d.ReadContext(e.Context) is { } ec)
+        var exception32 = exceptionContext ? Wow64.ExceptionContext(d, t.Id) : null;
+        if (exceptionContext && exception32 == null && d.Exception is { } e && e.ThreadId == t.Id && d.ReadContext(e.Context) is { } ec)
         {
             ctx = ec;
             contextKind = "exception";
@@ -475,10 +476,12 @@ public sealed partial class MinidumpService
         if (Wow64.Thread(d, t.Teb) is { } wow)
         {
             // the 32-bit side first: that is the program's own code; the 64-bit side (wow64cpu, the thread start) follows
-            var walk32 = await Task.Run(() => s.Walker(Wow64.View(d)).Walk(wow.Context, wow.StackLow, wow.StackHigh, maxFrames, ct), ct);
+            var context32 = exception32 ?? wow.Context;
+            var walk32 = await Task.Run(() => s.Walker(Wow64.View(d)).Walk(context32, wow.StackLow, wow.StackHigh, maxFrames, ct), ct);
             merged.InsertRange(0, walk32.Frames.Select(f => ((WalkFrame?)f, (ManagedFrame?)null)));
-            notes.Add($"WoW64 thread: frames 0-{walk32.Frames.Count - 1} are its 32-bit side (the x86 context WoW64 saved for the thread); the 64-bit side follows.");
-            (arch, registers, stop) = ("x86 (WoW64)", wow.Context.Format(), walk32.Stop);
+            notes.Add($"WoW64 thread: frames 0-{walk32.Frames.Count - 1} are its 32-bit side ({(exception32 != null ? "from the exception's x86 context" : "the x86 context WoW64 saved for the thread")}); the 64-bit side follows.");
+            (arch, registers, stop) = ("x86 (WoW64)", context32.Format(), walk32.Stop);
+            if (exception32 != null) contextKind = "exception";
         }
         else if (Wow64.IsWow64(d))
             notes.Add($"WoW64 process: this is the 64-bit side of the thread; its 32-bit context (in WoW64's CPU area{(Wow64.CpuArea(d, t.Teb) is { } cpu ? $" at {Hex(d, cpu)}" : "")}) " +

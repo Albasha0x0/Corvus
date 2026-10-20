@@ -35,6 +35,18 @@ public static class Wow64
         return new Wow64Thread(context, low, high);
     }
 
+    /// <summary>
+    /// The exception's context when it is an x86 CONTEXT (CONTEXT_i386, not CONTEXT_AMD64): a 64-bit writer's record of
+    /// a stop on the thread's 32-bit side. Null for any other thread or context.
+    /// </summary>
+    public static DumpContext? ExceptionContext(MinidumpFile dump, uint thread)
+    {
+        if (dump.Exception is not { } e || e.ThreadId != thread || !IsWow64(dump)) return null;
+        var bytes = dump.ContextBytes(e.Context);
+        if (bytes.Length < 0xCC || (BitConverter.ToUInt32(bytes, 0) & ContextI386) == 0 || (bytes.Length >= 0x34 && (BitConverter.ToUInt32(bytes, 0x30) & 0x100000) != 0)) return null;
+        return DumpContext.Parse(NativeArch.X86, bytes);
+    }
+
     /// <summary>The process as its 32-bit code sees it: the same memory and modules, x86 pointers.</summary>
     public static IProcessMemory View(IProcessMemory memory) => new X86View(memory);
 

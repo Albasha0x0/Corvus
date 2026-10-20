@@ -55,6 +55,21 @@ public static class ProcessSnapshot
         return c;
     }
 
+    /// <summary>An x86 CONTEXT (control and integer registers) from register values named as Frida names them.</summary>
+    public static byte[] ContextX86(IReadOnlyDictionary<string, ulong> registers)
+    {
+        var c = new byte[0x2CC];
+        BinaryPrimitives.WriteUInt32LittleEndian(c, 0x10003); // CONTEXT_i386 | CONTROL | INTEGER
+        BinaryPrimitives.WriteUInt32LittleEndian(c.AsSpan(0xBC), 0x23); // user-mode cs
+        BinaryPrimitives.WriteUInt32LittleEndian(c.AsSpan(0xC0), 0x202); // eflags: IF
+        BinaryPrimitives.WriteUInt32LittleEndian(c.AsSpan(0xC8), 0x2B); // user-mode ss
+        string[] order = ["edi", "esi", "ebx", "edx", "ecx", "eax", "ebp", "eip"];
+        for (int i = 0; i < order.Length; i++)
+            if (registers.TryGetValue(order[i], out var v)) BinaryPrimitives.WriteUInt32LittleEndian(c.AsSpan(0x9C + 4 * i), (uint)v);
+        if (registers.TryGetValue("esp", out var sp)) BinaryPrimitives.WriteUInt32LittleEndian(c.AsSpan(0xC4), (uint)sp);
+        return c;
+    }
+
     private static void WriteMinidump(int pid, string path, Stop? stop)
     {
         var process = OpenProcess(ProcessAccess, false, pid);
@@ -69,10 +84,12 @@ public static class ProcessSnapshot
         if (stop != null)
         {
             // one block, in this process (ClientPointers false): MINIDUMP_EXCEPTION_INFORMATION (pack 4), EXCEPTION_POINTERS,
-            // an EXCEPTION_RECORD for a breakpoint at the stop, and the CONTEXT 16-byte aligned
+            // an EXCEPTION_RECORD for a breakpoint at the stop, and the CONTEXT 16-byte aligned; a 64-bit writer copies an x64
+            // CONTEXT's size whatever the target, so a WoW64 program's x86 CONTEXT is padded to it
             const int Info = 0, Pointers = 16, Record = 32, Context = 192;
-            block = Marshal.AllocHGlobal(Context + stop.Context.Length + 16);
-            var bytes = new byte[Context + stop.Context.Length + 16];
+            int size = Context + Math.Max(stop.Context.Length, 0x4D0) + 16;
+            block = Marshal.AllocHGlobal(size);
+            var bytes = new byte[size];
             long context = ((block.ToInt64() + Context + 15) & ~15L) - block.ToInt64();
             BinaryPrimitives.WriteInt32LittleEndian(bytes.AsSpan(Info), stop.ThreadId);
             BinaryPrimitives.WriteInt64LittleEndian(bytes.AsSpan(Info + 4), block.ToInt64() + Pointers);
