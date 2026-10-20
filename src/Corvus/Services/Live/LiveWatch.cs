@@ -48,8 +48,8 @@ public sealed class LiveWatchState(string id, string where, ulong address, LiveF
 
 /// <summary>
 /// Decode plans for watched functions: the known-API table (names, strings, flags and enums by name), else the PDB
-/// prototype (parameter names from the procedure's frame, types from the type stream, enums by name), else DWARF
-/// parameter names, else raw pointer-size values.
+/// or DWARF prototype (parameter names from the procedure's frame or entries, types from the type records, enums by
+/// name), else DWARF parameter names, else raw pointer-size values.
 /// </summary>
 public static class LiveWatchPlans
 {
@@ -64,7 +64,7 @@ public static class LiveWatchPlans
         if (native != null && PdbService.StateOf(native)?.Pdb is { } pdb)
         {
             var symbol = pdb.Symbols.FirstOrDefault(s => s.Rva == rva && s.IsFunction && (s.TypeIndex != 0 || s.ParameterNames != null));
-            if (symbol != null && pdb.Format == DebugInfoFormat.Pdb && symbol.TypeIndex != 0 && FromPdb(function, pdb, symbol, x64) is { } typed)
+            if (symbol is { TypeIndex: not 0 } && FromPdb(function, pdb, symbol, x64, sysV: x64 && os != ApiOs.Windows && pdb.Format == DebugInfoFormat.Dwarf) is { } typed)
                 return typed;
             if (symbol?.ParameterNames is { Count: > 0 } names)
                 return new(function, names.Select((n, i) => Raw(n ?? $"a{i}")).ToList(), Raw("ret"), "DWARF parameter names");
@@ -107,14 +107,17 @@ public static class LiveWatchPlans
         return new(function, args, new("ret", ret?.Enum?.Name ?? "", "hex", 8, ret?.Enum is { } re ? re.Describe : null), "known API table");
     }
 
-    private static LiveWatchPlan? FromPdb(string function, PdbFile pdb, PdbSymbol symbol, bool x64)
+    /// <param name="sysV">The System V x64 convention: floating-point and aggregate values take no integer slot or several, so
+    /// a prototype with one is not decoded by slot.</param>
+    private static LiveWatchPlan? FromPdb(string function, PdbFile pdb, PdbSymbol symbol, bool x64, bool sysV = false)
     {
         var model = PdbTypeModel.Of(pdb, x64 ? 8 : 4);
         if (model.Node(model.FunctionTypeOf(symbol.TypeIndex))?.Function is not { } f) return null;
         var types = new List<uint>();
         if (f.This != 0) types.Add(f.This);
         types.AddRange(f.Parameters);
-        var names = symbol.FrameNames ?? [];
+        if (sysV && types.Any(t => Unmodified(model, t) is { IsAggregate: true } or { Kind: PdbTypeKind.Simple, Name: "float" or "double" or "long double" })) return null;
+        var names = symbol.FrameNames ?? symbol.ParameterNames?.Select((n, i) => n ?? $"a{i}").ToList() ?? [];
         var args = new List<LiveWatchArg>();
         for (int i = 0; i < types.Count; i++)
         {
@@ -123,7 +126,7 @@ public static class LiveWatchPlans
         }
         if (f.Variadic) args.Add(new("...", "", "skip", 0));
         var ret = model.Node(f.Return) is { Kind: PdbTypeKind.Simple, Name: "void" } ? null : FromType(model, f.Return, "ret", x64).FirstOrDefault();
-        return new(function, args, ret, "PDB prototype");
+        return new(function, args, ret, pdb.Format == DebugInfoFormat.Dwarf ? "DWARF prototype" : "PDB prototype");
     }
 
     /// <summary>The slots one parameter takes; a 64-bit value on x86 takes two (left unread).</summary>

@@ -2873,7 +2873,7 @@ Structured output: `session`, `stopPoints`, `stop`, `namedAddresses`.
 
 **Record calls in a session** (edit, open-world)
 
-Record every call of a function with arguments and return value, decoded by PDB prototype or known API (flags by name), as events (live_events from=<watch>).
+Record every call of a function with arguments and return value, decoded by PDB or DWARF prototype or known API (flags by name), as events (live_events from=<watch>).
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|

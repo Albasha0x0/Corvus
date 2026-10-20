@@ -578,6 +578,20 @@ public sealed class LiveSessionTests : IDisposable
     }
 
     [Fact]
+    public async Task A_function_with_dwarf_is_decoded_by_its_prototype()
+    {
+        var lib = NativeFormats.NativeFixtures.NativeAotLib("linux-x64", "libSystem.Native.so");
+        var native = _workspace.LoadAny(lib).Native!;
+        var code = new NativeCodeService(_workspace, new ServerOptions());
+        await new PdbService(code).Load(native, lib + ".dbg", false, null, false, TimeSpan.FromSeconds(30), 1 << 30, default);
+        var index = await code.Index(native, null, default);
+        var fstat = index.AddressOfName("SystemNative_FStat")!.Value;
+        var plan = LiveWatchPlans.Build("SystemNative_FStat", native, fstat, x64: true, Corvus.Native.Calls.ApiOs.Linux, 4);
+        Assert.Equal("DWARF prototype", plan.Source);
+        Assert.Equal("SystemNative_FStat(fd=-1, output=0x7FFC0000) -> 0", LiveWatchPlans.Describe(plan, ["0xffffffffffffffff", "0x7ffc0000"], "0x0"));
+    }
+
+    [Fact]
     public async Task Processes_lists_local_programs_by_a_name_filter()
     {
         var self = System.Diagnostics.Process.GetCurrentProcess();

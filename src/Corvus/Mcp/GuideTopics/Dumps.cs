@@ -26,7 +26,7 @@ public static partial class Guide
         program (--allow-live-attach), or spawns one suspended (--allow-live-spawn), both limited to --live-allow paths when set, and matches its modules to loaded images; live_break sets stop
         points by name, module!export, address or file:line, continue resumes held threads (and starts a spawned program), and
         wait returns the next stop with a named stack; live_read reads a held thread's registers and memory as typed values;
-        live_watch records every call of a function with its arguments decoded (PDB prototype or known API) as call events;
+        live_watch records every call of a function with its arguments decoded (PDB or DWARF prototype, or known API) as call events;
         live_coverage counts which functions ran, drawn on the static call graph, and diffs two runs;
         live_timeline traces the files, registry keys, endpoints and child processes the program opens (event tracing, Windows);
         live_console (--allow-live-spawn) runs a program under a console with a script of send, wait, resize and delay steps, transcript paged;

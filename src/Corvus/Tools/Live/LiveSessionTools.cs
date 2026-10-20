@@ -65,7 +65,7 @@ public sealed partial class LiveSessionTools(ServerOptions options, LiveSessionS
         [property: Description("As given: a name, module!export or address.")] string Where,
         string Address, string? Name,
         string Prototype,
-        [property: Description("known API table, PDB prototype, DWARF parameter names or raw values.")] string Decoding,
+        [property: Description("known API table, PDB prototype, DWARF prototype, DWARF parameter names or raw values.")] string Decoding,
         int RateLimit, long Calls,
         [property: Description("Calls over the rate limit, not recorded.")] long Skipped,
         double? CallsPerSecond)
@@ -277,7 +277,7 @@ public sealed partial class LiveSessionTools(ServerOptions options, LiveSessionS
     }
 
     [McpServerTool(Name = "live_watch", Title = "Record calls in a session", UseStructuredContent = true, OutputSchemaType = typeof(LiveWatchReport))]
-    [Description("Record every call of a function with arguments and return value, decoded by PDB prototype or known API (flags by name), as events (live_events from=<watch>).")]
+    [Description("Record every call of a function with arguments and return value, decoded by PDB or DWARF prototype or known API (flags by name), as events (live_events from=<watch>).")]
     public Task<string> LiveWatchCalls(
         [Description(SessionDescription)] string session,
         [Description("list, set or clear.")] string action = "list",

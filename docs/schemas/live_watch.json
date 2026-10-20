@@ -26,7 +26,7 @@
             "type": "string"
           },
           "decoding": {
-            "description": "known API table, PDB prototype, DWARF parameter names or raw values.",
+            "description": "known API table, PDB prototype, DWARF prototype, DWARF parameter names or raw values.",
             "type": "string"
           },
           "rateLimit": {
