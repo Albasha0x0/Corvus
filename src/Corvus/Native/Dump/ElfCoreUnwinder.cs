@@ -94,14 +94,15 @@ public sealed class ElfCoreUnwinder(IProcessMemory memory, ElfCoreArch arch, Fun
 
     /// <summary>
     /// The first stack slot above the stack pointer holding a return address (an address in a module right after a call)
-    /// whose own frame unwinds by CFI to another return address; failing that, the first return address. Other registers
-    /// stay as they are (the scanned code is taken to keep the callee-saved ones).
+    /// whose call can lead to the generated code and whose own frame unwinds by CFI to another return address; failing
+    /// that, the first such return address, then the same ranking without the call check. Other registers stay as they
+    /// are (the scanned code is taken to keep the callee-saved ones).
     /// </summary>
     private ElfCoreRegisters? Scan(ElfCoreRegisters regs)
     {
         ulong ptr = (ulong)arch.PointerSize;
         ulong at = (regs.Sp + ptr - 1) & ~(ptr - 1);
-        ElfCoreRegisters? first = null;
+        ElfCoreRegisters? first = null, firstUnwinding = null, firstCalling = null;
         for (int slot = 0; slot < MaxScanSlots; slot++, at += ptr)
         {
             if (!ReadWord(at, out ulong value)) break;
@@ -111,11 +112,49 @@ public sealed class ElfCoreUnwinder(IProcessMemory memory, ElfCoreArch arch, Fun
             next.Sp = at + ptr;
             first ??= next;
             // a stale return address left below the live frames rarely unwinds any further
-            if (image.Row(value - 1, out _) is { } row && ApplyCfi(next, row).Next is { } caller
-                && caller.Sp > next.Sp && IsReturnAddress(caller.Pc, out _))
-                return next;
+            bool unwinds = image.Row(value - 1, out _) is { } row && ApplyCfi(next, row).Next is { } caller
+                && caller.Sp > next.Sp && IsReturnAddress(caller.Pc, out _);
+            // registers an interceptor saved on the stack hold stale return addresses too; their direct calls name other code
+            if (!CallMayReachGeneratedCode(value))
+            {
+                if (unwinds) firstUnwinding ??= next;
+                continue;
+            }
+            if (unwinds) return next;
+            firstCalling ??= next;
         }
-        return first;
+        return firstCalling ?? firstUnwinding ?? first;
+    }
+
+    /// <summary>
+    /// False when the call before <paramref name="returnAddress"/> is a direct call whose target, followed through an
+    /// optional endbr and up to three jumps (a PLT entry, an interceptor's patch), stays in module code: such a call cannot
+    /// have entered code outside every module. True for indirect calls and code that cannot be read.
+    /// </summary>
+    private bool CallMayReachGeneratedCode(ulong returnAddress)
+    {
+        Span<byte> b = stackalloc byte[16];
+        if (ReadCode(returnAddress - 5, b[..5]) < 5 || b[0] != 0xE8) return true;
+        ulong target = returnAddress + (ulong)(long)BinaryPrimitives.ReadInt32LittleEndian(b[1..5]);
+        if (!arch.Is64) target &= 0xFFFFFFFF;
+        for (int hop = 0; hop <= 3; hop++)
+        {
+            if (memory.ModuleAt(target) == null) return memory.RegionAt(target) is not { } r || r.IsExecutable;
+            if (ReadCode(target, b) < b.Length) return true;
+            int i = b[0] == 0xF3 && b[1] == 0x0F && b[2] == 0x1E && b[3] is 0xFA or 0xFB ? 4 : 0;
+            if (b[i] == 0xF2) i++; // bnd
+            if (b[i] == 0xE9) target += (ulong)i + 5 + (ulong)(long)BinaryPrimitives.ReadInt32LittleEndian(b[(i + 1)..]);
+            else if (b[i] == 0xEB) target += (ulong)i + 2 + (ulong)(long)(sbyte)b[i + 1];
+            else if (b[i] == 0xFF && b[i + 1] == 0x25)
+            {
+                ulong end = target + (ulong)i + 6;
+                ulong disp = (ulong)(long)BinaryPrimitives.ReadInt32LittleEndian(b[(i + 2)..]);
+                if (!ReadWord(arch.Is64 ? end + disp : disp & 0xFFFFFFFF, out target)) return true;
+            }
+            else return false;
+            if (!arch.Is64) target &= 0xFFFFFFFF;
+        }
+        return true;
     }
 
     private bool IsReturnAddress(ulong value, [System.Diagnostics.CodeAnalysis.NotNullWhen(true)] out ElfCoreImage? image)
@@ -123,6 +162,13 @@ public sealed class ElfCoreUnwinder(IProcessMemory memory, ElfCoreArch arch, Fun
         Span<byte> before = stackalloc byte[8];
         image = value < 0x10000 ? null : imageAt(value - 1);
         return image != null && image.Read(value - 8, before) == 8 && StackWalker.FollowsCall(before);
+    }
+
+    /// <summary>Code bytes: the core's memory (where an interceptor patched them), else the module image.</summary>
+    private int ReadCode(ulong address, Span<byte> destination)
+    {
+        int n = memory.ReadMemory(address, destination);
+        return n == destination.Length ? n : imageAt(address)?.Read(address, destination) ?? n;
     }
 
     private string ChainName => arch.Arch == NativeArch.PowerPc ? "back chain" : "frame pointer";

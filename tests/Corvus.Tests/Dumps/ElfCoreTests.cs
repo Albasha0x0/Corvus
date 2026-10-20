@@ -441,6 +441,33 @@ public sealed class ElfCoreTests
     }
 
     [Fact]
+    public void A_scan_from_generated_code_skips_return_addresses_whose_direct_call_stays_in_module_code()
+    {
+        const ulong Code = 0x7E00_0000_0000;
+        var p = SyntheticCore.Points(arm64: false);
+        var module = SyntheticCore.Module(arm64: false);
+        // B calls A, whose entry an interceptor patched (endbr64; jmp [rip]) to the generated code
+        BitConverter.GetBytes((int)SyntheticCore.A - (int)p.IntoB).CopyTo(module, (int)SyntheticCore.B + 6);
+        new byte[] { 0xF3, 0x0F, 0x1E, 0xFA, 0xFF, 0x25, 0, 0, 0, 0 }.CopyTo(module, (int)SyntheticCore.A);
+        BitConverter.GetBytes(Code + 0x40).CopyTo(module, (int)SyntheticCore.A + 10);
+        // a call in C to C's own code: its return address unwinds by C's CFI, as a saved register's stale value can
+        new byte[] { 0xE8, 0, 0, 0, 0 }.CopyTo(module, (int)SyntheticCore.C + 0xB);
+        var stack = new byte[0x100];
+        BitConverter.GetBytes(0x1234UL).CopyTo(stack, 0);
+        BitConverter.GetBytes(SyntheticCore.Base + SyntheticCore.C + 0x10).CopyTo(stack, 8);
+        BitConverter.GetBytes(SyntheticCore.Base + p.IntoM).CopyTo(stack, 24);
+        BitConverter.GetBytes(SyntheticCore.Base + p.IntoB).CopyTo(stack, 32);
+        BitConverter.GetBytes(SyntheticCore.Base + p.IntoM).CopyTo(stack, 64);
+        var memory = new HeldThreadMemory(module, stack, Code);
+        var image = ElfCoreImage.FromMemory(memory, memory.Modules[0], "");
+        var regs = new ElfCoreRegisters(ElfCoreArch.X64) { Pc = Code + 0x80, Sp = SyntheticCore.Stack };
+        var walk = new ElfCoreUnwinder(memory, ElfCoreArch.X64, a => memory.ModuleAt(a) != null ? image : null)
+            .Walk(regs, SyntheticCore.Stack, SyntheticCore.Stack + (ulong)stack.Length, 8);
+        Assert.Equal((SyntheticCore.Base + p.IntoB, SyntheticCore.Stack + 40, FrameMethod.Scan), (walk.Frames[1].Ip, walk.Frames[1].Sp, walk.Frames[1].Method));
+        Assert.Equal(SyntheticCore.Base + p.IntoM, walk.Frames[2].Ip);
+    }
+
+    [Fact]
     public void Fuzzed_cfi_never_throws()
     {
         var module = SyntheticCore.Module(arm64: true);
