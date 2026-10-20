@@ -57,8 +57,8 @@ internal sealed class DotnetTarget
         return runtimes.Contains($"Microsoft.NETCore.App {Major}.", StringComparison.Ordinal) ? null : $"No .NET {Major} runtime.";
     }
 
-    /// <summary>Builds <see cref="LiveDotnetRealTests.Readers"/> in <paramref name="dir"/>; returns the program's apphost, or its single-file bundle.</summary>
-    public string Build(TempDir dir, bool singleFile = false)
+    /// <summary>Builds <see cref="LiveDotnetRealTests.Readers"/> in <paramref name="dir"/>; returns the program's apphost, or its single-file bundle (ReadyToRun on request).</summary>
+    public string Build(TempDir dir, bool singleFile = false, bool readyToRun = false)
     {
         // the folder's own (empty) build files keep a parent folder's out of the build
         File.WriteAllText(dir.File("Directory.Build.props"), "<Project />");
@@ -75,7 +75,7 @@ internal sealed class DotnetTarget
             """);
         File.WriteAllText(dir.File("Program.cs"), LiveDotnetRealTests.Readers);
         var (code, log) = singleFile
-            ? Tools.Dotnet(dir.Path, "publish", "-c", "Release", "-r", RuntimeIdentifier ?? Name, "--self-contained", "false", "-p:PublishSingleFile=true", "-o", "out", "-nologo")
+            ? Tools.Dotnet(dir.Path, "publish", "-c", "Release", "-r", RuntimeIdentifier ?? Name, "--self-contained", "false", "-p:PublishSingleFile=true", $"-p:PublishReadyToRun={readyToRun}", "-o", "out", "-nologo")
             : Tools.Dotnet(dir.Path, "build", "-c", "Release", "-o", "out", "-nologo");
         var exe = dir.File(Path.Combine("out", Windows ? "readers.exe" : "readers"));
         Assert.True(code == 0 && File.Exists(exe), log);
@@ -174,6 +174,7 @@ public sealed class LiveDotnetRealTests(ITestOutputHelper output) : LiveToolCall
         """;
 
     private const string InputName = "readers-input.txt";
+
 
     [DotnetTargetFact("win-x64")] public Task Dotnet_program_on_win_x64() => ReadersProgram(DotnetTarget.WinX64);
     [DotnetTargetFact("win-x86")] public Task Dotnet_program_on_win_x86() => ReadersProgram(DotnetTarget.WinX86);
@@ -284,6 +285,36 @@ public sealed class LiveDotnetRealTests(ITestOutputHelper output) : LiveToolCall
         Assert.Contains("is compiled", await Ok(server, "live_break", new() { ["session"] = "live-1", ["action"] = "set", ["at"] = "readers.dll!Readers::ReadOnce" }));
         var stop = await Ok(server, "live_break", new() { ["session"] = "live-1", ["action"] = "continue", ["wait"] = true, ["waitSeconds"] = 60 });
         Assert.Matches(@"stopped at s1 \(readers\.dll!Readers\.ReadOnce\(System\.String\)\)\r?\n  #0 0x[0-9A-F]+ readers\.dll!Readers\.ReadOnce\(System\.String\)\r?\n", stop);
+        Assert.Contains("closed", await Ok(server, "live_session", new() { ["action"] = "close", ["session"] = "live-1" }));
+    }
+
+    /// <summary>
+    /// A stop at ReadyToRun code of an assembly the runtime maps from a single-file bundle: a mapped file view, not an
+    /// image, which the backend's hooks cannot write. It stops twice, is cleared, then a watch there records calls, and the method still runs.
+    /// </summary>
+    [DotnetTargetFact("win-x64")]
+    public async Task Stop_point_in_a_mapped_code_view_on_win_x64()
+    {
+        var exe = DotnetTarget.WinX64.Build(_dir, singleFile: true, readyToRun: true);
+        var input = _dir.File(InputName);
+        File.WriteAllText(input, "x");
+        await using var server = await Server();
+        await Spawn(server, exe, "live-1", input, "1", "100000", "20");
+        await Ok(server, "live_break", new() { ["session"] = "live-1", ["action"] = "set", ["at"] = "readers.dll!Readers::ReadOnce" });
+        for (int round = 0; round < 2; round++)
+            Assert.Matches(@"stopped at s1 \(readers\.dll!Readers\.ReadOnce\(System\.String\)\)",
+                await Ok(server, "live_break", new() { ["session"] = "live-1", ["action"] = "continue", ["wait"] = true, ["waitSeconds"] = 60 }));
+        Assert.Contains("cleared", await Ok(server, "live_break", new() { ["session"] = "live-1", ["action"] = "clear", ["stopPoint"] = "s1" }));
+        await Ok(server, "live_watch", new() { ["session"] = "live-1", ["action"] = "set", ["at"] = "readers.dll!Readers::ReadOnce" });
+        await Ok(server, "live_break", new() { ["session"] = "live-1", ["action"] = "continue" });
+        string calls = "";
+        for (int i = 0; i < 50 && !calls.Contains(" call ", StringComparison.Ordinal); i++)
+        {
+            await Task.Delay(100);
+            calls = await Events(server, "live-1", from: "w1", log: false);
+        }
+        Assert.Contains(" call ", calls);
+        Assert.Contains("running", await Ok(server, "live_session", new() { ["action"] = "status", ["session"] = "live-1" }));
         Assert.Contains("closed", await Ok(server, "live_session", new() { ["action"] = "close", ["session"] = "live-1" }));
     }
 

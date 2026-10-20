@@ -1,6 +1,6 @@
 // Session script loaded into the observed program: stop points hold the hitting thread until the worker posts its
-// resume token; watched calls are recorded; module, thread and exception events are forwarded. Observation only: no
-// writes to the program.
+// resume token; watched calls are recorded; module, thread and exception events are forwarded. Observation only: the
+// program's code is written only where a stop point or watch is set.
 const points = {};
 const hits = {};
 let observing = false; // the observers first replay what is already there; open's info() reports that instead
@@ -36,16 +36,22 @@ function stackFrom(sp) {
   }
 }
 
-// A bare point (a coverage count) sends only where it stopped: no stack, no registers.
-function stopsIn(id, context, bare) {
+// A bare point (a coverage count) sends only where it stopped: no stack, no registers. at is the point's address when the
+// hook runs elsewhere (a detour's stub, see hookAt), where the registers are the same.
+function stopsIn(id, context, at, bare) {
   const tid = Process.getCurrentThreadId();
   hits[id] = (hits[id] || 0) + 1;
+  const pc = (at || context.pc).toString();
   expect('resume-' + tid);
-  if (bare) send({ type: 'stop', point: id, tid, hits: hits[id], registers: {}, frames: [context.pc.toString()] });
+  if (bare) send({ type: 'stop', point: id, tid, hits: hits[id], registers: {}, frames: [pc] });
   else {
-    const frames = [context.pc.toString()].concat(
-      Thread.backtrace(context, BACKTRACER).slice(0, 31).map(p => p.toString()));
-    send({ type: 'stop', point: id, tid, hits: hits[id], registers: JSON.parse(JSON.stringify(context)), frames }, stackFrom(context.sp));
+    const registers = JSON.parse(JSON.stringify(context));
+    if (at) {
+      registers.pc = pc;
+      registers[Process.arch === 'x64' ? 'rip' : 'eip'] = pc;
+    }
+    const frames = [pc].concat(Thread.backtrace(context, BACKTRACER).slice(0, 31).map(p => p.toString()));
+    send({ type: 'stop', point: id, tid, hits: hits[id], registers, frames }, stackFrom(context.sp));
   }
   waitFor('resume-' + tid);
 }
@@ -249,9 +255,83 @@ function flush(w) {
 
 setInterval(flushAll, FLUSH_MS);
 
+// Code in a mapped file view (not an image) cannot be made PAGE_EXECUTE_READWRITE, which Gum's hooks write through, and
+// Gum ends the process when that fails. There the hook goes on a stub near the code (the instructions a jump replaces,
+// copied, then a jump back) and a jump to the stub is written copy-on-write; detaching restores the original bytes.
+const MEM_MAPPED = 0x40000, PAGE_EXECUTE_WRITECOPY = 0x80, JMP_BYTES = 5, STUB_BYTES = 128, NEAR = 0x7FFF0000;
+let winApi = null;
+const stubPages = []; // { base, used }: stubs are carved from pages within a rel32 jump of their code
+
+function stubNear(p) {
+  let page = stubPages.find(s => s.used + STUB_BYTES <= Process.pageSize
+    && (s.base.compare(p) >= 0 ? s.base.sub(p) : p.sub(s.base)).compare(ptr(NEAR - Process.pageSize)) < 0);
+  if (!page) {
+    page = { base: Memory.alloc(Process.pageSize, { near: p, maxDistance: NEAR }), used: 0 };
+    Memory.protect(page.base, Process.pageSize, 'rwx');
+    stubPages.push(page);
+  }
+  const stub = page.base.add(page.used);
+  page.used += STUB_BYTES;
+  return stub;
+}
+
+function win() {
+  if (winApi !== null) return winApi;
+  const k = Process.getModuleByName('kernel32.dll');
+  winApi = {
+    query: new NativeFunction(k.getExportByName('VirtualQuery'), 'size_t', ['pointer', 'pointer', 'size_t']),
+    protect: new NativeFunction(k.getExportByName('VirtualProtect'), 'int', ['pointer', 'size_t', 'uint32', 'pointer']),
+    flush: new NativeFunction(k.getExportByName('FlushInstructionCache'), 'int', ['pointer', 'pointer', 'size_t']),
+    process: new NativeFunction(k.getExportByName('GetCurrentProcess'), 'pointer', []),
+  };
+  return winApi;
+}
+
+function inMappedView(p) {
+  if (Process.platform !== 'windows') return false;
+  const info = Memory.alloc(48);
+  if (win().query(p, info, 48).toNumber() === 0) return false;
+  return info.add(Process.pointerSize === 8 ? 40 : 24).readU32() === MEM_MAPPED;
+}
+
+function writeCode(p, bytes) {
+  const old = Memory.alloc(4);
+  if (!win().protect(p, bytes.length, PAGE_EXECUTE_WRITECOPY, old)) throw new Error('the code at ' + p + ' cannot be made writable');
+  p.writeByteArray(bytes);
+  win().protect(p, bytes.length, old.readU32(), Memory.alloc(4));
+  win().flush(win().process(), p, bytes.length);
+}
+
+// Where to hook p, and how to undo it: p itself, or for code in a mapped view the stub its detour jumps to.
+function hookAt(p) {
+  if (!inMappedView(p)) return { at: p, undo() {} };
+  if (Process.arch !== 'x64' && Process.arch !== 'ia32') throw new Error('code in a mapped file view is hooked on x86 and x64 only');
+  const stub = stubNear(p);
+  const w = new X86Writer(stub, { pc: stub });
+  w.putNopPadding(16); // room for Gum's own hook on the stub
+  const r = new X86Relocator(p, w);
+  let length = 0;
+  while (length < JMP_BYTES) {
+    const n = r.readOne();
+    if (n === 0 || (n < JMP_BYTES && r.eob)) throw new Error('the code at ' + p + ' is too short for a detour');
+    length = n;
+  }
+  r.writeAll();
+  w.putJmpAddress(p.add(length));
+  w.flush();
+  const original = p.readByteArray(length);
+  const jump = new Uint8Array(length).fill(0x90);
+  jump[0] = 0xE9;
+  new DataView(jump.buffer).setInt32(1, stub.sub(p.add(JMP_BYTES)).toInt32(), true);
+  writeCode(p, Array.from(jump));
+  return { at: stub, undo() { writeCode(p, Array.from(new Uint8Array(original))); } };
+}
+
 function watch(id, address, args, perSecond) {
   const w = { id, rows: [], skipped: 0, tokens: perSecond, last: Date.now() };
-  w.listener = Interceptor.attach(ptr(address), {
+  const hook = hookAt(ptr(address));
+  w.undo = hook.undo;
+  w.listener = Interceptor.attach(hook.at, {
     onEnter(a) {
       const now = Date.now();
       w.tokens = Math.min(perSecond, w.tokens + (now - w.last) * perSecond / 1000);
@@ -295,8 +375,10 @@ rpc.exports = {
       modules: loadedModules() };
   },
   set(id, address, bare) {
+    const p = ptr(address), hook = hookAt(p), elsewhere = hook.at.equals(p) ? null : p;
     // a probe: the onEnter form takes the stack top for a return address, which past a function's start is a saved register
-    points[id] = Interceptor.attach(ptr(address), function () { stopsIn(id, this.context, bare === true); });
+    const listener = Interceptor.attach(hook.at, function () { stopsIn(id, this.context, elsewhere, bare === true); });
+    points[id] = { detach() { hook.undo(); listener.detach(); } };
     return true;
   },
   clear(id) {
@@ -319,6 +401,7 @@ rpc.exports = {
   unwatch(id) {
     const w = watches[id];
     if (!w) return false;
+    w.undo();
     w.listener.detach();
     flush(w);
     delete watches[id];
