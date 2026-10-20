@@ -406,6 +406,16 @@ public sealed class LiveSessionTests : IDisposable
     }
 
     [Fact]
+    public async Task The_exit_status_event_gives_the_exit_code_where_no_process_handle_does()
+    {
+        await _tools.LiveSession("attach", program: "4242");
+        _backend.Worker!.Emit(new JsonObject { ["event"] = "exit_status", ["tid"] = 77, ["code"] = 259 });
+        _backend.Worker!.Emit(new JsonObject { ["event"] = "exit", ["reason"] = "process-terminated" });
+        for (int i = 0; i < 100 && _service.Get("live-1").State != "exited"; i++) await Task.Delay(50);
+        Assert.Contains("exited: process-terminated, exit code 3", await _tools.LiveEvents("live-1", kind: "exit"));
+    }
+
+    [Fact]
     public async Task A_crash_whose_exception_event_was_lost_is_recorded_from_the_exit_code()
     {
         if (!OperatingSystem.IsWindows()) return;

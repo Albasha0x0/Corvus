@@ -59,6 +59,21 @@ Process.setExceptionHandler(d => {
   return false; // the program's own handlers decide
 });
 
+// The exit status, which the detach reason does not carry outside Windows: exit() and a return from main end in _exit.
+// The thread waits for the worker to receive it, as for a fatal exception.
+if (Process.platform !== 'windows') {
+  const _exit = typeof Module.findGlobalExportByName === 'function' ? Module.findGlobalExportByName('_exit') : Module.findExportByName(null, '_exit');
+  if (_exit !== null) {
+    Interceptor.attach(_exit, {
+      onEnter(a) {
+        const tid = Process.getCurrentThreadId();
+        send({ type: 'exit_status', tid, code: a[0].toInt32(), ack: true });
+        recv('exit-' + tid, () => {}).wait();
+      },
+    });
+  }
+}
+
 // Watched functions: each call's arguments (strings read while the call runs) and return value, sent in batches;
 // calls over a watch's rate limit are counted, not recorded, so the program keeps its speed.
 const watches = {};

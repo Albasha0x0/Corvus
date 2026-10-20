@@ -3,10 +3,11 @@
 Ops: hello; open {attach | spawn, arguments, cwd, temp, tmp}; info; set {id, address}; clear {id}; watch {id, address, args,
 perSecond}; unwatch {id}; defer_module {name}; undefer_module {name}; release_load {thread}; load_script {id, source};
 unload_script {id}; read {address, length}; resume {thread}; close.
-Events: ready, stop, calls, module, thread, exception, output, exit, script_error, user_script.
+Events: ready, stop, calls, module, thread, exception, exit_status, output, exit, script_error, user_script.
 A program started here stays suspended until the first resume; close resumes every held thread, and ends the
 program only when this worker started it. A module named by defer_module holds its loading thread (module event with
-held) until release_load; a fatal exception event holds its thread until the worker has read it.
+held) until release_load; a fatal exception event, and exit_status {code} (outside Windows), hold their thread until the
+worker has read them.
 """
 import json
 import sys
@@ -63,11 +64,11 @@ class Session:
         elif kind == "module" and payload.get("held"):
             with self.lock:
                 self.loading.add(payload.get("tid"))
-        ack = kind == "exception" and payload.pop("ack", False)
+        ack = kind in ("exception", "exit_status") and payload.pop("ack", False)
         payload["event"] = kind
         emit(payload)
         if ack and self.script is not None:
-            self.script.post({"type": "exception-%d" % payload.get("tid")})
+            self.script.post({"type": "%s-%d" % ("exception" if kind == "exception" else "exit", payload.get("tid"))})
 
     def on_output(self, pid, fd, data):
         if pid == self.pid and data:

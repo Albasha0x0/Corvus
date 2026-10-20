@@ -477,6 +477,9 @@ public sealed partial class LiveSessionService(AssemblyWorkspace workspace, Nati
                     $"{body.GetProperty("kind").GetString()}" + (body.TryGetProperty("memory", out var mem) && mem.ValueKind == JsonValueKind.Object
                         ? $" ({mem.GetProperty("operation").GetString()} of 0x{Hex(mem.GetProperty("address").GetString()):X})" : ""));
                 break;
+            case "exit_status":
+                session.ExitCode = (uint)(body.GetProperty("code").GetInt32() & 0xFF); // the low 8 bits, as waitpid reports them
+                break;
             case "output":
                 session.Add("output", null, null, $"{body.GetProperty("stream").GetString()}: {body.GetProperty("text").GetString()}");
                 break;
@@ -582,17 +585,21 @@ public sealed partial class LiveSessionService(AssemblyWorkspace workspace, Nati
         catch (ObjectDisposedException) { } // closed meanwhile
     }
 
-    /// <summary>", exit code N" from the program's handle once it has ended (crash codes named); empty when it cannot be read.</summary>
     private const uint StatusControlCExit = 0xC000_013A;
 
+    /// <summary>
+    /// ", exit code N" from the program's handle once it has ended (crash codes named), else from the worker's exit_status
+    /// event; empty when neither gives one.
+    /// </summary>
     private static string ExitText(LiveSession session)
     {
-        if (session.ProcessHandle is not { IsInvalid: false } h) return "";
         // the exit event can come just before the process object is signaled
         const uint WaitObject0 = 0;
-        if (Native.Live.LiveNative.WaitForSingleObject(h, (uint)ExitCodeWait.TotalMilliseconds) != WaitObject0
-            || !Native.Live.LiveNative.GetExitCodeProcess(h, out var code)) return "";
-        session.ExitCode = code;
+        if (session.ProcessHandle is { IsInvalid: false } h
+            && Native.Live.LiveNative.WaitForSingleObject(h, (uint)ExitCodeWait.TotalMilliseconds) == WaitObject0
+            && Native.Live.LiveNative.GetExitCodeProcess(h, out var status))
+            session.ExitCode = status;
+        if (session.ExitCode is not { } code) return "";
         return code < 0x10000 ? $", exit code {code}"
             : $", exit code 0x{code:X8}{(Native.Dump.ExceptionCodes.Name(code) is { } n ? $" ({n})" : "")}";
     }
