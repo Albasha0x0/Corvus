@@ -194,8 +194,8 @@ public sealed class LiveFridaRealTests(ITestOutputHelper output) : IDisposable
         output.WriteLine($"20,000 watched calls ran in {sw.ElapsedMilliseconds} ms");
         await Task.Delay(300); // the last batch
         var (list, _) = await Call(server, "live_watch", new() { ["session"] = "live-1" });
-        Assert.Contains("w1 orders.exe!AddLine: 20,000 call(s) recorded", list);
-        var rate = double.Parse(Regex.Match(list, @"w1 [^:]+: [\d,]+ call\(s\) recorded \(([\d,]+)/s\)").Groups[1].Value.Replace(",", ""));
+        Assert.Contains("w1 orders.exe!AddLine: int AddLine(Order * o, int qty) (PDB prototype), 20,000 call(s) recorded", list);
+        var rate = double.Parse(Regex.Match(list, @"w1 .*? [\d,]+ call\(s\) recorded \(([\d,]+)/s\)").Groups[1].Value.Replace(",", ""));
         output.WriteLine($"recorded {rate:N0} calls/s (target 5,000)");
         Assert.True(rate >= 5_000, $"{rate} calls/s");
 
@@ -213,7 +213,7 @@ public sealed class LiveFridaRealTests(ITestOutputHelper output) : IDisposable
         await UntilExited(server, "live-2");
         await Task.Delay(300);
         var (limited, _) = await Call(server, "live_watch", new() { ["session"] = "live-2" });
-        var lm = Regex.Match(limited, @"w1 [^:]+: ([\d,]+) call\(s\) recorded.*, ([\d,]+) over the rate limit");
+        var lm = Regex.Match(limited, @"w1 .*? ([\d,]+) call\(s\) recorded.*, ([\d,]+) over the rate limit");
         Assert.True(lm.Success, limited);
         Assert.Equal(20_000, long.Parse(lm.Groups[1].Value.Replace(",", "")) + long.Parse(lm.Groups[2].Value.Replace(",", "")));
     }

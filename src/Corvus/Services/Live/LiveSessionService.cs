@@ -912,9 +912,10 @@ public sealed partial class LiveSessionService(AssemblyWorkspace workspace, Nati
         {
             try
             {
-                var at = d.Watch ? (await WatchAsync(session, d.Where, d.PerSecond, d.RawArguments, CancellationToken.None, d.Id).ConfigureAwait(false)).At
-                    : (await SetAsync(session, d.Where, CancellationToken.None, d.Id).ConfigureAwait(false)).At;
-                session.Add("module", null, at.Address, $"deferred {(d.Watch ? "watch" : "stop point")} {d.Id} set at {at.Display} ({module.Name} loaded)");
+                var (at, plan) = d.Watch
+                    ? await WatchAsync(session, d.Where, d.PerSecond, d.RawArguments, CancellationToken.None, d.Id).ConfigureAwait(false) is var w ? (w.At, $": {w.Plan.Prototype} ({w.Plan.Source})") : default
+                    : ((await SetAsync(session, d.Where, CancellationToken.None, d.Id).ConfigureAwait(false)).At, "");
+                session.Add("module", null, at.Address, $"deferred {(d.Watch ? "watch" : "stop point")} {d.Id} set at {at.Display}{plan} ({module.Name} loaded)");
             }
             catch (Exception e) when (e is ToolError or TimeoutException or OperationCanceledException)
             {

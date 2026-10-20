@@ -181,7 +181,9 @@ public sealed class LiveStopPointRealTests(ITestOutputHelper output) : LiveToolC
         Assert.Matches(@"exit code 0(?![0-9xX])", await UntilExited(server, "live-1"));
         await Task.Delay(500); // the last batch
         var list = await Ok(server, "live_watch", new() { ["session"] = "live-1" });
-        Assert.Contains($"w1 {target.Library("plugin")}!PluginOther: {calls} call(s) recorded", list);
+        Assert.Contains($"w1 {target.Library("plugin")}!PluginOther: PluginOther(a0, a1) (raw values), {calls} call(s) recorded", list);
+        // the decoding is known once the library loads: the module event names it
+        Assert.Contains($"deferred watch w1 set at {target.Library("plugin")}!PluginOther: PluginOther(a0, a1) (raw values) (", await Events(server, "live-1", kind: "module"));
 
         var events = await Events(server, "live-1", from: "w1");
         var rows = Regex.Matches(events, @"PluginOther\(a0=0x([0-9A-F]+), a1=0x[0-9A-F]+\) -> 0x([0-9A-F]+)\r?\n");
