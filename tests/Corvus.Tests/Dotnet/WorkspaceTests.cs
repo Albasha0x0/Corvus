@@ -139,4 +139,17 @@ public class WorkspaceTests
         Assert.Throws<ArgumentException>(() => ServerOptions.Parse(["--bogus"]));
         Assert.Throws<ArgumentException>(() => ServerOptions.Parse(["--load"]));
     }
+
+    [Fact]
+    public void AttachSpawnAndScripting_EachTurnOnTheSessionTools()
+    {
+        Assert.False(new ServerOptions().AllowLive);
+        Assert.True(new ServerOptions { AllowLiveAttach = true }.AllowLive);
+        Assert.True(new ServerOptions { AllowLiveSpawn = true }.AllowLive);
+        Assert.True(new ServerOptions { LiveScripting = true }.AllowLive);
+        var o = ServerOptions.Parse(["--allow-live-attach"]);
+        Assert.True(o.AllowLive);
+        Assert.True(o.AllowLiveAttach);
+        Assert.False(o.AllowLiveSpawn);
+    }
 }

@@ -24,7 +24,7 @@ public static partial class ToolEffects
         ["revert_edits"] = Changes(destructive: true, idempotent: true),
         ["export_edits"] = Changes(destructive: true, idempotent: true), // overwrite=true replaces the file at path
         ["apply_edits"] = Changes(destructive: true, idempotent: false, longRunning: true),
-        ["save_assembly"] = Changes(destructive: true, idempotent: true), // overwrite=true replaces a file, replaceOriginal=true the original (its .bak is made once)
+        ["save_assembly"] = Changes(destructive: true, idempotent: true), // overwrite=true replaces a file, replaceOriginal=true the original behind --allow-replace-original (its .bak is made once)
     };
 }
 

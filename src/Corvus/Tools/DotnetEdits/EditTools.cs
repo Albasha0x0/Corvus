@@ -16,7 +16,7 @@ namespace Corvus.Tools;
 /// </summary>
 [McpServerToolType]
 public sealed class EditTools(AssemblyWorkspace workspace, EditService edits, EditHistoryService history, DecompilerService decompiler, OutputPager pager,
-    EditJournal? journal = null, ResultStore? results = null)
+    EditJournal? journal = null, ResultStore? results = null, ServerOptions? options = null)
 {
     [McpServerTool(Name = "rename_symbol", Title = "Rename symbol", UseStructuredContent = true, OutputSchemaType = typeof(EditResult))]
     [Description("Rename a type, method, field, property (and accessors) or event in memory; other assemblies keep the old name.")]
@@ -262,10 +262,11 @@ public sealed class EditTools(AssemblyWorkspace workspace, EditService edits, Ed
         [Description("Output path (.wasm writes Webcil for Blazor); default '<original>.patched.dll'.")] string? outputPath = null,
         [Description("Replace an existing file, not the original.")] bool overwrite = false,
         [Description("Write nothing if the writer would change any member (default: save and list them).")] bool strict = false,
-        [Description("Replace the loaded file itself.")] bool replaceOriginal = false,
+        [Description("Replace the loaded file itself (needs --allow-replace-original).")] bool replaceOriginal = false,
         [Description("Write '<name>.N.dll', the first free N.")] bool versioned = false,
         CancellationToken cancellationToken = default) => Read(workspace, () =>
     {
+        SaveTarget.RequireReplaceAllowed(replaceOriginal, options);
         var asm = workspace.Get(assembly);
         var report = edits.Save(asm, outputPath, overwrite, strict, out var saved, replaceOriginal, versioned);
         journal?.Saved(asm);

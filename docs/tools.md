@@ -2,7 +2,7 @@
 
 <!-- Generated from the tool catalog by DocsTests; run the tests with CORVUS_UPDATE_DOCS=1 to update. -->
 
-165 tools in 14 toolsets. A server registers every tool unless it is started with `--toolsets` ([server options](installation.md#server-options)). From a terminal, `corvus describe <tool>` prints the same reference and `corvus <tool> name=value ...` calls a tool ([cli.md](cli.md)).
+165 tools in 14 toolsets. A server registers every tool unless it is started with `--toolsets` ([server options](configuration.md#server-options)). From a terminal, `corvus describe <tool>` prints the same reference and `corvus <tool> name=value ...` calls a tool ([cli.md](cli.md)).
 
 Annotations: **read-only** tools change nothing; **edit** tools change the in-memory workspace; **destructive** tools can remove or overwrite state; **long-running** tools can take more than 10 s and have no call deadline.
 
@@ -895,7 +895,7 @@ Write an assembly with its edits to a new file, atomically (replaceOriginal=true
 | `outputPath` | string |  |  | Output path (.wasm writes Webcil for Blazor); default '<original>.patched.dll'. |
 | `overwrite` | boolean |  |  | Replace an existing file, not the original. |
 | `strict` | boolean |  |  | Write nothing if the writer would change any member (default: save and list them). |
-| `replaceOriginal` | boolean |  |  | Replace the loaded file itself. |
+| `replaceOriginal` | boolean |  |  | Replace the loaded file itself (needs --allow-replace-original). |
 | `versioned` | boolean |  |  | Write '<name>.N.dll', the first free N. |
 
 Structured output: `outputPath`, `bytes`, `sha256`, `edits`, `backup`, `editList`.
@@ -1770,7 +1770,7 @@ Write the patched native image to a new file: unpatched bytes identical, PE chec
 | `outputPath` | string | yes |  | Output file path. |
 | `overwrite` | boolean |  |  | Replace an existing file, not the original. |
 | `stripSignature` | boolean |  |  | Remove the Authenticode certificate table from the output. |
-| `replaceOriginal` | boolean |  |  | Replace the loaded file itself. |
+| `replaceOriginal` | boolean |  |  | Replace the loaded file itself (needs --allow-replace-original). |
 | `versioned` | boolean |  |  | Write '<name>.N.dll', the first free N. |
 
 Structured output: `outputPath`, `bytes`, `patches`, `sha256`, `checksum`, `backup`, `verified`, `notes`, `editList`.

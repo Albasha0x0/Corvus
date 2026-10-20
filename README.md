@@ -94,7 +94,7 @@ Amazon Q, Kiro, Antigravity, Devin, Command Code, Grok Build, OMP and Pi. Any ot
 
 ## Documentation
 
-[Installation](docs/installation.md) · [Features](docs/features.md) · [Tool reference](docs/tools.md) ·
+[Installation](docs/installation.md) · [Configuration](docs/configuration.md) · [Features](docs/features.md) · [Tool reference](docs/tools.md) ·
 [Command line](docs/cli.md) · [Errors](docs/errors.md) · [Troubleshooting](docs/troubleshooting.md) ·
 [FAQ](docs/faq.md) · [Release notes](docs/release-notes.md)
 

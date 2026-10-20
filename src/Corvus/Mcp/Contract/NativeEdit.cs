@@ -17,7 +17,7 @@ public static partial class ToolEffects
         ["patch_asm"] = Changes(destructive: true, idempotent: false, longRunning: true),
         ["list_native_edits"] = Reads(longRunning: true),
         ["undo_native_edit"] = Changes(destructive: true, idempotent: false, longRunning: true),
-        ["save_native"] = Changes(destructive: true, idempotent: true, longRunning: true), // overwrite=true replaces a file, replaceOriginal=true the original (its .bak is made once)
+        ["save_native"] = Changes(destructive: true, idempotent: true, longRunning: true), // overwrite=true replaces a file, replaceOriginal=true the original behind --allow-replace-original (its .bak is made once)
         ["export_native_patches"] = Changes(destructive: true, idempotent: true), // overwrite=true replaces the file at outputPath
     };
 }

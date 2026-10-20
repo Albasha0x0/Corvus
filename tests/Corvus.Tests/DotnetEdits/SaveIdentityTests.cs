@@ -2,6 +2,7 @@ using Corvus.Core;
 using Corvus.Native;
 using Corvus.Native.Annotations;
 using Corvus.Services;
+using Corvus.Tools;
 
 namespace Corvus.Tests;
 
@@ -76,6 +77,25 @@ public class SaveIdentityTests : IDisposable
         Assert.Contains("replaceOriginal=true", error.Message);
         Assert.Equal(loaded, File.ReadAllBytes(original));
         Assert.False(File.Exists(original + ".bak"));
+    }
+
+    [Fact]
+    public async Task ReplaceOriginal_NeedsTheServerSwitch()
+    {
+        var original = CopyFixture();
+        var loaded = File.ReadAllBytes(original);
+        using var env = new Env(original);
+        Rename(env);
+        EditTools Tools(params string[] args) => new(env.Workspace, env.Edits, env.History, env.Decompiler, env.Pager, options: ServerOptions.Parse(args));
+
+        var error = await Assert.ThrowsAsync<ToolError>(() => Tools().SaveAssembly(env.Fixture.Id, original, replaceOriginal: true));
+        Assert.Equal(ErrorCode.Unsupported, error.Code);
+        Assert.Contains("--allow-replace-original", error.Remediation);
+        Assert.Equal(loaded, File.ReadAllBytes(original));
+
+        await Tools("--allow-replace-original").SaveAssembly(env.Fixture.Id, original, replaceOriginal: true);
+        Assert.Equal(loaded, File.ReadAllBytes(original + ".bak"));
+        Assert.NotEqual(loaded, File.ReadAllBytes(original));
     }
 
     [Fact]

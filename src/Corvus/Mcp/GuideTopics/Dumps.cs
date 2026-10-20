@@ -22,7 +22,7 @@ public static partial class Guide
         inspect_process does the same for a running local process (Windows), read-only: view=summary, modules, regions, threads, stacks. It
         opens only query and read handles, writes and suspends nothing, and closes every handle before returning. Pick the target
         by pid or name (a shared name is refused with the candidate pids).
-        Sessions (off unless the server runs with --allow-live; Python with Frida's bindings): live_session attaches to a local
+        Sessions (off unless the server runs with --allow-live-attach, --allow-live-spawn or --allow-live; Python with Frida's bindings): live_session attaches to a local
         program (--allow-live-attach), or spawns one suspended (--allow-live-spawn), both limited to --live-allow paths when set, and matches its modules to loaded images; live_break sets stop
         points by name, module!export, address or file:line, continue resumes held threads (and starts a spawned program), and
         wait returns the next stop with a named stack; live_read reads a held thread's registers and memory as typed values;

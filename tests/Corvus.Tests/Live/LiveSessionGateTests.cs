@@ -30,7 +30,7 @@ public class LiveSessionGateTests
         {
             var e = await Assert.ThrowsAsync<ToolError>(call);
             Assert.Equal(ErrorCode.Unsupported, e.Code);
-            Assert.Contains("--allow-live (or CORVUS_ALLOW_LIVE=1)", e.Remediation);
+            Assert.Contains("--allow-live-", e.Remediation);
         }
     }
 

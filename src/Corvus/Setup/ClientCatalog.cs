@@ -23,6 +23,32 @@ internal static class ClientCatalog
         key.StartsWith("NDM_", StringComparison.Ordinal) ? "CORVUS_" + key[4..] : key == "NETDECOMP_LOAD" ? "CORVUS_LOAD" : key;
 
     /// <summary>
+    /// Claude Code's local entry list of one folder (projects.&lt;folder&gt;.mcpServers): an existing key spelling the same
+    /// folder (case-insensitive on Windows), else the full path with forward slashes, as the CLI writes it.
+    /// </summary>
+    public static (string Key, JsonTarget Target) ProjectTarget(McpClient claudeCode, string folder, HostOs os)
+    {
+        var full = Path.GetFullPath(folder).TrimEnd('\\', '/');
+        if (full.EndsWith(':')) full += "/"; // a drive root
+        var key = os == HostOs.Windows ? full.Replace('\\', '/') : full;
+        var comparison = os == HostOs.Windows ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
+        foreach (var (existing, _) in Projects(claudeCode) ?? [])
+            if (existing.Replace('\\', '/').TrimEnd('/').Equals(key.Replace('\\', '/'), comparison)) { key = existing; break; }
+        return (key, new JsonTarget(claudeCode.Target.Path, ["projects", key, "mcpServers"], ClaudeCode));
+    }
+
+    private static JsonObject? Projects(McpClient client)
+    {
+        try
+        {
+            return File.Exists(client.Target.Path)
+                ? JsonNode.Parse(File.ReadAllText(client.Target.Path), documentOptions: new() { CommentHandling = System.Text.Json.JsonCommentHandling.Skip, AllowTrailingCommas = true })?["projects"] as JsonObject
+                : null;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Text.Json.JsonException) { return null; }
+    }
+
+    /// <summary>
     /// Migration only: the lists of <paramref name="client"/> holding an entry under the old name: its own, and for Claude
     /// Code each project's (local scope, edited in the file: the CLI keys a project by its working folder's spelling).
     /// </summary>
@@ -30,15 +56,7 @@ internal static class ClientCatalog
     {
         if (client.Target.Current(LegacyServerName) != null) yield return (null, client.Target);
         if (client.Id != "claude-code") yield break;
-        JsonObject? projects;
-        try
-        {
-            projects = File.Exists(client.Target.Path)
-                ? JsonNode.Parse(File.ReadAllText(client.Target.Path), documentOptions: new() { CommentHandling = System.Text.Json.JsonCommentHandling.Skip, AllowTrailingCommas = true })?["projects"] as JsonObject
-                : null;
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Text.Json.JsonException) { projects = null; }
-        foreach (var (project, value) in projects ?? [])
+        foreach (var (project, value) in Projects(client) ?? [])
             if (value?["mcpServers"]?[LegacyServerName] is JsonObject)
                 yield return (project, new JsonTarget(client.Target.Path, ["projects", project, "mcpServers"], ClaudeCode));
     }

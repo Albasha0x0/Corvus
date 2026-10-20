@@ -11,7 +11,7 @@ internal static class SetupCli
     /// <summary>Flags each command accepts; anything else is a usage error, so a mistyped --dry-run never writes.</summary>
     private static readonly Dictionary<string, string[]> Accepted = new()
     {
-        ["install"] = ["--no-check", "--check", "--dry-run", "--json", "--yes", "-y", "--all-detected", "--strict", "--client", "--refresh-only", "--command", "--dev-reload", "--skill", "--enable"],
+        ["install"] = ["--no-check", "--check", "--dry-run", "--json", "--yes", "-y", "--all-detected", "--strict", "--client", "--refresh-only", "--command", "--dev-reload", "--skill", "--enable", "--set", "--unset", "--project"],
         ["uninstall"] = ["--keep-files", "--purge-data", "--dry-run", "--json", "--client"],
         ["status"] = ["--json", "--client", "--engine", "--target", "--deep"],
         ["config"] = ["--client", "--dev-reload"],
@@ -77,6 +77,10 @@ internal static class SetupCli
                                                 written earlier are kept current by every install and update
                                 --enable        turn on an entry the client has turned off (its switch, disable
                                                 lists, Claude Code's per-project list); otherwise it is kept off
+                                --set S         add a security switch to every entry, e.g. --set allow-live-attach
+                                --unset S       remove it (docs/configuration.md lists the switches)
+                                --project DIR   with --set/--unset: only this folder's Claude Code entry,
+                                                made from the global one when the folder has none
           uninstall [client...] Remove the registration from every client (or the named ones). With no names it
                                 also deletes an installed copy's program files; --keep-files keeps them. Your data
                                 (annotations, caches, symbols) is kept; --purge-data deletes it as well.
@@ -103,7 +107,7 @@ internal static class SetupCli
           <tool> [name=value ...]  Call a tool, e.g. corvus decompile_member --load app.dll member=Ns.T::M
           call <tool> ...       The same. Values: name=value (typed by the parameter), name:=<json>, name=@file,
                                 name=@- (stdin); or --args '<json object>' (also --json '{...}'), --args-file F|-.
-                                --load PATH preloads (repeatable); any server option applies (docs/installation.md, "Server options").
+                                --load PATH preloads (repeatable); any server option applies (docs/configuration.md).
                                 --json          print {tool, isError, text, structured, error}
                                 --structured    print only the structured content
           tools [filter]        List the tools by toolset (--json for a table).
@@ -238,6 +242,70 @@ internal static class SetupCli
 
     private static LaunchReport Describe(ServerLaunch launch) => new(launch.Command, launch.Args);
 
+    /// <summary>
+    /// install --set/--unset --project: the switches in one folder's Claude Code local entry, made from the global entry
+    /// (or a new registration) when the folder has none. Nothing else is touched.
+    /// </summary>
+    private static int ProjectSwitches(TextWriter output, SetupEnvironment env, ServerLaunch launch, SetupArgs a, string folder, bool dryRun)
+    {
+        if (launch.Set.Count + launch.Unset.Count == 0) { output.WriteLine("--project needs --set or --unset."); return 2; }
+        if (a.Clients.Any(c => !c.Equals("claude-code", StringComparison.OrdinalIgnoreCase))) { output.WriteLine("--project applies to Claude Code only."); return 2; }
+        if (!Directory.Exists(folder)) { output.WriteLine($"--project: no folder {folder}."); return 2; }
+        var claude = ClientCatalog.All(env).Single(c => c.Id == "claude-code");
+        var (key, target) = ClientCatalog.ProjectTarget(claude, folder, env.Os);
+        var global = (claude.Target switch { ClaudeCliTarget c => c.File, JsonTarget j => j, _ => null })?.Existing(ClientCatalog.ServerName);
+        JsonObject Next(JsonObject? existing)
+        {
+            var entry = (JsonObject)(existing ?? global ?? target.Merge(null, ClientCatalog.LaunchFor(claude, launch))).DeepClone();
+            var args = entry["args"] is JsonArray list ? list.Select(n => n?.GetValue<string>() ?? "") : [];
+            entry["args"] = new JsonArray([.. launch.WithSwitches(args).Select(s => (JsonNode)JsonValue.Create(s)!)]);
+            return entry;
+        }
+        var current = target.Existing(ClientCatalog.ServerName);
+        var next = Next(current);
+        string message;
+        bool ok = true;
+        if (current != null && JsonNode.DeepEquals(current, next)) message = "unchanged";
+        else if (dryRun) message = current == null ? $"would add a local entry ({(global != null ? "copied from the global one" : "new")})" : "would update its local entry";
+        else
+        {
+            ConfigChange change;
+            try
+            {
+                change = claude.Target is ClaudeCliTarget cli
+                    ? cli.PutLocal(Path.GetFullPath(folder), ClientCatalog.ServerName, next, () => ClientCatalog.ProjectTarget(claude, folder, env.Os).Target)
+                    : target.Put(ClientCatalog.ServerName, Next);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { change = new ConfigChange(false, $"left unchanged: {ex.Message}"); }
+            ok = change.Changed || change.Message == "already registered";
+            message = !change.Changed ? change.Message : current == null ? $"added a local entry ({(global != null ? "copied from the global one" : "new")})" : "updated its local entry";
+        }
+        var entryEnv = next["env"] as JsonObject;
+        foreach (var still in launch.Unset.Select(o => Core.ServerOptions.Switches[o]).Where(v => entryEnv?[v]?.ToString().Trim() is "1" or "true" or "on"))
+            message += $"; {still} in its env still turns it on";
+        output.WriteLine($"  {(ok ? "ok " : "!! ")} Claude Code, project {key}: {message}  {SetupPlan.Short(env, target.Path)}");
+        if (dryRun) output.WriteLine("Dry run: nothing was written.");
+        else if (ok && message != "unchanged") output.WriteLine("Restart Claude Code in that folder (or reconnect corvus in /mcp) to load it.");
+        return ok ? 0 : 1;
+    }
+
+    /// <summary>The security switches an option names (with or without the leading dashes; repeatable or comma-separated), or null after reporting an unknown one.</summary>
+    private static List<string>? Switches(TextWriter output, SetupArgs a, string option)
+    {
+        var result = new List<string>();
+        foreach (var name in a.Values(option).SelectMany(v => v.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)))
+        {
+            var switchName = name.StartsWith("--", StringComparison.Ordinal) ? name : "--" + name;
+            if (!Core.ServerOptions.Switches.ContainsKey(switchName))
+            {
+                output.WriteLine($"{option}: unknown switch '{name}'; use one of {string.Join(", ", Core.ServerOptions.Switches.Keys.Select(k => k[2..]))}.");
+                return null;
+            }
+            result.Add(Core.ServerOptions.Switches.Keys.First(k => k.Equals(switchName, StringComparison.OrdinalIgnoreCase)));
+        }
+        return result;
+    }
+
     private static int Install(TextWriter output, SetupEnvironment env, ServerLaunch launch, SetupArgs a)
     {
         bool json = a.Has("--json"), dryRun = a.Has("--dry-run"), refreshOnly = a.Has("--refresh-only");
@@ -248,7 +316,9 @@ internal static class SetupCli
         // Old entries are re-staged from the program itself: their relays keep their own target folders.
         var program = launch;
         if (DevReload(output, env, launch, a, dryRun) is not { } relayed) return 2;
-        launch = relayed;
+        if (Switches(output, a, "--set") is not { } setSwitches || Switches(output, a, "--unset") is not { } unset) return 2;
+        launch = relayed with { Set = setSwitches, Unset = unset };
+        if (a.Value("--project") is { } project) return ProjectSwitches(output, env, launch, a, project, dryRun);
         var text = json ? TextWriter.Null : output;
         var all = ClientCatalog.All(env);
         if (Named(output, all, a.Clients) is not { } named) return 2;
@@ -355,6 +425,10 @@ internal static class SetupCli
                     row.Message += "; " + (enabled.Changed ? "enabled" : $"not enabled: {enabled.Message}");
                 }
             }
+            // An unset switch the entry's env still turns on stays on: say so rather than edit the env.
+            if (row.Client?.Target.Current(ClientCatalog.ServerName)?.Env is { } entryEnv)
+                foreach (var still in unset.Select(o => Core.ServerOptions.Switches[o]).Where(v => entryEnv.TryGetValue(v, out var on) && on.Trim() is "1" or "true" or "on"))
+                    row.Message += $"; {still} in its env still turns it on";
             var mark = row.Action == SetupAction.Blocked ? "!! " : row.Action == SetupAction.Skip ? "-- " : "ok ";
             text.WriteLine($"  {mark} {row.Name,-20} {row.Message,-20} {SetupPlan.Short(env, row.ConfigPath)}");
         }
@@ -640,7 +714,7 @@ internal static class SetupCli
 /// <summary>Parsed setup arguments: flags, option values (--name value or --name=value) and positional client names.</summary>
 internal sealed class SetupArgs
 {
-    private static readonly string[] ValueOptions = ["--client", "--engine", "--target", "--version", "--command", "--dev-reload"];
+    private static readonly string[] ValueOptions = ["--client", "--engine", "--target", "--version", "--command", "--dev-reload", "--set", "--unset", "--project"];
     private readonly HashSet<string> _flags = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, List<string>> _values = new(StringComparer.OrdinalIgnoreCase);
 

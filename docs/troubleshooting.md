@@ -63,6 +63,10 @@ instead of a type, a filter).
 Claude Code keeps tool results up to 50,000 characters in context unless the tool raises that limit. Every tool of
 this server declares `anthropic/maxResultSizeChars` above its largest page, so a page stays in context.
 
+## An IDA or Ghidra request stops early or opens read-only
+
+Each engine request may take `CORVUS_ENGINE_REQUEST_TIMEOUT` seconds (default 120; `decompile_native` and `resolve_call_targets` take `timeoutSeconds` per call), and an engine's start plus auto-analysis `CORVUS_ENGINE_OPEN_TIMEOUT` seconds (default 1200). A request that runs out of time or is cancelled by the client is stopped inside the worker, which keeps the database open: scans answer with what they found, marked partial with where to continue, and only a worker that does not stop within 10 s is killed (the next request restarts it from the saved database). `server_status` reports both limits. For huge or hostile inputs, `CORVUS_ENGINE_ANALYSIS=none` opens images in IDA and Ghidra without auto-analysis: functions are made where a tool asks for one, the database is kept apart from the fully analyzed one, and output headers say so. A second server process opening an image whose IDA database another process holds gets a read-only snapshot of the last saved database (edits are neither journaled nor saved; decompile headers and `server_status` say so), or, when none is saved yet, a conflict naming the owning process. Limits: [configuration.md](configuration.md#ida-and-ghidra).
+
 ## A call ends with timeout
 
 Calls to tools not marked long-running end after twice `--timeout` (default 180 s) with a retryable `timeout` error
@@ -77,8 +81,9 @@ archive against the release's `SHA256SUMS` first.
 
 ## The install script or update cannot find the release
 
-While the repository is private, downloads need a token with read access: set `GITHUB_TOKEN` (for example
-`GITHUB_TOKEN=$(gh auth token)`) and run the script or `corvus update` again.
+Check the network and proxy, and that a version given with `--version` is on the releases page. GitHub limits
+anonymous API requests per address (60 an hour); set `GITHUB_TOKEN` to raise the limit, then run the script or
+`corvus update` again.
 
 ## The install script stops with a checksum error
 

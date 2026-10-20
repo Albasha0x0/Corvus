@@ -6,8 +6,8 @@
   },
   "isError": true,
   "content": [
-    "Error (unsupported) in live_session: Sessions on running programs are off in this server.\nNext: start the server with --allow-live (or CORVUS_ALLOW_LIVE=1)",
-    "\n\nerror (json): {\"code\":\"unsupported\",\"retryable\":false,\"message\":\"Sessions on running programs are off in this server.\",\"next\":\"start the server with --allow-live (or CORVUS_ALLOW_LIVE=1)\",\"partial\":null,\"details\":null}"
+    "Error (unsupported) in live_session: Sessions on running programs are off in this server.\nNext: start the server with --allow-live-attach (or CORVUS_ALLOW_LIVE_ATTACH=1)",
+    "\n\nerror (json): {\"code\":\"unsupported\",\"retryable\":false,\"message\":\"Sessions on running programs are off in this server.\",\"next\":\"start the server with --allow-live-attach (or CORVUS_ALLOW_LIVE_ATTACH=1)\",\"partial\":null,\"details\":null}"
   ],
   "structuredContent": null
 }

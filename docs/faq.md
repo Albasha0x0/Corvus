@@ -36,8 +36,10 @@ Yes: copy a release archive and `SHA256SUMS`, then run the install script with `
 ([installation.md](installation.md)).
 
 **Does it handle Il2Cpp and Unity builds?**
-Yes. `load_assembly` reads an Il2Cpp game folder or its `global-metadata.dat` with the built-in metadata reader (no
-external dumper), and `unity_overview` reports the engine version, scripting backend and the next calls.
+Yes. `load_assembly` reads an Il2Cpp game folder or its `global-metadata.dat` with the built-in metadata reader
+(Il2CppDumper and Cpp2IL are not needed), and `unity_overview` reports the engine version, scripting backend and the next
+calls. Metadata encrypted on disk is reported, not decrypted: dump the decrypted copy from the running game's memory and
+load that.
 
 **Is the agent skill required?**
 No. The server sends its own guidance to every client. `install --skill` adds an optional skill for clients that read

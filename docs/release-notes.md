@@ -189,7 +189,7 @@ breaking changes.
   newest one with its replay command and counts the older ones, instead of one line per session.
 - **Release assets** ship under the `corvus` name only.
 - **Docs.** A shorter README; feature detail in [features.md](features.md), server options in
-  [installation.md](installation.md#server-options).
+  [configuration.md](configuration.md#server-options).
 
 ## 2.0.0
 

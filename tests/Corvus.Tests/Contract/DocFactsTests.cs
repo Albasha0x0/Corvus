@@ -77,9 +77,21 @@ public partial class DocFactsTests
             .SelectMany(f => VariableLiteral().Matches(File.ReadAllText(f)).Select(m => m.Groups[1].Value))
             .ToHashSet(StringComparer.Ordinal);
         Assert.NotEmpty(read);
-        var docs = Read("README.md") + Read("docs/installation.md");
+        var docs = Read("docs/configuration.md");
         var missing = read.Where(v => !Regex.IsMatch(docs, $@"\b{v}\b")).Order(StringComparer.Ordinal).ToList();
-        Assert.True(missing.Count == 0, $"variables read in src/ but documented in neither README.md nor docs/installation.md: {string.Join(", ", missing)}");
+        Assert.True(missing.Count == 0, $"variables read in src/ but not in docs/configuration.md: {string.Join(", ", missing)}");
+    }
+
+    [Fact]
+    public void EveryServerOptionIsDocumented()
+    {
+        var options = new[] { "Core/ServerOptions.cs", "Core/Toolsets.cs", "Core/ClientProfiles.cs" }
+            .SelectMany(f => OptionLiteral().Matches(File.ReadAllText(Path.Combine(Root, "src", "Corvus", f))).Select(m => m.Groups[1].Value))
+            .ToHashSet(StringComparer.Ordinal);
+        Assert.Contains("--allow-live", options);
+        var rows = Read("docs/configuration.md");
+        var missing = options.Where(o => !rows.Contains($"| `{o}", StringComparison.Ordinal)).Order(StringComparer.Ordinal).ToList();
+        Assert.True(missing.Count == 0, $"server options without a row in docs/configuration.md: {string.Join(", ", missing)}");
     }
 
     [Fact]
@@ -172,6 +184,9 @@ public partial class DocFactsTests
 
     [GeneratedRegex(@"""(CORVUS_[A-Z0-9_]+)""")]
     private static partial Regex VariableLiteral();
+
+    [GeneratedRegex(@"""(--[a-z][a-z0-9-]+)""")]
+    private static partial Regex OptionLiteral();
 
     [GeneratedRegex(@"<Version>([^<]+)</Version>")]
     private static partial Regex ProjectVersion();

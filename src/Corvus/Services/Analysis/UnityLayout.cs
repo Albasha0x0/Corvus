@@ -21,7 +21,7 @@ internal static class UnityLayout
             var metadata = FindMetadata(Path.GetDirectoryName(Path.GetFullPath(path))!);
             return "Unity IL2CPP native code (exports il2cpp_*): the C# was compiled to native code, there is no IL here. " +
                    (metadata != null ? $"With its metadata ({metadata}), " : "With its global-metadata.dat (in <Product>_Data/il2cpp_data/Metadata), ") +
-                   "load_assembly the metadata or the game folder for names, addresses and field offsets (built-in reader; no external dumper).";
+                   "load_assembly the metadata or the game folder for names, addresses and field offsets (built-in reader; Il2CppDumper is not needed; encrypted metadata is read from a memory dump of it).";
         }
         return null;
     }

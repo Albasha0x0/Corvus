@@ -612,12 +612,14 @@ public sealed partial class LiveSessionTools(ServerOptions options, LiveSessionS
         $"{d.Point.Id} deferred: {d.Point.Module} is not loaded; it is set when {d.Point.Module} loads" +
         (d.Held ? ", before the module's code runs" : " (calls before then are missed)");
 
-    /// <summary>The opt-in flags: sessions need --allow-live, starting a program --allow-live-spawn and attaching --allow-live-attach as well.</summary>
+    /// <summary>The opt-in flags: starting a program needs --allow-live-spawn, attaching --allow-live-attach (each turns on --allow-live).</summary>
     private void Require(bool spawn, bool attach = false)
     {
         if (!options.AllowLive)
             throw new ToolError(ErrorCode.Unsupported, "Sessions on running programs are off in this server.",
-                $"start the server with {ServerOptions.AllowLiveOption} (or {ServerOptions.AllowLiveVariable}=1)");
+                spawn ? $"start the server with {ServerOptions.AllowLiveSpawnOption} (or {ServerOptions.AllowLiveSpawnVariable}=1)"
+                : attach ? $"start the server with {ServerOptions.AllowLiveAttachOption} (or {ServerOptions.AllowLiveAttachVariable}=1)"
+                : $"start the server with {ServerOptions.AllowLiveAttachOption} or {ServerOptions.AllowLiveSpawnOption}");
         if (spawn && !options.AllowLiveSpawn)
             throw new ToolError(ErrorCode.Unsupported, "Starting a program under a session is off in this server.",
                 $"start the server with {ServerOptions.AllowLiveSpawnOption} (or {ServerOptions.AllowLiveSpawnVariable}=1) as well");

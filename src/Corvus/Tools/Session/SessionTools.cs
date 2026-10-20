@@ -129,6 +129,9 @@ public sealed class SessionTools(AssemblyWorkspace workspace, IndexingService in
                 ? new("programs sessions may open", true, "limited to: " + string.Join(", ", options.LiveAllow), null)
                 : new("programs sessions may open", true, "any program the session switches allow",
                     $"limit them with {ServerOptions.LiveAllowOption} <program or folder> (repeatable)"));
+        // listed only when on: status is at its report budget, and a refused save names the switch
+        if (options.AllowReplaceOriginal)
+            capabilities.Add(new("saves that replace the loaded file", true, "on: save_assembly and save_native take replaceOriginal=true (a .bak is kept)", null));
         int loaded = workspace.LoadedCount; // without the lock: status answers while a long call holds it
         var registered = (server?.ToolCollection?.Select(t => t.ProtocolTool.Name) ?? []).ToHashSet(StringComparer.Ordinal);
         var client = context?.Server?.ClientInfo;

@@ -42,7 +42,7 @@ $assets = @($rids | ForEach-Object { if ($_ -like 'win-*') { "corvus-$_.zip" } e
 # MCP bundles for the targets marked bundle: true: the release archive under server/ plus mcpb/manifest.json for its platform.
 $bundleRids = [regex]::Matches((Get-Content $workflow -Raw), 'rid: ([a-z0-9-]+)[^}\n]*bundle: true') | ForEach-Object { $_.Groups[1].Value }
 $assets += $bundleRids | ForEach-Object { "corvus-$_.mcpb" }
-# The NuGet .NET tool, attached for the nuget.org push once the repository is public.
+# The NuGet .NET tool, attached to the release; the release workflow pushes it to nuget.org.
 $nupkg = "CorvusRE.$Version.nupkg"
 $assets += $nupkg
 
@@ -231,11 +231,11 @@ else { Write-Host "Update check skipped: no previous tag or no WSL ($distro)." -
 
 Write-Host ""
 Write-Host "Release $tag is published. Manual channel steps:"
-Write-Host "  [ ] Install check: run the install script on a clean machine or account (GITHUB_TOKEN while the repository is private),"
+Write-Host "  [ ] Install check: run the install script on a clean machine or account,"
 Write-Host "      then 'corvus version' (expect $Version) and 'corvus status'."
 Write-Host "  [ ] MCP bundle: install corvus-<rid>.mcpb in a client that takes bundles (Claude Desktop); the server starts and lists its tools."
-Write-Host "  [ ] .NET tool: 'dotnet tool install -g CorvusRE --add-source <folder with $nupkg>', then 'corvus version' (expect $Version)"
-Write-Host "      and 'corvus status' (Installed as: dotnet-tool); 'dnx CorvusRE --add-source <folder> --yes version' likewise."
+Write-Host "  [ ] .NET tool: 'dotnet tool install -g CorvusRE --version $Version', then 'corvus version' (expect $Version)"
+Write-Host "      and 'corvus status' (Installed as: dotnet-tool); 'dnx CorvusRE --version $Version --yes version' likewise."
 Write-Host "  [ ] Announce: the release notes link, https://github.com/$Repo/releases/tag/$tag"
 Write-Host "  [ ] nuget.org: CorvusRE lists $Version (release.yml's publish job)."
 Write-Host "  [ ] MCP Registry: io.github.Albasha0x0/corvus lists $Version (the same job, after nuget.org)."

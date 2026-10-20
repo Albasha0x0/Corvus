@@ -26,6 +26,7 @@ namespace Corvus.Core;
 ///   --trace &lt;file&gt;      append one JSON line per tool call (tool, argument names, ms, error, size) to this file (CORVUS_TRACE)
 ///   --trace-args        the trace records argument values too, secrets masked (CORVUS_TRACE_ARGS=1)
 ///   --allow-device-changes  allow the Android device tools that install or uninstall apps (CORVUS_ALLOW_DEVICE_CHANGES=1)
+///   --allow-replace-original  allow save_assembly and save_native replaceOriginal=true (CORVUS_ALLOW_REPLACE_ORIGINAL=1)
 ///   --client &lt;id&gt;       the MCP client this registration is for (written by install; CORVUS_CLIENT): its output ceiling, deadline and tool profile
 ///   --client-timeout &lt;s&gt;  the client's per-call limit in seconds when raised from its default (CORVUS_CLIENT_TIMEOUT)
 /// The CORVUS_LOAD environment variable (';'-separated paths) is also honored; CORVUS_PREWARM sets --prewarm (CORVUS_IDA_PREWARM=1: ida); CORVUS_ENGINE sets --engine;
@@ -80,8 +81,16 @@ public sealed class ServerOptions
     public const string AllowDeviceChangesOption = "--allow-device-changes";
     public const string AllowDeviceChangesVariable = "CORVUS_ALLOW_DEVICE_CHANGES";
 
-    /// <summary>Allow the session tools; default off. Attaching and starting programs each need their own switch as well.</summary>
-    public bool AllowLive { get; set; }
+    /// <summary>Allow save_assembly and save_native to replace the loaded file (replaceOriginal=true); default off.</summary>
+    public bool AllowReplaceOriginal { get; set; }
+
+    public const string AllowReplaceOriginalOption = "--allow-replace-original";
+    public const string AllowReplaceOriginalVariable = "CORVUS_ALLOW_REPLACE_ORIGINAL";
+
+    /// <summary>Allow the session tools; default off. On with any of attach, spawn or scripting, which each open more.</summary>
+    public bool AllowLive { get => _allowLive || AllowLiveAttach || AllowLiveSpawn || LiveScripting; set => _allowLive = value; }
+
+    private bool _allowLive;
 
     public const string AllowLiveOption = "--allow-live";
     public const string AllowLiveVariable = "CORVUS_ALLOW_LIVE";
@@ -109,6 +118,20 @@ public sealed class ServerOptions
 
     public const string LiveScriptingOption = "--live-scripting";
     public const string LiveScriptingVariable = "CORVUS_LIVE_SCRIPTING";
+
+    /// <summary>The security switches (value-less options, off by default) and their variables; corvus install --set and --unset take these.</summary>
+    public static readonly IReadOnlyDictionary<string, string> Switches = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+    {
+        [AllowLiveOption] = AllowLiveVariable,
+        [AllowLiveAttachOption] = AllowLiveAttachVariable,
+        [AllowLiveSpawnOption] = AllowLiveSpawnVariable,
+        [LiveScriptingOption] = LiveScriptingVariable,
+        ["--ida-scripting"] = IdaScriptingVariable,
+        [GhidraScriptingOption] = GhidraScriptingVariable,
+        [AllowDeviceChangesOption] = AllowDeviceChangesVariable,
+        [AllowReplaceOriginalOption] = AllowReplaceOriginalVariable,
+        [TraceArgsOption] = TraceArgsVariable,
+    };
 
     /// <summary>Default engine of the native code tools when a call names none (see <see cref="EngineMode"/>).</summary>
     public EngineMode Engine { get; set; } = EngineMode.Auto;
@@ -187,6 +210,7 @@ public sealed class ServerOptions
                 case "--ida-scripting": o.IdaScripting = true; break;
                 case GhidraScriptingOption: o.GhidraScripting = true; break;
                 case AllowDeviceChangesOption: o.AllowDeviceChanges = true; break;
+                case AllowReplaceOriginalOption: o.AllowReplaceOriginal = true; break;
                 case AllowLiveOption: o.AllowLive = true; break;
                 case AllowLiveSpawnOption: o.AllowLiveSpawn = true; break;
                 case AllowLiveAttachOption: o.AllowLiveAttach = true; break;
@@ -230,6 +254,7 @@ public sealed class ServerOptions
         if (Environment.GetEnvironmentVariable(IdaScriptingVariable)?.Trim() is "1" or "true" or "on") o.IdaScripting = true;
         if (Environment.GetEnvironmentVariable(GhidraScriptingVariable)?.Trim() is "1" or "true" or "on") o.GhidraScripting = true;
         if (Environment.GetEnvironmentVariable(AllowDeviceChangesVariable)?.Trim() is "1" or "true" or "on") o.AllowDeviceChanges = true;
+        if (Environment.GetEnvironmentVariable(AllowReplaceOriginalVariable)?.Trim() is "1" or "true" or "on") o.AllowReplaceOriginal = true;
         if (Environment.GetEnvironmentVariable(AllowLiveVariable)?.Trim() is "1" or "true" or "on") o.AllowLive = true;
         if (Environment.GetEnvironmentVariable(AllowLiveSpawnVariable)?.Trim() is "1" or "true" or "on") o.AllowLiveSpawn = true;
         if (Environment.GetEnvironmentVariable(AllowLiveAttachVariable)?.Trim() is "1" or "true" or "on") o.AllowLiveAttach = true;

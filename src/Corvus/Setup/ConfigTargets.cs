@@ -5,8 +5,16 @@ using System.Text.RegularExpressions;
 
 namespace Corvus.Setup;
 
-/// <summary>How the server is started: an executable and its arguments.</summary>
-internal sealed record ServerLaunch(string Command, IReadOnlyList<string> Args);
+/// <summary>How the server is started: an executable and its arguments, plus switches install adds (<see cref="Set"/>) or removes (<see cref="Unset"/>).</summary>
+internal sealed record ServerLaunch(string Command, IReadOnlyList<string> Args)
+{
+    public IReadOnlyList<string> Set { get; init; } = [];
+    public IReadOnlyList<string> Unset { get; init; } = [];
+
+    /// <summary><paramref name="args"/> without every set or unset switch, then the set ones, so a repeated install changes nothing.</summary>
+    public List<string> WithSwitches(IEnumerable<string> args) =>
+        [.. args.Where(a => !Set.Contains(a, StringComparer.OrdinalIgnoreCase) && !Unset.Contains(a, StringComparer.OrdinalIgnoreCase)), .. Set];
+}
 
 /// <summary>The outcome of changing one configuration file.</summary>
 internal sealed record ConfigChange(bool Changed, string Message);
@@ -76,6 +84,8 @@ internal abstract class ConfigTarget(string path)
     /// development relay prefix (relay --target dir), so a registration switches between the relay and the server.
     /// The user's --client and --client-timeout give way to ours; ours --toolsets gives way to the user's.
     /// </summary>
+    public static List<string> MergeArgs(IEnumerable<string> user, ServerLaunch launch) => launch.WithSwitches(MergeArgs(user, launch.Args));
+
     public static List<string> MergeArgs(IEnumerable<string> user, IReadOnlyList<string> ours)
     {
         var kept = Corvus.Relay.RelayCli.WithoutRelayPrefix(user).Where(a => ours.Contains(a) || !Corvus.Relay.RelayBuilds.IsProgramDll(a)).ToList();
@@ -269,7 +279,7 @@ internal sealed class JsonTarget(string path, string[] container, Func<ServerLau
     /// </summary>
     public JsonObject Merge(JsonObject? existing, ServerLaunch launch)
     {
-        var fresh = Entry(launch);
+        var fresh = Entry(launch with { Args = launch.WithSwitches(launch.Args) });
         if (existing == null) return fresh;
         var merged = (JsonObject)existing.DeepClone();
         static List<string>? Strings(JsonNode? node, int skip) =>
@@ -279,12 +289,12 @@ internal sealed class JsonTarget(string path, string[] container, Func<ServerLau
         {
             // Command and arguments in one array (OpenCode).
             var user = Strings(existing["command"], 1);
-            merged["command"] = user == null ? fresh["command"]!.DeepClone() : ToArray([launch.Command, .. MergeArgs(user, launch.Args)]);
+            merged["command"] = user == null ? fresh["command"]!.DeepClone() : ToArray([launch.Command, .. MergeArgs(user, launch)]);
         }
         else
         {
             merged["command"] = launch.Command;
-            if (existing["args"] != null && Strings(existing["args"], 0) is { } user) merged["args"] = ToArray(MergeArgs(user, launch.Args));
+            if (existing["args"] != null && Strings(existing["args"], 0) is { } user) merged["args"] = ToArray(MergeArgs(user, launch));
         }
         foreach (var (key, value) in fresh)
             if (!merged.ContainsKey(key)) merged[key] = value?.DeepClone();
@@ -607,7 +617,7 @@ internal sealed partial class CodexTomlTarget(string path) : ConfigTarget(path)
         {
             while (lines.Count > 0 && lines[^1].Trim().Length == 0) lines.RemoveAt(lines.Count - 1);
             if (lines.Count > 0) lines.Add("");
-            lines.AddRange([$"[mcp_servers.{name}]", command, ArgsLine(launch.Args)]);
+            lines.AddRange([$"[mcp_servers.{name}]", command, ArgsLine(launch.WithSwitches(launch.Args))]);
             return string.Join("\n", lines) + "\n";
         }
 
@@ -620,12 +630,12 @@ internal sealed partial class CodexTomlTarget(string path) : ConfigTarget(path)
             if (commandAt < 0 && CommandLine().IsMatch(lines[i])) commandAt = i;
             else if (argsAt < 0 && ArgsKey().IsMatch(lines[i])) argsAt = i;
         }
-        if (argsAt >= 0 && ParseArgs(lines[argsAt]) is { } user && MergeArgs(user, launch.Args) is var merged && !merged.SequenceEqual(user))
+        if (argsAt >= 0 && ParseArgs(lines[argsAt]) is { } user && MergeArgs(user, launch) is var merged && !merged.SequenceEqual(user))
             updated[argsAt] = ArgsLine(merged);
         if (commandAt >= 0 && CommandValue(lines[commandAt]) != launch.Command) updated[commandAt] = command;
         var missing = new List<string>();
         if (commandAt < 0) missing.Add(command);
-        if (argsAt < 0) missing.Add(ArgsLine(launch.Args));
+        if (argsAt < 0) missing.Add(ArgsLine(launch.WithSwitches(launch.Args)));
         updated.InsertRange(start + 1, missing);
         if (updated.SequenceEqual(lines)) return null;
         var text = string.Join("\n", updated);
@@ -707,6 +717,22 @@ internal sealed partial class CodexTomlTarget(string path) : ConfigTarget(path)
 /// </summary>
 internal sealed class ClaudeCliTarget(string cli, JsonTarget file) : ConfigTarget(file.Path)
 {
+    /// <summary>The user-level list in ~/.claude.json, read directly.</summary>
+    public JsonTarget File => file;
+
+    /// <summary>
+    /// Writes one folder's local entry through the CLI run in that folder (`claude mcp add-json --scope local`), so a running
+    /// Claude Code does not write its older copy over it; the file is edited when the CLI fails or writes something else.
+    /// </summary>
+    public ConfigChange PutLocal(string folder, string name, JsonObject entry, Func<JsonTarget> projectList)
+    {
+        if (projectList().Existing(name) is { } before && JsonNode.DeepEquals(before, entry)) return new ConfigChange(false, "already registered");
+        if (projectList().Existing(name) != null) Run(["mcp", "remove", "--scope", "local", name], folder);
+        if (Run(["mcp", "add-json", "--scope", "local", name, entry.ToJsonString()], folder) && projectList().Existing(name) is { } now && JsonNode.DeepEquals(now, entry))
+            return new ConfigChange(true, "registered");
+        return projectList().Put(name, _ => entry);
+    }
+
     public override string? Registered(string name) => file.Registered(name);
     public override RegisteredEntry? Current(string name) => file.Current(name);
     public override TargetPreview Preview(string name, ServerLaunch launch) => file.Preview(name, launch);
@@ -754,7 +780,7 @@ internal sealed class ClaudeCliTarget(string cli, JsonTarget file) : ConfigTarge
         return put.Changed || dropped.Changed ? new ConfigChange(true, $"renamed from {from}") : put;
     }
 
-    private bool Run(string[] args)
+    private bool Run(string[] args, string? workingDirectory = null)
     {
         var batch = cli.EndsWith(".cmd", StringComparison.OrdinalIgnoreCase) || cli.EndsWith(".bat", StringComparison.OrdinalIgnoreCase);
         var psi = batch
@@ -762,6 +788,7 @@ internal sealed class ClaudeCliTarget(string cli, JsonTarget file) : ConfigTarge
             : new System.Diagnostics.ProcessStartInfo(cli);
         if (!batch) foreach (var a in args) psi.ArgumentList.Add(a);
         psi.UseShellExecute = false;
+        if (workingDirectory != null) psi.WorkingDirectory = workingDirectory;
         psi.RedirectStandardOutput = psi.RedirectStandardError = psi.RedirectStandardInput = true;
         psi.CreateNoWindow = true;
         try

@@ -9,7 +9,7 @@
 # changes nothing, -Yes registers new clients without asking, -Client registers only the named clients.
 # Environment: CORVUS_VERSION (as -Version), CORVUS_YES=1 (as -Yes), CORVUS_REPO (owner/name), CORVUS_ARCHIVE (local release
 # archive), CORVUS_SHA256SUMS (manifest to verify CORVUS_ARCHIVE against; without it a local archive is trusted as is),
-# GITHUB_TOKEN (private repositories).
+# GITHUB_TOKEN (optional: a higher GitHub API rate limit).
 # Downloads are verified against the release's SHA256SUMS; a missing manifest or a mismatch stops the install.
 param([switch]$Uninstall, [switch]$PurgeData, [string]$Version, [switch]$DryRun, [switch]$Yes, [string[]]$Client)
 

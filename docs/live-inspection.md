@@ -71,8 +71,9 @@ leave the process running, but:
 
 ## Sessions
 
-The session tools observe a program while it runs. They are off unless the server starts with `--allow-live`;
-starting a program needs `--allow-live-spawn` as well, and attaching to a program already running `--allow-live-attach`.
+The session tools observe a program while it runs. They are off unless the server starts with `--allow-live-attach`
+(attach to a program already running), `--allow-live-spawn` (start one) or `--live-scripting`; each turns them on, as
+`--allow-live` does without opening a program ([configuration.md](configuration.md#security-switches)).
 `--live-allow <program or folder>` (repeatable) limits both to the programs listed: the check uses the final path
 (junctions and symbolic links in any folder of the path resolved) and, for a running program, the image path the
 operating system reports; anything outside the list is refused before a session opens, and a started program is the

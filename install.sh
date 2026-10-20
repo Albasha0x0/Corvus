@@ -11,7 +11,7 @@
 # The confirmation is read from the terminal (/dev/tty) even when the script itself arrives on stdin.
 # Environment: CORVUS_VERSION (as --version), CORVUS_YES=1 (as --yes), CORVUS_REPO (owner/name), CORVUS_HOME (install folder),
 # CORVUS_ARCHIVE (local release archive), CORVUS_SHA256SUMS (manifest to verify CORVUS_ARCHIVE against; without it a local
-# archive is trusted as is), GITHUB_TOKEN (private repositories).
+# archive is trusted as is), GITHUB_TOKEN (optional: a higher GitHub API rate limit).
 # Downloads are verified against the release's SHA256SUMS; a missing manifest or a mismatch stops the install.
 set -eu
 

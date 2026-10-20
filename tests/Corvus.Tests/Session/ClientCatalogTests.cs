@@ -117,6 +117,121 @@ public sealed class ClientCatalogTests : IDisposable
     }
 
     [Fact]
+    public void SetAndUnset_AddAndRemoveASwitchOnEveryEntry()
+    {
+        _home.Write("""{ "mcpServers": { "corvus": { "command": "old", "args": ["--load", "a.dll"], "env": { "CORVUS_ALLOW_LIVE_SPAWN": "1" } } } }""", ".cursor", "mcp.json");
+        _home.Write("[mcp_servers.corvus]\ncommand = \"old\"\nargs = [\"--load\", \"a.dll\"]\n", ".codex", "config.toml");
+        IReadOnlyList<string> Args(string id) => Client(id).Target.Current("corvus")!.Args;
+
+        var (code, output) = _home.Run("install", "--no-check", "--set", "allow-live-attach,--allow-replace-original");
+        Assert.True(code == 0, output);
+        foreach (var id in new[] { "cursor", "codex" })
+        {
+            Assert.Equal(["--load", "a.dll", "--allow-live-attach", "--allow-replace-original"], Args(id).Where(a => a is not ("--client" or "cursor" or "codex")).ToList());
+        }
+        var before = (File.ReadAllText(Client("cursor").Target.Path), File.ReadAllText(Client("codex").Target.Path));
+        Assert.Equal(0, _home.Run("install", "--no-check", "--set", "allow-live-attach,allow-replace-original").Code);
+        Assert.Equal(before, (File.ReadAllText(Client("cursor").Target.Path), File.ReadAllText(Client("codex").Target.Path)));
+
+        (code, output) = _home.Run("install", "--no-check", "--unset", "allow-replace-original", "--unset", "allow-live-spawn");
+        Assert.True(code == 0, output);
+        Assert.DoesNotContain("--allow-replace-original", Args("codex"));
+        Assert.Contains("--allow-live-attach", Args("cursor"));
+        Assert.Contains("CORVUS_ALLOW_LIVE_SPAWN in its env still turns it on", output);
+
+        (code, output) = _home.Run("install", "--no-check", "--set", "run-anything");
+        Assert.Equal(2, code);
+        Assert.Contains("unknown switch 'run-anything'", output);
+    }
+
+    private string Folder(string name) => Directory.CreateDirectory(_home.Path(name)).FullName;
+
+    private static string Key(string folder) => OperatingSystem.IsWindows() ? folder.Replace('\\', '/') : folder;
+
+    private JsonNode? Local(string folder) => ReadJson(_home.Path(".claude.json"))["projects"]?[Key(folder)]?["mcpServers"]?["corvus"];
+
+    [Fact]
+    public void Project_CopiesTheGlobalEntryWithTheSwitch_AndTouchesNothingElse()
+    {
+        _home.Write("""{ "mcpServers": { "corvus": { "type": "stdio", "command": "relay.exe", "args": ["relay", "--target", "pub"], "env": { "CORVUS_GHIDRA_DIR": "g" } } }, "projects": { "D:/other": { "allowedTools": [] } } }""", ".claude.json");
+        var global = ReadJson(_home.Path(".claude.json"))["mcpServers"]!.ToJsonString();
+        var folder = Folder("proj");
+
+        var (code, output) = _home.Run("install", "--no-check", "--set", "allow-live-spawn", "--project", folder);
+        Assert.True(code == 0, output);
+        Assert.Contains("added a local entry (copied from the global one)", output);
+        var local = Local(folder)!;
+        Assert.Equal("relay.exe", (string)local["command"]!);
+        Assert.Equal(["relay", "--target", "pub", "--allow-live-spawn"], local["args"]!.AsArray().Select(n => (string)n!));
+        Assert.Equal("g", (string)local["env"]!["CORVUS_GHIDRA_DIR"]!);
+        var after = ReadJson(_home.Path(".claude.json"));
+        Assert.Equal(global, after["mcpServers"]!.ToJsonString());
+        Assert.Equal("{\"allowedTools\":[]}", after["projects"]!["D:/other"]!.ToJsonString());
+    }
+
+    [Fact]
+    public void Project_ThroughTheClaudeCli_StillCopiesTheGlobalEntry()
+    {
+        _home.Write("""{ "mcpServers": { "corvus": { "command": "relay.exe", "args": ["relay"], "env": { "CORVUS_GHIDRA_DIR": "g" } } } }""", ".claude.json");
+        var folder = Folder("proj");
+        // a CLI that cannot start: the change falls back to the file
+        var env = _home.Env(findTool: t => t == "claude" ? _home.Path("missing", "claude.exe") : null);
+
+        var (code, output) = _home.Run(env, "install", "--no-check", "--set", "allow-live-spawn", "--project", folder);
+        Assert.True(code == 0, output);
+        Assert.Contains("copied from the global one", output);
+        var local = Local(folder)!;
+        Assert.Equal(["relay", "--allow-live-spawn"], local["args"]!.AsArray().Select(n => (string)n!));
+        Assert.Equal("g", (string)local["env"]!["CORVUS_GHIDRA_DIR"]!);
+    }
+
+    [Fact]
+    public void Project_KeepsAnExistingLocalEntry_RepeatsChangeNothing_AndUnsetRemoves()
+    {
+        var folder = Folder("game");
+        _home.Write($$"""{ "mcpServers": { "corvus": { "command": "relay.exe", "args": [] } }, "projects": { "{{Key(folder).ToLowerInvariant()}}": { "mcpServers": { "corvus": { "command": "relay.exe", "args": ["--load", "dlls"], "env": { "CORVUS_ALLOW_LIVE_ATTACH": "1" } } } } } }""", ".claude.json");
+
+        var (code, output) = _home.Run("install", "--no-check", "--set", "allow-live-spawn", "--project", folder);
+        Assert.True(code == 0, output);
+        Assert.Contains("updated its local entry", output);
+        // an existing key spelling the same folder differently is the one updated
+        var projects = ReadJson(_home.Path(".claude.json"))["projects"]!.AsObject();
+        Assert.Single(projects);
+        var local = projects.Single().Value!["mcpServers"]!["corvus"]!;
+        Assert.Equal(["--load", "dlls", "--allow-live-spawn"], local["args"]!.AsArray().Select(n => (string)n!));
+
+        var text = File.ReadAllText(_home.Path(".claude.json"));
+        (code, output) = _home.Run("install", "--no-check", "--set", "allow-live-spawn", "--project", folder);
+        Assert.True(code == 0, output);
+        Assert.Contains("unchanged", output);
+        Assert.Equal(text, File.ReadAllText(_home.Path(".claude.json")));
+
+        (code, output) = _home.Run("install", "--no-check", "--unset", "allow-live-spawn,allow-live-attach", "--project", folder);
+        Assert.True(code == 0, output);
+        local = ReadJson(_home.Path(".claude.json"))["projects"]!.AsObject().Single().Value!["mcpServers"]!["corvus"]!;
+        Assert.Equal(["--load", "dlls"], local["args"]!.AsArray().Select(n => (string)n!));
+        Assert.Contains("CORVUS_ALLOW_LIVE_ATTACH in its env still turns it on", output);
+    }
+
+    [Fact]
+    public void Project_DryRunWritesNothing_AndBadUseIsRefused()
+    {
+        _home.Write("""{ "mcpServers": { "corvus": { "command": "relay.exe", "args": [] } } }""", ".claude.json");
+        var text = File.ReadAllText(_home.Path(".claude.json"));
+        var folder = Folder("proj");
+
+        var (code, output) = _home.Run("install", "--dry-run", "--set", "allow-live-spawn", "--project", folder);
+        Assert.True(code == 0, output);
+        Assert.Contains("would add a local entry (copied from the global one)", output);
+        Assert.Equal(text, File.ReadAllText(_home.Path(".claude.json")));
+
+        Assert.Equal(2, _home.Run("install", "--no-check", "--project", folder).Code);
+        Assert.Equal(2, _home.Run("install", "--no-check", "--set", "allow-live-spawn", "--project", _home.Path("missing")).Code);
+        Assert.Equal(2, _home.Run("install", "--no-check", "--client", "cursor", "--set", "allow-live-spawn", "--project", folder).Code);
+        Assert.Equal(text, File.ReadAllText(_home.Path(".claude.json")));
+    }
+
+    [Fact]
     public void ASlowStart_GetsALongerStartupTimeout_OnlyWhenNeeded()
     {
         Assert.False(CodexTomlTarget.NeedsStartupTimeout(1.2, null));

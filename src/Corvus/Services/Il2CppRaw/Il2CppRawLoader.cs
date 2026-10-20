@@ -7,7 +7,7 @@ using Corvus.Core;
 namespace Corvus.Services;
 
 /// <summary>
-/// Loads a raw Il2Cpp game (its binary + global-metadata.dat) without an external dumper:
+/// Loads a raw Il2Cpp game (its binary + global-metadata.dat) without Il2CppDumper or Cpp2IL:
 /// <see cref="Il2CppMetadataReader"/> writes <c>root/&lt;key&gt;/DummyDll/*.dll</c>, <c>il2cpp-model.bin</c> and the
 /// marker <see cref="MarkerFileName"/> into a per-user cache (or <c>cacheRoot</c>), and the dummy assemblies load like an Il2CppDumper
 /// DummyDll folder. The key is the game files' paths, sizes and write times. The Il2Cpp tools find the model through the marker

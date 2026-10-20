@@ -40,7 +40,7 @@ names. Quote values that hold spaces or shell characters: `member='Ns.Type::Meth
 
 ## Server options
 
-Every server option applies to the session (README, "Server options"). The ones used most:
+Every server option applies to the session ([configuration.md](configuration.md#server-options)). The ones used most:
 
 - `--load PATH` preloads a file or folder (repeatable), so one line loads and calls:
   `corvus get_type_info --load app.dll type=Ns.Type`.

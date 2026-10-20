@@ -199,7 +199,7 @@ builds (C:\symbols versions and side-by-side .NET runtimes) and verifies the app
 - A signed file becomes unsigned: the note says so. `stripSignature=true` zeroes the security data-directory entry
   and drops the trailing certificate-table overlay.
 - Atomic write (temp file + move). Another existing file is replaced only with `overwrite=true`; the input only with
-  `replaceOriginal=true`, keeping a `.bak`. `versioned=true` writes `<name>.1.dll`, `<name>.2.dll`, ... instead.
+  `replaceOriginal=true` on a server started with `--allow-replace-original`, keeping a `.bak`. `versioned=true` writes `<name>.1.dll`, `<name>.2.dll`, ... instead.
 - Verified by re-parsing the written file and comparing every byte outside the patched ranges, the relocation entry
   rewrites and the checksum field to the original; then the relocation table of the written file is re-parsed and
   checked against the patches: inside every patched range exactly the kept and added entries remain (nothing

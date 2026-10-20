@@ -24,15 +24,24 @@ public static class SaveTarget
         bool isOriginal = FileIdentity.Same(full, originalPath);
         if (isOriginal) full = FileIdentity.Resolve(full);
         if (isOriginal && File.Exists(full) && !replaceOriginal)
-            throw new ToolError(ErrorCode.Conflict, $"{full} is the loaded original. Pass replaceOriginal=true to replace it (the original is backed up to .bak).",
+            throw new ToolError(ErrorCode.Conflict, $"{full} is the loaded original. Pass replaceOriginal=true to replace it (the server needs {ServerOptions.AllowReplaceOriginalOption}; the original is backed up to .bak).",
                 "save to another path, or pass versioned=true to write the next numbered copy");
         if (!isOriginal && Path.Exists(full) && !overwrite)
-            throw new ToolError(ErrorCode.Conflict, $"{full} already exists. Pass overwrite=true to replace it, or versioned=true to write the next numbered copy.");
+            throw new ToolError(ErrorCode.Conflict, $"{full} already exists. Pass overwrite=true to replace it, or versioned=true to write the next numbered copy.",
+                "pass overwrite=true, versioned=true or another outputPath");
         if (isOriginal && File.Exists(full) && Sha256(full) is var onDisk && !string.Equals(onDisk, originalSha256, StringComparison.OrdinalIgnoreCase)
             && !string.Equals(onDisk, savedSha256, StringComparison.OrdinalIgnoreCase))
             throw new ToolError(ErrorCode.ChangedOnDisk, $"{full} changed on disk since load; replacing it would lose those changes. Nothing was written.",
                 "save to another path, or export the edits, reload the file and apply them again");
         return new(full, isOriginal);
+    }
+
+    /// <summary>replaceOriginal needs the server switch, so a client cannot grant it to itself in a call.</summary>
+    public static void RequireReplaceAllowed(bool replaceOriginal, ServerOptions? options)
+    {
+        if (replaceOriginal && options?.AllowReplaceOriginal != true)
+            throw new ToolError(ErrorCode.Unsupported, "Replacing the loaded file is off in this server. Nothing was written.",
+                $"start the server with {ServerOptions.AllowReplaceOriginalOption} (or {ServerOptions.AllowReplaceOriginalVariable}=1), or pass versioned=true");
     }
 
     /// <summary>&lt;stem&gt;.1&lt;ext&gt;, &lt;stem&gt;.2&lt;ext&gt;, ...: the first that does not exist.</summary>

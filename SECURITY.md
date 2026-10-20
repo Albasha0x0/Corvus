@@ -19,8 +19,9 @@ Fixes go into the next release; the release notes name the fixed problem once a 
 Corvus analyzes files that may be untrusted: third-party programs, modified builds, crafted containers, dumps and symbol files. The
 person running the server and the MCP client it answers are trusted; the analyzed files and everything derived from
 them are not. By default the server reads files and never runs them. The opt-ins below, each off by default, widen
-this: the session tools (`--allow-live`) attach to programs running on this machine, start them only with
-`--allow-live-spawn` and load scripts into them only with `--live-scripting`; they are meant for the user's own programs,
+this: the session tools attach to programs running on this machine only with `--allow-live-attach`,
+start them only with `--allow-live-spawn` and load scripts into them only with `--live-scripting` (each turns on the
+session tools, as `--allow-live` does without opening a program); they are meant for the user's own programs,
 and a program run this way runs with the user's rights. The engine scripting tools and the device-changing Android
 tools have opt-ins of their own.
 
@@ -66,18 +67,22 @@ worker with Frida's bindings; `live_timeline` an event tracing session; `live_se
 
 ### Opt-ins that widen the boundary
 
-Off by default, each needs a server option or environment variable chosen by the person running the server:
+Off by default, each needs a server option or environment variable chosen by the person running the server
+([docs/configuration.md](docs/configuration.md#security-switches)):
 
 - `--ida-scripting` (`CORVUS_IDA_SCRIPTING=1`) enables `ida_python`: arbitrary Python in the IDA worker, with the
   server's rights.
 - `--ghidra-scripting` (`CORVUS_GHIDRA_SCRIPTING=1`) enables `ghidra_script`: arbitrary Java in the Ghidra worker, with
   the server's rights.
+- `--allow-replace-original` (`CORVUS_ALLOW_REPLACE_ORIGINAL=1`) lets `save_assembly` and `save_native` replace the
+  loaded file (`replaceOriginal=true`, with a `.bak`); without it saves write only new files.
 - `--allow-device-changes` (`CORVUS_ALLOW_DEVICE_CHANGES=1`) enables `install_android_package` and
   `uninstall_android_package`, which change a connected Android device through adb. The other device tools only read
   (device facts, package lists, files, logs).
-- `--allow-live` (`CORVUS_ALLOW_LIVE=1`) enables the session tools (`live_session`, `live_break`, `live_watch`,
-  `live_coverage`, `live_timeline`, `live_read`, `live_events`, `live_console`) on programs already running on this machine; `--allow-live-spawn` (`CORVUS_ALLOW_LIVE_SPAWN=1`) also
-  lets `live_session` and `live_console` start a program. A session runs a Python worker with Frida's bindings, which loads a script into
+- `--allow-live` (`CORVUS_ALLOW_LIVE=1`), or any of the three switches below, enables the session tools (`live_session`, `live_break`, `live_watch`,
+  `live_coverage`, `live_timeline`, `live_read`, `live_events`, `live_console`); `--allow-live-attach` (`CORVUS_ALLOW_LIVE_ATTACH=1`) also
+  lets `live_session` attach to a running program, `--allow-live-spawn` (`CORVUS_ALLOW_LIVE_SPAWN=1`) lets `live_session` and `live_console`
+  start one, and `--live-allow` limits both to named programs or folders. A session runs a Python worker with Frida's bindings, which loads a script into
   the program: stop points hold the hitting thread until `live_break action=continue`, and the program's memory is
   read, never written. Closing a session, its deadline (`CORVUS_LIVE_MAX_MINUTES`, default 30) and server exit
   release every held thread and end a program the session started; a started program's output reaches the session's
@@ -101,11 +106,11 @@ The server reaches the network only:
 
 ### Files written
 
-Tools write only to paths given in the call (saved assemblies and images keep a `.bak` of an original they replace and
-never overwrite without `overwrite=true`; device pulls and extracted containers go where the call says or to a named
+Tools write only to paths given in the call (saved assemblies and images replace the loaded file only with
+`replaceOriginal=true` on a server started with `--allow-replace-original`, keeping a `.bak`, and another existing file only with `overwrite=true`; device pulls and extracted containers go where the call says or to a named
 folder under the temporary folder), plus per-user caches and annotation files under the data folder
 (`<LocalAppData>/Corvus`, `CORVUS_DATA_DIR`). The engine database and code index caches are bounded by size and age
-(README, "Server options"; [docs/installation.md](docs/installation.md)). `corvus install` writes only the client
+([docs/configuration.md](docs/configuration.md)). `corvus install` writes only the client
 configuration files it lists, each with a `.corvus.bak` copy of the previous version.
 
 ### Kept results

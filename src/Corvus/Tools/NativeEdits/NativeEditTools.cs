@@ -16,7 +16,8 @@ namespace Corvus.Tools;
 /// <summary>Native annotations (rename, comment, export) and byte/assembly patching with undo and save.</summary>
 [McpServerToolType]
 public sealed class NativeEditTools(AssemblyWorkspace workspace, NativeCodeService code, NativeEditService edits, EditJournal? journal = null,
-    NativeEngineService? engines = null, NativeNamePush? names = null, NativeTypePush? types = null, NativeUserTypePush? userTypes = null)
+    NativeEngineService? engines = null, NativeNamePush? names = null, NativeTypePush? types = null, NativeUserTypePush? userTypes = null,
+    ServerOptions? options = null)
 {
     private const string ProvisionalNote = "Previewed on the analysis from before the last patch (function extents as they were), without waiting for the code index to rebuild.\n";
 
@@ -706,11 +707,12 @@ public sealed class NativeEditTools(AssemblyWorkspace workspace, NativeCodeServi
         [Description("Output file path.")] string outputPath,
         [Description("Replace an existing file, not the original.")] bool overwrite = false,
         [Description("Remove the Authenticode certificate table from the output.")] bool stripSignature = false,
-        [Description("Replace the loaded file itself.")] bool replaceOriginal = false,
+        [Description("Replace the loaded file itself (needs --allow-replace-original).")] bool replaceOriginal = false,
         [Description("Write '<name>.N.dll', the first free N.")] bool versioned = false,
         RequestContext<CallToolRequestParams> context = null!,
         CancellationToken cancellationToken = default) => OrderedProgress.Run(context, async progress =>
     {
+        SaveTarget.RequireReplaceAllowed(replaceOriginal, options);
         var (native, _) = await Open(image, progress, cancellationToken);
         var saved = edits.Write(native, outputPath, overwrite, stripSignature, replaceOriginal, versioned);
         journal?.Saved(native);

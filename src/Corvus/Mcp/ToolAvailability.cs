@@ -111,7 +111,7 @@ public static class ToolAvailability
                 $"start the server with {Core.ServerOptions.AllowDeviceChangesOption} (or {Core.ServerOptions.AllowDeviceChangesVariable}=1)"));
         foreach (var tool in SessionTools.Where(registered.Contains).Where(_ => !allowLive))
             result.Add(new(tool, null, "off: it opens sessions on running programs",
-                $"start the server with {Core.ServerOptions.AllowLiveOption} (or {Core.ServerOptions.AllowLiveVariable}=1)"));
+                $"start the server with {Core.ServerOptions.AllowLiveAttachOption} or {Core.ServerOptions.AllowLiveSpawnOption} (or {Core.ServerOptions.AllowLiveAttachVariable}=1 / {Core.ServerOptions.AllowLiveSpawnVariable}=1)"));
         if (allowLive && !allowLiveSpawn && registered.Contains("live_session"))
             result.Add(new("live_session", "action=spawn", "off: it starts a program under a session",
                 $"start the server with {Core.ServerOptions.AllowLiveSpawnOption} (or {Core.ServerOptions.AllowLiveSpawnVariable}=1)"));
