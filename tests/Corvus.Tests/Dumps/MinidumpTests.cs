@@ -400,6 +400,28 @@ public sealed class MinidumpTests
         Assert.Equal(["scan", "frame_pointer", "scan"], walk.Items.Skip(1).Select(f => f.Method));
     }
 
+    /// <summary>An unwind that reads something other than code as the return address (a stale slot) scans on instead of reporting it.</summary>
+    [Fact]
+    public async Task AnUnwoundReturnAddressThatIsNotCodeScansOn()
+    {
+        const ulong Stack2 = 0xE0_0002_0000;
+        using var dir = new TempDir();
+        var stack = new byte[0x100];
+        void Put(int at, ulong v) => BinaryPrimitives.WriteUInt64LittleEndian(stack.AsSpan(at), v);
+        Put(0x28, 0x43BF_8000_443E_C000); // where Crash's unwind finds its return address
+        Put(0x40, SyntheticCrash.Base + SyntheticCrash.BigRva + 20);
+        var d = SyntheticCrash.Builder(exception: false);
+        d.Memory.Add((Stack2, stack));
+        d.Regions.Add(new MinidumpBuilder.Region(Stack2, 0x100, 0x04));
+        d.Threads.Add(new MinidumpBuilder.Thread(106, Stack2, MinidumpBuilder.ContextX64(SyntheticCrash.Base + SyntheticCrash.CrashRva + 5, Stack2)));
+        var path = dir.File("stale.dmp");
+        File.WriteAllBytes(path, d.Build());
+        using var service = new MinidumpService();
+        var walk = await service.Stack(path, "106", true, 64, 0, 64, null, default);
+        Assert.Equal("synth!Big+0x14", walk.Items[1].Symbol);
+        Assert.Equal("scan", walk.Items[1].Method);
+    }
+
     /// <summary>
     /// A WoW64 process dumped by a 64-bit tool: each thread's 32-bit side comes from the x86 context WoW64 keeps in the
     /// CPU area that TEB64 TLS slot 1 points to, with the 32-bit stack bounds from the TEB32 at TEB64 + 0x2000.

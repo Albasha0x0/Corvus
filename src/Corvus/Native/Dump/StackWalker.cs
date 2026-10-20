@@ -148,6 +148,13 @@ public sealed class StackWalker
                     : (null, "", false, "no_return_address");
             }
             var unwound = VirtualUnwind(image, module.Base, rf, (uint)(ctx.Ip - module.Base), ctx, top, out bool machine, out bool epilog, out string? failure);
+            // a frame a scan found can be stale, so its unwind reads a return address from the wrong slot
+            if (unwound != null && !machine && unwound.Ip != 0 && !IsCode(unwound.Ip, ctx.Sp))
+            {
+                var rescan = Scan(ctx.Sp, ulong.MaxValue, ctx);
+                return rescan != null ? (rescan, FrameMethod.Scan, true, $"the unwind at {module.FileName}+0x{rva:X} gave 0x{unwound.Ip:X}, which is not code; scanned")
+                    : (null, "", false, "unwind_failed");
+            }
             if (unwound != null) return (unwound, machine ? FrameMethod.MachineFrame : epilog ? FrameMethod.Epilog : FrameMethod.UnwindInfo, false, null);
             var scan = Scan(ctx.Sp, ulong.MaxValue, ctx);
             return scan != null ? (scan, FrameMethod.Scan, true, $"unwind failed at {module.FileName}+0x{rva:X} ({failure}); scanned")
@@ -546,6 +553,18 @@ public sealed class StackWalker
     /// or an executable region of the dump) and, when the bytes are available, right after a call instruction.
     /// Strict (scans) requires the call check whenever the code bytes are readable.
     /// </summary>
+    /// <summary>
+    /// <paramref name="address"/> can be code: canonical, and executable where the dump says (an image section, or a region
+    /// when the dump has a memory list, which <paramref name="stackPointer"/>'s region shows).
+    /// </summary>
+    private bool IsCode(ulong address, ulong stackPointer)
+    {
+        if (address < 0x10000 || (_dump.Is64Bit && (long)address >> 47 is not (0 or -1))) return false;
+        if (_dump.ModuleAt(address) is { } module && _image(module) is { } image)
+            return image.SectionAt((uint)(address - module.Base)) is { IsExecutable: true };
+        return _dump.RegionAt(address) is { } r ? r.IsExecutable : _dump.RegionAt(stackPointer) == null;
+    }
+
     public bool IsPlausibleReturn(ulong address, bool strict)
     {
         var module = _dump.ModuleAt(address);
