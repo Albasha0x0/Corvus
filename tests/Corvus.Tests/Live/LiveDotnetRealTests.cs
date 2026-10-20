@@ -210,9 +210,10 @@ public sealed class LiveDotnetRealTests(ITestOutputHelper output) : LiveToolCall
         }
         Assert.False(thread.Length == 0, "no stop on an open of the input file in 50 stops");
         // native frames by module and export; the managed caller as the runtime library's precompiled code or JIT code outside every module
-        var api = target.Windows ? @"KERNELBASE\.dll!CreateFileW" : @"libc\.so\.6!open\S*";
+        var api = target.Windows ? @"KERNELBASE\.dll!CreateFileW" : @"libc\.so\.6!(?:__libc_)?open(?:64)?\b"; // glibc exports open and its aliases at one address
         var caller = target.Windows ? @"System\.Private\.CoreLib\.dll\+0x[0-9A-F]+|0x\k<b>" : @"libSystem\.Native\.so!SystemNative_Open\S*";
-        Assert.Matches($@"thread {thread} stopped at s1 \({api}\)\r?\n  #0 0x[0-9A-F]+ {api}\r?\n  #1 0x(?<b>[0-9A-F]+) ({caller})\r?\n", stop);
+        // a frame with debug information ends in its source file and line
+        Assert.Matches($@"thread {thread} stopped at s1 \({api}\)\r?\n  #0 0x[0-9A-F]+ {api}(?:  \S+:\d+)?\r?\n  #1 0x(?<b>[0-9A-F]+) ({caller})(?:  \S+:\d+)?\r?\n", stop);
 
         Assert.Contains("s1 cleared", await Ok(server, "live_break", new() { ["session"] = "live-1", ["action"] = "clear", ["stopPoint"] = "s1" }));
         await Ok(server, "live_break", new() { ["session"] = "live-1", ["action"] = "continue" });
