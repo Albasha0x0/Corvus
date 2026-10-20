@@ -141,6 +141,17 @@ public sealed class LiveTimelineTests : IDisposable
     }
 
     [Fact]
+    public async Task A_report_page_of_long_names_holds_its_limit()
+    {
+        await _tools.LiveSession("attach", program: "4242");
+        await _tools.LiveTimeline("live-1", "start");
+        for (int i = 1; i <= 120; i++) _source.Send("file", $@"C:\Users\someone\AppData\Local\Product\cache-{i:D3}-{new string('x', 120)}.bin");
+        using var pipeline = new OutputPipeline();
+        var record = await pipeline.Record("live_timeline", 6000, ct => _tools.LiveTimeline(action: "report", run: "tl-1", limit: 30, cancellationToken: ct));
+        Assert.Equal(30,record.GetProperty("names").GetArrayLength());
+    }
+
+    [Fact]
     public async Task Diff_lists_the_pairs_unique_to_each_timeline()
     {
         await TwoTimelines();

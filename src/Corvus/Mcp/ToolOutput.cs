@@ -40,7 +40,7 @@ public static partial class ToolOutput
         int k = rows.Count;
         if (OutputCall.Current is { } call)
         {
-            if (call.Tokens > 0) k = FitCount(rows.Count, n => call.Fits(Render(n)), RecordCost(call, record(rows), rows.Select(r => Serialize(r!)).ToList()));
+            if (call.Tokens > 0) k = FitCount(rows.Count, n => call.Fits(Render(n)), RecordCost(call, record([]), rows.Select(r => Serialize(r!)).ToList()));
             call.Record = record(rows.Take(k).ToList());
             call.RowPage = new RowPageState(offset, limit, k, total, Render(k), Render);
             call.Limit ??= limit;
@@ -129,13 +129,9 @@ public static partial class ToolOutput
         return lo;
     }
 
-    /// <summary>How many of <paramref name="items"/> the record holds within the budget.</summary>
-    private static int RecordCost(OutputCall call, object record, List<JsonNode?> items)
-    {
-        var node = Serialize(record) as JsonObject;
-        if (node?["items"] is JsonArray a) a.Clear();
-        return Fitting(call, node?.ToJsonString(Wire) ?? "{}", items.Select(i => i?.ToJsonString(Wire) ?? "null").ToList());
-    }
+    /// <summary>How many of <paramref name="items"/> the record holds within the budget, beside <paramref name="empty"/>: the record of no rows, whichever field holds them.</summary>
+    private static int RecordCost(OutputCall call, object empty, List<JsonNode?> items) =>
+        Fitting(call, Serialize(empty)?.ToJsonString(Wire) ?? "{}", items.Select(i => i?.ToJsonString(Wire) ?? "null").ToList());
 
     /// <summary>How many item JSONs fit beside a record of <paramref name="emptyJson"/> (items empty) in the budget.</summary>
     private static int Fitting(OutputCall call, string emptyJson, List<string> items)
