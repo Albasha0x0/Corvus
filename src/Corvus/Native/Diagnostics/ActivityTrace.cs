@@ -134,13 +134,17 @@ public sealed class EventTraceSource : IActivityTraceSource
         private readonly TraceEventSession _session;
         private readonly Task _pump;
         private long _lastEvent = Environment.TickCount64;
+        private readonly int _processId;
+        private readonly ManualResetEventSlim _processStopped = new();
 
         public Trace(TraceEventSession session, ActivityDecoder decoder, Action<ActivityEntry> record)
         {
             _session = session;
+            _processId = decoder.ProcessId;
             session.Source.Dynamic.All += e =>
             {
                 Volatile.Write(ref _lastEvent, Environment.TickCount64);
+                if (e.ProviderGuid == KernelProcess && (int)e.ID == 2 && e.ProcessID == _processId) _processStopped.Set(); // ProcessStop
                 if (Decode(decoder, e) is { } entry) record(entry);
             };
             _pump = Task.Factory.StartNew(() => session.Source.Process(), CancellationToken.None, TaskCreationOptions.LongRunning, TaskScheduler.Default);
@@ -150,6 +154,9 @@ public sealed class EventTraceSource : IActivityTraceSource
         {
             try { _session.Flush(); }
             catch (Exception e) when (e is COMException or InvalidOperationException) { /* already stopped */ }
+            // a flush can leave the traced program's last events more than a second behind: once it has ended, wait for its
+            // stop event (at most 10 s), which follows them
+            if (!Alive(_processId)) await Task.Run(() => _processStopped.Wait(10_000)).ConfigureAwait(false);
             // flushed buffers reach a real-time consumer up to a second later: wait that long, then for a quiet spell, at most 4 s
             var flushed = Environment.TickCount64;
             while (Environment.TickCount64 - flushed < 4_000
