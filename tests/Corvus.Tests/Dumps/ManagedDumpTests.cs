@@ -317,4 +317,61 @@ public sealed class ManagedDumpTests
             [Clr(readOnce, 0x100, "Readers.ReadOnce"), Clr(readOnce, 0x180, "Readers.ReadOnce")]);
         Assert.Equal(2, recursive.Count(f => f.Managed != null));
     }
+
+    /// <summary>A single-file app links the runtime into its executable, which exports DotNetRuntimeInfo; an apphost does not.</summary>
+    [WindowsHostPackFact]
+    public void A_single_file_host_is_the_runtime_module()
+    {
+        foreach (var (file, hosts) in new[] { ("singlefilehost.exe", true), ("apphost.exe", false) })
+        {
+            var memory = new ImageMemory(SyntheticCrashX86.Mapped(File.ReadAllBytes(WindowsHostPackFactAttribute.File(file)!)), @"C:\app\app.exe");
+            Assert.Equal(hosts, ClrDecoder.RuntimeModule(memory) != null);
+            Assert.Equal(hosts, MinidumpService.HostsClr(memory, out var runtime));
+            Assert.Equal(hosts ? ".NET (CoreCLR, single-file)" : null, runtime);
+        }
+    }
+
+    /// <summary>One image mapped at <see cref="Loaded"/>, as a process holding only its executable.</summary>
+    private sealed class ImageMemory(byte[] image, string path) : IProcessMemory
+    {
+        private readonly DumpModule _module = new(Loaded, (uint)image.Length, 0, 0, path, null, null, null);
+        public Corvus.Native.NativeArch Arch => Corvus.Native.NativeArch.X64;
+        public bool Is64Bit => true;
+        public string Identity => path;
+        public IReadOnlyList<DumpModule> Modules => [_module];
+        public IReadOnlyList<DumpUnloadedModule> UnloadedModules => [];
+
+        public int ReadMemory(ulong address, Span<byte> destination)
+        {
+            if (!_module.Contains(address)) return 0;
+            var from = image.AsSpan((int)(address - Loaded));
+            int n = Math.Min(from.Length, destination.Length);
+            from[..n].CopyTo(destination);
+            return n;
+        }
+
+        public DumpModule? ModuleAt(ulong address) => _module.Contains(address) ? _module : null;
+        public DumpMemoryRegion? RegionAt(ulong address) => null;
+        public ulong ReadableExtent(ulong start, ulong size) => 0;
+    }
+}
+
+/// <summary>Runs when the SDK holds the Windows x64 apphost pack (apphost.exe and singlefilehost.exe).</summary>
+public sealed class WindowsHostPackFactAttribute : FactAttribute
+{
+    public WindowsHostPackFactAttribute()
+    {
+        if (File("singlefilehost.exe") == null || File("apphost.exe") == null) Skip = "The SDK has no Microsoft.NETCore.App.Host.win-x64 pack.";
+    }
+
+    /// <summary>A file of the newest Windows x64 apphost pack; null without one.</summary>
+    public static string? File(string name)
+    {
+        var root = new DirectoryInfo(RuntimeEnvironment.GetRuntimeDirectory());
+        while (root != null && !Directory.Exists(Path.Combine(root.FullName, "packs"))) root = root.Parent;
+        var pack = root == null ? null : new DirectoryInfo(Path.Combine(root.FullName, "packs", "Microsoft.NETCore.App.Host.win-x64"));
+        return pack is { Exists: true }
+            ? pack.EnumerateDirectories().OrderByDescending(d => d.Name).Select(d => Path.Combine(d.FullName, "runtimes", "win-x64", "native", name)).FirstOrDefault(System.IO.File.Exists)
+            : null;
+    }
 }

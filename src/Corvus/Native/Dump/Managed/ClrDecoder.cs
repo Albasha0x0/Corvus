@@ -51,9 +51,38 @@ public sealed class ClrDecoder : IDisposable
         _backend = backend;
     }
 
-    /// <summary>The CLR flavor a dump hosts (CoreCLR or .NET Framework), from its runtime module; null for none.</summary>
+    /// <summary>
+    /// The module that hosts the CLR: coreclr.dll or clr.dll, else a single-file app's executable, which links the runtime
+    /// in and exports DotNetRuntimeInfo; null for none.
+    /// </summary>
     public static DumpModule? RuntimeModule(IProcessMemory dump) =>
-        dump.Modules.FirstOrDefault(m => m.FileName.Equals("coreclr.dll", StringComparison.OrdinalIgnoreCase) || m.FileName.Equals("clr.dll", StringComparison.OrdinalIgnoreCase));
+        dump.Modules.FirstOrDefault(m => m.FileName.Equals("coreclr.dll", StringComparison.OrdinalIgnoreCase) || m.FileName.Equals("clr.dll", StringComparison.OrdinalIgnoreCase))
+        ?? dump.Modules.FirstOrDefault(m => m.FileName.EndsWith(".exe", StringComparison.OrdinalIgnoreCase) && Exports(dump, m.Base, SingleFileRuntimeExport));
+
+    private const string SingleFileRuntimeExport = "DotNetRuntimeInfo";
+
+    /// <summary>Whether the image mapped at <paramref name="imageBase"/> exports <paramref name="name"/>, read from the process's memory.</summary>
+    private static bool Exports(IProcessMemory memory, ulong imageBase, string name)
+    {
+        uint U32(ulong at)
+        {
+            Span<byte> b = stackalloc byte[4];
+            return memory.ReadMemory(at, b) == 4 ? System.Buffers.Binary.BinaryPrimitives.ReadUInt32LittleEndian(b) : 0;
+        }
+        var nt = imageBase + U32(imageBase + 0x3C);
+        if (U32(nt) != 0x4550) return false; // "PE\0\0"
+        Span<byte> magic = stackalloc byte[2];
+        if (memory.ReadMemory(nt + 0x18, magic) != 2) return false;
+        var exportDir = nt + 0x18 + (magic[0] == 0x0B && magic[1] == 0x02 ? 0x70u : 0x60u); // PE32+ or PE32
+        var dir = U32(exportDir);
+        if (dir == 0) return false;
+        uint count = Math.Min(U32(imageBase + dir + 0x18), 100_000), names = U32(imageBase + dir + 0x20);
+        var want = System.Text.Encoding.ASCII.GetBytes(name + "\0");
+        Span<byte> got = stackalloc byte[want.Length];
+        for (uint i = 0; i < count; i++)
+            if (memory.ReadMemory(imageBase + U32(imageBase + names + 4 * i), got) == got.Length && got.SequenceEqual(want)) return true;
+        return false;
+    }
 
     /// <summary>
     /// Opens the CLR of <paramref name="dump"/> (which the decoder then owns). Null when the process hosts no CLR. A DAC
@@ -67,7 +96,7 @@ public sealed class ClrDecoder : IDisposable
             dump.Dispose();
             return null;
         }
-        string flavor = module.FileName.Equals("coreclr.dll", StringComparison.OrdinalIgnoreCase) ? "CoreCLR" : ".NET Framework CLR";
+        string flavor = module.FileName.Equals("clr.dll", StringComparison.OrdinalIgnoreCase) ? ".NET Framework CLR" : "CoreCLR";
         ClrDecoder Fail(string status, string detail)
         {
             dump.Dispose();
@@ -121,12 +150,7 @@ public sealed class ClrDecoder : IDisposable
         var target = new DataTarget(new CustomDataTarget(reader) { FileLocator = new LocalImageLocator([]) });
         try
         {
-            // a single-file app hosts the runtime in its own executable: ClrMD finds it by the runtime's export
-            ClrInfo? found;
-            try { found = target.ClrVersions.FirstOrDefault(); }
-            catch (Exception ex) when (ex is not OperationCanceledException) { found = null; }
-            var module = RuntimeModule(reader.Process)
-                         ?? (found == null ? null : reader.Process.Modules.FirstOrDefault(m => m.Base == found.ModuleInfo.ImageBase));
+            var module = RuntimeModule(reader.Process);
             if (module == null)
             {
                 target.Dispose();

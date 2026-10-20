@@ -303,7 +303,9 @@ public sealed partial class MinidumpService(AssemblyWorkspace? workspace = null,
             };
             if (runtime != null) return true;
         }
-        return false;
+        if (Native.Dump.Managed.ClrDecoder.RuntimeModule(dump) == null) return false;
+        runtime = ".NET (CoreCLR, single-file)";
+        return true;
     }
 
     internal async Task<Location> Locate(Session s, ulong address, bool returnAddress, CancellationToken ct)
