@@ -40,7 +40,11 @@ public sealed partial class LiveSessionTools(ServerOptions options, LiveSessionS
     {
         public IReadOnlyList<LiveProcessRow>? Processes { get; init; }
         public LiveSnapshot? Snapshot { get; init; }
+        public IReadOnlyList<LiveChildRow>? Children { get; init; }
     }
+
+    public sealed record LiveChildRow(int ProcessId, string Path, string CommandLine,
+        [property: Description("held, attached, running or resumed.")] string State, string? Session);
 
     public sealed record LiveStopPoint(string Id,
         [property: Description("As given: a name, module!export, address or file:line.")] string Where,
@@ -93,7 +97,7 @@ public sealed partial class LiveSessionTools(ServerOptions options, LiveSessionS
     }
 
     public sealed record LiveEvent(long Sequence,
-        [property: Description("stop, call, script, exception, module, thread, output, error or exit.")] string Kind,
+        [property: Description("stop, call, script, exception, module, thread, child, output, error or exit.")] string Kind,
         string? Thread, string? Address, string? Name, string Text);
 
     public sealed record LiveEventPage(string Session, IReadOnlyList<LiveEvent> Items,
@@ -104,15 +108,17 @@ public sealed partial class LiveSessionTools(ServerOptions options, LiveSessionS
     }
 
     [McpServerTool(Name = "live_session", Title = "Session on a local program", UseStructuredContent = true, OutputSchemaType = typeof(LiveSessionReport))]
-    [Description("Open, list, inspect or close a session on a local program. Returns the session id, the backend, and the program's modules matched to loaded images; snapshot saves the process as a dump for the dump tools.")]
+    [Description("Open, list, inspect or close a session on a local program. Returns the session id, the backend, and the program's modules matched to loaded images; snapshot saves the process as a dump for the dump tools. followChildren holds child processes for attach_child.")]
     public Task<string> LiveSession(
-        [Description("list, processes, attach, spawn, status, snapshot or close.")] string action = "list",
-        [Description("attach: process id or name; spawn: program path, started suspended; processes: a name filter.")] string? program = null,
+        [Description("list, processes, attach, spawn, status, snapshot, close, children, attach_child or release_child.")] string action = "list",
+        [Description("attach: process id or name; spawn: program path, started suspended; processes: a name filter; *_child: child pid.")] string? program = null,
         [Description("spawn: program arguments.")] string[]? arguments = null,
         [Description("spawn: extra NAME=value variables for the program.")] string[]? environment = null,
         [Description(SessionDescription)] string? session = null,
         [Description("snapshot: the dump file (default: the temp folder).")] string? outputPath = null,
         [Description("Replace outputPath if it exists.")] bool overwrite = false,
+        [Description("Hold child processes at their start.")] bool followChildren = false,
+        [Description("Hold only children with these image names; implies followChildren.")] string[]? childNames = null,
         CancellationToken cancellationToken = default) =>
         Task.Run(async () =>
         {
@@ -132,9 +138,22 @@ public sealed partial class LiveSessionTools(ServerOptions options, LiveSessionS
                 case "attach" or "spawn":
                     if (string.IsNullOrWhiteSpace(program))
                         throw new ToolError(ErrorCode.InvalidArgument, $"action={a} needs program.", a == "spawn" ? "program=<path to the program>" : "program=<process id or name>");
+                    var names = childNames?.Where(n => !string.IsNullOrWhiteSpace(n)).Select(n => n.Trim()).ToList();
                     var opened = await live.OpenAsync(a == "spawn", Scoped(a == "spawn", program), arguments ?? [], cancellationToken,
-                        a == "spawn" ? environment : null).ConfigureAwait(false);
+                        a == "spawn" ? environment : null, followChildren || names is { Count: > 0 } ? names ?? [] : null).ConfigureAwait(false);
                     return Report(a, opened);
+                case "children":
+                    return Report(a, live.Get(RequireSession(session)));
+                case "attach_child" or "release_child":
+                    var parent = live.Get(RequireSession(session));
+                    var pid = ChildId(program);
+                    if (options.LiveAllow.Count > 0) LiveProgramScope.Attach(pid.ToString(CultureInfo.InvariantCulture), options.LiveAllow);
+                    if (a == "release_child")
+                    {
+                        await live.ReleaseChildAsync(parent, pid, cancellationToken).ConfigureAwait(false);
+                        return Report(a, parent);
+                    }
+                    return Report(a, await live.AttachChildAsync(parent, pid, cancellationToken).ConfigureAwait(false));
                 case "status":
                     var current = live.Get(RequireSession(session));
                     await live.RefreshModulesAsync(current, cancellationToken).ConfigureAwait(false);
@@ -146,7 +165,7 @@ public sealed partial class LiveSessionTools(ServerOptions options, LiveSessionS
                     await live.CloseAsync(closing, "closed by request").ConfigureAwait(false);
                     return Report(a, closing);
                 default:
-                    throw new ToolError(ErrorCode.InvalidArgument, $"Unknown action '{action}'.", "action=list, processes, attach, spawn, status, snapshot or close");
+                    throw new ToolError(ErrorCode.InvalidArgument, $"Unknown action '{action}'.", "action=list, processes, attach, spawn, status, snapshot, close, children, attach_child or release_child");
             }
         }, cancellationToken);
 
@@ -196,6 +215,10 @@ public sealed partial class LiveSessionTools(ServerOptions options, LiveSessionS
         return rows.OrderBy(r => r.Name, StringComparer.OrdinalIgnoreCase).ThenBy(r => r.ProcessId).ToList();
     }
 
+    private static int ChildId(string? program) =>
+        int.TryParse(program?.Trim(), NumberStyles.None, CultureInfo.InvariantCulture, out var pid) && pid > 0 ? pid
+            : throw new ToolError(ErrorCode.InvalidArgument, "This action needs the child's process id as program.", "program=<pid from live_session action=children>");
+
     private static string RequireSession(string? session) =>
         string.IsNullOrWhiteSpace(session) ? throw new ToolError(ErrorCode.InvalidArgument, "This action needs session.", "session=<id from live_session action=list>") : session;
 
@@ -207,10 +230,22 @@ public sealed partial class LiveSessionTools(ServerOptions options, LiveSessionS
         var text = new StringBuilder($"{s.Id} ({s.Backend}): {s.Program} pid {s.ProcessId}, {s.State}");
         if (s.Ended != null) text.Append($" ({s.Ended})");
         if (s.State == "suspended") text.Append("; set stop points, then live_break action=continue starts it");
+        if (s.HeldBy != null && s.State == "suspended") text.Append($" (held by {s.HeldBy.Id})");
         text.AppendLine();
-        text.AppendLine($"{rows.Count} modules, {rows.Count(r => r.Image != null)} matched to loaded images:");
-        foreach (var m in rows) text.AppendLine($"  {m.Base} {m.Name}{(m.Image != null ? "  = " + m.Image : "")}");
-        return ToolOutput.With(text.ToString(), new LiveSessionReport(action, s.Id, s.Backend, s.Program, s.ProcessId, s.State, rows, []));
+        List<LiveChildRow>? children = null;
+        if (s.ChildNames != null)
+        {
+            lock (s.Children) children = s.Children.Select(c => new LiveChildRow(c.ProcessId, c.Path, c.CommandLine, c.State, c.Session)).ToList();
+            text.AppendLine($"follows child processes{(s.ChildNames.Count > 0 ? " named " + string.Join(", ", s.ChildNames) : "")}: {children.Count} started, {children.Count(c => c.State == "held")} held");
+            foreach (var c in children) text.AppendLine($"  pid {c.ProcessId} {c.State}{(c.Session != null ? " in " + c.Session : "")}: {c.CommandLine}");
+        }
+        if (action != "children")
+        {
+            text.AppendLine($"{rows.Count} modules, {rows.Count(r => r.Image != null)} matched to loaded images:");
+            foreach (var m in rows) text.AppendLine($"  {m.Base} {m.Name}{(m.Image != null ? "  = " + m.Image : "")}");
+        }
+        else if (children == null) text.AppendLine("does not follow child processes: open the session with followChildren=true");
+        return ToolOutput.With(text.ToString(), new LiveSessionReport(action, s.Id, s.Backend, s.Program, s.ProcessId, s.State, action == "children" ? [] : rows, []) { Children = children });
     }
 
     [McpServerTool(Name = "live_break", Title = "Stop points in a session", UseStructuredContent = true, OutputSchemaType = typeof(LiveStopPointReport))]
@@ -640,7 +675,7 @@ public sealed partial class LiveSessionTools(ServerOptions options, LiveSessionS
             return FitPage(rows.Count, Render);
         }, cancellationToken);
 
-    private static readonly string[] EventKinds = ["stop", "call", "script", "exception", "module", "thread", "output", "error", "exit"];
+    private static readonly string[] EventKinds = ["stop", "call", "script", "exception", "module", "thread", "child", "output", "error", "exit"];
 
     /// <summary>
     /// A cursor page cut to the call's output budget by rows, before its cursor is set: the cursor follows the last row shown,

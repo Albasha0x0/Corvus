@@ -113,6 +113,36 @@
         "dump"
       ]
     },
+    "children": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "processId": {
+            "type": "integer"
+          },
+          "path": {
+            "type": "string"
+          },
+          "commandLine": {
+            "type": "string"
+          },
+          "state": {
+            "description": "held, attached, running or resumed.",
+            "type": "string"
+          },
+          "session": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "processId",
+          "path",
+          "commandLine",
+          "state"
+        ]
+      }
+    },
     "notices": {
       "type": "array",
       "items": {

@@ -32,11 +32,11 @@ public static partial class ParameterDomains
     private static Dictionary<string, IReadOnlyDictionary<string, Domain>> LiveTools() => new(StringComparer.Ordinal)
     {
         ["inspect_process"] = new Dictionary<string, Domain> { ["regionFilter"] = Of(["committed", "all", "executable", "writable", "image", "private", "mapped"]) },
-        ["live_session"] = new Dictionary<string, Domain> { ["action"] = Of(["list", "processes", "attach", "spawn", "status", "snapshot", "close"]) },
+        ["live_session"] = new Dictionary<string, Domain> { ["action"] = Of(["list", "processes", "attach", "spawn", "status", "snapshot", "close", "children", "attach_child", "release_child"]) },
         ["live_break"] = new Dictionary<string, Domain> { ["action"] = Of(["list", "set", "clear", "continue"]) },
         ["live_watch"] = new Dictionary<string, Domain> { ["action"] = Of(["list", "set", "clear"]) },
         ["live_script"] = new Dictionary<string, Domain> { ["action"] = Of(["list", "load", "unload"]) },
-        ["live_events"] = new Dictionary<string, Domain> { ["kind"] = Of(["stop", "call", "script", "exception", "module", "thread", "output", "error", "exit"]) },
+        ["live_events"] = new Dictionary<string, Domain> { ["kind"] = Of(["stop", "call", "script", "exception", "module", "thread", "child", "output", "error", "exit"]) },
         ["live_coverage"] = new Dictionary<string, Domain>
         {
             ["action"] = Of(["start", "stop", "list", "report", "diff"]), ["show"] = Of(["ran", "missed", "all"]), ["format"] = Of(["text", "dot"]),

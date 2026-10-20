@@ -390,6 +390,39 @@ internal static class LivePrograms
         }
         """;
 
+    /// <summary>launcher program [arguments]: starts the program as a child process, waits for it, prints its exit code and returns it.</summary>
+    public const string Launcher = Platform + """
+        #include <string.h>
+        #ifndef _WIN32
+        #include <sys/wait.h>
+        #endif
+        int main(int argc, char** argv)
+        {
+            int code;
+            if (argc < 2) return 2;
+        #ifdef _WIN32
+            char line[8192] = "";
+            for (int i = 1; i < argc; i++) { strcat(line, "\""); strcat(line, argv[i]); strcat(line, "\" "); }
+            STARTUPINFOA si = { sizeof si };
+            PROCESS_INFORMATION pi;
+            if (!CreateProcessA(NULL, line, NULL, NULL, FALSE, 0, NULL, NULL, &si, &pi)) { printf("start failed %lu\n", GetLastError()); return 2; }
+            DWORD status = 0;
+            WaitForSingleObject(pi.hProcess, INFINITE);
+            GetExitCodeProcess(pi.hProcess, &status);
+            code = (int)status;
+        #else
+            pid_t pid = fork();
+            if (pid == 0) { execv(argv[1], argv + 1); _exit(127); }
+            int status = 0;
+            waitpid(pid, &status, 0);
+            code = WIFEXITED(status) ? WEXITSTATUS(status) : 128;
+        #endif
+            printf("child exited %d\n", code);
+            fflush(stdout);
+            return code;
+        }
+        """;
+
     /// <summary>What workers prints for <paramref name="calls"/> calls per thread.</summary>
     public static long WorkersTotal(int calls) => WorkerThreads * Enumerable.Range(0, calls).Sum(i => (long)(i % 7));
 

@@ -38,6 +38,10 @@ internal sealed class ScriptedLiveBackend(string mainPath, ulong mainBase, uint 
     public string Arch { get; init; } = "x64";
     /// <summary>Runs before the reply to a resume, as when a resumed thread stops again before the worker answers.</summary>
     public Action? BeforeResumeReply { get; set; }
+    /// <summary>Child processes the program started: an attach by one of these ids reports that id.</summary>
+    public readonly HashSet<int> ChildPids = [];
+    /// <summary>The child process ids resume_child let run, in order.</summary>
+    public readonly List<int> ChildResumes = [];
 
     public string Name => "scripted";
     public (string Reason, string Remediation)? Unavailable() => Missing == null ? null : (Missing, "install it");
@@ -93,6 +97,17 @@ internal sealed class ScriptedLiveBackend(string mainPath, ulong mainBase, uint 
         ["rows"] = new JsonArray(rows.Select(r => (JsonNode)new JsonArray(r.Thread, r.Ms, $"0x{r.Caller:x}", new JsonArray(r.Args.Select(a => (JsonNode?)a).ToArray()), r.Ret)).ToArray()),
     });
 
+    /// <summary>The program starting a child process, as the worker reports it while the session follows children.</summary>
+    public void Child(FakeWorkerProcess worker, int pid, string path, bool held)
+    {
+        lock (ChildPids) ChildPids.Add(pid);
+        worker.Emit(new JsonObject
+        {
+            ["event"] = "child", ["pid"] = pid, ["parentPid"] = ProcessId, ["path"] = path, ["argv"] = new JsonArray(path, "--role", "two words"),
+            ["origin"] = "spawn", ["held"] = held,
+        });
+    }
+
     public void ScriptMessage(string id, JsonNode payload) => Worker!.Emit(new JsonObject { ["event"] = "user_script", ["script"] = id, ["payload"] = payload });
 
     private JsonNode? Handle(string op, JsonObject args)
@@ -106,9 +121,11 @@ internal sealed class ScriptedLiveBackend(string mainPath, ulong mainBase, uint 
                 _suspended = args["spawn"] != null;
                 JsonNode program = new JsonObject { ["name"] = Path.GetFileName(mainPath), ["base"] = $"0x{mainBase:x}", ["size"] = mainSize, ["path"] = mainPath };
                 JsonNode system = new JsonObject { ["name"] = "system.dll", ["base"] = "0x7ffe00000000", ["size"] = 0x10000, ["path"] = "/nowhere/system.dll" };
+                int pid;
+                lock (ChildPids) pid = int.TryParse((string?)args["attach"], out var child) && ChildPids.Contains(child) ? child : ProcessId;
                 return new JsonObject
                 {
-                    ["pid"] = ProcessId, ["arch"] = Arch, ["suspended"] = args["spawn"] != null,
+                    ["pid"] = pid, ["arch"] = Arch, ["suspended"] = args["spawn"] != null,
                     ["modules"] = MainListedLast ? new JsonArray(system, program) : new JsonArray(program, system),
                 };
             case "set" or "watch" when Unhookable.Contains(Convert.ToUInt64(((string)args["address"]!)[2..], 16)):
@@ -133,6 +150,9 @@ internal sealed class ScriptedLiveBackend(string mainPath, ulong mainBase, uint 
                     }) { IsBackground = true }.Start();
                 return new JsonObject { ["loaded"] = (string)args["id"]! };
             case "unload_script": return new JsonObject { ["unloaded"] = true };
+            case "resume_child":
+                lock (ChildResumes) ChildResumes.Add((int)args["pid"]!);
+                return new JsonObject { ["resumed"] = true };
             case "resume":
                 BeforeResumeReply?.Invoke();
                 // as the worker: a program started suspended runs on the first resume of every thread

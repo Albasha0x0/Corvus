@@ -88,6 +88,7 @@ it. A session runs a worker on Frida's Python bindings
 | Step | Call |
 |---|---|
 | Start a program suspended, or attach to a running one | `live_session action=spawn program=app.exe` / `action=attach program=<pid or name>` |
+| Follow the child processes it starts | `live_session action=spawn program=launcher.exe childNames=["app.exe"]` (or `followChildren=true`), then `action=children` and `action=attach_child program=<child pid>` |
 | Set stop points before it runs | `live_break action=set at=Orders::AddLine` (or `module!export`, `AddLine+0x1B`, `orders.c:42`, an image or live address) |
 | Run to the next stop | `live_break action=continue wait=true` |
 | Read the held thread | `live_read registers=rcx,rdx memory=rcx type=int32[2]` |
@@ -128,6 +129,19 @@ exit code the system reports (`exit code 0xC0000005 (EXCEPTION_ACCESS_VIOLATION)
 instruction, stack overflow or arithmetic fault waits until the server has its `exception` event, so a crash keeps its
 address; when no event came, one is recorded from the exit code, without an address. Stack values that cannot be
 return addresses (small values, header bytes, non-executable pages) are left out of a stop's frames.
+
+A program that starts the real program as a child process (a launcher, an installer, a host that runs each part in a
+process of its own) is followed with `followChildren=true` on spawn or attach, as Frida's child gating, WinDbg's
+`.childdbg 1` and GDB's `follow-fork-mode child` follow one. Each child the program starts is held at its start, before
+its first instruction runs, and reported as a `child` event with its process id and image path; `action=children` lists
+them with their command lines. `childNames=["app.exe"]` (or `app`) holds only children with those image names; the
+others run at once. `action=attach_child program=<pid>` opens a session of its own on a held child, still held, so its
+stop points, watches, coverage and timeline are in place before it runs; that session's first `live_break
+action=continue` starts it, and it follows its own children as its parent does. `action=release_child` lets a child run
+unobserved. A child never stays suspended: when the session closes (by request, at its deadline or with the server),
+every child it still holds runs on, an attached child whose session has not continued too, and a child session closed
+before its first continue goes back to its parent's hold. On Linux a child is reported at its `exec`, by the program it
+runs; a fork that runs on without one is not held.
 
 A watch records each call's arguments and return value without stopping the program. They are decoded from, in order:
 the known-API table (parameter names, ANSI and wide strings, flags and enumerations by name: `dwDesiredAccess=GENERIC_READ`),

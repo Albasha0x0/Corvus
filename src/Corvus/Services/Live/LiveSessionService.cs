@@ -117,6 +117,12 @@ public sealed class LiveSession
     public long Dropped { get; private set; }
     /// <summary>Exception events recorded, dropped ones included.</summary>
     public long Exceptions { get; private set; }
+    /// <summary>Image names a followed child must have to be held (empty: every child); null when children are not followed.</summary>
+    public IReadOnlyList<string>? ChildNames { get; internal set; }
+    /// <summary>Processes the program started while the session follows child processes.</summary>
+    public List<LiveChild> Children { get; } = [];
+    /// <summary>The session whose gate holds this program at its start, until this session's first continue.</summary>
+    public LiveSession? HeldBy { get; internal set; }
 
     public string State
     {
@@ -262,7 +268,7 @@ public sealed partial class LiveSessionService(AssemblyWorkspace workspace, Nati
 
     /// <summary>Attaches to a process (id or name) or starts <paramref name="program"/>; returns the open session.</summary>
     public async Task<LiveSession> OpenAsync(bool spawn, string program, IReadOnlyList<string> arguments, CancellationToken ct,
-        IReadOnlyList<string>? environment = null)
+        IReadOnlyList<string>? environment = null, IReadOnlyList<string>? childNames = null)
     {
         if (_sessions.Values.Count(s => !s.Closed) >= MaxSessions)
             throw new ToolError(ErrorCode.LimitExceeded, $"{MaxSessions} sessions are open.", "close one with live_session action=close");
@@ -293,6 +299,11 @@ public sealed partial class LiveSessionService(AssemblyWorkspace workspace, Nati
                     ["environment"] = ProgramEnvironment(environment ?? []),
                 }
                 : new JsonObject { ["attach"] = target };
+            if (childNames != null)
+            {
+                session.ChildNames = childNames;
+                args["children"] = new JsonObject { ["names"] = new JsonArray([.. childNames.Select(n => (JsonNode)n)]) };
+            }
             var info = await worker.RequestAsync("open", args, RequestTimeout, ct).ConfigureAwait(false);
             session.ProcessId = info.GetProperty("pid").GetInt32();
             if (OperatingSystem.IsWindows())
@@ -362,6 +373,7 @@ public sealed partial class LiveSessionService(AssemblyWorkspace workspace, Nati
                 EndTimeline(session);
                 session.Add("exit", null, null, session.Ended);
             }
+            if (!session.Closed) ResumeChildrenDirectly(session);
         }, TaskScheduler.Default);
         return session;
     }
@@ -539,6 +551,9 @@ public sealed partial class LiveSessionService(AssemblyWorkspace workspace, Nati
                 break;
             case "output":
                 session.Add("output", null, null, $"{body.GetProperty("stream").GetString()}: {body.GetProperty("text").GetString()}");
+                break;
+            case "child":
+                ChildStarted(session, body);
                 break;
             case "script_error":
                 session.Add("error", null, null, "session script: " + body.GetProperty("message").GetString());
@@ -1196,6 +1211,7 @@ public sealed partial class LiveSessionService(AssemblyWorkspace workspace, Nati
         var resumed = r.GetProperty("resumed").EnumerateArray().Select(x => x.GetInt64()).ToList();
         session.Release(resumed, upTo);
         var started = r.GetProperty("started").GetBoolean();
+        if (thread == null && session.HeldBy != null && session.Suspended) started = await StartHeldChildAsync(session, ct).ConfigureAwait(false);
         if (started) session.Suspended = false;
         return (resumed, started);
     }
@@ -1252,6 +1268,7 @@ public sealed partial class LiveSessionService(AssemblyWorkspace workspace, Nati
         session.Add("exit", null, null, "session closed (" + reason + ")");
         session.Deadline?.Dispose();
         session.ExitCheck?.Dispose();
+        await CloseChildrenAsync(session).ConfigureAwait(false);
         if (session.Worker.IsAlive)
             await session.Worker.ShutdownAsync("close", new JsonObject { ["end"] = session.Spawned }, TimeSpan.FromSeconds(5)).ConfigureAwait(false);
         session.Worker.Dispose();

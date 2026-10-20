@@ -1,13 +1,16 @@
 """Session worker: a local program observed through Frida, on the worker protocol (one JSON object per line).
 
-Ops: hello; open {attach | spawn, arguments, cwd, temp, tmp}; info; set {id, address}; clear {id}; watch {id, address, args,
+Ops: hello; open {attach | spawn, arguments, cwd, temp, tmp, children}; info; set {id, address}; clear {id}; watch {id, address, args,
 perSecond}; unwatch {id}; defer_module {name}; undefer_module {name}; release_load {thread}; load_script {id, source};
-unload_script {id}; read {address, length}; resume {thread}; close.
-Events: ready, stop (with stack: the bytes from the stack pointer up, outside Windows), calls, module, thread, exception, exit_status, output, exit, script_error, user_script.
+unload_script {id}; read {address, length}; resume {thread}; resume_child {pid}; close.
+Events: ready, stop (with stack: the bytes from the stack pointer up, outside Windows), calls, module, thread, exception, exit_status, output, exit, script_error, user_script, child.
 A program started here stays suspended until the first resume; close resumes every held thread, and ends the
 program only when this worker started it. A module named by defer_module holds its loading thread (module event with
 held) until release_load; a fatal exception event, and exit_status {code}, hold their thread until the
 worker has read them.
+With children {names} on open, a program the process starts is held at its start (Frida's child gating) and reported
+as a child event; one whose image name is not in names (when given) is resumed at once. resume_child lets a held child
+run; close resumes every child still held.
 """
 import json
 import sys
@@ -54,6 +57,9 @@ class Session:
         self.loading = set()  # threads held at the load of a deferred module
         self.lock = threading.Lock()
         self.user_scripts = {}
+        self.children = {}  # pid of each held child to its path
+        self.forks = {}  # pid of each fork followed to its exec (outside Windows) to its session
+        self.child_names = None  # lower-case image names (with or without extension) to hold; None holds every child
 
     def on_message(self, message, data):
         if message.get("type") == "error":
@@ -84,6 +90,83 @@ class Session:
         if pid == self.pid and data:
             text = data[:OUTPUT_CHUNK].decode("utf-8", "replace")
             emit({"event": "output", "stream": "stdout" if fd == 1 else "stderr", "text": text, "bytes": len(data)})
+
+    def on_child_added(self, child):
+        # Frida's signal thread must not wait on a call that needs it: the attach and resume run on a thread of their own
+        threading.Thread(target=self.child_added, args=(child,), daemon=True).start()
+
+    def child_added(self, child):
+        origin = str(child.origin)
+        with self.lock:
+            fork = self.forks.pop(child.pid, None) if origin == "exec" else None
+            nested = origin != "exec" and child.parent_pid in self.forks
+        if nested:  # a fork's own child, before the fork ran a program: not followed
+            self.resume_quietly(child.pid)
+            return
+        if fork is not None:
+            self.detach_quietly(fork)
+        elif child.parent_pid != self.pid:
+            return
+        elif origin == "fork":
+            # a fork names no program until its exec: it is followed there, and held (or not) as the program it runs
+            session = None
+            try:
+                session = self.device.attach(child.pid)
+                session.enable_child_gating()
+                with self.lock:
+                    if not self.closing:
+                        self.forks[child.pid], session = session, None
+            except (frida.InvalidOperationError, frida.ProcessNotFoundError, frida.PermissionDeniedError):
+                pass
+            if session is not None:  # the close began meanwhile: the fork runs on unobserved
+                self.detach_quietly(session)
+            self.resume_quietly(child.pid)
+            return
+        path = child.path or (child.argv[0] if child.argv else child.identifier) or ""
+        name = path.replace("\\", "/").rsplit("/", 1)[-1].lower()
+        held = self.child_names is None or name in self.child_names or name.rsplit(".", 1)[0] in self.child_names
+        if held:
+            with self.lock:
+                held = not self.closing
+                if held:
+                    self.children[child.pid] = path
+        emit({"event": "child", "pid": child.pid, "parentPid": self.pid, "path": path, "argv": list(child.argv or []),
+              "origin": origin, "held": held})
+        if not held:
+            self.resume_quietly(child.pid)
+
+    def resume_quietly(self, pid):
+        try:
+            self.device.resume(pid)
+        except (frida.InvalidOperationError, frida.ProcessNotFoundError):
+            pass
+
+    @staticmethod
+    def detach_quietly(session):
+        try:
+            session.detach()
+        except frida.InvalidOperationError:
+            pass
+
+    def resume_child(self, args):
+        self.require()
+        pid = int(args["pid"])
+        with self.lock:
+            held = self.children.pop(pid, None) is not None
+        if held:
+            self.device.resume(pid)
+        return {"resumed": held}
+
+    def resume_children(self):
+        with self.lock:
+            pids = list(self.children)
+            forks = list(self.forks.values())
+            self.children.clear()
+            self.forks.clear()
+        for pid in pids:
+            self.resume_quietly(pid)
+        for fork in forks:
+            self.detach_quietly(fork)
 
     def on_detached(self, reason, crash):
         self.exited = str(reason) == "process-terminated"
@@ -123,6 +206,12 @@ class Session:
             except (frida.ProcessNotFoundError, frida.PermissionDeniedError) as e:
                 raise Failure("not_found" if isinstance(e, frida.ProcessNotFoundError) else "access_denied", str(e))
             self.session.on("detached", self.on_detached)
+            children = args.get("children")
+            if children is not None:
+                names = [str(n).lower() for n in (children.get("names") or []) if n]
+                self.child_names = set(names) if names else None
+                self.device.on("child-added", self.on_child_added)
+                self.session.enable_child_gating()
             with open(self.agent_path, "r", encoding="utf-8") as f:
                 source = f.read()
             self.script = self.session.create_script(source)
@@ -251,6 +340,8 @@ class Session:
                     self.script.unload()
             except frida.InvalidOperationError:
                 pass
+        # a held child never stays suspended: it runs on, unobserved unless a session of its own holds it
+        self.resume_children()
         if self.session is not None:
             try:
                 self.session.detach()
@@ -303,6 +394,8 @@ def handle(state, op, args):
         return {"bytes": None if data is None else bytes(data).hex()}
     if op == "resume":
         return state.resume(args)
+    if op == "resume_child":
+        return state.resume_child(args)
     if op == "close":
         return state.close(args)
     if op == "cancel":

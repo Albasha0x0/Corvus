@@ -2837,19 +2837,21 @@ Structured output: `processId`, `name`, `view`, `path`, `architecture`, `wow64`,
 
 **Session on a local program** (edit, open-world)
 
-Open, list, inspect or close a session on a local program. Returns the session id, the backend, and the program's modules matched to loaded images; snapshot saves the process as a dump for the dump tools.
+Open, list, inspect or close a session on a local program. Returns the session id, the backend, and the program's modules matched to loaded images; snapshot saves the process as a dump for the dump tools. followChildren holds child processes for attach_child.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `action` | string |  | `list` | list, processes, attach, spawn, status, snapshot or close. Values: list, processes, attach, spawn, status, snapshot, close. |
-| `program` | string |  |  | attach: process id or name; spawn: program path, started suspended; processes: a name filter. |
+| `action` | string |  | `list` | list, processes, attach, spawn, status, snapshot, close, children, attach_child or release_child. Values: list, processes, attach, spawn, status, snapshot, close, children, attach_child, release_child. |
+| `program` | string |  |  | attach: process id or name; spawn: program path, started suspended; processes: a name filter; *_child: child pid. |
 | `arguments` | string[] |  |  | spawn: program arguments. |
 | `environment` | string[] |  |  | spawn: extra NAME=value variables for the program. |
 | `session` | string |  |  | Session id from live_session. |
 | `outputPath` | string |  |  | snapshot: the dump file (default: the temp folder). |
 | `overwrite` | boolean |  |  | Replace outputPath if it exists. |
+| `followChildren` | boolean |  |  | Hold child processes at their start. |
+| `childNames` | string[] |  |  | Hold only children with these image names; implies followChildren. |
 
-Structured output: `action`, `session`, `backend`, `program`, `processId`, `state`, `modules`, `sessions`, `processes`, `snapshot`.
+Structured output: `action`, `session`, `backend`, `program`, `processId`, `state`, `modules`, `sessions`, `processes`, `snapshot`, `children`.
 
 ### live_break
 
@@ -2913,7 +2915,7 @@ Page a session's event ring with a cursor and filters, so polling never re-sends
 |---|---|---|---|---|
 | `session` | string | yes |  | Session id from live_session. |
 | `cursor` | string |  |  | Cursor from an earlier page; default the oldest event kept. |
-| `kind` | string |  |  | Only this kind. Values: stop, call, script, exception, module, thread, output, error, exit. |
+| `kind` | string |  |  | Only this kind. Values: stop, call, script, exception, module, thread, child, output, error, exit. |
 | `thread` | string |  |  | Only this thread id. |
 | `from` | string |  |  | Only events of this watch or script id. |
 | `limit` | integer |  | `100` |  |
