@@ -176,7 +176,21 @@ public class ToolOutputTests
         Assert.StartsWith("{", kept);
         Assert.DoesNotContain("[More: offset=", kept);
         Assert.InRange(Tokens(r.StructuredContent!.Value.GetRawText()), 1, 2_100);
-        Assert.Matches($@"^Cut to fit: blocks \d+ of 3000 kept; read_result id={id} has the whole record$", Record(r).GetProperty("warnings")[0].GetString());
+        Assert.Matches($@"^Cut to fit: blocks \d+ of 3000(, code characters \d+ of \d+)? kept; read_result id={id} has the whole record$", Record(r).GetProperty("warnings")[0].GetString());
+    }
+
+    /// <summary>A record cut by shortening a long string (a read_result page) names that string in its warning.</summary>
+    [Fact]
+    public async Task ShortenedStringIsNamedInTheWarning()
+    {
+        using var services = Services();
+        var code = string.Concat(Enumerable.Range(0, 2_000).Select(i => $"line {i}\n"));
+        var r = await Call(services, "server_status", _ => new CallToolResult
+        {
+            Content = [new TextContentBlock { Text = ToolOutput.Report("page", new { id = "r-0", code }) }],
+        }, new() { ["maxTokens"] = 2_000 });
+        Assert.Matches($@"^Cut to fit: code characters \d+ of {code.Length} kept; read_result id=r-[0-9a-f]{{12}} has the whole record$",
+            Record(r).GetProperty("warnings")[0].GetString());
     }
 
     /// <summary>N9: a 20,000-node record is cut to its budget in a few passes (one pass per dropped row took 87 s).</summary>

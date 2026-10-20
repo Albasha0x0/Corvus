@@ -325,7 +325,11 @@ public static partial class ToolOutput
         if (best is JsonValue v)
         {
             var str = v.GetValue<string>();
+            // named as an array is, in characters
+            var key = v.GetPath().TrimStart('$', '.') + " characters";
+            int whole = cut.TryGetValue(key, out var was) ? was.Total : str.Length;
             v.ReplaceWith(str[..(str.Length / 2)] + "…");
+            cut[key] = (str.Length / 2, whole);
             return true;
         }
         if (arrays.Count == 0) return false;
