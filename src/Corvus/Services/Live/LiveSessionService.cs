@@ -1045,10 +1045,13 @@ public sealed partial class LiveSessionService(AssemblyWorkspace workspace, Nati
         lock (session.Scripts) session.Scripts[id] = origin;
         // the worker posts a top-level exception as an event after the load reply
         var prefix = id + ": error: ";
-        for (var waited = Stopwatch.StartNew(); waited.Elapsed < ScriptErrorWait; await Task.Delay(25, ct).ConfigureAwait(false))
+        // checked once more after the wait ends: a delay overrunning it on a busy machine skips no event
+        for (var waited = Stopwatch.StartNew(); ; await Task.Delay(25, ct).ConfigureAwait(false))
+        {
             if (session.Page(0, "script", null, 10, id).Events.FirstOrDefault(e => e.Text.StartsWith(prefix, StringComparison.Ordinal)) is { } failed)
                 return (id, failed.Text[(id.Length + 2)..]);
-        return (id, null);
+            if (waited.Elapsed >= ScriptErrorWait) return (id, null);
+        }
     }
 
     private static readonly TimeSpan ScriptErrorWait = TimeSpan.FromMilliseconds(300);

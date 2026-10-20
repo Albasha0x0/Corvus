@@ -123,7 +123,11 @@ internal sealed class ScriptedLiveBackend(string mainPath, ulong mainBase, uint 
             case "release_load": return new JsonObject { ["released"] = true };
             case "load_script":
                 if (((string)args["source"]!).StartsWith("throw", StringComparison.Ordinal)) // the worker posts a top-level exception after its reply
-                    _ = Task.Delay(20).ContinueWith(_ => Worker!.Emit(new JsonObject { ["event"] = "user_script", ["script"] = (string)args["id"]!, ["error"] = "Error: on purpose" }), TaskScheduler.Default);
+                    new Thread(() => // its own thread: a busy thread pool could start it after the server's wait
+                    {
+                        Thread.Sleep(20);
+                        Worker!.Emit(new JsonObject { ["event"] = "user_script", ["script"] = (string)args["id"]!, ["error"] = "Error: on purpose" });
+                    }) { IsBackground = true }.Start();
                 return new JsonObject { ["loaded"] = (string)args["id"]! };
             case "unload_script": return new JsonObject { ["unloaded"] = true };
             case "resume":
