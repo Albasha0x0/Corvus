@@ -895,7 +895,7 @@ Write an assembly with its edits to a new file, atomically (replaceOriginal=true
 | `outputPath` | string |  |  | Output path (.wasm writes Webcil for Blazor); default '<original>.patched.dll'. |
 | `overwrite` | boolean |  |  | Replace an existing file, not the original. |
 | `strict` | boolean |  |  | Write nothing if the writer would change any member (default: save and list them). |
-| `replaceOriginal` | boolean |  |  | Replace the loaded file itself (needs --allow-replace-original). |
+| `replaceOriginal` | boolean |  |  | Replace the loaded file (needs --allow-replace-original). |
 | `versioned` | boolean |  |  | Write '<name>.N.dll', the first free N. |
 
 Structured output: `outputPath`, `bytes`, `sha256`, `edits`, `backup`, `editList`.
@@ -1770,7 +1770,7 @@ Write the patched native image to a new file: unpatched bytes identical, PE chec
 | `outputPath` | string | yes |  | Output file path. |
 | `overwrite` | boolean |  |  | Replace an existing file, not the original. |
 | `stripSignature` | boolean |  |  | Remove the Authenticode certificate table from the output. |
-| `replaceOriginal` | boolean |  |  | Replace the loaded file itself (needs --allow-replace-original). |
+| `replaceOriginal` | boolean |  |  | Replace the loaded file (needs --allow-replace-original). |
 | `versioned` | boolean |  |  | Write '<name>.N.dll', the first free N. |
 
 Structured output: `outputPath`, `bytes`, `patches`, `sha256`, `checksum`, `backup`, `verified`, `notes`, `editList`.
@@ -2844,7 +2844,7 @@ Open, list, inspect or close a session on a local program. Returns the session i
 | `action` | string |  | `list` | list, processes, attach, spawn, status, snapshot or close. Values: list, processes, attach, spawn, status, snapshot, close. |
 | `program` | string |  |  | attach: process id or name; spawn: program path, started suspended; processes: a name filter. |
 | `arguments` | string[] |  |  | spawn: program arguments. |
-| `environment` | string[] |  |  | spawn: NAME=value variables for the program, beyond the minimal set and DOTNET_ROOT. |
+| `environment` | string[] |  |  | spawn: extra NAME=value variables for the program. |
 | `session` | string |  |  | Session id from live_session. |
 | `outputPath` | string |  |  | snapshot: the dump file (default: the temp folder). |
 | `overwrite` | boolean |  |  | Replace outputPath if it exists. |
@@ -2873,7 +2873,7 @@ Structured output: `session`, `stopPoints`, `stop`, `namedAddresses`.
 
 **Record calls in a session** (edit, open-world)
 
-Record every call of a function with arguments and return value, decoded by PDB or DWARF prototype or known API (flags by name), as events (live_events from=<watch>).
+Record every call of a function with arguments and return value, decoded by prototype (PDB, DWARF) or known API, as events (live_events from=<watch>).
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|

@@ -262,7 +262,7 @@ public sealed class EditTools(AssemblyWorkspace workspace, EditService edits, Ed
         [Description("Output path (.wasm writes Webcil for Blazor); default '<original>.patched.dll'.")] string? outputPath = null,
         [Description("Replace an existing file, not the original.")] bool overwrite = false,
         [Description("Write nothing if the writer would change any member (default: save and list them).")] bool strict = false,
-        [Description("Replace the loaded file itself (needs --allow-replace-original).")] bool replaceOriginal = false,
+        [Description("Replace the loaded file (needs --allow-replace-original).")] bool replaceOriginal = false,
         [Description("Write '<name>.N.dll', the first free N.")] bool versioned = false,
         CancellationToken cancellationToken = default) => Read(workspace, () =>
     {
