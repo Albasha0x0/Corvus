@@ -98,8 +98,9 @@ public sealed partial class LiveSessionService
             member = t[(bang + 1)..];
             if (modules.FirstOrDefault(m => ModuleNamed(m, name)) is { } m)
             {
-                if (Match(m) != null) return null;
-                if (Managed(m.Path) is { } asm) candidates.Add(asm);
+                if (NativeImageOf(m.Name) is { } assembly) { if (GlobalAssembly(session, assembly) is { } gac) candidates.Add(gac); }
+                else if (Match(m) != null) return null;
+                else if (Managed(m.Path) is { } asm) candidates.Add(asm);
             }
             else if (AssemblyToLoad(session, name) is { } later) candidates.Add(later);
         }
@@ -174,6 +175,24 @@ public sealed partial class LiveSessionService
         catch (Exception e) when (e is ToolError or IOException or UnauthorizedAccessException) { return null; }
     }
 
+    /// <summary>
+    /// The global assembly cache's copy of <paramref name="file"/> (the newest .NET Framework 4 version), which a
+    /// native image loaded in its place was compiled from; null when the cache has none.
+    /// </summary>
+    private LoadedAssembly? GlobalAssembly(LiveSession session, string file)
+    {
+        var root = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Windows), "Microsoft.NET", "assembly");
+        foreach (var cache in new[] { "GAC_MSIL", session.Arch is "ia32" ? "GAC_32" : "GAC_64" })
+        {
+            var dir = Path.Combine(root, cache, Path.GetFileNameWithoutExtension(file));
+            if (!Directory.Exists(dir)) continue;
+            var path = Directory.EnumerateDirectories(dir, "v4.0_*").Select(d => Path.Combine(d, file)).Where(File.Exists)
+                .OrderBy(d => d, StringComparer.OrdinalIgnoreCase).LastOrDefault();
+            if (path != null && Managed(path) is { } asm) return asm;
+        }
+        return null;
+    }
+
     /// <summary>True for an assembly <see cref="Bundled"/> saved: the runtime maps it from the app, never as a module of its own.</summary>
     private static bool IsBundled(string path) => path.StartsWith(BundleCache + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase);
 
@@ -206,7 +225,9 @@ public sealed partial class LiveSessionService
     {
         if (await ManagedTargetAsync(session, where, ct).ConfigureAwait(false) is not { } target) return null;
         bool loaded;
-        lock (session.Modules) loaded = IsBundled(target.Path) || session.Modules.Any(m => InputFiles.SamePath(m.Path, target.Path));
+        lock (session.Modules)
+            loaded = IsBundled(target.Path) || session.Modules.Any(m => InputFiles.SamePath(m.Path, target.Path)
+                || NativeImageOf(m.Name)?.Equals(target.File, StringComparison.OrdinalIgnoreCase) == true);
         if (!loaded) return await DeferAsync(session, $"{target.File}!{target.Member}", watch, perSecond, rawArguments, ct, id).ConfigureAwait(false);
         if (await ManagedCodeAsync(session, target, ct).ConfigureAwait(false) != null) return null;
         var clr = session.Clr;

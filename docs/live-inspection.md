@@ -121,8 +121,8 @@ In a .NET program on Windows x64, the runtime's own DAC (read through ClrMD from
 and ReadyToRun code: a stop's managed frames read `app.dll!Ns.Type.Method(System.String)+0x1B`, walked by the runtime
 from the stop's registers. A stop point or watch takes a managed method by name (`Ns.Type::Method`, a parameter list
 for an overload, or `app.dll!Ns.Type::Method`); a method without code yet is deferred until the runtime compiles it
-(ReadyToRun code is bound at once), so its first calls may be missed. An assembly bundled into a single-file app is
-named the same way. A runtime of another architecture, or one whose DAC
+(ReadyToRun code is bound at once), so its first calls may be missed. An assembly bundled into a single-file app, or a
+.NET Framework assembly whose native image (`name.ni.dll`) loads in its place, is named the same way. A runtime of another architecture, or one whose DAC
 cannot be found, leaves managed code unnamed.
 
 A stop point or watch on `module!name` whose module is not loaded yet is deferred, as a debugger defers an unresolved

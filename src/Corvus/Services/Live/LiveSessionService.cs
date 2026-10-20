@@ -1034,7 +1034,8 @@ public sealed partial class LiveSessionService(AssemblyWorkspace workspace, Nati
         return (d, true);
     }
 
-    private static bool ModuleNamed(LiveModuleState m, string name) => ModuleNamed(m.Name, name);
+    private static bool ModuleNamed(LiveModuleState m, string name) =>
+        ModuleNamed(m.Name, name) || (NativeImageOf(m.Name) is { } assembly && ModuleNamed(assembly, name));
 
     /// <summary>A module or file named <paramref name="name"/>, with or without its extension.</summary>
     private static bool ModuleNamed(string file, string name)
@@ -1042,6 +1043,12 @@ public sealed partial class LiveSessionService(AssemblyWorkspace workspace, Nati
         var (f, n) = (Path.GetFileName(file), name.Trim());
         return f.Equals(n, StringComparison.OrdinalIgnoreCase) || Path.GetFileNameWithoutExtension(f).Equals(n, StringComparison.OrdinalIgnoreCase);
     }
+
+    /// <summary>The assembly file a .NET Framework native image (NGEN, <c>name.ni.dll</c>) was compiled from; null for any other file.</summary>
+    private static string? NativeImageOf(string file) =>
+        file.EndsWith(".ni.dll", StringComparison.OrdinalIgnoreCase) ? file[..^7] + ".dll"
+        : file.EndsWith(".ni.exe", StringComparison.OrdinalIgnoreCase) ? file[..^7] + ".exe"
+        : null;
 
     /// <summary>Sets the points deferred to <paramref name="module"/>, then lets its loading thread (held by the worker) go on.</summary>
     private async Task SetDeferredAsync(LiveSession session, LiveModuleState module, long? holder)

@@ -118,6 +118,18 @@ public sealed class DotnetTargetFactAttribute : FactAttribute
     }
 }
 
+/// <summary>Runs on Windows x64 with Frida, the .NET Framework 4.8 reference assemblies and a native image (NGEN) of System.dll.</summary>
+public sealed class FrameworkNativeImageFactAttribute : FactAttribute
+{
+    public FrameworkNativeImageFactAttribute()
+    {
+        if (!OperatingSystem.IsWindows() || !Environment.Is64BitOperatingSystem) Skip = "Windows x64 only.";
+        else if (new FridaBackend().Unavailable() is { } frida) Skip = frida.Reason;
+        else if (!Directory.Exists(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Windows), "assembly", "NativeImages_v4.0.30319_64", "System")))
+            Skip = "No native image of System.dll.";
+    }
+}
+
 /// <summary>
 /// Sessions on a .NET console program per target (Windows x64 on .NET 10, Windows x86 on .NET 9, Linux x64 on .NET 10):
 /// started suspended, the OS file-open API watched and stopped on with the managed callers in the stack, a snapshot read
@@ -315,6 +327,41 @@ public sealed class LiveDotnetRealTests(ITestOutputHelper output) : LiveToolCall
         }
         Assert.Contains(" call ", calls);
         Assert.Contains("running", await Ok(server, "live_session", new() { ["action"] = "status", ["session"] = "live-1" }));
+        Assert.Contains("closed", await Ok(server, "live_session", new() { ["action"] = "close", ["session"] = "live-1" }));
+    }
+
+    /// <summary>A stop by name in a .NET Framework assembly whose native image (name.ni.dll) loads in its place.</summary>
+    [FrameworkNativeImageFact]
+    public async Task Stop_point_in_a_framework_native_image()
+    {
+        File.WriteAllText(_dir.File("Directory.Build.props"), "<Project />");
+        File.WriteAllText(_dir.File("Directory.Build.targets"), "<Project />");
+        File.WriteAllText(_dir.File("matcher.csproj"), """
+            <Project Sdk="Microsoft.NET.Sdk">
+              <PropertyGroup><OutputType>Exe</OutputType><TargetFramework>net48</TargetFramework><PlatformTarget>x64</PlatformTarget></PropertyGroup>
+            </Project>
+            """);
+        File.WriteAllText(_dir.File("Program.cs"), """
+            static class Matcher
+            {
+                static void Main()
+                {
+                    for (int i = 0; i < 100000; i++)
+                    {
+                        System.Text.RegularExpressions.Regex.IsMatch("x" + i, "x[0-9]+");
+                        System.Threading.Thread.Sleep(20);
+                    }
+                }
+            }
+            """);
+        var (code, log) = Tools.Dotnet(_dir.Path, "build", "-c", "Release", "-o", "out", "-nologo");
+        var exe = _dir.File(Path.Combine("out", "matcher.exe"));
+        Assert.True(code == 0 && File.Exists(exe), log);
+        await using var server = await Server();
+        await Spawn(server, exe, "live-1");
+        await Ok(server, "live_break", new() { ["session"] = "live-1", ["action"] = "set", ["at"] = "System.dll!System.Text.RegularExpressions.Regex::IsMatch(string, string)" });
+        Assert.Matches(@"stopped at s1 \(System\.dll!System\.Text\.RegularExpressions\.Regex\.IsMatch\(System\.String, System\.String\)\)",
+            await Ok(server, "live_break", new() { ["session"] = "live-1", ["action"] = "continue", ["wait"] = true, ["waitSeconds"] = 60 }));
         Assert.Contains("closed", await Ok(server, "live_session", new() { ["action"] = "close", ["session"] = "live-1" }));
     }
 
