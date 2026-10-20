@@ -81,7 +81,7 @@ public sealed class StackWalker
         (_scanBudget, _callerBudget) = (MaxScanSlotsPerWalk, MaxScanSlotsPerWalk);
         (_stackLow, _stackHigh) = (stackLow, stackHigh);
         frames.Add(new WalkFrame(ctx.Ip, ctx.Sp, FrameMethod.Context, false, false, start.Complete ? null : "register context is incomplete in the dump"));
-        bool top = true;
+        bool top = true, guessedFp = false;
         string stop = "max_frames";
         while (frames.Count < maxFrames)
         {
@@ -94,8 +94,8 @@ public sealed class StackWalker
             }
             if (next.Ip == 0)
             {
-                // after a scan EBP is a guess, so a zero return address read through it does not end the stack
-                if (method == FrameMethod.FramePointer && frames[^1].Method == FrameMethod.Scan && Scan(ctx.Sp, stackHigh, ctx) is { } above)
+                // after a scan EBP is a guess, and so is every frame chained from it: a zero return address read through it does not end the stack
+                if (method == FrameMethod.FramePointer && guessedFp && Scan(ctx.Sp, stackHigh, ctx) is { } above)
                     (next, method, heuristic, note) = (above, FrameMethod.Scan, true, "the guessed frame pointer gave a zero return address; scanned the stack");
                 else
                 {
@@ -118,6 +118,7 @@ public sealed class StackWalker
                 break;
             }
             frames.Add(new WalkFrame(next.Ip, next.Sp, method, heuristic, method != FrameMethod.MachineFrame, note));
+            guessedFp = method == FrameMethod.Scan || method == FrameMethod.FramePointer && guessedFp;
             ctx = next;
             top = method == FrameMethod.MachineFrame; // after a machine frame the address is an interrupted instruction
         }

@@ -370,6 +370,36 @@ public sealed class MinidumpTests
         Assert.DoesNotContain(walk.Items, f => f.Symbol == "synth32!Top+0x8");
     }
 
+    /// <summary>A frame chained from the scan's guessed frame pointer is a guess too: the zero return address after it does not end the walk.</summary>
+    [Fact]
+    public async Task X86FramesChainedFromAGuessDoNotEndTheWalk()
+    {
+        const uint Stack2 = 0x00E1_0000;
+        using var dir = new TempDir();
+        var image = SyntheticCrashX86.Mapped(SyntheticCrashX86.FileImage());
+        var stack = new byte[0x100];
+        void Put(int at, uint v) => BinaryPrimitives.WriteUInt32LittleEndian(stack.AsSpan(at), v);
+        Put(0x04, Stack2 + 0x20); // the scan's guessed frame pointer
+        Put(0x08, SyntheticCrashX86.Base + SyntheticCrashX86.MidRva + 6); // found by the scan
+        Put(0x20, Stack2 + 0x40); // the guessed frame chains on
+        Put(0x24, SyntheticCrashX86.Base + SyntheticCrashX86.OuterRva + 8);
+        // 0x40: zeros (saved ebp, return address)
+        Put(0x50, SyntheticCrashX86.Base + SyntheticCrashX86.TopRva + 8); // found by the scan above it
+        var d = new MinidumpBuilder { FullMemory = true, ProcessorArchitecture = 0 };
+        d.Modules.Add(new MinidumpBuilder.Module(SyntheticCrashX86.Base, (uint)image.Length, 0, @"Z:\nowhere\synth32.dll"));
+        d.Memory.Add((SyntheticCrashX86.Base, image));
+        d.Memory.Add((Stack2, stack));
+        d.Regions.Add(new MinidumpBuilder.Region(SyntheticCrashX86.Base, (ulong)image.Length, 0x20));
+        d.Regions.Add(new MinidumpBuilder.Region(Stack2, 0x100, 0x04));
+        d.Threads.Add(new MinidumpBuilder.Thread(105, Stack2, MinidumpBuilder.ContextX86(SyntheticCrashX86.Base + 0x10B8, Stack2, ebp: 0)));
+        var path = dir.File("chained32.dmp");
+        File.WriteAllBytes(path, d.Build());
+        using var service = new MinidumpService();
+        var walk = await service.Stack(path, "105", true, 64, 0, 64, null, default);
+        Assert.Equal(["synth32!Mid+0x6", "synth32!Outer+0x8", "synth32!Top+0x8"], walk.Items.Skip(1).Select(f => f.Symbol));
+        Assert.Equal(["scan", "frame_pointer", "scan"], walk.Items.Skip(1).Select(f => f.Method));
+    }
+
     /// <summary>
     /// A WoW64 process dumped by a 64-bit tool: each thread's 32-bit side comes from the x86 context WoW64 keeps in the
     /// CPU area that TEB64 TLS slot 1 points to, with the 32-bit stack bounds from the TEB32 at TEB64 + 0x2000.
