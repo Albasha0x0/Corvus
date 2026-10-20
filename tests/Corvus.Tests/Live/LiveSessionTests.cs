@@ -334,6 +334,23 @@ public sealed class LiveSessionTests : IDisposable
     }
 
     [Fact]
+    public async Task A_frame_in_a_function_the_unwind_data_shows_unexported_is_not_named_after_the_export_below()
+    {
+        await _tools.LiveSession("attach", program: "4242");
+        await _tools.LiveBreak("live-1", "set", at: "e_sqlite3!sqlite3_open");
+        var old = RealPackages.File("SQLitePCLRaw.lib.e_sqlite3", "2.1.2", "runtimes", "win-x64", "native", "e_sqlite3.dll");
+        const ulong LibBase = 0x7ff8_0000_0000;
+        _backend.Load("old.dll", old, LibBase, 0x200000);
+        var pe = (Native.Pe.PeFile)Native.NativeImageLoader.Open(old);
+        var exports = pe.Exports.Select(e => e.Rva).ToHashSet();
+        var inner = pe.RuntimeFunctions.First(f => !exports.Contains(f.BeginRva) && exports.Any(e => e < f.BeginRva) && f.EndRva - f.BeginRva > 8).BeginRva + 4;
+        await Task.Delay(100);
+        _backend.HitWith("s1", 9, LibBase + inner);
+        var stop = await _tools.LiveBreak("live-1", wait: true, waitSeconds: 10);
+        Assert.Matches($@"#1 0x{LibBase + inner:X} old\.dll\+0x{inner:X}\r?\n", stop);
+    }
+
+    [Fact]
     public async Task A_watch_and_a_stop_point_in_the_same_prologue_are_refused_in_either_order()
     {
         await _tools.LiveSession("attach", program: "4242");

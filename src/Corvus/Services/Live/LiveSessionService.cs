@@ -562,21 +562,27 @@ public sealed partial class LiveSessionService(AssemblyWorkspace workspace, Nati
         return info.State == MemCommit && (info.Protect & AnyExecute) != 0;
     }
 
-    private readonly ConcurrentDictionary<string, (uint Rva, string Name)[]> _exports = new(StringComparer.OrdinalIgnoreCase);
+    private readonly ConcurrentDictionary<string, (Native.Dump.ModuleNames? Pe, (uint Rva, string Name)[] Exports)> _exports = new(StringComparer.OrdinalIgnoreCase);
 
-    /// <summary>The export at or before <paramref name="rva"/> in a module no image is loaded for (system DLLs), as a debugger names export symbols.</summary>
+    /// <summary>
+    /// The export at or before <paramref name="rva"/> in a module no image is loaded for (system DLLs), as a debugger names export
+    /// symbols; null where a PE's unwind data puts the address in a function that is not exported.
+    /// </summary>
     private (uint Rva, string Name)? NearestExport(string path, uint rva)
     {
-        var table = _exports.GetOrAdd(path, p =>
+        var (pe, table) = _exports.GetOrAdd(path, p =>
         {
             try
             {
-                if (!File.Exists(p)) return [];
-                return [.. NativeImageLoader.Open(p).Exports.Where(x => x.ForwardedTo == null && !string.IsNullOrEmpty(x.Name))
-                    .Select(x => (x.Rva, x.Name!)).DistinctBy(x => x.Rva).OrderBy(x => x.Rva)];
+                if (!File.Exists(p)) return (null, []);
+                var image = NativeImageLoader.Open(p);
+                if (image is Native.Pe.PeFile file) return (new Native.Dump.ModuleNames(file, null, null), []);
+                return (null, [.. image.Exports.Where(x => x.ForwardedTo == null && !string.IsNullOrEmpty(x.Name))
+                    .Select(x => (x.Rva, x.Name!)).DistinctBy(x => x.Rva).OrderBy(x => x.Rva)]);
             }
-            catch (Exception e) when (e is ToolError or IOException or UnauthorizedAccessException or InvalidDataException) { return []; }
+            catch (Exception e) when (e is ToolError or IOException or UnauthorizedAccessException or InvalidDataException) { return (null, []); }
         });
+        if (pe != null) return pe.Lookup(rva) is { Name: { } name, Start: { } start } ? (start, name) : null;
         int lo = 0, hi = table.Length - 1, best = -1;
         while (lo <= hi)
         {
