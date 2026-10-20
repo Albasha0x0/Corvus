@@ -383,6 +383,63 @@ public sealed class ElfCoreTests
         Assert.Empty(failures);
     }
 
+    /// <summary>A module, a stack and an executable anonymous region: the address space of a thread held in an interceptor's code.</summary>
+    private sealed class HeldThreadMemory(byte[] module, byte[] stack, ulong code) : IProcessMemory
+    {
+        private readonly DumpModule _module = new(SyntheticCore.Base, (uint)module.Length, 0, 0, SyntheticCore.ModulePath, null, null, null);
+        public NativeArch Arch => NativeArch.X64;
+        public bool Is64Bit => true;
+        public string Identity => "held";
+        public IReadOnlyList<DumpModule> Modules => [_module];
+        public IReadOnlyList<DumpUnloadedModule> UnloadedModules => [];
+
+        public int ReadMemory(ulong address, Span<byte> destination)
+        {
+            foreach (var (start, bytes) in new[] { (SyntheticCore.Base, module), (SyntheticCore.Stack, stack) })
+                if (address >= start && address - start < (ulong)bytes.Length)
+                {
+                    var from = bytes.AsSpan((int)(address - start));
+                    int n = Math.Min(from.Length, destination.Length);
+                    from[..n].CopyTo(destination);
+                    return n;
+                }
+            return 0;
+        }
+
+        public DumpModule? ModuleAt(ulong address) => _module.Contains(address) ? _module : null;
+
+        public DumpMemoryRegion? RegionAt(ulong address) =>
+            address >= code && address - code < 0x1000 ? new(code, code, 0x20, 0x1000, 0x1000, 0x20, 0x20000)
+            : address >= SyntheticCore.Stack && address - SyntheticCore.Stack < (ulong)stack.Length ? new(SyntheticCore.Stack, SyntheticCore.Stack, 4, (ulong)stack.Length, 0x1000, 4, 0x20000)
+            : null;
+
+        public ulong ReadableExtent(ulong start, ulong size) => 0;
+    }
+
+    [Fact]
+    public void A_frame_in_generated_code_finds_its_caller_by_a_stack_scan()
+    {
+        const ulong Code = 0x7E00_0000_0000;
+        var p = SyntheticCore.Points(arm64: false);
+        var stack = new byte[0x100];
+        // a small value, an address that follows no call, a stale return address (M has no CFI), then B's return address,
+        // whose frame's CFI finds M's return address above it
+        BitConverter.GetBytes(0x1234UL).CopyTo(stack, 0);
+        BitConverter.GetBytes(SyntheticCore.Base + SyntheticCore.A).CopyTo(stack, 8);
+        BitConverter.GetBytes(SyntheticCore.Base + p.IntoM).CopyTo(stack, 16);
+        BitConverter.GetBytes(SyntheticCore.Base + p.IntoB).CopyTo(stack, 24);
+        BitConverter.GetBytes(SyntheticCore.Base + p.IntoM).CopyTo(stack, 0x38);
+        var memory = new HeldThreadMemory(SyntheticCore.Module(arm64: false), stack, Code);
+        var image = ElfCoreImage.FromMemory(memory, memory.Modules[0], "");
+        var regs = new ElfCoreRegisters(ElfCoreArch.X64) { Pc = Code + 0x40, Sp = SyntheticCore.Stack };
+        var walk = new ElfCoreUnwinder(memory, ElfCoreArch.X64, a => memory.ModuleAt(a) != null ? image : null)
+            .Walk(regs, SyntheticCore.Stack, SyntheticCore.Stack + (ulong)stack.Length, 8);
+        var caller = walk.Frames[1];
+        Assert.Equal((SyntheticCore.Base + p.IntoB, SyntheticCore.Stack + 32, FrameMethod.Scan, true), (caller.Ip, caller.Sp, caller.Method, caller.Heuristic));
+        Assert.Contains("generated code", caller.Note);
+        Assert.Equal(SyntheticCore.Base + p.IntoM, walk.Frames[2].Ip);
+    }
+
     [Fact]
     public void Fuzzed_cfi_never_throws()
     {

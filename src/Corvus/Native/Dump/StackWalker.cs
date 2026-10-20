@@ -559,7 +559,7 @@ public sealed class StackWalker
     }
 
     /// <summary>The 8 bytes before a return address end with a call (E8 rel32, FF /2 in its register / memory forms).</summary>
-    private static bool FollowsCall(ReadOnlySpan<byte> b)
+    internal static bool FollowsCall(ReadOnlySpan<byte> b)
     {
         if (b[3] == 0xE8) return true; // call rel32
         if (b[6] == 0xFF && (b[7] & 0x38) == 0x10 && (b[7] >> 6) == 3) return true; // call reg

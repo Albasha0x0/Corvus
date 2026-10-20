@@ -51,7 +51,7 @@ public sealed class ElfCoreUnwinder(IProcessMemory memory, ElfCoreArch arch, Fun
                 notes.Add($"the next frame's stack pointer 0x{next.Sp:X} is outside the thread's stack mapping 0x{stackLow:X}-0x{stackHigh:X}");
                 break;
             }
-            frames.Add(new WalkFrame(next.Pc, next.Sp, method, false, true, note));
+            frames.Add(new WalkFrame(next.Pc, next.Sp, method, method == FrameMethod.Scan, true, note));
             regs = next;
             top = false;
         }
@@ -74,6 +74,11 @@ public sealed class ElfCoreUnwinder(IProcessMemory memory, ElfCoreArch arch, Fun
         }
         else why = failure ?? "no CFI";
 
+        // generated code (an interceptor's trampoline) need not keep a frame record: its caller is found by a scan
+        if (image == null && arch.Arch is NativeArch.X64 or NativeArch.X86 && memory.ModuleAt(lookup) == null && memory.RegionAt(regs.Pc) is { IsExecutable: true })
+            return Scan(regs) is { } scanned
+                ? (scanned, FrameMethod.Scan, $"0x{regs.Pc:X} is not in a module (generated code); scanned the stack for a return address", null)
+                : (null, "", $"walk ended at 0x{regs.Pc:X}: generated code, and no return address on the stack above it", "no_unwind_data");
         if (FrameChain(regs) is { } chained) return (chained, FrameMethod.FramePointer, $"no CFI ({why}); followed the {ChainName}", null);
         if (top && arch.Link is int lr && regs.TryGet(lr, out ulong ra) && Strip(ra) is var target && target != 0 && target != regs.Pc && IsCode(target))
         {
@@ -82,6 +87,42 @@ public sealed class ElfCoreUnwinder(IProcessMemory memory, ElfCoreArch arch, Fun
             return (leaf, FrameMethod.Leaf, $"no CFI ({why}); the return address is the link register", null);
         }
         return (null, "", $"walk ended at 0x{regs.Pc:X}: {why}, and no usable {ChainName}", "no_unwind_data");
+    }
+
+    /// <summary>Most stack slots a scan reads.</summary>
+    private const int MaxScanSlots = 0x4000;
+
+    /// <summary>
+    /// The first stack slot above the stack pointer holding a return address (an address in a module right after a call)
+    /// whose own frame unwinds by CFI to another return address; failing that, the first return address. Other registers
+    /// stay as they are (the scanned code is taken to keep the callee-saved ones).
+    /// </summary>
+    private ElfCoreRegisters? Scan(ElfCoreRegisters regs)
+    {
+        ulong ptr = (ulong)arch.PointerSize;
+        ulong at = (regs.Sp + ptr - 1) & ~(ptr - 1);
+        ElfCoreRegisters? first = null;
+        for (int slot = 0; slot < MaxScanSlots; slot++, at += ptr)
+        {
+            if (!ReadWord(at, out ulong value)) break;
+            if (!IsReturnAddress(value, out var image)) continue;
+            var next = regs.Clone();
+            next.Pc = value;
+            next.Sp = at + ptr;
+            first ??= next;
+            // a stale return address left below the live frames rarely unwinds any further
+            if (image.Row(value - 1, out _) is { } row && ApplyCfi(next, row).Next is { } caller
+                && caller.Sp > next.Sp && IsReturnAddress(caller.Pc, out _))
+                return next;
+        }
+        return first;
+    }
+
+    private bool IsReturnAddress(ulong value, [System.Diagnostics.CodeAnalysis.NotNullWhen(true)] out ElfCoreImage? image)
+    {
+        Span<byte> before = stackalloc byte[8];
+        image = value < 0x10000 ? null : imageAt(value - 1);
+        return image != null && image.Read(value - 8, before) == 8 && StackWalker.FollowsCall(before);
     }
 
     private string ChainName => arch.Arch == NativeArch.PowerPc ? "back chain" : "frame pointer";
