@@ -296,7 +296,9 @@ public sealed partial class MinidumpService(AssemblyWorkspace? workspace = null,
                 "coreclr.dll" => ".NET (CoreCLR)",
                 "clr.dll" => ".NET Framework 4 (CLR)",
                 "mscorwks.dll" => ".NET Framework 2.0-3.5 (CLR)",
-                _ when n.StartsWith("mono", StringComparison.Ordinal) && n.EndsWith(".dll", StringComparison.Ordinal) => "Mono",
+                // the runtime (mono.dll, mono-2.0-bdwgc.dll, monosgen-2.0.dll), not a managed library such as Mono.Cecil.dll
+                "mono.dll" => "Mono",
+                _ when (n.StartsWith("mono-", StringComparison.Ordinal) || n.StartsWith("monosgen", StringComparison.Ordinal)) && n.EndsWith(".dll", StringComparison.Ordinal) => "Mono",
                 _ => null,
             };
             if (runtime != null) return true;

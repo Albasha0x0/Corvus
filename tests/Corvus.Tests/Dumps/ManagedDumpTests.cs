@@ -192,6 +192,34 @@ public sealed class ManagedDumpTests
         Assert.Contains("no .NET runtime", error.Message);
     }
 
+    /// <summary>A managed library named Mono.* in a CoreCLR process does not make it a Mono process.</summary>
+    [Fact]
+    public void AManagedLibraryNamedMonoIsNotTheMonoRuntime()
+    {
+        var (pe, _, _, _) = Image();
+        var builder = Dump(pe, module: @"Z:\game\Mono.Nat.dll");
+        using (var dump = MinidumpFile.FromBytes(builder.Build()))
+            Assert.False(MinidumpService.HostsClr(dump, out _));
+        builder.Modules.Add(new MinidumpBuilder.Module(0x7FFA_0000_0000, 0x10000, 0, @"Z:\game\coreclr.dll"));
+        using (var dump = MinidumpFile.FromBytes(builder.Build()))
+        {
+            Assert.True(MinidumpService.HostsClr(dump, out var runtime));
+            Assert.Equal(".NET (CoreCLR)", runtime);
+        }
+    }
+
+    /// <summary>A WoW64 process dumped by a 64-bit writer lists its own image twice: one module, no overlap issue.</summary>
+    [Fact]
+    public void AModuleListedTwiceIsOneModule()
+    {
+        var (pe, _, _, _) = Image();
+        var builder = Dump(pe, module: @"Z:\game\client.exe");
+        builder.Modules.Add(builder.Modules[0]);
+        using var dump = MinidumpFile.FromBytes(builder.Build());
+        Assert.Single(dump.Modules);
+        Assert.Empty(dump.Issues);
+    }
+
     /// <summary>JIT code in a Mono process points at the runtime's own report, not at a DAC Mono does not have.</summary>
     [Fact]
     public async Task JitCodeInAMonoProcessIsNotSentToADac()
