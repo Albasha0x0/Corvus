@@ -113,7 +113,7 @@ public sealed partial class MinidumpService(AssemblyWorkspace? workspace = null,
             }
         }
 
-        /// <summary>A stack walker over this session's memory, with function starts from the modules' PDB and export names.</summary>
+        /// <summary>A stack walker over this session's memory, with function starts from the modules' PDB, symbol table and export names.</summary>
         public StackWalker Walker(IProcessMemory? view = null) => new(view ?? Memory, m => Code(m).Image,
             address => Memory.ModuleAt(address) is { } m && Code(m).Names?.Lookup((uint)(address - m.Base)).Start is { } start ? m.Base + start : null);
 

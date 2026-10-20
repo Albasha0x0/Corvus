@@ -67,6 +67,15 @@ public sealed class PeCoffSymbolTests
     }
 
     [Fact]
+    public void Dump_frames_are_named_from_the_symbol_table()
+    {
+        var pe = PeFile.FromBytes(Image(false, ("_main", 1, 0x10, 0x20, 2, 0), ("_flush", 1, 0x20, 0x20, 3, 0)));
+        var names = new Corvus.Native.Dump.ModuleNames(pe, null, null);
+        Assert.True(names.HasSymbols);
+        Assert.Equal(new Corvus.Native.Dump.ModuleSymbol("flush", "symbol", 0x1020), names.Lookup(0x1025));
+    }
+
+    [Fact]
     public void I386_names_lose_their_leading_underscore()
     {
         var pe = PeFile.FromBytes(Image(false, ("_main", 1, 0x10, 0x20, 2, 0), ("__ZN5Codec5flushEv", 1, 0x20, 0x20, 2, 0)));

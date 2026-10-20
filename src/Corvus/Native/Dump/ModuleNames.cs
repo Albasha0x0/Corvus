@@ -6,13 +6,13 @@ namespace Corvus.Native.Dump;
 
 /// <summary>A name for an address inside a module.</summary>
 /// <param name="Name">The function name, or null when the function is known but has no name.</param>
-/// <param name="Source">pdb, export, nearest_export (the closest export below: a guess) or none.</param>
+/// <param name="Source">pdb, symbol (the image's COFF symbol table), export, nearest_export (the closest export below: a guess) or none.</param>
 /// <param name="Start">RVA of the named function (or of the function from .pdata when unnamed); null when unknown.</param>
 public sealed record ModuleSymbol(string? Name, string Source, uint? Start);
 
 /// <summary>
-/// Lightweight names for a module image without a code index: PDB functions (a matching local PDB, no network) and
-/// exports, with x64 function ranges from .pdata (chained fragments resolved to their primary function).
+/// Lightweight names for a module image without a code index: PDB functions (a matching local PDB, no network), the
+/// image's COFF function symbols and exports, with x64 function ranges from .pdata (chained fragments resolved to their primary function).
 /// </summary>
 public sealed class ModuleNames
 {
@@ -29,6 +29,12 @@ public sealed class ModuleNames
         var map = new SortedDictionary<uint, (string Name, string Source, uint Size)>();
         foreach (var e in image.Exports)
             if (e.ForwardedTo == null && e.Name != null) map.TryAdd(e.Rva, (e.Name, "export", 0u));
+        foreach (var f in image.Symbols)
+            if (f.Kind == ImageSymbolKind.Function)
+            {
+                map[f.Rva] = (f.Name, "symbol", (uint)Math.Min(f.Size, uint.MaxValue));
+                HasSymbols = true;
+            }
         if (pdb != null)
             foreach (var n in pdb)
                 if (n.IsFunction) map[n.Rva] = (n.Name, "pdb", n.Size);
@@ -40,6 +46,8 @@ public sealed class ModuleNames
 
     /// <summary>The PDB the names came from, or null (exports only).</summary>
     public string? PdbPath { get; }
+    /// <summary>The image's COFF symbol table named functions.</summary>
+    public bool HasSymbols { get; }
     public int Count => _starts.Length;
 
     public ModuleSymbol Lookup(uint rva)

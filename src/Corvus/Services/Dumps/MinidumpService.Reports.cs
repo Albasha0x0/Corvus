@@ -529,7 +529,7 @@ public sealed partial class MinidumpService
     {
         foreach (var (m, c) in s.Loaded.OrderBy(x => x.Module.Base))
         {
-            string names = c.Names is { } n ? n.PdbPath != null ? $"names from {n.PdbPath}" : "names from exports (no matching local PDB)" : "no names";
+            string names = c.Names is { } n ? n.PdbPath != null ? $"names from {n.PdbPath}" : n.HasSymbols ? "names from the image's symbol table (no matching local PDB)" : "names from exports (no matching local PDB)" : "no names";
             if (c.NamesError != null) names += $" ({c.NamesError})";
             yield return $"{m.FileName}: image {c.Source}{(c.LocalPath != null && c.Source == "disk" ? $" ({c.LocalPath})" : "")}; {names}" + (c.Source == "disk" ? "" : $"; {c.Detail}");
         }
