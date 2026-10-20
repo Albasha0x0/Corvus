@@ -250,7 +250,6 @@ public sealed class LiveDotnetRealTests(ITestOutputHelper output) : LiveToolCall
         const int total = threads * rounds;
         Assert.Contains($"read {total * 1000} bytes in {total} opens", await Events(server, "live-1", kind: "output"));
         var watched = await Events(server, "live-1", from: "w1", log: false);
-        Output.WriteLine("WATCH-CALIBRATION\n" + string.Join('\n', watched.Split('\n').Where(l => l.Contains(InputName)).Take(3)));
         Assert.Equal(total, opened.Count(watched));
         Assert.Contains("closed", await Ok(server, "live_session", new() { ["action"] = "close", ["session"] = "live-1" }));
         Ended(pid);
