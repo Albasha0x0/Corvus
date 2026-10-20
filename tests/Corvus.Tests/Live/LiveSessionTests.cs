@@ -587,7 +587,7 @@ public sealed class LiveSessionTests : IDisposable
         _backend.Calls("w1", Enumerable.Range(0, 3).Select(i => (5L, 1000L + i * 10, Base + rva + 0x4, new string?[] { $"0x{0x100 + i:x}", "0x0" }, "0x0")), skipped: 7);
         for (int i = 0; i < 50 && !(await _tools.LiveWatchCalls("live-1")).Contains("3 call(s)"); i++) await Task.Delay(20);
         var list = await _tools.LiveWatchCalls("live-1");
-        Assert.Contains("w1 e_sqlite3.dll!sqlite3_open: sqlite3_open(a0, a1) (raw values), 3 call(s) recorded (100/s), 7 over the rate limit", list);
+        Assert.Contains("w1 e_sqlite3.dll!sqlite3_open: 3 call(s) recorded (100/s), 7 over the rate limit; sqlite3_open(a0, a1) (raw values)", list);
         var events = await _tools.LiveEvents("live-1", from: "w1");
         Assert.Contains("call thread 5 0x", events);
         Assert.True(events.Contains("e_sqlite3.dll!sqlite3_open+0x4: sqlite3_open(a0=0x100, a1=0x0) -> 0x0"), events);

@@ -330,7 +330,7 @@ public sealed partial class LiveSessionTools(ServerOptions options, LiveSessionS
                 lock (x) (calls, skipped, rate) = (x.Calls, x.Skipped, x.Rate);
                 rows.Add(new LiveWatch(x.Id, x.Where, Hex(x.Address), x.At.Function == null ? null : x.At.Display, x.Plan.Prototype, x.Plan.Source, x.PerSecond, calls, skipped,
                     rate is { } r ? Math.Round(r) : null) { Followed = x.Followed });
-                head.AppendLine($"  {x.Id} {x.At.Display}: {x.Plan.Prototype} ({x.Plan.Source}), {calls:N0} call(s) recorded{(rate is { } r2 ? $" ({r2:N0}/s)" : "")}{(skipped > 0 ? $", {skipped:N0} over the rate limit" : "")}");
+                head.AppendLine($"  {x.Id} {x.At.Display}: {calls:N0} call(s) recorded{(rate is { } r2 ? $" ({r2:N0}/s)" : "")}{(skipped > 0 ? $", {skipped:N0} over the rate limit" : "")}; {x.Plan.Prototype} ({x.Plan.Source})");
             }
             List<LiveDeferred> deferredWatches;
             lock (s.Deferred) deferredWatches = s.Deferred.Where(d => d.Watch).ToList();
