@@ -50,6 +50,7 @@ public sealed class StackWalker
     /// <summary>Stack slots examined by all the scans of one walk.</summary>
     private const int MaxScanSlotsPerWalk = 0x10000;
     private int _scanBudget;
+    private ulong _stackLow, _stackHigh;
 
     private readonly IProcessMemory _dump;
     private readonly Func<DumpModule, PeFile?> _image;
@@ -76,6 +77,7 @@ public sealed class StackWalker
                 "unsupported_architecture", [$"stacks are walked for x64 and x86 dumps; this one is {_dump.Arch}"]);
         var ctx = start.Clone();
         _scanBudget = MaxScanSlotsPerWalk;
+        (_stackLow, _stackHigh) = (stackLow, stackHigh);
         frames.Add(new WalkFrame(ctx.Ip, ctx.Sp, FrameMethod.Context, false, false, start.Complete ? null : "register context is incomplete in the dump"));
         bool top = true;
         string stop = "max_frames";
@@ -90,8 +92,14 @@ public sealed class StackWalker
             }
             if (next.Ip == 0)
             {
-                stop = "end_of_stack";
-                break;
+                // after a scan EBP is a guess, so a zero return address read through it does not end the stack
+                if (method == FrameMethod.FramePointer && frames[^1].Method == FrameMethod.Scan && Scan(ctx.Sp, stackHigh, ctx) is { } above)
+                    (next, method, heuristic, note) = (above, FrameMethod.Scan, true, "the guessed frame pointer gave a zero return address; scanned the stack");
+                else
+                {
+                    stop = "end_of_stack";
+                    break;
+                }
             }
             if (next.Sp <= ctx.Sp && !(method == FrameMethod.MachineFrame && next.Sp != ctx.Sp))
             {
@@ -399,7 +407,8 @@ public sealed class StackWalker
         }
         ulong ebp = ctx.Fp;
         uint nextEbp = 0, ret = 0;
-        bool chain = ebp >= ctx.Sp && ebp != 0 && _dump.TryReadU32(ebp, out nextEbp) && _dump.TryReadU32(ebp + 4, out ret)
+        // a saved EBP off the thread's stack is not a frame (code that uses EBP freely, such as a hook's, left it)
+        bool chain = ebp >= ctx.Sp && ebp != 0 && (_stackHigh <= _stackLow || ebp < _stackHigh) && _dump.TryReadU32(ebp, out nextEbp) && _dump.TryReadU32(ebp + 4, out ret)
                      && (ret == 0 || IsPlausibleReturn(ret, strict: false));
         // A function without a frame pointer leaves EBP to an outer frame: its own return address lies below that frame.
         if (_functionStart?.Invoke(top ? ctx.Ip : ctx.Ip - 1) is { } function
