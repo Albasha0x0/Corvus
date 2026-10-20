@@ -337,9 +337,12 @@ public sealed partial class MinidumpService(AssemblyWorkspace? workspace = null,
             string source = sourced is { } sn ? sn.Source.ToString().ToLowerInvariant() : f.KnownName != null ? "export" : "discovered";
             found = (index.NameAt(f.Start) ?? f.Name, source, f.Start);
         }
+        var mc = s.Code(module);
+        // a known name that is no export came from the image's symbol table
+        if (found is { Source: "export" } known && mc.Names?.Lookup(known.Start) is { Source: "symbol", Start: var at } && at == known.Start)
+            found = known with { Source = "symbol" };
         if (found is not { Source: "user" } && navigator?.FrameName(rva, module.FileName) is { } il2cpp)
             found = il2cpp;
-        var mc = s.Code(module);
         if (found is null or { Source: "discovered" } && mc.Names?.Lookup(rva) is { Name: not null } light)
             found = (light.Name, light.Source, light.Start!.Value);
 

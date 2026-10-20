@@ -32,7 +32,7 @@ public sealed class ModuleNames
         foreach (var f in image.Symbols)
             if (f.Kind == ImageSymbolKind.Function)
             {
-                map[f.Rva] = (f.Name, "symbol", (uint)Math.Min(f.Size, uint.MaxValue));
+                map.TryAdd(f.Rva, (f.Name, "symbol", (uint)Math.Min(f.Size, uint.MaxValue)));
                 HasSymbols = true;
             }
         if (pdb != null)

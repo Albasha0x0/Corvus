@@ -10,7 +10,10 @@ namespace Corvus.Tests;
 public sealed class PeCoffSymbolTests
 {
     /// <summary>A PE with .text (two functions of ret) and .data, and a COFF symbol table after the sections.</summary>
-    private static byte[] Image(bool is64, params (string Name, short Section, uint Value, ushort Type, byte Class, byte Aux)[] symbols)
+    private static byte[] Image(bool is64, params (string Name, short Section, uint Value, ushort Type, byte Class, byte Aux)[] symbols) => Image(is64, null, symbols);
+
+    /// <summary>The same, with <paramref name="export"/> (when given) exported at 0x1010.</summary>
+    private static byte[] Image(bool is64, string? export, params (string Name, short Section, uint Value, ushort Type, byte Class, byte Aux)[] symbols)
     {
         var b = new PeBuilder { Is64 = is64, Machine = is64 ? (ushort)0x8664 : (ushort)0x14C, ImageBase = is64 ? 0x140000000UL : 0x400000UL };
         var code = new byte[0x40];
@@ -19,6 +22,26 @@ public sealed class PeCoffSymbolTests
         b.Add(".text", code, 0x60000020);
         b.Add(".data", new byte[0x20], 0xC0000040);
         b.EntryPoint = 0x1010;
+        if (export != null)
+        {
+            var blob = new PeBlob(0x3000);
+            uint dir = blob.Zero(40);
+            uint dll = blob.Ascii("synth.dll");
+            uint name = blob.Ascii(export);
+            blob.Align(4);
+            uint eat = blob.U32(0x1010);
+            uint names = blob.U32(name);
+            uint ordinals = blob.U16(0);
+            blob.Patch32(dir + 12, dll);
+            blob.Patch32(dir + 16, 1);
+            blob.Patch32(dir + 20, 1);
+            blob.Patch32(dir + 24, 1);
+            blob.Patch32(dir + 28, eat);
+            blob.Patch32(dir + 32, names);
+            blob.Patch32(dir + 36, ordinals);
+            b.Add(".edata", blob.ToArray());
+            b.Directories[PeDirectory.Export] = (dir, blob.Here - dir);
+        }
         var table = new List<byte>();
         var strings = new List<byte> { 0, 0, 0, 0 };
         foreach (var s in symbols)
@@ -69,10 +92,12 @@ public sealed class PeCoffSymbolTests
     [Fact]
     public void Dump_frames_are_named_from_the_symbol_table()
     {
-        var pe = PeFile.FromBytes(Image(false, ("_main", 1, 0x10, 0x20, 2, 0), ("_flush", 1, 0x20, 0x20, 3, 0)));
+        var pe = PeFile.FromBytes(Image(false, "start", ("_main", 1, 0x10, 0x20, 2, 0), ("_flush", 1, 0x20, 0x20, 3, 0)));
         var names = new Corvus.Native.Dump.ModuleNames(pe, null, null);
         Assert.True(names.HasSymbols);
         Assert.Equal(new Corvus.Native.Dump.ModuleSymbol("flush", "symbol", 0x1020), names.Lookup(0x1025));
+        // an exported function keeps its export name
+        Assert.Equal(("start", 0x1010u), (names.Lookup(0x1012).Name, names.Lookup(0x1012).Start!.Value));
     }
 
     [Fact]
