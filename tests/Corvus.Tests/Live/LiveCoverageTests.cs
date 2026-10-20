@@ -202,6 +202,24 @@ public sealed class LiveCoverageTests : IDisposable
         Assert.Contains("/nowhere/system.dll", missing.Message);
     }
 
+    /// <summary>A match over the cap names how many functions matched and narrower matches drawn from the image's names.</summary>
+    [Fact]
+    public async Task A_match_over_the_cap_suggests_narrower_matches_with_their_counts()
+    {
+        await _tools.LiveSession("attach", program: "4242");
+        _service.CoverageLimit = 60;
+        var over = await Assert.ThrowsAsync<ToolError>(() => _tools.LiveCoverage("live-1", "start", match: "sqlite3_"));
+        Assert.Equal(ErrorCode.LimitExceeded, over.Code);
+        Assert.Matches(@"^[\d,]+ functions of e_sqlite3\.dll have a name containing 'sqlite3_'; a run counts at most 60\.", over.Message);
+        var suggested = Regex.Matches(over.Remediation!, @"match=(\S+) \((\d+)\)");
+        Assert.True(suggested.Count >= 2, over.Remediation);
+        Assert.All(suggested, s => Assert.InRange(int.Parse(s.Groups[2].Value), 2, 60));
+        Assert.All(suggested, s => Assert.Contains("sqlite3_", s.Groups[1].Value));
+
+        await _tools.LiveCoverage("live-1", "start", match: suggested[0].Groups[1].Value);
+        Assert.Equal(int.Parse(suggested[0].Groups[2].Value), _service.GetCoverage("cov-1").Points.Count);
+    }
+
     /// <summary>A run waiting for its module says up front what it leaves out, and counts what it then sets.</summary>
     [Fact]
     public async Task A_run_waiting_for_its_module_counts_what_it_sets_on_the_load()

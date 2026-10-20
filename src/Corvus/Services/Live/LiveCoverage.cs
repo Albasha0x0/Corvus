@@ -127,6 +127,8 @@ public sealed partial class LiveSessionService
 {
     /// <summary>Stop points one run may place.</summary>
     public const int MaxCoveragePoints = 5_000;
+    /// <summary>The cap a run checks; tests lower it.</summary>
+    internal int CoverageLimit { get; set; } = MaxCoveragePoints;
     private readonly ConcurrentDictionary<string, LiveCoverageRun> _coverage = new(StringComparer.OrdinalIgnoreCase);
     private int _nextCoverage;
 
@@ -185,9 +187,16 @@ public sealed partial class LiveSessionService
             }
         if (points.Count == 0)
             throw new ToolError(ErrorCode.NotFound, $"No function of {image.Id}{(match != null ? $" has a name containing '{match.Trim()}'" : " is indexed")}.", "list_functions shows the image's functions");
-        if (points.Count > MaxCoveragePoints)
-            throw new ToolError(ErrorCode.LimitExceeded, $"{image.Id} has {points.Count:N0} functions; a run counts at most {MaxCoveragePoints:N0}.",
-                "narrow it with match=<part of the names>, or module!part for another module");
+        if (points.Count > CoverageLimit)
+        {
+            var narrower = NarrowerMatches([.. points.Select(p => p.Name)], filter, CoverageLimit);
+            var prefix = string.IsNullOrWhiteSpace(module) ? "" : module.Trim() + "!";
+            throw new ToolError(ErrorCode.LimitExceeded,
+                $"{points.Count:N0} functions of {image.Id}{(filter != null ? $" have a name containing '{filter}'" : "")}; a run counts at most {CoverageLimit:N0}.",
+                narrower.Count > 0
+                    ? "narrow it: " + string.Join(", ", narrower.Select(n => $"match={prefix}{n.Match} ({n.Count:N0})")) + ", or module!part for another module"
+                    : "narrow it with match=<part of the names>, or module!part for another module");
+        }
 
         var run = new LiveCoverageRun("cov-" + Interlocked.Increment(ref _nextCoverage), session, image, points, hitLimit, m?.Base ?? 0) { DetachFunctions = detach.Count, Refusals = refused };
         _coverage[run.Id] = run;
@@ -204,6 +213,47 @@ public sealed partial class LiveSessionService
         try { await session.Worker.RequestAsync("defer_module", new JsonObject { ["name"] = run.PendingModule }, RequestTimeout, ct).ConfigureAwait(false); }
         catch (ToolError) { }
         return run;
+    }
+
+    /// <summary>
+    /// Up to <paramref name="take"/> matches within <paramref name="limit"/> functions, broadest first: name prefixes cut
+    /// after a "::", "." or "_" (namespaces, classes, library prefixes) and, for unnamed functions, sub_ address prefixes.
+    /// Each contains <paramref name="filter"/>, so it narrows the match given.
+    /// </summary>
+    internal static List<(string Match, int Count)> NarrowerMatches(IReadOnlyList<string> names, string? filter, int limit, int take = 5)
+    {
+        const int MaxDepth = 4;
+        var starts = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        foreach (var name in names)
+        {
+            int from = filter == null ? 0 : name.IndexOf(filter, StringComparison.OrdinalIgnoreCase) + filter.Length;
+            var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            void Add(int end)
+            {
+                if (end >= from && end < name.Length && seen.Add(name[..end])) starts[name[..end]] = starts.GetValueOrDefault(name[..end]) + 1;
+            }
+            if (name.StartsWith("sub_", StringComparison.OrdinalIgnoreCase))
+                for (int end = 5; end < name.Length; end++) Add(end);
+            else
+                for (int i = 0, depth = 0; i < name.Length - 1 && depth < MaxDepth; i++)
+                {
+                    int cut = name[i] is '.' or '_' ? i + 1 : name[i] == ':' && name[i + 1] == ':' ? i + 2 : -1;
+                    if (cut < 0) continue;
+                    Add(cut);
+                    depth++;
+                    i = cut - 1;
+                }
+        }
+        var chosen = new List<(string Match, int Count)>();
+        // a prefix count is a floor: a match is a substring, so the count shown is the one a run would place
+        foreach (var (match, _) in starts.Where(s => s.Value is > 1 and var n && n <= limit).OrderByDescending(s => s.Value).ThenBy(s => s.Key, StringComparer.Ordinal))
+        {
+            if (chosen.Count == take) break;
+            if (chosen.Any(c => match.StartsWith(c.Match, StringComparison.OrdinalIgnoreCase))) continue;
+            int count = names.Count(n => n.Contains(match, StringComparison.OrdinalIgnoreCase));
+            if (count <= limit) chosen.Add((match, count));
+        }
+        return chosen;
     }
 
     /// <summary>Sets the run's stop points where its module is loaded (<see cref="LiveCoverageRun.ModuleBase"/>).</summary>
