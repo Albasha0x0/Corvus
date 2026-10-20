@@ -192,6 +192,26 @@ public sealed class ManagedDumpTests
         Assert.Contains("no .NET runtime", error.Message);
     }
 
+    /// <summary>JIT code in a Mono process points at the runtime's own report, not at a DAC Mono does not have.</summary>
+    [Fact]
+    public async Task JitCodeInAMonoProcessIsNotSentToADac()
+    {
+        var (pe, _, _, _) = Image();
+        var builder = Dump(pe, module: @"Z:\game\MonoBleedingEdge\EmbedRuntime\mono-2.0-bdwgc.dll");
+        const ulong Jit = 0xE1_0000_0000;
+        builder.Memory.Add((Jit, new byte[0x100]));
+        builder.Regions.Add(new MinidumpBuilder.Region(Jit, 0x1000, 0x20));
+        builder.Threads[0] = new MinidumpBuilder.Thread(7, 0xE0_0000_0000, MinidumpBuilder.ContextX64(Jit + 0x10, 0xE0_0000_0080));
+        using var dir = new TempDir();
+        var path = dir.File("mono.dmp");
+        File.WriteAllBytes(path, builder.Build());
+        using var service = new MinidumpService();
+        var top = (await service.Stack(path, null, true, 4, 0, 4, null, default)).Items[0];
+        Assert.Equal("managed", top.Kind);
+        Assert.Contains("Mono has no DAC", top.Note);
+        Assert.DoesNotContain("downloadDac", top.Note);
+    }
+
     [Theory]
     [InlineData("System.String", "System.String", true)]
     [InlineData("System.String", "system.string", true)]

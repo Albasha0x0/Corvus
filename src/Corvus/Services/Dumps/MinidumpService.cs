@@ -318,8 +318,9 @@ public sealed partial class MinidumpService(AssemblyWorkspace? workspace = null,
                     $"inside {Path.GetFileName(unloaded.Path)}, which was unloaded (base 0x{unloaded.Base:X}): a call into a DLL after it was freed");
             var region = dump.RegionAt(lookup);
             if (HostsClr(dump, out var runtime) && (region == null || region.IsExecutable))
-                return new Location(null, null, null, null, null, null, "managed",
-                    $"not in a module: JIT-compiled managed code ({runtime} is loaded); the runtime's DAC names it when one is available (open_minidump dacPath or downloadDac)");
+                return new Location(null, null, null, null, null, null, "managed", runtime == "Mono"
+                    ? "not in a module: JIT-compiled managed code (Mono is loaded); Mono has no DAC: symbolize_stack_text on the runtime's crash report or Player.log names it"
+                    : $"not in a module: JIT-compiled managed code ({runtime} is loaded); the runtime's DAC names it when one is available (open_minidump dacPath or downloadDac)");
             string what = region == null ? "not in a module" : region.IsExecutable ? "not in a module: generated code (executable private memory)"
                 : "not in a module and not executable memory";
             return new Location(null, null, null, null, null, null, "unknown", what);
