@@ -297,8 +297,12 @@ public sealed class LiveLifecycleRealTests(ITestOutputHelper output) : LiveToolC
         File.WriteAllBytes(worker, Native.Providers.EmbeddedScript.Read("Corvus.Native.Providers.Live.live_worker.py"));
         var agent = _dir.File("live_agent.js");
         File.WriteAllText(agent, "this is not a script (");
-        using var p = Process.Start(new ProcessStartInfo(python.Executable, new[] { "-I", "-u", worker, agent })
-            { RedirectStandardInput = true, RedirectStandardOutput = true, UseShellExecute = false })!;
+        // Frida unpacks its helpers into TEMP and a killed worker leaves them: a folder of the test's own, as the server gives each worker
+        var temp = Directory.CreateDirectory(_dir.File("worker-temp")).FullName;
+        var start = new ProcessStartInfo(python.Executable, new[] { "-I", "-u", worker, agent })
+            { RedirectStandardInput = true, RedirectStandardOutput = true, UseShellExecute = false };
+        start.Environment["TEMP"] = start.Environment["TMP"] = temp;
+        using var p = Process.Start(start)!;
         p.StandardInput.WriteLine(System.Text.Json.JsonSerializer.Serialize(new { id = 1, op = "open", args = new { spawn = exe, arguments = new[] { "line 50" } } }));
         p.StandardInput.Flush();
         string? reply;
