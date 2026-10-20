@@ -279,6 +279,15 @@ public sealed class LiveDotnetRealTests(ITestOutputHelper output) : LiveToolCall
         Assert.Matches(@"stopped at s1 \(readers\.dll!Readers\.ReadOnce\(System\.String\)\)\r?\n  #0 0x[0-9A-F]+ readers\.dll!Readers\.ReadOnce\(System\.String\)\r?\n" +
                        @"  #1 0x[0-9A-F]+ readers\.dll!Readers\.ReadLoop\(System\.String, Int32, Int32\)\+0x[0-9A-F]+\r?\n", stop);
         Assert.Contains("compiled", await Events(server, "live-1", kind: "module"));
+        // a snapshot at the stop: the runtime walks the held thread from the stop, not from where the backend holds it
+        var snapshot = await Ok(server, "live_session", new() { ["action"] = "snapshot", ["session"] = "live-1" });
+        var dump = Regex.Match(snapshot, @"written to (.+?) \([\d,]+ bytes\), opened as (\S+);");
+        try
+        {
+            var stack = await Ok(server, "dump_stack", new() { ["dump"] = dump.Groups[2].Value, ["thread"] = Regex.Match(stop, @"thread (\d+) stopped").Groups[1].Value });
+            Assert.Matches(@"#0 0x[0-9A-F]+ readers!Readers\.ReadOnce\(System\.String\) \[clr\] 0x06000003", stack);
+        }
+        finally { File.Delete(dump.Groups[1].Value); }
         await Refused(server, "live_break", new() { ["session"] = "live-1", ["action"] = "set", ["at"] = "Readers::ReadTwice" }, "not_found");
         Assert.Contains("closed", await Ok(server, "live_session", new() { ["action"] = "close", ["session"] = "live-1" }));
     }

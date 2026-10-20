@@ -250,8 +250,12 @@ public sealed class ClrDecoder : IDisposable
     /// </summary>
     public ManagedException? Exception(uint? threadId) => Require().Exception(threadId);
 
-    /// <summary>The managed stack of an OS thread, innermost first; empty when the runtime does not know the thread.</summary>
-    public IReadOnlyList<ManagedFrame> Frames(uint threadId, int maxFrames) => Require().Frames(threadId, maxFrames);
+    /// <summary>
+    /// The managed stack of an OS thread, innermost first; empty when the runtime does not know the thread. A dump's
+    /// <paramref name="context"/> (the exception's) replaces the thread's own where this process decodes the runtime.
+    /// </summary>
+    public IReadOnlyList<ManagedFrame> Frames(uint threadId, int maxFrames, byte[]? context = null) =>
+        context != null && Require() is InProcessClr clr ? clr.Frames(threadId, maxFrames, context) : Require().Frames(threadId, maxFrames);
 
     /// <summary>A bounded heap walk (see <see cref="ClrHeapView.Walk"/>).</summary>
     public HeapWalk Walk(string? type, ulong minSize, long maxObjects, int objectsFrom, int objectsTake, CancellationToken ct) =>
@@ -286,6 +290,14 @@ public sealed class ClrDecoder : IDisposable
         public ManagedFacts Facts() => _reads.Facts();
         public ManagedException? Exception(uint? threadId) => _reads.Exception(threadId);
         public IReadOnlyList<ManagedFrame> Frames(uint threadId, int maxFrames) => _reads.Frames(threadId, maxFrames);
+
+        public IReadOnlyList<ManagedFrame> Frames(uint threadId, int maxFrames, byte[] context)
+        {
+            if (target.DataReader is not DumpDataReader reader) return Frames(threadId, maxFrames);
+            reader.Override = (threadId, context);
+            try { return Frames(threadId, maxFrames); }
+            finally { reader.Override = null; }
+        }
         public HeapWalk Walk(string? type, ulong minSize, long maxObjects, int objectsFrom, int objectsTake, CancellationToken ct) =>
             _reads.Walk(type, minSize, maxObjects, objectsFrom, objectsTake, ct);
         public ObjectView? Object(ulong address, int depth, int maxFields, int maxArrayItems) => _reads.Object(address, depth, maxFields, maxArrayItems);

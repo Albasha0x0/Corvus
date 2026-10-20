@@ -41,11 +41,15 @@ public sealed class DumpDataReader(MinidumpFile dump, Func<DumpModule, PeFile?> 
         }
     }
 
+    /// <summary>A context served for one thread in place of its own while set (a walk from the exception's context).</summary>
+    internal (uint Thread, byte[] Context)? Override { get; set; }
+
     public bool GetThreadContext(uint threadID, uint contextFlags, Span<byte> context)
     {
-        var thread = dump.ThreadById(threadID);
-        if (thread == null) return false;
-        var bytes = dump.ContextBytes(thread.Context);
+        byte[] bytes;
+        if (Override is { } o && o.Thread == threadID) bytes = o.Context;
+        else if (dump.ThreadById(threadID) is { } thread) bytes = dump.ContextBytes(thread.Context);
+        else return false;
         if (bytes.Length == 0) return false;
         context.Clear();
         bytes.AsSpan(0, Math.Min(bytes.Length, context.Length)).CopyTo(context);

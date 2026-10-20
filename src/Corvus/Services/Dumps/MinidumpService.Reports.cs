@@ -455,11 +455,13 @@ public sealed partial class MinidumpService
         var d = s.Dump;
         var t = PickThread(d, thread);
         DumpContext? ctx = null;
+        byte[]? exceptionBytes = null;
         string contextKind = "thread";
         var exception32 = exceptionContext ? Wow64.ExceptionContext(d, t.Id) : null;
         if (exceptionContext && exception32 == null && d.Exception is { } e && e.ThreadId == t.Id && d.ReadContext(e.Context) is { } ec)
         {
             ctx = ec;
+            exceptionBytes = d.ContextBytes(e.Context);
             contextKind = "exception";
         }
         ctx ??= d.ReadContext(t.Context) ?? throw new ToolError(ErrorCode.MalformedInput, $"thread {t.Id} has no readable register context in the dump.");
@@ -470,7 +472,8 @@ public sealed partial class MinidumpService
         var walker = s.Walker();
         var walk = await Task.Run(() => walker.Walk(ctx, t.StackStart, t.StackStart + t.StackSize, maxFrames, ct), ct);
         var notes = new List<string>(walk.Notes);
-        var (clrFrames, managedState) = await ManagedFrames(s, t.Id, managed, maxFrames, notes, ct);
+        // the runtime walks from the same context: a thread held by a session waits in code the runtime cannot unwind
+        var (clrFrames, managedState) = await ManagedFrames(s, t.Id, managed, maxFrames, notes, ct, exceptionBytes);
         var merged = Merge(walk.Frames, clrFrames);
         string arch = ArchName(d.Arch, d.SystemInfo?.ProcessorArchitecture ?? 0xFFFF), registers = ctx.Format(), stop = walk.Stop;
         if (Wow64.Thread(d, t.Teb) is { } wow)

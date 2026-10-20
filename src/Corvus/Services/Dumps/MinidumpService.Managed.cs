@@ -212,7 +212,8 @@ public sealed partial class MinidumpService
     }
 
     /// <summary>The runtime's managed frames of a thread, and the decoding state for the report (null without a CLR).</summary>
-    private async Task<(IReadOnlyList<ManagedFrame> Frames, string? State)> ManagedFrames(Session s, uint threadId, bool enabled, int maxFrames, List<string> notes, CancellationToken ct)
+    private async Task<(IReadOnlyList<ManagedFrame> Frames, string? State)> ManagedFrames(Session s, uint threadId, bool enabled, int maxFrames, List<string> notes, CancellationToken ct,
+        byte[]? context = null)
     {
         if (!HostsClr(s.Dump, out var runtime)) return ([], null);
         if (!enabled) return ([], "off");
@@ -232,7 +233,7 @@ public sealed partial class MinidumpService
         {
             try
             {
-                var frames = decoder.Frames(threadId, maxFrames);
+                var frames = decoder.Frames(threadId, maxFrames, context);
                 notes.Add($"Managed frames from the runtime's own stack walk ({decoder.RuntimeName}, DAC {decoder.Dac.Path}).");
                 return (frames, "decoded");
             }
