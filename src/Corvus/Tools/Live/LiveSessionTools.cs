@@ -585,7 +585,7 @@ public sealed partial class LiveSessionTools(ServerOptions options, LiveSessionS
             var source = string.IsNullOrWhiteSpace(from) ? null : from.Trim();
             if (source != null && !s.Issued(source))
                 throw new ToolError(ErrorCode.NotFound, $"Session {s.Id} has no watch or script '{from}'.", "live_watch and live_script action=list show their ids");
-            var (events, firstKept, last) = s.Page(start, k, ThreadId(thread), ToolSupport.ClampLimit(limit, 1_000), source);
+            var (events, firstKept, last, more) = s.Page(start, k, ThreadId(thread), ToolSupport.ClampLimit(limit, 1_000), source);
             var named = new List<EvidenceName>();
             var text = new StringBuilder();
             int dropped = start > 0 && start < firstKept ? (int)Math.Min(int.MaxValue, firstKept - start) : 0;
@@ -610,8 +610,10 @@ public sealed partial class LiveSessionTools(ServerOptions options, LiveSessionS
                 var page = new StringBuilder(head);
                 foreach (var l in lines.Take(count)) page.AppendLine(l);
                 var kept = rows.Take(count).ToList();
-                var next = kept.Count > 0 ? kept[^1].Sequence + 1 : Math.Max(start, firstKept);
-                string? nextCursor = kept.Count > 0 && kept[^1].Sequence < last ? next.ToString(CultureInfo.InvariantCulture) : null;
+                // past the last matching event the whole ring was scanned: the next poll starts after its end
+                var cut = kept.Count > 0 && (count < rows.Count || more);
+                var next = cut ? kept[^1].Sequence + 1 : Math.Max(start, last + 1);
+                string? nextCursor = cut ? next.ToString(CultureInfo.InvariantCulture) : null;
                 page.AppendLine(kept.Count == 0 ? "No events." : nextCursor != null ? $"more: cursor={nextCursor}" : $"end of the ring; poll again with cursor={next}");
                 return (page.ToString(), new LiveEventPage(s.Id, kept, nextCursor, dropped) { NamedAddresses = Named(named) });
             }

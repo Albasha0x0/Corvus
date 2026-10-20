@@ -506,6 +506,25 @@ public sealed class LiveSessionTests : IDisposable
     }
 
     [Fact]
+    public async Task A_filtered_page_with_every_match_ends_the_ring_and_its_poll_starts_past_the_rest()
+    {
+        await _tools.LiveSession("attach", program: "4242");
+        await _tools.LiveBreak("live-1", "set", at: $"0x{Base + 0x1000:X}");
+        _backend.Hit("s1", 100, Base + 0x1010);
+        for (int i = 0; i < 5; i++) _backend.ScriptMessage("u1", new JsonObject { ["n"] = i });
+        for (int i = 0; i < 100 && _service.Get("live-1").Sequence < 6; i++) await Task.Delay(20);
+        var stops = await _tools.LiveEvents("live-1", kind: "stop");
+        Assert.Contains("#1 stop thread 100", stops);
+        Assert.Contains("end of the ring; poll again with cursor=7", stops);
+        Assert.DoesNotContain("more:", stops);
+        _backend.Hit("s1", 101, Base + 0x1010);
+        for (int i = 0; i < 100 && _service.Get("live-1").Sequence < 7; i++) await Task.Delay(20);
+        var next = await _tools.LiveEvents("live-1", cursor: "7", kind: "stop", limit: 1);
+        Assert.Contains("#7 stop thread 101", next);
+        Assert.Contains("end of the ring; poll again with cursor=8", next);
+    }
+
+    [Fact]
     public async Task An_image_address_is_moved_to_where_the_module_is_loaded_and_waits_end_without_a_stop()
     {
         await _tools.LiveSession("attach", program: "app");

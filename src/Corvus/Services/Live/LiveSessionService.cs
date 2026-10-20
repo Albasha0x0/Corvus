@@ -215,16 +215,21 @@ public sealed class LiveSession
         }
     }
 
-    /// <summary>Events from <paramref name="from"/> (a sequence) on, filtered; the first sequence kept tells what was dropped.</summary>
-    internal (IReadOnlyList<LiveRingEvent> Events, long FirstKept, long Last) Page(long from, string? kind, long? thread, int limit, string? source = null)
+    /// <summary>
+    /// Events from <paramref name="from"/> (a sequence) on, filtered; the first sequence kept tells what was dropped, More
+    /// whether events past the limit match too.
+    /// </summary>
+    internal (IReadOnlyList<LiveRingEvent> Events, long FirstKept, long Last, bool More) Page(long from, string? kind, long? thread, int limit, string? source = null)
     {
         lock (_gate)
         {
             var first = _ring.Count > 0 ? _ring.Peek().Sequence : _sequence + 1;
             var rows = _ring.Where(e => e.Sequence >= from && (kind == null || e.Kind == kind) && (thread == null || e.Thread == thread)
                                         && (source == null || e.Source == source))
-                .Take(limit).ToList();
-            return (rows, first, _sequence);
+                .Take(limit + 1).ToList();
+            var more = rows.Count > limit;
+            if (more) rows.RemoveAt(limit);
+            return (rows, first, _sequence, more);
         }
     }
 }
