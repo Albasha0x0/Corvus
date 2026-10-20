@@ -68,7 +68,9 @@ public sealed partial class LiveSessionTools
                 {
                     var s = live.Get(RequireSession(session));
                     var r = await live.StartCoverageAsync(s, match, Math.Clamp(hitLimit, 1, 100_000), cancellationToken).ConfigureAwait(false);
-                    var text = $"{r.Id} counting {ToolSupport.Plural(r.Placed.Count, "function")} of {r.ImageId} in {s.Id}; each point is cleared after {r.HitLimit:N0} stop(s)\n" +
+                    var text = (r.PendingModule is { } pending
+                                   ? $"{r.Id} waits for {pending} to load, then counts {ToolSupport.Plural(r.Placed.Count, "function")} of {r.ImageId} in {s.Id} from its first call; each point is cleared after {r.HitLimit:N0} stop(s)\n"
+                                   : $"{r.Id} counting {ToolSupport.Plural(r.Placed.Count, "function")} of {r.ImageId} in {s.Id}; each point is cleared after {r.HitLimit:N0} stop(s)\n") +
                                (r.DetachFunctions > 0 ? $"{ToolSupport.Plural(r.DetachFunctions, "function")} reached from TLS callbacks or the DLL entry point left out: they run at process exit, after the other threads end\n" : "") +
                                string.Concat(r.Unplaced.Values.Select(x => x.Split('\n')[0]).GroupBy(x => x).Select(g => $"{ToolSupport.Plural(g.Count(), "function")} left out: {g.Key}\n")) +
                                (s.State == "suspended" ? "the program is still suspended: live_break action=continue starts it\n" : "") +
@@ -149,7 +151,7 @@ public sealed partial class LiveSessionTools
         // the busiest first
         var rows = points.Select(p => Row(r, p)).OrderByDescending(x => x.Hits).ThenBy(x => x.Address, StringComparer.Ordinal).ToList();
         var head = new StringBuilder($"{r.Id} {r.ImageId}: {r.Ran:N0} of {ToolSupport.Plural(placed.Count, "function")} ran " +
-                                     $"({(placed.Count == 0 ? 0 : 100.0 * r.Ran / placed.Count):0.#}%), {r.State}\n");
+                                     $"({(placed.Count == 0 ? 0 : 100.0 * r.Ran / placed.Count):0.#}%), {r.State}{(r.PendingModule is { } pending ? $", waiting for {pending} to load" : "")}\n");
         if (dot)
         {
             if (points.Count > MaxCoverageDot)

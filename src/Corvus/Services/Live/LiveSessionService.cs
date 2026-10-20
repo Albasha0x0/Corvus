@@ -876,8 +876,14 @@ public sealed partial class LiveSessionService(AssemblyWorkspace workspace, Nati
         return (d, true);
     }
 
-    private static bool ModuleNamed(LiveModuleState m, string name) =>
-        m.Name.Equals(name, StringComparison.OrdinalIgnoreCase) || Path.GetFileNameWithoutExtension(m.Name).Equals(name, StringComparison.OrdinalIgnoreCase);
+    private static bool ModuleNamed(LiveModuleState m, string name) => ModuleNamed(m.Name, name);
+
+    /// <summary>A module or file named <paramref name="name"/>, with or without its extension.</summary>
+    private static bool ModuleNamed(string file, string name)
+    {
+        var (f, n) = (Path.GetFileName(file), name.Trim());
+        return f.Equals(n, StringComparison.OrdinalIgnoreCase) || Path.GetFileNameWithoutExtension(f).Equals(n, StringComparison.OrdinalIgnoreCase);
+    }
 
     /// <summary>Sets the points deferred to <paramref name="module"/>, then lets its loading thread (held by the worker) go on.</summary>
     private async Task SetDeferredAsync(LiveSession session, LiveModuleState module, long? holder)
@@ -893,8 +899,9 @@ public sealed partial class LiveSessionService(AssemblyWorkspace workspace, Nati
         try
         {
             await SetDueAsync(session, module, due).ConfigureAwait(false);
+            var placed = await PlaceCoverageAsync(session, module).ConfigureAwait(false);
             if (!rest)
-                foreach (var name in due.Select(d => d.Module).Distinct(StringComparer.OrdinalIgnoreCase))
+                foreach (var name in due.Select(d => d.Module).Concat(placed).Distinct(StringComparer.OrdinalIgnoreCase))
                     await session.Worker.RequestAsync("undefer_module", new JsonObject { ["name"] = name }, RequestTimeout, CancellationToken.None).ConfigureAwait(false);
         }
         catch (Exception e) when (e is ToolError or TimeoutException or OperationCanceledException) { }

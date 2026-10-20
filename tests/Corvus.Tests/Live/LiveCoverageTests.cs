@@ -153,6 +153,39 @@ public sealed class LiveCoverageTests : IDisposable
     }
 
     [Fact]
+    public async Task A_run_on_a_module_loaded_later_waits_for_its_load_and_counts_from_its_first_call()
+    {
+        using var dir = new TempDir();
+        var plugin = dir.File("plugin.dll");
+        File.Copy(RealPackages.File("SQLitePCLRaw.lib.e_sqlite3", "2.1.2", "runtimes", "win-x64", "native", "e_sqlite3.dll"), plugin);
+        await _tools.LiveSession("attach", program: "4242");
+        Assert.Equal(ErrorCode.NotFound, (await Assert.ThrowsAsync<ToolError>(() => _tools.LiveCoverage("live-1", "start", match: "plugin!sqlite3_open"))).Code);
+        _workspace.LoadAny(plugin);
+
+        var start = await _tools.LiveCoverage("live-1", "start", match: "plugin!sqlite3_open");
+        Assert.StartsWith("cov-1 waits for plugin to load, then counts ", start);
+        Assert.Contains("waiting for plugin to load", await _tools.LiveCoverage(action: "report", run: "cov-1"));
+        Assert.Equal(0, Count("set"));
+        Assert.Contains("defer_module", _backend.Ops);
+
+        const ulong PluginBase = 0x7ff7_0000_0000;
+        _backend.Load("plugin.dll", plugin, PluginBase, 0x200000, heldBy: 77);
+        await Until(() => Count("release_load") == 1);
+        List<string> ops;
+        lock (_backend.Ops) ops = [.. _backend.Ops];
+        // the loading thread goes on only once every point is set
+        Assert.True(ops.LastIndexOf("set") < ops.IndexOf("release_load"), string.Join(",", ops));
+        Assert.Contains("undefer_module", ops);
+        var run = _service.GetCoverage("cov-1");
+        Assert.Null(run.PendingModule);
+        var open = run.Points.Select((p, i) => (p, i)).Single(x => x.p.Name == "sqlite3_open");
+        _backend.Hit($"cov-1.{open.i + 1}", 7, PluginBase + 0x10);
+        await Until(() => run.Ran == 1);
+        Assert.Contains("coverage run cov-1 set ", await _tools.LiveEvents("live-1", kind: "module"));
+        Assert.Matches(@"\s1\s+0x[0-9A-F]+\s+sqlite3_open\n", await _tools.LiveCoverage(action: "report", run: "cov-1"));
+    }
+
+    [Fact]
     public async Task Runs_of_two_builds_a_graph_too_large_and_unknown_names_are_refused()
     {
         await _tools.LiveSession("attach", program: "4242");

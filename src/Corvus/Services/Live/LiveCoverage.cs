@@ -39,7 +39,19 @@ public sealed class LiveCoverageRun
     /// <summary>The counted addresses, in address order.</summary>
     public IReadOnlyList<LiveCoveragePoint> Points { get; }
     public int HitLimit { get; }
-    internal ulong ModuleBase { get; }
+    internal ulong ModuleBase { get; private set; }
+    /// <summary>The module the run waits for, until it loads and the points are set; null once placed.</summary>
+    public string? PendingModule { get; private set; }
+    /// <summary>Points refused before any was set (too short to count), by RVA.</summary>
+    internal IReadOnlyDictionary<uint, string> Refusals { get; init; } = new Dictionary<uint, string>();
+
+    internal void Wait(string module) => PendingModule = module;
+
+    internal void Place(ulong moduleBase)
+    {
+        ModuleBase = moduleBase;
+        PendingModule = null;
+    }
     /// <summary>Functions left out because they run at process exit (see DetachCode).</summary>
     public int DetachFunctions { get; init; }
     public DateTime Started { get; } = DateTime.UtcNow;
@@ -134,13 +146,17 @@ public sealed partial class LiveSessionService
         if (match?.IndexOf('!') is > 0 and var bang) (module, match) = (match[..bang].Trim(), match[(bang + 1)..]);
         Live(session);
         await IndexedAsync(session, TimeSpan.FromSeconds(60), ct).ConfigureAwait(false);
-        LiveModuleState m;
+        LiveModuleState? m;
         lock (session.Modules)
-            m = (string.IsNullOrWhiteSpace(module) ? session.Modules.FirstOrDefault()
-                    : session.Modules.FirstOrDefault(x => x.Name.Equals(module.Trim(), StringComparison.OrdinalIgnoreCase)
-                                                          || Path.GetFileNameWithoutExtension(x.Name).Equals(module.Trim(), StringComparison.OrdinalIgnoreCase)))
-                ?? throw new ToolError(ErrorCode.NotFound, $"The program has no module '{module}'.", "live_session action=status lists its modules");
-        var image = Match(m) ?? throw new ToolError(ErrorCode.Unsupported, $"{m.Name} matches no loaded image, so it has no static functions to count.", $"load_assembly path={m.Path}");
+            m = string.IsNullOrWhiteSpace(module) ? session.Modules.FirstOrDefault() : session.Modules.FirstOrDefault(x => ModuleNamed(x, module));
+        LoadedNative image;
+        if (m != null) image = Match(m) ?? throw new ToolError(ErrorCode.Unsupported, $"{m.Name} matches no loaded image, so it has no static functions to count.", $"load_assembly path={m.Path}");
+        else if (string.IsNullOrWhiteSpace(module)) throw new ToolError(ErrorCode.NotFound, "The program has no modules yet.", "live_session action=status lists its modules");
+        else
+            // a module the program loads later (a plug-in, a runtime) is counted from its first call, as a deferred stop point is set
+            image = workspace.Natives.FirstOrDefault(n => n.SliceName == null && ModuleNamed(n.FilePath, module))
+                    ?? throw new ToolError(ErrorCode.NotFound, $"The program has no module '{module}', and no loaded image is named so.",
+                        "live_session action=status lists its modules; for one the program loads later, load_assembly path=<its file>, then start again: the run waits for it to load");
         var idx = code.Ready(image) ?? await code.Index(image, null, ct).ConfigureAwait(false);
         var filter = string.IsNullOrWhiteSpace(match) ? null : match.Trim();
         match = filter;
@@ -160,21 +176,38 @@ public sealed partial class LiveSessionService
                 else if (first.InstructionCount == 1 && first.EndKind is BlockEnd.Jump or BlockEnd.IndirectJump or BlockEnd.TailCall)
                     refused[p.Rva] = "a single jump: its runs are counted at the function it leads to";
             }
-        // a hook at the start rewrites its first bytes, so a stop point or watch already inside them would be corrupted
-        List<(string Id, ulong Address)> occupied;
-        lock (session.StopPoints) occupied = [.. session.StopPoints.Values.Select(p => (p.Id, p.Address))];
-        lock (session.Watches) occupied.AddRange(session.Watches.Values.Where(w => !w.Cleared).Select(w => (w.Id, w.Address)));
-        foreach (var p in points)
-            if (occupied.FirstOrDefault(o => o.Address > m.Base + p.Rva && o.Address < m.Base + p.Rva + WatchPatchBytes) is { Id: { } inside } o)
-                refused[p.Rva] = $"{inside} sits {o.Address - (m.Base + p.Rva)} bytes in, inside the bytes a hook at the start rewrites";
         if (points.Count == 0)
             throw new ToolError(ErrorCode.NotFound, $"No function of {image.Id}{(match != null ? $" has a name containing '{match.Trim()}'" : " is indexed")}.", "list_functions shows the image's functions");
         if (points.Count > MaxCoveragePoints)
             throw new ToolError(ErrorCode.LimitExceeded, $"{image.Id} has {points.Count:N0} functions; a run counts at most {MaxCoveragePoints:N0}.",
                 "narrow it with match=<part of the names>, or module!part for another module");
 
-        var run = new LiveCoverageRun("cov-" + Interlocked.Increment(ref _nextCoverage), session, image, points, hitLimit, m.Base) { DetachFunctions = detach.Count };
+        var run = new LiveCoverageRun("cov-" + Interlocked.Increment(ref _nextCoverage), session, image, points, hitLimit, m?.Base ?? 0) { DetachFunctions = detach.Count, Refusals = refused };
         _coverage[run.Id] = run;
+        if (m != null)
+        {
+            await ArmCoverageAsync(session, run, ct).ConfigureAwait(false);
+            return run;
+        }
+        run.Wait(module!.Trim());
+        // the worker holds the module's loading thread until the points are set; one without the op sets them after its first calls
+        try { await session.Worker.RequestAsync("defer_module", new JsonObject { ["name"] = run.PendingModule }, RequestTimeout, ct).ConfigureAwait(false); }
+        catch (ToolError) { }
+        return run;
+    }
+
+    /// <summary>Sets the run's stop points where its module is loaded (<see cref="LiveCoverageRun.ModuleBase"/>).</summary>
+    private async Task ArmCoverageAsync(LiveSession session, LiveCoverageRun run, CancellationToken ct)
+    {
+        var (points, moduleBase) = (run.Points, run.ModuleBase);
+        var refused = new Dictionary<uint, string>(run.Refusals);
+        // a hook at the start rewrites its first bytes, so a stop point or watch already inside them would be corrupted
+        List<(string Id, ulong Address)> occupied;
+        lock (session.StopPoints) occupied = [.. session.StopPoints.Values.Select(p => (p.Id, p.Address))];
+        lock (session.Watches) occupied.AddRange(session.Watches.Values.Where(w => !w.Cleared).Select(w => (w.Id, w.Address)));
+        foreach (var p in points)
+            if (occupied.FirstOrDefault(o => o.Address > moduleBase + p.Rva && o.Address < moduleBase + p.Rva + WatchPatchBytes) is { Id: { } inside } o)
+                refused[p.Rva] = $"{inside} sits {o.Address - (moduleBase + p.Rva)} bytes in, inside the bytes a hook at the start rewrites";
         try
         {
             for (int i = 0; i < points.Count; i++)
@@ -187,7 +220,7 @@ public sealed partial class LiveSessionService
                 }
                 run.Arm(id, points[i].Rva);
                 session.CoveragePoints[id] = run;
-                try { await session.Worker.RequestAsync("set", new JsonObject { ["id"] = id, ["address"] = $"0x{m.Base + points[i].Rva:X}", ["bare"] = true }, RequestTimeout, ct).ConfigureAwait(false); }
+                try { await session.Worker.RequestAsync("set", new JsonObject { ["id"] = id, ["address"] = $"0x{moduleBase + points[i].Rva:X}", ["bare"] = true }, RequestTimeout, ct).ConfigureAwait(false); }
                 catch (ToolError e) when (e.Code is ErrorCode.Failed or ErrorCode.InvalidArgument or ErrorCode.Unsupported or ErrorCode.NotFound) { run.Refused(id, points[i].Rva, "the stop point was refused: " + e.Message); }
             }
         }
@@ -196,16 +229,44 @@ public sealed partial class LiveSessionService
             await StopCoverageAsync(session, run, CancellationToken.None).ConfigureAwait(false);
             throw;
         }
+        var idx = code.Ready(run.Image) ?? await code.Index(run.Image, null, ct).ConfigureAwait(false);
         int n = 0;
         foreach (var f in idx.Functions.Where(f => ExitFunctions.Contains(idx.NameAt(f.Start) ?? f.Name)))
         {
             var id = $"{run.Id}.exit{++n}";
             run.ArmExit(id);
             session.CoveragePoints[id] = run;
-            try { await session.Worker.RequestAsync("set", new JsonObject { ["id"] = id, ["address"] = $"0x{m.Base + f.Start:X}", ["bare"] = true }, RequestTimeout, ct).ConfigureAwait(false); }
+            try { await session.Worker.RequestAsync("set", new JsonObject { ["id"] = id, ["address"] = $"0x{moduleBase + f.Start:X}", ["bare"] = true }, RequestTimeout, ct).ConfigureAwait(false); }
             catch (ToolError e) when (e.Code is ErrorCode.Failed or ErrorCode.InvalidArgument or ErrorCode.Unsupported) { run.Retire(id); }
         }
-        return run;
+    }
+
+    /// <summary>Places the runs waiting for <paramref name="module"/>; returns the module names they waited under.</summary>
+    private async Task<IReadOnlyList<string>> PlaceCoverageAsync(LiveSession session, LiveModuleState module)
+    {
+        var due = _coverage.Values.Where(r => r.Session == session.Id && r.State == "recording" && r.PendingModule is { } name && ModuleNamed(module, name)).ToList();
+        var names = due.Select(r => r.PendingModule!).ToList();
+        foreach (var run in due)
+        {
+            run.Place(module.Base);
+            if (Match(module) is { } image && image.OriginalSha256 != run.Sha256)
+            {
+                for (int i = 0; i < run.Points.Count; i++)
+                    run.Refused($"{run.Id}.{i + 1}", run.Points[i].Rva, $"{module.Name} loaded from {module.Path}, another build than the counted image");
+                session.Add("error", null, module.Base, $"coverage run {run.Id} counts nothing: {module.Name} loaded from {module.Path}, another build than {run.Image.FilePath}");
+                continue;
+            }
+            try
+            {
+                await ArmCoverageAsync(session, run, CancellationToken.None).ConfigureAwait(false);
+                session.Add("module", null, module.Base, $"coverage run {run.Id} set {run.Placed.Count:N0} stop point(s) ({module.Name} loaded)");
+            }
+            catch (Exception e) when (e is ToolError or TimeoutException or OperationCanceledException)
+            {
+                session.Add("error", null, null, $"coverage run {run.Id} could not be set when {module.Name} loaded: {e.Message}");
+            }
+        }
+        return names;
     }
 
     /// <summary>
