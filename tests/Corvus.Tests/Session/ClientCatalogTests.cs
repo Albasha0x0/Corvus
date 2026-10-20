@@ -189,7 +189,9 @@ public sealed class ClientCatalogTests : IDisposable
     public void Project_KeepsAnExistingLocalEntry_RepeatsChangeNothing_AndUnsetRemoves()
     {
         var folder = Folder("game");
-        _home.Write($$"""{ "mcpServers": { "corvus": { "command": "relay.exe", "args": [] } }, "projects": { "{{Key(folder).ToLowerInvariant()}}": { "mcpServers": { "corvus": { "command": "relay.exe", "args": ["--load", "dlls"], "env": { "CORVUS_ALLOW_LIVE_ATTACH": "1" } } } } } }""", ".claude.json");
+        // Windows paths ignore case: an existing key spelling the folder in other capitals is that folder's
+        var spelled = OperatingSystem.IsWindows() ? Key(folder).ToLowerInvariant() : Key(folder);
+        _home.Write($$"""{ "mcpServers": { "corvus": { "command": "relay.exe", "args": [] } }, "projects": { "{{spelled}}": { "mcpServers": { "corvus": { "command": "relay.exe", "args": ["--load", "dlls"], "env": { "CORVUS_ALLOW_LIVE_ATTACH": "1" } } } } } }""", ".claude.json");
 
         var (code, output) = _home.Run("install", "--no-check", "--set", "allow-live-spawn", "--project", folder);
         Assert.True(code == 0, output);
