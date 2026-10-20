@@ -9,7 +9,9 @@ namespace Corvus.Services;
 
 /// <summary>
 /// A code coverage run: stop points at the start of each function of an image, each stop counted and resumed at once; a
-/// point that reaches the hit limit is cleared, so its count reads "at least".
+/// point that reaches the hit limit is cleared, so its count reads "at least". A managed run (no <see cref="Image"/>)
+/// keys its points by metadata token and records which methods ran, from the runtime's record of the methods it prepared
+/// code for, without counts.
 /// </summary>
 public sealed class LiveCoverageRun
 {
@@ -30,10 +32,22 @@ public sealed class LiveCoverageRun
         ModuleBase = moduleBase;
     }
 
+    internal LiveCoverageRun(string id, LiveSession session, string imageId, string sha256, IReadOnlyList<LiveCoveragePoint> points)
+    {
+        Id = id;
+        Session = session.Id;
+        Program = session.Program;
+        ImageId = imageId;
+        Sha256 = sha256;
+        Points = points;
+        HitLimit = 1;
+    }
+
     public string Id { get; }
     public string Session { get; }
     public string Program { get; }
-    public LoadedNative Image { get; }
+    /// <summary>The native image counted; null for a managed run.</summary>
+    public LoadedNative? Image { get; }
     public string ImageId { get; }
     public string Sha256 { get; }
     /// <summary>The counted addresses, in address order.</summary>
@@ -88,6 +102,13 @@ public sealed class LiveCoverageRun
 
     internal bool IsExit(string pointId) => _exits.ContainsKey(pointId);
 
+    /// <summary>A managed run: records the methods that have run so far.</summary>
+    internal Func<Task>? Sample { get; set; }
+    internal Timer? Sampler { get; set; }
+    internal int Sampling;
+
+    internal void MarkRan(uint token) => _hits.TryAdd(token, 1);
+
     internal IReadOnlyList<string> ExitPoints => [.. _exits.Keys];
 
     internal IReadOnlyList<string> Armed => [.. _live.Keys, .. _exits.Keys];
@@ -117,10 +138,11 @@ public sealed class LiveCoverageRun
             _state = state;
             Stopped = DateTime.UtcNow;
         }
+        Sampler?.Dispose();
     }
 }
 
-/// <summary>A counted address: the RVA of a function start and the function's name.</summary>
+/// <summary>A counted address: the RVA of a function start (a managed method's metadata token) and the function's name.</summary>
 public sealed record LiveCoveragePoint(uint Rva, string Name);
 
 public sealed partial class LiveSessionService
@@ -152,6 +174,10 @@ public sealed partial class LiveSessionService
         LiveModuleState? m;
         lock (session.Modules)
             m = string.IsNullOrWhiteSpace(module) ? session.Modules.FirstOrDefault() : session.Modules.FirstOrDefault(x => ModuleNamed(x, module));
+        // a managed assembly, loaded or the program's own still to load
+        var managed = m != null ? (Match(m) == null ? Managed(m.Path) : null)
+            : string.IsNullOrWhiteSpace(module) ? null : AssemblyToLoad(session, module.Trim());
+        if (managed != null) return await StartManagedCoverageAsync(session, managed, match, ct).ConfigureAwait(false);
         LoadedNative image;
         if (m != null)
         {
@@ -290,7 +316,8 @@ public sealed partial class LiveSessionService
             await StopCoverageAsync(session, run, CancellationToken.None).ConfigureAwait(false);
             throw;
         }
-        var idx = code.Ready(run.Image) ?? await code.Index(run.Image, null, ct).ConfigureAwait(false);
+        var image = run.Image!; // a managed run arms no points
+        var idx = code.Ready(image) ?? await code.Index(image, null, ct).ConfigureAwait(false);
         int n = 0;
         foreach (var f in idx.Functions.Where(f => ExitFunctions.Contains(idx.NameAt(f.Start) ?? f.Name)))
         {
@@ -314,7 +341,7 @@ public sealed partial class LiveSessionService
             {
                 for (int i = 0; i < run.Points.Count; i++)
                     run.Refused($"{run.Id}.{i + 1}", run.Points[i].Rva, $"{module.Name} loaded from {module.Path}, another build than the counted image");
-                session.Add("error", null, module.Base, $"coverage run {run.Id} counts nothing: {module.Name} loaded from {module.Path}, another build than {run.Image.FilePath}");
+                session.Add("error", null, module.Base, $"coverage run {run.Id} counts nothing: {module.Name} loaded from {module.Path}, another build than {run.Image?.FilePath}");
                 continue;
             }
             try
@@ -328,6 +355,56 @@ public sealed partial class LiveSessionService
             }
         }
         return names;
+    }
+
+    private static readonly TimeSpan ManagedSamplePeriod = TimeSpan.FromSeconds(1);
+
+    /// <summary>
+    /// Starts recording which methods of a managed assembly run: the runtime's record of the methods it prepared code for,
+    /// read each second and when the program exits (its exiting thread is held at RtlExitUserProcess meanwhile).
+    /// </summary>
+    private async Task<LiveCoverageRun> StartManagedCoverageAsync(LiveSession session, LoadedAssembly asm, string? match, CancellationToken ct)
+    {
+        var file = Path.GetFileName(asm.FilePath);
+        if (!OperatingSystem.IsWindows())
+            throw new ToolError(ErrorCode.Unsupported, $"{file} is a managed assembly; its coverage is read from the runtime on Windows only.", "count a native module with match=module!part");
+        var filter = string.IsNullOrWhiteSpace(match) ? null : match.Trim();
+        var points = workspace.Read(() => asm.Module.GetTypes().SelectMany(t => t.Methods).Where(x => x.HasBody)
+            .Select(x => new LiveCoveragePoint(x.MDToken.Raw, Format.MemberLabel(x)))
+            .Where(p => filter == null || p.Name.Contains(filter, StringComparison.OrdinalIgnoreCase)).OrderBy(p => p.Rva).ToList());
+        if (points.Count == 0)
+            throw new ToolError(ErrorCode.NotFound, $"No method of {file}{(filter != null ? $" has a name containing '{filter}'" : " has a body")}.", "search_symbols shows the assembly's methods");
+        if (await ClrAsync(session, ct).ConfigureAwait(false) is { Unavailable: { } reason } && !reason.StartsWith("load_failed", StringComparison.Ordinal))
+            throw new ToolError(ErrorCode.Unsupported, $"The program's runtime cannot be read: {reason}.", "count a native module with match=module!part");
+        var run = new LiveCoverageRun("cov-" + Interlocked.Increment(ref _nextCoverage), session, file, asm.OriginalSha256, points);
+        var tokens = points.Select(p => p.Rva).ToHashSet();
+        var path = asm.FilePath;
+        run.Sample = async () =>
+        {
+            if (Interlocked.Exchange(ref run.Sampling, 1) == 1) return;
+            try
+            {
+                if (run.State == "recording" && await ClrAsync(session, CancellationToken.None).ConfigureAwait(false) is { Unavailable: null } clr)
+                    foreach (var token in clr.Prepared(path))
+                        if (tokens.Contains(token)) run.MarkRan(token);
+            }
+            catch (Exception e) when (e is ToolError or InvalidOperationException or ObjectDisposedException or OperationCanceledException) { }
+            finally { Volatile.Write(ref run.Sampling, 0); }
+        };
+        _coverage[run.Id] = run;
+        try
+        {
+            var exit = await ResolveNativeAsync(session, "ntdll!RtlExitUserProcess", ct).ConfigureAwait(false);
+            var id = $"{run.Id}.exit1";
+            run.ArmExit(id);
+            session.CoveragePoints[id] = run;
+            try { await session.Worker.RequestAsync("set", new JsonObject { ["id"] = id, ["address"] = $"0x{exit:X}" }, RequestTimeout, ct).ConfigureAwait(false); }
+            catch (ToolError e) when (e.Code is ErrorCode.Failed or ErrorCode.InvalidArgument or ErrorCode.Unsupported) { run.Retire(id); }
+        }
+        catch (ToolError e) when (e.Code is ErrorCode.NotFound or ErrorCode.Unsupported) { } // then the methods of the last second before exit are missed
+        await run.Sample().ConfigureAwait(false);
+        run.Sampler = new Timer(_ => _ = run.Sample(), null, ManagedSamplePeriod, ManagedSamplePeriod);
+        return run;
     }
 
     /// <summary>
@@ -350,7 +427,8 @@ public sealed partial class LiveSessionService
     /// <summary>Static calls between the given functions of the run's image, as caller and callee RVAs.</summary>
     public async Task<IReadOnlyList<(uint From, uint To)>> CoverageCallsAsync(LiveCoverageRun run, IReadOnlySet<uint> among, CancellationToken ct)
     {
-        var idx = code.Ready(run.Image) ?? await code.Index(run.Image, null, ct).ConfigureAwait(false);
+        var image = run.Image ?? throw new ToolError(ErrorCode.Unsupported, $"{run.Id} records managed methods: it has no static call graph to draw.", "format=text");
+        var idx = code.Ready(image) ?? await code.Index(image, null, ct).ConfigureAwait(false);
         var edges = new HashSet<(uint, uint)>();
         foreach (var rva in among)
             if (idx.FunctionAt(rva) is { } f && f.Start == rva)
@@ -359,8 +437,12 @@ public sealed partial class LiveSessionService
         return [.. edges.OrderBy(e => e.Item1).ThenBy(e => e.Item2)];
     }
 
-    /// <summary>Clears the run's points that are still set; its counts stay.</summary>
-    public Task StopCoverageAsync(LiveSession session, LiveCoverageRun run, CancellationToken ct) => ClearPoints(session, run, "complete", ct);
+    /// <summary>Clears the run's points that are still set (a managed run reads the runtime a last time); its counts stay.</summary>
+    public async Task StopCoverageAsync(LiveSession session, LiveCoverageRun run, CancellationToken ct)
+    {
+        if (run.Sample is { } sample && session.Ended == null) await sample().ConfigureAwait(false);
+        await ClearPoints(session, run, "complete", ct).ConfigureAwait(false);
+    }
 
     private static async Task ClearPoints(LiveSession session, LiveCoverageRun run, string state, CancellationToken ct = default)
     {
@@ -403,8 +485,11 @@ public sealed partial class LiveSessionService
             {
                 try
                 {
-                    // past exit nothing resumes a held thread, so every point goes before this one resumes
-                    foreach (var r in session.CoveragePoints.Values.Distinct()) await ClearPoints(session, r, "complete").ConfigureAwait(false);
+                    // past exit nothing resumes a held thread, so every point goes before this one resumes; managed runs read the runtime first
+                    var runs = session.CoveragePoints.Values.Distinct().ToList();
+                    foreach (var r in runs)
+                        if (r.Sample is { } sample) await sample().ConfigureAwait(false);
+                    foreach (var r in runs) await ClearPoints(session, r, "complete").ConfigureAwait(false);
                     await Resume(session, thread).ConfigureAwait(false);
                 }
                 catch (Exception e) when (e is ToolError or InvalidOperationException or ObjectDisposedException) { /* the session ended meanwhile */ }

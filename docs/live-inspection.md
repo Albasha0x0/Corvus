@@ -174,6 +174,12 @@ the static call graph in Graphviz DOT, functions that never ran dashed. `action=
 build: the functions that ran only in each, in both and in neither. Counting covers function entries; blocks inside a
 function are not counted. A run whose program ends first reads `ended` and keeps its counts; `action=stop` leaves it so.
 
+A managed assembly (`match=app.dll!part`; the program's own assembly or one next to it can be named before it loads)
+is covered on Windows from the runtime's record of the methods it has prepared code for: a method is JIT-compiled, or
+its ReadyToRun code bound, at its first call. The record is read each second and when the program exits (the exiting
+thread is held at `RtlExitUserProcess` meanwhile), so a report lists which methods ran, by metadata token, without
+counts; its report is text only (no `format=dot`).
+
 `live_timeline` collects a timestamped trace from the OS diagnostics channel: an event tracing session (ETW) with the
 kernel file, registry, network and process providers, as PerfView and Process Monitor collect them, keeping the
 session program's events. Each entry is a time, a category (`file`, `registry`, `network`, `process`) and the name the

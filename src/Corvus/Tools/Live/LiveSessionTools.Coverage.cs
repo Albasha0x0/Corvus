@@ -68,7 +68,9 @@ public sealed partial class LiveSessionTools
                 {
                     var s = live.Get(RequireSession(session));
                     var r = await live.StartCoverageAsync(s, match, Math.Clamp(hitLimit, 1, 100_000), cancellationToken).ConfigureAwait(false);
-                    var text = (r.PendingModule is { } pending
+                    var text = (r.Image == null
+                                   ? $"{r.Id} recording which of {ToolSupport.Plural(r.Placed.Count, "method")} of {r.ImageId} run in {s.Id}, from the runtime's record of the methods it prepared code for (calls are not counted)\n"
+                               : r.PendingModule is { } pending
                                    ? $"{r.Id} waits for {pending} to load, then counts {ToolSupport.Plural(r.Placed.Count, "function")} of {r.ImageId} in {s.Id} from its first call; each point is cleared after {r.HitLimit:N0} stop(s)\n"
                                    : $"{r.Id} counting {ToolSupport.Plural(r.Placed.Count, "function")} of {r.ImageId} in {s.Id}; each point is cleared after {r.HitLimit:N0} stop(s)\n") +
                                (r.DetachFunctions > 0 ? $"{ToolSupport.Plural(r.DetachFunctions, "function")} reached from TLS callbacks or the DLL entry point left out: they run at process exit, after the other threads end\n" : "") +
@@ -124,7 +126,8 @@ public sealed partial class LiveSessionTools
     private static LiveCoverageSummary Summary(Services.LiveCoverageRun r) =>
         new(r.Id, r.Session, r.ImageId, r.Sha256, r.State, r.Placed.Count, r.Ran, r.HitLimit) { Unplaced = r.Unplaced.Count };
 
-    private static string Va(Services.LiveCoverageRun r, uint rva) => NativeAddress.Va(r.Image.Image, rva);
+    /// <summary>A function's VA; a managed method's metadata token.</summary>
+    private static string Va(Services.LiveCoverageRun r, uint rva) => r.Image == null ? $"0x{rva:X8}" : NativeAddress.Va(r.Image.Image, rva);
 
     private static LiveCoverageRow Row(Services.LiveCoverageRun r, LiveCoveragePoint p)
     {
@@ -132,7 +135,8 @@ public sealed partial class LiveSessionTools
         return new LiveCoverageRow(Va(r, p.Rva), p.Name, hits, hits > 0);
     }
 
-    private static string Count(Services.LiveCoverageRun r, long hits) => hits == 0 ? "-" : hits >= r.HitLimit ? $"{r.HitLimit:N0}+" : hits.ToString("N0", CultureInfo.InvariantCulture);
+    private static string Count(Services.LiveCoverageRun r, long hits) =>
+        hits == 0 ? "-" : r.Image == null ? "ran" : hits >= r.HitLimit ? $"{r.HitLimit:N0}+" : hits.ToString("N0", CultureInfo.InvariantCulture);
 
     private async Task<string> CoverageReport(Services.LiveCoverageRun r, string? match, string show, string format, int offset, int limit, CancellationToken ct)
     {
@@ -164,11 +168,11 @@ public sealed partial class LiveSessionTools
         return ToolOutput.List(rows, offset, limit, x => $"{Count(r, x.Hits),8}  {x.Address}  {x.Name}", page => new LiveCoverageReport(Summary(r), page, offset, rows.Count, [])
         {
             // a sample for read_result format=verify: the rows already carry every address and name
-            NamedAddresses = Named(page.Take(MaxCoverageNamed).Select(x => new EvidenceName(r.ImageId, r.Sha256, Rva(r, x.Address), x.Name)).ToList()),
+            NamedAddresses = r.Image == null ? null : Named(page.Take(MaxCoverageNamed).Select(x => new EvidenceName(r.ImageId, r.Sha256, Rva(r, x.Address), x.Name)).ToList()),
         }, "function", head.ToString());
     }
 
-    private static uint Rva(Services.LiveCoverageRun r, string va) => (uint)(ulong.Parse(va[2..], NumberStyles.HexNumber, CultureInfo.InvariantCulture) - r.Image.Image.ImageBase);
+    private static uint Rva(Services.LiveCoverageRun r, string va) => (uint)(ulong.Parse(va[2..], NumberStyles.HexNumber, CultureInfo.InvariantCulture) - r.Image!.Image.ImageBase);
 
     /// <summary>
     /// The static call graph in Graphviz DOT: node n&lt;i&gt; per function in address order, labeled with the count;

@@ -116,6 +116,24 @@ public sealed class LiveClr : IDisposable
     private readonly Dictionary<string, Native.ReadyToRun.R2RImage?> _r2r = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>
+    /// The metadata tokens of the methods of an assembly the runtime has prepared code for: JIT-compiled at a first call,
+    /// or ReadyToRun code bound at a first call.
+    /// </summary>
+    public IReadOnlyList<uint> Prepared(string path)
+    {
+        lock (_decoder.Gate)
+        {
+            if (_decoder.Runtime is not { } runtime) return [];
+            var found = new List<uint>();
+            foreach (var module in runtime.EnumerateModules().Where(m => m.Name is { } n && SamePath(n, path)))
+                foreach (var type in module.EnumerateTypeDefToMethodTableMap().Select(x => runtime.GetTypeByMethodTable(x.MethodTable)).OfType<ClrType>())
+                    foreach (var m in type.Methods)
+                        if (m.Type == type && m.MetadataToken != 0 && m.NativeCode != 0 && m.NativeCode != ulong.MaxValue) found.Add((uint)m.MetadataToken);
+            return found;
+        }
+    }
+
+    /// <summary>
     /// The RVA of a method's precompiled body in the image at <paramref name="path"/> (its own ReadyToRun code, not a
     /// composite's); null without one.
     /// </summary>

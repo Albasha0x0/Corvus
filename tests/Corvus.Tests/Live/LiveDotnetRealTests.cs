@@ -268,6 +268,30 @@ public sealed class LiveDotnetRealTests(ITestOutputHelper output) : LiveToolCall
         Assert.Contains("closed", await Ok(server, "live_session", new() { ["action"] = "close", ["session"] = "live-1" }));
     }
 
+    /// <summary>Coverage of a managed assembly in two runs, recorded to the exit; with no rounds the read method never runs.</summary>
+    [DotnetTargetFact("win-x64")]
+    public async Task Managed_coverage_on_win_x64()
+    {
+        var exe = DotnetTarget.WinX64.Build(_dir);
+        var input = _dir.File(InputName);
+        File.WriteAllText(input, "x");
+        await using var server = await Server();
+        var runs = new List<string>();
+        foreach (var (session, rounds) in new[] { ("live-1", "0"), ("live-2", "1") })
+        {
+            await Spawn(server, exe, session, input, "1", rounds, "0");
+            var start = await Ok(server, "live_coverage", new() { ["session"] = session, ["action"] = "start", ["match"] = "readers.dll!" });
+            runs.Add(Regex.Match(start, @"^(cov-\d+) recording which of \d+ methods of readers\.dll run").Groups[1].Value);
+            await Ok(server, "live_break", new() { ["session"] = session, ["action"] = "continue" });
+            await UntilExited(server, session);
+        }
+        Assert.Matches(@"ran  0x06000002  Readers::ReadLoop\(string, int, int\)", await Ok(server, "live_coverage", new() { ["action"] = "report", ["run"] = runs[0] }));
+        var diff = await Ok(server, "live_coverage", new() { ["action"] = "diff", ["run"] = runs[0], ["other"] = runs[1] });
+        Assert.Matches(@"0 functions ran only in cov-\d+, 1 only in cov-\d+", diff);
+        Assert.Matches(@"only in cov-\d+:\r?\n\s+ran  0x06000003  Readers::ReadOnce\(string\)", diff);
+        await Refused(server, "live_coverage", new() { ["action"] = "report", ["run"] = runs[0], ["format"] = "dot" }, "unsupported");
+    }
+
     /// <summary>Saves a snapshot of the running program and reads its stacks.</summary>
     private async Task Snapshot(InProcessServer server, DotnetTarget target, string thread)
     {
