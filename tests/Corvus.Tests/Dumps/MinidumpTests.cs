@@ -318,6 +318,43 @@ public sealed class MinidumpTests
     }
 
     /// <summary>
+    /// A thread held in a hook: its EBP points off the stack (not a frame), the scan's guessed frame pointer reads a zero
+    /// return address (not the end of the stack), and the scan above reaches the program's frame.
+    /// </summary>
+    [Fact]
+    public async Task X86GuessedFramePointersDoNotEndTheWalk()
+    {
+        const uint Stack2 = 0x00E1_0000, Heap = 0x0100_0000; // the heap block lies above the stack, where a chain could follow it
+        using var dir = new TempDir();
+        var image = SyntheticCrashX86.Mapped(SyntheticCrashX86.FileImage());
+        var stack = new byte[0x100];
+        void Put(byte[] to, int at, uint v) => BinaryPrimitives.WriteUInt32LittleEndian(to.AsSpan(at), v);
+        Put(stack, 0x04, Stack2 + 0x20); // below the return address: the scan's guessed frame pointer
+        Put(stack, 0x08, SyntheticCrashX86.Base + SyntheticCrashX86.MidRva + 6); // found by the scan
+        // 0x20: the guessed frame holds zeros (saved ebp, return address)
+        Put(stack, 0x30, SyntheticCrashX86.Base + SyntheticCrashX86.OuterRva + 8); // found by the scan above it
+        var heap = new byte[0x10];
+        Put(heap, 0x00, Stack2 + 0x40);
+        Put(heap, 0x04, SyntheticCrashX86.Base + SyntheticCrashX86.TopRva + 8); // a plausible return, but off the stack
+        var d = new MinidumpBuilder { FullMemory = true, ProcessorArchitecture = 0 };
+        d.Modules.Add(new MinidumpBuilder.Module(SyntheticCrashX86.Base, (uint)image.Length, 0, @"Z:\nowhere\synth32.dll"));
+        d.Memory.Add((SyntheticCrashX86.Base, image));
+        d.Memory.Add((Stack2, stack));
+        d.Memory.Add((Heap, heap));
+        d.Regions.Add(new MinidumpBuilder.Region(SyntheticCrashX86.Base, (ulong)image.Length, 0x20));
+        d.Regions.Add(new MinidumpBuilder.Region(Stack2, 0x100, 0x04));
+        d.Regions.Add(new MinidumpBuilder.Region(Heap, 0x1000, 0x04));
+        d.Threads.Add(new MinidumpBuilder.Thread(104, Stack2, MinidumpBuilder.ContextX86(SyntheticCrashX86.Base + 0x10B8, Stack2, ebp: Heap)));
+        var path = dir.File("hooked32.dmp");
+        File.WriteAllBytes(path, d.Build());
+        using var service = new MinidumpService();
+        var walk = await service.Stack(path, "104", true, 64, 0, 64, null, default);
+        Assert.Equal(["synth32!Mid+0x6", "synth32!Outer+0x8"], walk.Items.Skip(1).Select(f => f.Symbol));
+        Assert.Equal(["scan", "scan"], walk.Items.Skip(1).Select(f => f.Method));
+        Assert.DoesNotContain(walk.Items, f => f.Symbol == "synth32!Top+0x8");
+    }
+
+    /// <summary>
     /// A WoW64 process dumped by a 64-bit tool: each thread's 32-bit side comes from the x86 context WoW64 keeps in the
     /// CPU area that TEB64 TLS slot 1 points to, with the 32-bit stack bounds from the TEB32 at TEB64 + 0x2000.
     /// </summary>
