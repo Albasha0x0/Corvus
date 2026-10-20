@@ -1,30 +1,34 @@
 using System.Diagnostics;
+using System.Runtime.InteropServices;
 using Corvus.Native.Providers.Live;
 
 namespace Corvus.Tests;
 
-/// <summary>A target the session tests build programs for: Windows with MSVC or Linux with gcc, 64- or 32-bit.</summary>
+/// <summary>A target the session tests build programs for: Windows with MSVC or Linux with gcc, x64, x86 or arm64.</summary>
 internal sealed class LiveTarget
 {
     public static readonly LiveTarget WinX64 = new("win-x64", windows: true, is64: true);
     public static readonly LiveTarget WinX86 = new("win-x86", windows: true, is64: false);
     public static readonly LiveTarget LinuxX64 = new("linux-x64", windows: false, is64: true);
     public static readonly LiveTarget LinuxX86 = new("linux-x86", windows: false, is64: false);
+    public static readonly LiveTarget LinuxArm64 = new("linux-arm64", windows: false, is64: true, arm64: true);
 
     public string Name { get; }
     public bool Windows { get; }
     public bool Is64 { get; }
+    public bool Arm64 { get; }
     private readonly Lazy<string?> _missing;
 
-    private LiveTarget(string name, bool windows, bool is64)
+    private LiveTarget(string name, bool windows, bool is64, bool arm64 = false)
     {
         Name = name;
         Windows = windows;
         Is64 = is64;
+        Arm64 = arm64;
         _missing = new(FindMissing);
     }
 
-    public static LiveTarget Of(string name) => new[] { WinX64, WinX86, LinuxX64, LinuxX86 }.Single(t => t.Name == name);
+    public static LiveTarget Of(string name) => new[] { WinX64, WinX86, LinuxX64, LinuxX86, LinuxArm64 }.Single(t => t.Name == name);
 
     /// <summary>Why this target's programs cannot be built and observed here; null when they can.</summary>
     public string? Missing => _missing.Value;
@@ -32,7 +36,7 @@ internal sealed class LiveTarget
     public string Exe(string name) => Windows ? name + ".exe" : name;
 
     /// <summary>The register holding the first integer argument at a function's entry; null where it is on the stack (x86).</summary>
-    public string? FirstArgument => !Is64 ? null : Windows ? "rcx" : "rdi";
+    public string? FirstArgument => !Is64 ? null : Arm64 ? "x0" : Windows ? "rcx" : "rdi";
 
     /// <summary>The module that exports the C library's file open: <c>module!name</c> for a watch.</summary>
     public string FileOpen => Windows ? "kernelbase!CreateFileA" : "libc.so.6!open";
@@ -41,6 +45,7 @@ internal sealed class LiveTarget
     {
         if (Windows != OperatingSystem.IsWindows()) return $"{Name} programs run on {(Windows ? "Windows" : "Linux")}.";
         if (!Windows && !OperatingSystem.IsLinux()) return $"{Name} programs run on Linux.";
+        if (!Windows && Arm64 != (RuntimeInformation.OSArchitecture == Architecture.Arm64)) return $"{Name} programs run on {(Arm64 ? "an arm64" : "an x64")} machine.";
         if (new FridaBackend().Unavailable() is { } frida) return frida.Reason;
         if (Windows) return VisualStudio.VcVarsAll() == null ? "No Visual Studio C++ toolset." : null;
         using var dir = new TempDir();
@@ -67,7 +72,8 @@ internal sealed class LiveTarget
     private ProcessStartInfo Gcc(TempDir dir, string name)
     {
         var psi = new ProcessStartInfo("gcc") { WorkingDirectory = dir.Path };
-        foreach (var a in new[] { "-g", "-O0", "-fno-omit-frame-pointer", Is64 ? "-m64" : "-m32", "-o", name, name + ".c", "-lpthread" }) psi.ArgumentList.Add(a);
+        foreach (var a in new[] { "-g", "-O0", "-fno-omit-frame-pointer", Arm64 ? "" : Is64 ? "-m64" : "-m32", "-o", name, name + ".c", "-lpthread" })
+            if (a.Length > 0) psi.ArgumentList.Add(a);
         return psi;
     }
 

@@ -104,6 +104,30 @@ public sealed class LiveTargetRealTests(ITestOutputHelper output) : LiveToolCall
         Ended(pid);
     }
 
+    // ---- the smoke set, for targets observed under emulation: start, a stop point by name, the named stack, a memory read, close
+
+    [LiveTargetFact("linux-arm64")] public Task Smoke_on_linux_arm64() => Smoke(LiveTarget.LinuxArm64);
+
+    private async Task Smoke(LiveTarget target)
+    {
+        var exe = target.Build(_dir, "orders", LivePrograms.Orders);
+        var name = Regex.Escape(target.Exe("orders"));
+        int callLine = LivePrograms.Line(LivePrograms.Orders, "g_sink = AddLine");
+        await using var server = await Server();
+
+        var pid = await Spawn(server, exe, "live-1", "3", "0");
+        Assert.Matches($@"s1 set at 0x[0-9A-F]+ {name}!AddLine", await Ok(server, "live_break", new() { ["session"] = "live-1", ["action"] = "set", ["at"] = "AddLine" }));
+        var stop = await Ok(server, "live_break", new() { ["session"] = "live-1", ["action"] = "continue", ["wait"] = true, ["waitSeconds"] = 300 });
+        Assert.Matches($@"thread \d+ stopped at s1 \({name}!AddLine\)", stop);
+        Assert.Matches($@"#0 0x[0-9A-F]+ {name}!AddLine", stop);
+        Assert.Matches($@"#1 0x[0-9A-F]+ {name}!main\+0x[0-9A-F]+  .*orders\.c:{callLine}\b", stop);
+        var fields = await Ok(server, "live_read", new() { ["session"] = "live-1", ["memory"] = await FirstArgument(server, target), ["type"] = "int32[2]" });
+        Assert.Contains("[0] 7", fields);
+        Assert.Contains("[1] 0", fields);
+        Assert.Contains("closed", await Ok(server, "live_session", new() { ["action"] = "close", ["session"] = "live-1" }));
+        Ended(pid);
+    }
+
     // ---- attach to a running program; close leaves it running
 
     [LiveTargetFact("win-x64")] public Task Attach_on_win_x64() => Attach(LiveTarget.WinX64);
