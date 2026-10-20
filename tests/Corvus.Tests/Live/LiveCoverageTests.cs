@@ -135,4 +135,27 @@ public sealed class LiveCoverageTests : IDisposable
         Assert.Matches($@"only in cov-2:\r?\n\s+1\s+0x[0-9A-F]+\s+{c}\r?\n", diff);
         Assert.Equal(ErrorCode.InvalidArgument, (await Assert.ThrowsAsync<ToolError>(() => _tools.LiveCoverage(action: "diff", run: "cov-1"))).Code);
     }
+
+    [Fact]
+    public async Task Runs_of_two_builds_a_graph_too_large_and_unknown_names_are_refused()
+    {
+        await _tools.LiveSession("attach", program: "4242");
+        await _tools.LiveCoverage("live-1", "start");
+        var all = _service.GetCoverage("cov-1").Placed.Count;
+        Assert.True(all > 200, $"{all} functions");
+        var dot = await Assert.ThrowsAsync<ToolError>(() => _tools.LiveCoverage(action: "report", run: "cov-1", show: "all", format: "dot"));
+        Assert.Equal(ErrorCode.LimitExceeded, dot.Code);
+        Assert.Contains("match=", dot.Remediation);
+        Assert.Equal(ErrorCode.InvalidArgument, (await Assert.ThrowsAsync<ToolError>(() => _tools.LiveCoverage(action: "report", run: "cov-1", show: "some"))).Code);
+        Assert.Equal(ErrorCode.NotFound, (await Assert.ThrowsAsync<ToolError>(() => _tools.LiveCoverage("live-1", "start", match: "nosuchmodule!open"))).Code);
+        Assert.Equal(ErrorCode.NotFound, (await Assert.ThrowsAsync<ToolError>(() => _tools.LiveCoverage("live-1", "start", match: "no_function_has_this_name"))).Code);
+
+        var old = RealPackages.File("SQLitePCLRaw.lib.e_sqlite3", "2.1.2", "runtimes", "win-x64", "native", "e_sqlite3.dll");
+        _service.Backend = new ScriptedLiveBackend(old, Base, 0x200000) { ProcessId = 4343 };
+        await _tools.LiveSession("attach", program: "4343");
+        await _tools.LiveCoverage("live-2", "start", match: "sqlite3_column_");
+        var builds = await Assert.ThrowsAsync<ToolError>(() => _tools.LiveCoverage(action: "diff", run: "cov-1", other: "cov-2"));
+        Assert.Equal(ErrorCode.Conflict, builds.Code);
+        Assert.Contains("different builds", builds.Message);
+    }
 }

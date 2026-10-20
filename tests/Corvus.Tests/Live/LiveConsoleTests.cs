@@ -155,6 +155,10 @@ public sealed class LiveConsoleTests : IDisposable
         Assert.Equal(ErrorCode.InvalidArgument, bad.Code);
         Assert.Contains("Script step 2 'type Ada': unknown step 'type'", bad.Message);
         Assert.Equal(ErrorCode.InvalidArgument, (await Assert.ThrowsAsync<ToolError>(() => _tools.LiveConsole("start", program: _program, script: ["resize 80"]))).Code);
+        foreach (var seconds in new[] { 0, 301 })
+            Assert.Equal(ErrorCode.InvalidArgument, (await Assert.ThrowsAsync<ToolError>(() => _tools.LiveConsole("start", program: _program, timeoutSeconds: seconds))).Code);
+        Assert.Equal(ErrorCode.InvalidArgument, (await Assert.ThrowsAsync<ToolError>(() => _tools.LiveConsole("start"))).Code);
+        Assert.Equal(ErrorCode.NotFound, (await Assert.ThrowsAsync<ToolError>(() => _tools.LiveConsole("status", run: "con-9"))).Code);
         Assert.Null(_host.Last);
 
         using var workspace = new AssemblyWorkspace();
