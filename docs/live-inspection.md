@@ -117,6 +117,13 @@ as `output` events. It gets a minimal environment (`PATH`, `TEMP`, the user fold
 Attach refuses the server's own process and the processes it runs under (the MCP client, its terminal, the editor), by id
 or by name: a session held there would freeze the client driving it.
 
+In a .NET program on Windows x64, the runtime's own DAC (read through ClrMD from the process's memory) names JIT-compiled
+and ReadyToRun code: a stop's managed frames read `app.dll!Ns.Type.Method(System.String)+0x1B`, walked by the runtime
+from the stop's registers. A stop point or watch takes a managed method by name (`Ns.Type::Method`, a parameter list
+for an overload, or `app.dll!Ns.Type::Method`); a method without code yet is deferred until the runtime compiles it
+(ReadyToRun code is bound at once), so its first calls may be missed. A runtime of another architecture, or one whose DAC
+cannot be found, leaves managed code unnamed.
+
 A stop point or watch on `module!name` whose module is not loaded yet is deferred, as a debugger defers an unresolved
 breakpoint: the loading thread waits at the module's load, before any of the module's code runs, until the point is set
 (a `module` event says so), so its first call is caught. A stop point on a jump is set where the jump leads; when it leads
@@ -216,7 +223,7 @@ of the same program (3,020 functions, statically linked C runtime): stop points 
   walked for x64 and x86.
 - Processes of another user, elevated processes (from a non-elevated server) and protected processes fail with
   `access_denied`. A process that has exited fails with `not_found` (reason `process_exited`).
-- Managed (JIT) frames are identified, not decoded; use a managed debugger or SOS for those.
+- `inspect_process` identifies managed (JIT) frames without decoding them; sessions name them (see Sessions).
 - Sessions run on Windows and Linux. On macOS `live_session` fails with `provider_unavailable`, so no session opens;
   minidumps and core files open with `open_minidump` on any OS.
 - On Linux, a server without CAP_SYS_PTRACE is bound by Yama's `ptrace_scope`: at 1 sessions on programs it starts

@@ -158,6 +158,12 @@ public sealed class LiveProcess : IProcessMemory, IDisposable
         _ => NativeArch.Unknown,
     };
 
+    /// <summary>Reads the module list again (a running program loads and unloads modules).</summary>
+    public void RefreshModules()
+    {
+        if (!_disposed) ReadModules(CancellationToken.None);
+    }
+
     /// <summary>Whether the process is still running (it may exit while it is read).</summary>
     public bool IsRunning => !_disposed && LiveNative.GetExitCodeProcess(_process, out uint exit) && exit == LiveNative.STILL_ACTIVE;
 

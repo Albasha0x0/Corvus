@@ -310,6 +310,7 @@ public sealed partial class LiveSessionTools(ServerOptions options, LiveSessionS
                 else
                 {
                     await live.IndexedAsync(s, TimeSpan.FromSeconds(15), cancellationToken).ConfigureAwait(false);
+                    await live.ClrAsync(s, cancellationToken).ConfigureAwait(false);
                     stop = Stop(s, held, head, named, cancellationToken);
                 }
             }
@@ -319,7 +320,7 @@ public sealed partial class LiveSessionTools(ServerOptions options, LiveSessionS
             lock (s.Deferred) deferredPoints = s.Deferred.Where(d => !d.Watch).ToList();
             head.AppendLine($"{s.Id}: {s.State}, {points.Count} stop point(s){(deferredPoints.Count > 0 ? $", {deferredPoints.Count} deferred" : "")}");
             foreach (var p in points) head.AppendLine($"  {p.Id} {p.Where} at {Hex(p.Address)} {p.At.Display}, {p.Hits} hit(s)");
-            foreach (var d in deferredPoints) head.AppendLine($"  {d.Id} {d.Where}: deferred until {d.Module} loads");
+            foreach (var d in deferredPoints) head.AppendLine($"  {d.Id} {d.Where}: {Until(d)}");
             named.AddRange(points.Select(p => p.At.Named).OfType<EvidenceName>());
             var rows = points.Select(p => new LiveStopPoint(p.Id, p.Where, Hex(p.Address), p.Hits) { Followed = p.Followed })
                 .Concat(deferredPoints.Select(d => new LiveStopPoint(d.Id, d.Where, null, 0))).ToList();
@@ -328,7 +329,7 @@ public sealed partial class LiveSessionTools(ServerOptions options, LiveSessionS
 
     private LiveStop Stop(Services.LiveSession s, LiveHeldStop held, StringBuilder text, List<EvidenceName> named, CancellationToken ct)
     {
-        var frames = held.Frames.Select((f, i) => live.Name(s, f, returnAddress: i > 0, ct)).ToList();
+        var frames = live.StopFrames(s, held).Select((f, i) => live.Name(s, f, returnAddress: i > 0, ct)).ToList();
         named.AddRange(frames.Select(f => f.Named).OfType<EvidenceName>());
         text.AppendLine($"thread {held.Thread} stopped at {held.Point} ({frames.FirstOrDefault()?.Display ?? "?"})");
         for (int i = 0; i < frames.Count; i++) text.AppendLine($"  #{i} {Hex(frames[i].Address)} {frames[i].Display}{Src(frames[i].Source)}");
@@ -390,7 +391,7 @@ public sealed partial class LiveSessionTools(ServerOptions options, LiveSessionS
             }
             List<LiveDeferred> deferredWatches;
             lock (s.Deferred) deferredWatches = s.Deferred.Where(d => d.Watch).ToList();
-            foreach (var d in deferredWatches) head.AppendLine($"  {d.Id} {d.Where}: deferred until {d.Module} loads");
+            foreach (var d in deferredWatches) head.AppendLine($"  {d.Id} {d.Where}: {Until(d)}");
             if (rows.Count > 0) head.AppendLine($"calls: live_events from={rows[0].Id}");
             var named = watches.Select(x => x.At.Named).OfType<EvidenceName>().ToList();
             return ToolOutput.With(head.ToString(), new LiveWatchReport(s.Id, rows)
@@ -718,8 +719,12 @@ public sealed partial class LiveSessionTools(ServerOptions options, LiveSessionS
     private static string Src(string? source) => source != null ? "  " + source : "";
 
     private static string Deferred((LiveDeferred Point, bool Held) d) =>
-        $"{d.Point.Id} deferred: {d.Point.Module} is not loaded; it is set when {d.Point.Module} loads" +
-        (d.Held ? ", before the module's code runs" : " (calls before then are missed)");
+        d.Point.UntilCompiled
+            ? $"{d.Point.Id} deferred: {d.Point.Module} has no code yet (the runtime compiles it at its first call); it is set once it is compiled, so the first calls may be missed"
+            : $"{d.Point.Id} deferred: {d.Point.Module} is not loaded; it is set when {d.Point.Module} loads" +
+              (d.Held ? ", before the module's code runs" : " (calls before then are missed)");
+
+    private static string Until(LiveDeferred d) => d.UntilCompiled ? $"deferred until {d.Module} is compiled" : $"deferred until {d.Module} loads";
 
     /// <summary>The opt-in flags: starting a program needs --allow-live-spawn, attaching --allow-live-attach (each turns on --allow-live).</summary>
     private void Require(bool spawn, bool attach = false)

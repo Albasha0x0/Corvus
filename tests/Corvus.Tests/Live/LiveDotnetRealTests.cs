@@ -210,9 +210,10 @@ public sealed class LiveDotnetRealTests(ITestOutputHelper output) : LiveToolCall
             thread = "";
         }
         Assert.False(thread.Length == 0, "no stop on an open of the input file in 50 stops");
-        // native frames by module and export; the managed caller as the runtime library's precompiled code or JIT code outside every module
+        // native frames by module and export; the managed caller named by the runtime (x64), else as the runtime library's precompiled code or JIT code outside every module
         var api = target.Windows ? @"KERNELBASE\.dll!CreateFileW" : @"libc\.so\.6!(?:__libc_)?open(?:64)?\b"; // glibc exports open and its aliases at one address
-        var caller = target.Windows ? @"System\.Private\.CoreLib\.dll\+0x[0-9A-F]+|0x\k<b>" : @"libSystem\.Native\.so!SystemNative_Open\S*";
+        var caller = !target.Windows ? @"libSystem\.Native\.so!SystemNative_Open\S*"
+            : target.Is64 ? @"System\.Private\.CoreLib\.dll!\S.*\(.*\)\+0x[0-9A-F]+" : @"System\.Private\.CoreLib\.dll\+0x[0-9A-F]+|0x\k<b>";
         // a frame with debug information ends in its source file and line
         Assert.Matches($@"thread {thread} stopped at s1 \({api}\)\r?\n  #0 0x[0-9A-F]+ {api}(?:  \S+:\d+)?\r?\n  #1 0x(?<b>[0-9A-F]+) ({caller})(?:  \S+:\d+)?\r?\n", stop);
 
@@ -245,6 +246,24 @@ public sealed class LiveDotnetRealTests(ITestOutputHelper output) : LiveToolCall
         // a return address is never the entry of the function stopped at
         var entry = Regex.Match(stop, @"#0 (0x[0-9A-F]+) ").Groups[1].Value;
         Assert.DoesNotMatch($@"#[1-9]\d* {entry} ", stop);
+    }
+
+    /// <summary>A stop at a JIT-compiled method by name, deferred until the runtime compiles it; the stack names the managed frames.</summary>
+    [DotnetTargetFact("win-x64")]
+    public async Task Managed_stop_point_on_win_x64()
+    {
+        var exe = DotnetTarget.WinX64.Build(_dir);
+        var input = _dir.File(InputName);
+        File.WriteAllText(input, "x");
+        await using var server = await Server();
+        await Spawn(server, exe, "live-1", input, "1", "100000", "20");
+        Assert.Contains("deferred until readers.dll loads", await Ok(server, "live_break", new() { ["session"] = "live-1", ["action"] = "set", ["at"] = "Readers::ReadOnce" }));
+        var stop = await Ok(server, "live_break", new() { ["session"] = "live-1", ["action"] = "continue", ["wait"] = true, ["waitSeconds"] = 60 });
+        Assert.Matches(@"stopped at s1 \(readers\.dll!Readers\.ReadOnce\(System\.String\)\)\r?\n  #0 0x[0-9A-F]+ readers\.dll!Readers\.ReadOnce\(System\.String\)\r?\n" +
+                       @"  #1 0x[0-9A-F]+ readers\.dll!Readers\.ReadLoop\(System\.String, Int32, Int32\)\+0x[0-9A-F]+\r?\n", stop);
+        Assert.Contains("compiled", await Events(server, "live-1", kind: "module"));
+        await Refused(server, "live_break", new() { ["session"] = "live-1", ["action"] = "set", ["at"] = "Readers::ReadTwice" }, "not_found");
+        Assert.Contains("closed", await Ok(server, "live_session", new() { ["action"] = "close", ["session"] = "live-1" }));
     }
 
     /// <summary>Saves a snapshot of the running program and reads its stacks.</summary>

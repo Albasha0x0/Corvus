@@ -30,8 +30,14 @@ public sealed record LiveStopPointState(string Id, string Where, ulong Address, 
     internal (ulong Address, ulong Value)? Slot { get; init; }
 }
 
-/// <summary>A stop point or watch on a module the program has not loaded yet; set when the module loads.</summary>
-public sealed record LiveDeferred(string Id, string Where, string Module, bool Watch, int PerSecond, int RawArguments);
+/// <summary>
+/// A stop point or watch on a module the program has not loaded yet, set when the module loads; or, with
+/// <see cref="UntilCompiled"/>, on a managed method (<see cref="Module"/> names it) set when the runtime compiles it.
+/// </summary>
+public sealed record LiveDeferred(string Id, string Where, string Module, bool Watch, int PerSecond, int RawArguments)
+{
+    public bool UntilCompiled { get; init; }
+}
 
 /// <summary>A thread held at a stop point until it is resumed: its general registers and return addresses.</summary>
 public sealed record LiveHeldStop(long Sequence, long Thread, string Point, IReadOnlyDictionary<string, string> Registers, IReadOnlyList<ulong> Frames);
@@ -97,6 +103,14 @@ public sealed class LiveSession
     /// <summary>When the program's exit code was first seen set while its process had not yet ended.</summary>
     internal DateTime? ExitingSince { get; set; }
     internal List<Task> Indexing { get; } = [];
+    /// <summary>The program's .NET runtime once read (<see cref="LiveSessionService.ClrAsync"/>).</summary>
+    internal LiveClr? Clr { get; set; }
+    /// <summary>The module count at the last attempt to read the runtime; it is tried again when the count changes.</summary>
+    internal int ClrTriedAt { get; set; } = -1;
+    internal SemaphoreSlim ClrOpen { get; } = new(1, 1);
+    /// <summary>Checks the points deferred until their method is compiled.</summary>
+    internal Timer? CompileCheck { get; set; }
+    internal int CompileChecking;
     public List<LiveModuleState> Modules { get; } = [];
     public Dictionary<string, LiveStopPointState> StopPoints { get; } = new(StringComparer.Ordinal);
     public Dictionary<string, LiveWatchState> Watches { get; } = new(StringComparer.Ordinal);
@@ -642,6 +656,21 @@ public sealed partial class LiveSessionService(AssemblyWorkspace workspace, Nati
         return best >= 0 ? table[best] : null;
     }
 
+    private readonly ConcurrentDictionary<string, (uint Rva, string Name)[]> _exportTables = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>A module file's named exports by RVA (read once per path).</summary>
+    private (uint Rva, string Name)[] ExportTable(string path) =>
+        _exportTables.GetOrAdd(path, p =>
+        {
+            try
+            {
+                if (!File.Exists(p)) return [];
+                return [.. NativeImageLoader.Open(p).Exports.Where(x => x.ForwardedTo == null && !string.IsNullOrEmpty(x.Name))
+                    .Select(x => (x.Rva, x.Name!)).DistinctBy(x => x.Rva).OrderBy(x => x.Rva)];
+            }
+            catch (Exception e) when (e is ToolError or IOException or UnauthorizedAccessException or InvalidDataException) { return []; }
+        });
+
     private static readonly TimeSpan ExitCodeWait = TimeSpan.FromSeconds(1);
 
     // bound here, not in Native.Live: the process inspector there binds no API that changes a process
@@ -730,12 +759,12 @@ public sealed partial class LiveSessionService(AssemblyWorkspace workspace, Nati
     {
         LiveModuleState? module;
         lock (session.Modules) module = session.Modules.FirstOrDefault(m => m.Contains(address));
-        if (module == null) return new(address, null, null, 0, null, 0, null, null);
+        if (module == null) return ManagedName(session, address, null) ?? new(address, null, null, 0, null, 0, null, null);
         var rva = (uint)(address - module.Base);
         var native = Match(module);
         if (native == null)
-            return NearestExport(module.Path, rva) is { } e ? new(address, module.Name, null, rva, e.Name, rva - e.Rva, null, null)
-                : new(address, module.Name, null, rva, null, 0, null, null);
+            return ManagedName(session, address, module) ?? (NearestExport(module.Path, rva) is { } e ? new(address, module.Name, null, rva, e.Name, rva - e.Rva, null, null)
+                : new(address, module.Name, null, rva, null, 0, null, null));
         string? function = null, source = null;
         long offset = 0;
         EvidenceName? named = null;
@@ -768,6 +797,18 @@ public sealed partial class LiveSessionService(AssemblyWorkspace workspace, Nati
     /// module name is its base and an address outside every module (stack, heap) is taken as is.
     /// </summary>
     public async Task<ulong> ResolveAsync(LiveSession session, string where, CancellationToken ct, bool data = false)
+    {
+        ToolError failed;
+        try { return await ResolveNativeAsync(session, where, ct, data).ConfigureAwait(false); }
+        catch (ToolError e) when (!data && e.Code is ErrorCode.NotFound or ErrorCode.Unsupported or ErrorCode.InvalidArgument) { failed = e; }
+        if (await ManagedTargetAsync(session, where, ct).ConfigureAwait(false) is not { } target) throw failed;
+        return await ManagedCodeAsync(session, target, ct).ConfigureAwait(false) is { } code ? code.Code
+            : throw new ToolError(ErrorCode.NotFound, $"{target.Display} has no code yet: the runtime compiles it at its first call.",
+                $"live_break action=set at={where.Trim()} defers it until then");
+    }
+
+    /// <summary>The live address of a native name, module!export, file:line or address (see <see cref="ResolveAsync"/>).</summary>
+    private async Task<ulong> ResolveNativeAsync(LiveSession session, string where, CancellationToken ct, bool data = false)
     {
         var t = where.Trim();
         if (t.Length == 0) throw new ToolError(ErrorCode.InvalidArgument, "The stop point location is empty.", "at=<name>, module!export, file:line or 0xADDRESS");
@@ -971,15 +1012,18 @@ public sealed partial class LiveSessionService(AssemblyWorkspace workspace, Nati
     /// when the module loads. Held is true when the worker holds the loading thread until then, so no call is missed.
     /// Null when the module is loaded.
     /// </summary>
-    public async Task<(LiveDeferred Point, bool Held)?> DeferAsync(LiveSession session, string where, bool watch, int perSecond = 0, int rawArguments = 0, CancellationToken ct = default)
+    public async Task<(LiveDeferred Point, bool Held)?> DeferAsync(LiveSession session, string where, bool watch, int perSecond = 0, int rawArguments = 0,
+        CancellationToken ct = default, string? id = null)
     {
         var t = where.Trim();
         if (NameOffset.Match(t) is { Success: true } no) t = no.Groups["name"].Value;
-        if (t.StartsWith("0x", StringComparison.OrdinalIgnoreCase) || t.IndexOf('!') is not (> 0 and var bang)) return null;
+        if (t.StartsWith("0x", StringComparison.OrdinalIgnoreCase)) return null;
+        if (t.IndexOf('!') is not (> 0 and var bang)) return await DeferManagedAsync(session, t, watch, perSecond, rawArguments, id, ct).ConfigureAwait(false);
         var module = t[..bang];
-        lock (session.Modules)
-            if (session.Modules.Any(m => ModuleNamed(m, module))) return null;
-        var d = new LiveDeferred(watch ? session.NextWatchId() : session.NextPointId(), where.Trim(), module, watch, perSecond, rawArguments);
+        bool loaded;
+        lock (session.Modules) loaded = session.Modules.Any(m => ModuleNamed(m, module));
+        if (loaded) return await DeferManagedAsync(session, t, watch, perSecond, rawArguments, id, ct).ConfigureAwait(false);
+        var d = new LiveDeferred(id ?? (watch ? session.NextWatchId() : session.NextPointId()), where.Trim(), module, watch, perSecond, rawArguments);
         lock (session.Deferred) session.Deferred.Add(d);
         // a worker without the op still sets the point on the load event, after the module's first calls
         try { await session.Worker.RequestAsync("defer_module", new JsonObject { ["name"] = module }, RequestTimeout, ct).ConfigureAwait(false); }
@@ -1003,13 +1047,13 @@ public sealed partial class LiveSessionService(AssemblyWorkspace workspace, Nati
         bool rest;
         lock (session.Deferred)
         {
-            due = session.Deferred.Where(d => ModuleNamed(module, d.Module)).ToList();
+            due = session.Deferred.Where(d => !d.UntilCompiled && ModuleNamed(module, d.Module)).ToList();
             session.Deferred.RemoveAll(due.Contains);
             rest = session.Deferred.Any(d => due.Any(x => x.Module.Equals(d.Module, StringComparison.OrdinalIgnoreCase)));
         }
         try
         {
-            await SetDueAsync(session, module, due).ConfigureAwait(false);
+            await SetDueAsync(session, $"{module.Name} loaded", due).ConfigureAwait(false);
             var placed = await PlaceCoverageAsync(session, module).ConfigureAwait(false);
             if (!rest)
                 foreach (var name in due.Select(d => d.Module).Concat(placed).Distinct(StringComparer.OrdinalIgnoreCase))
@@ -1024,20 +1068,27 @@ public sealed partial class LiveSessionService(AssemblyWorkspace workspace, Nati
         }
     }
 
-    private async Task SetDueAsync(LiveSession session, LiveModuleState module, List<LiveDeferred> due)
+    /// <summary>Sets deferred points now that <paramref name="because"/> (their module loaded, their method compiled).</summary>
+    private async Task SetDueAsync(LiveSession session, string because, List<LiveDeferred> due)
     {
         foreach (var d in due)
         {
             try
             {
+                // a managed method that is compiled at its first call waits for that
+                if (await DeferManagedAsync(session, d.Where, d.Watch, d.PerSecond, d.RawArguments, d.Id, CancellationToken.None).ConfigureAwait(false) is { } later)
+                {
+                    session.Add("module", null, null, $"deferred {(d.Watch ? "watch" : "stop point")} {d.Id}: {later.Point.Module} has no code yet ({because}); it is set when the runtime compiles it");
+                    continue;
+                }
                 var (at, plan) = d.Watch
                     ? await WatchAsync(session, d.Where, d.PerSecond, d.RawArguments, CancellationToken.None, d.Id).ConfigureAwait(false) is var w ? (w.At, $": {w.Plan.Prototype} ({w.Plan.Source})") : default
                     : ((await SetAsync(session, d.Where, CancellationToken.None, d.Id).ConfigureAwait(false)).At, "");
-                session.Add("module", null, at.Address, $"deferred {(d.Watch ? "watch" : "stop point")} {d.Id} set at {at.Display}{plan} ({module.Name} loaded)");
+                session.Add("module", null, at.Address, $"deferred {(d.Watch ? "watch" : "stop point")} {d.Id} set at {at.Display}{plan} ({because})");
             }
             catch (Exception e) when (e is ToolError or TimeoutException or OperationCanceledException)
             {
-                session.Add("error", null, null, $"deferred {d.Id} at {d.Where} could not be set when {module.Name} loaded: {e.Message}");
+                session.Add("error", null, null, $"deferred {d.Id} at {d.Where} could not be set ({because}): {e.Message}");
             }
         }
     }
@@ -1270,6 +1321,7 @@ public sealed partial class LiveSessionService(AssemblyWorkspace workspace, Nati
         session.Deadline?.Dispose();
         session.ExitCheck?.Dispose();
         await CloseChildrenAsync(session).ConfigureAwait(false);
+        session.CompileCheck?.Dispose();
         if (session.Worker.IsAlive)
             await session.Worker.ShutdownAsync("close", new JsonObject { ["end"] = session.Spawned }, TimeSpan.FromSeconds(5)).ConfigureAwait(false);
         session.Worker.Dispose();
@@ -1278,6 +1330,13 @@ public sealed partial class LiveSessionService(AssemblyWorkspace workspace, Nati
         session.ReleaseAll();
         EndCoverage(session);
         EndTimeline(session);
+        await session.ClrOpen.WaitAsync().ConfigureAwait(false);
+        try
+        {
+            session.Clr?.Dispose();
+            session.Clr = null;
+        }
+        finally { session.ClrOpen.Release(); }
         session.Ended ??= $"{(session.Spawned ? "ended" : "detached")} when the session closed ({reason})";
     }
 

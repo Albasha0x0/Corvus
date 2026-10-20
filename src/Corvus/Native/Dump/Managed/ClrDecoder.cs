@@ -112,6 +112,46 @@ public sealed class ClrDecoder : IDisposable
     }
 
     /// <summary>
+    /// Opens the CLR of a running process read through <paramref name="reader"/> (which the decoder then owns); the process
+    /// is never suspended. Null when it hosts no CLR. A process of another architecture than this server's gives a decoder
+    /// without a runtime: the 32-bit decoder process reads dump files only.
+    /// </summary>
+    public static async Task<ClrDecoder?> OpenLive(LiveDataReader reader, DacRequest request, CancellationToken ct)
+    {
+        var target = new DataTarget(new CustomDataTarget(reader) { FileLocator = new LocalImageLocator([]) });
+        try
+        {
+            // a single-file app hosts the runtime in its own executable: ClrMD finds it by the runtime's export
+            ClrInfo? found;
+            try { found = target.ClrVersions.FirstOrDefault(); }
+            catch (Exception ex) when (ex is not OperationCanceledException) { found = null; }
+            var module = RuntimeModule(reader.Process)
+                         ?? (found == null ? null : reader.Process.Modules.FirstOrDefault(m => m.Base == found.ModuleInfo.ImageBase));
+            if (module == null)
+            {
+                target.Dispose();
+                return null;
+            }
+            string flavor = module.FileName.Equals("clr.dll", StringComparison.OrdinalIgnoreCase) ? ".NET Framework CLR" : "CoreCLR";
+            if (reader.Architecture != RuntimeInformation.ProcessArchitecture)
+            {
+                target.Dispose();
+                return new ClrDecoder($"{flavor} {module.FileVersion}".TrimEnd(), module.FileVersion,
+                    new DacState("bitness_mismatch", null, $"a {reader.Architecture} process needs a {reader.Architecture} DAC, which this {RuntimeInformation.ProcessArchitecture} server reads from dump files only"), null);
+            }
+            return await Decode(target, module, flavor, request, reader.Architecture, (clr, c, _) => new InProcessClr(target, clr.CreateRuntime(c.Path)), ownsTarget: true, ct).ConfigureAwait(false);
+        }
+        catch
+        {
+            target.Dispose();
+            throw;
+        }
+    }
+
+    /// <summary>The runtime as ClrMD reads it, when it is decoded in this process; calls go under <see cref="Gate"/>.</summary>
+    internal ClrRuntime? Runtime => _disposed ? null : (_backend as InProcessClr)?.Runtime;
+
+    /// <summary>
     /// Finds and verifies the DAC, and loads it through <paramref name="load"/>; a failure gives a decoder without a
     /// runtime (and disposes <paramref name="target"/> when <paramref name="ownsTarget"/>).
     /// </summary>
@@ -218,6 +258,7 @@ public sealed class ClrDecoder : IDisposable
     {
         private readonly ClrReads _reads = new(runtime);
 
+        public ClrRuntime Runtime => runtime;
         public ManagedFacts Facts() => _reads.Facts();
         public ManagedException? Exception(uint? threadId) => _reads.Exception(threadId);
         public IReadOnlyList<ManagedFrame> Frames(uint threadId, int maxFrames) => _reads.Frames(threadId, maxFrames);
