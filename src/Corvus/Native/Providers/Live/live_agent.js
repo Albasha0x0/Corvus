@@ -6,8 +6,10 @@ const hits = {};
 let observing = false; // the observers first replay what is already there; open's info() reports that instead
 
 // Outside Windows a stop also sends the stack from the stack pointer up, for the server to unwind with the modules'
-// CFI: Frida's backtrace there starts with the word at the stack pointer, a return address only at a function's start.
+// CFI: Frida's backtrace there starts with the word at the stack pointer, a return address only at a function's start,
+// and its accurate walk ends the process at some C runtime start-up functions on x86, so only the stack scan runs.
 const STACK_BYTES = 32768;
+const BACKTRACER = Process.platform === 'windows' ? Backtracer.ACCURATE : Backtracer.FUZZY;
 
 function stackFrom(sp) {
   if (Process.platform === 'windows') return null;
@@ -24,7 +26,7 @@ function stopsIn(id, context) {
   const tid = Process.getCurrentThreadId();
   hits[id] = (hits[id] || 0) + 1;
   const frames = [context.pc.toString()].concat(
-    Thread.backtrace(context, Backtracer.ACCURATE).slice(0, 31).map(p => p.toString()));
+    Thread.backtrace(context, BACKTRACER).slice(0, 31).map(p => p.toString()));
   send({ type: 'stop', point: id, tid, hits: hits[id], registers: JSON.parse(JSON.stringify(context)), frames }, stackFrom(context.sp));
   recv('resume-' + tid, () => {}).wait();
 }
@@ -55,11 +57,40 @@ if (typeof Process.attachModuleObserver === 'function') {
     onRemoved(m) { if (observing) send({ type: 'module', action: 'unloaded', module: moduleRow(m) }); },
   });
 }
+// every thread id reported; an ended thread stays, since the thread list can still name it for a moment
+const threads = new Set(Process.enumerateThreads().map(t => t.id));
+
+function threadStarted(id) {
+  if (threads.has(id)) return;
+  threads.add(id);
+  send({ type: 'thread', action: 'started', tid: id });
+}
+
 if (typeof Process.attachThreadObserver === 'function') {
   Process.attachThreadObserver({
-    onAdded(t) { if (observing) send({ type: 'thread', action: 'started', tid: t.id }); },
+    onAdded(t) { if (observing) threadStarted(t.id); },
     onRemoved(t) { if (observing) send({ type: 'thread', action: 'ended', tid: t.id }); },
   });
+}
+function globalExport(name) {
+  return typeof Module.findGlobalExportByName === 'function' ? Module.findGlobalExportByName(name) : Module.findExportByName(null, name);
+}
+
+// On Linux the observer reports no new thread (glibc starts them through clone3): a pthread_create that succeeds
+// reports the thread id the kernel stored in the new thread's descriptor, found at the offset that holds this thread's id
+if (Process.platform === 'linux') {
+  const create = globalExport('pthread_create'), self = globalExport('pthread_self');
+  let tidOffset = -1;
+  if (self !== null) {
+    const me = new NativeFunction(self, 'pointer', [])(), id = Process.getCurrentThreadId();
+    for (let o = 0; o < 0x1000 && tidOffset < 0; o += 4) if (me.add(o).readS32() === id) tidOffset = o;
+  }
+  if (create !== null && tidOffset >= 0) {
+    Interceptor.attach(create, {
+      onEnter(a) { this.thread = a[0]; },
+      onLeave(r) { if (r.toInt32() === 0) threadStarted(this.thread.readPointer().add(tidOffset).readS32()); },
+    });
+  }
 }
 observing = true;
 // The kinds that usually end the program wait for the worker to receive the event: a message still queued when the
@@ -77,7 +108,7 @@ Process.setExceptionHandler(d => {
 // The exit status, which the detach reason does not carry outside Windows: exit() and a return from main end in _exit.
 // The thread waits for the worker to receive it, as for a fatal exception.
 if (Process.platform !== 'windows') {
-  const _exit = typeof Module.findGlobalExportByName === 'function' ? Module.findGlobalExportByName('_exit') : Module.findExportByName(null, '_exit');
+  const _exit = globalExport('_exit');
   if (_exit !== null) {
     Interceptor.attach(_exit, {
       onEnter(a) {
