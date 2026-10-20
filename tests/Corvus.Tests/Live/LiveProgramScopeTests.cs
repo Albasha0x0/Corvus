@@ -61,10 +61,11 @@ public sealed class LiveProgramScopeTests : IDisposable
         Assert.Equal(Environment.ProcessId, chain[0].Pid);
         var self = await Refused(() => Tools().LiveSession("attach", program: Environment.ProcessId.ToString()));
         Assert.Contains("is this server", self.Message);
-        if (chain.Count > 1)
+        // a name is matched nearest first: on Linux the test host's parent is also named dotnet
+        if (chain.Skip(1).FirstOrDefault(c => !c.Name.Equals(chain[0].Name, StringComparison.OrdinalIgnoreCase)) is { Name: not null } other)
         {
-            var parent = await Refused(() => Tools().LiveSession("attach", program: chain[1].Name));
-            Assert.Contains($"Process {chain[1].Pid} ({chain[1].Name}) is one this server runs under", parent.Message);
+            var parent = await Refused(() => Tools().LiveSession("attach", program: other.Name));
+            Assert.Contains($"Process {other.Pid} ({other.Name}) is one this server runs under", parent.Message);
             Assert.Contains("process id of the other process", parent.Remediation);
         }
         Assert.Null(_backend.LastOpen);
