@@ -908,14 +908,14 @@ Il2Cpp metadata, addresses, symbols and bindings.
 
 **Il2Cpp addresses and offsets** (read-only, idempotent)
 
-Native addresses (RVA, VA, file offset, vtable slot) of an Il2Cpp method or every method of a type, field offsets and tokens. With script.json: function bounds, methods sharing the code, MethodInfo slot, generic instantiations, metadata slots (Ns.Type_TypeInfo). With stringliteral.json and the binary: the literals a method loads.
+Native addresses (RVA, VA, file offset, vtable slot) of an Il2Cpp method or every method of a type, field offsets and tokens. With script.json: function bounds, methods sharing the code, MethodInfo slot, generic instantiations, metadata slots (Ns.Type_TypeInfo). With stringliteral.json and the binary: literals a method loads.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `symbol` | string | yes |  | Type or member ('Ns.Type::M(int)', short name, token) or script.json name ('List`1<int>::Add'). |
+| `symbol` | string | yes |  | Type or member (Ns.Type::M(int), short name, token) or script.json name (List`1<int>::Add). |
 | `assembly` | string |  |  | Assembly id, name or path; omit for all loaded. |
-| `slot` | string |  |  | With a type: a vtable slot number to resolve to its method, or 'all'. |
-| `offset` | integer |  |  | Index of the first entry of each long list. |
+| `slot` | string |  |  | With a type: a vtable slot number to resolve to its method, or all. |
+| `offset` | integer |  |  | First entry of each long list. |
 | `limit` | integer |  | `20` | Max entries of each long list. |
 
 Structured output: `symbol`, `members`, `items`, `offset`, `total`, `limit`, `totalExact`, `hasMore`, `nextOffset`.
@@ -928,7 +928,7 @@ Map a native address (IDA, Ghidra, crash log) of an Il2Cpp game to the method(s)
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `address` | string | yes |  | Hex as IDA / Ghidra show it (0x1A2B3C, 1A2B3Ch, 00000001`8001A2B3); 'd:' for decimal. |
+| `address` | string | yes |  | Hex as IDA / Ghidra show it (0x1A2B3C, 1A2B3Ch, 00000001`8001A2B3); d: prefix for decimal. |
 | `kind` | string |  | `auto` | auto: a VA at or above the image base, else an RVA, else a file offset. Values: auto, rva, va, offset. |
 | `assembly` | string |  |  | Assembly id, name or path; omit for all loaded. |
 | `offset` | integer |  |  |  |
@@ -941,7 +941,7 @@ Structured output: `address`, `items`, `offset`, `total`, `limit`, `totalExact`,
 
 **Export IDA/Ghidra scripts** (destructive, idempotent, long-running)
 
-Export Il2Cpp dummy-DLL metadata for native analysis: IDA Python and Ghidra scripts that create, name (Ns.Type$$Method) and comment every function (RVAs, so any image base works), a C header of struct layouts, and an Il2CppDumper-style script.json.
+Export Il2Cpp dummy-DLL metadata for native analysis: IDA Python and Ghidra scripts that create, name (Ns.Type$$Method) and comment every function (by RVA, any image base), a C header of struct layouts, and an Il2CppDumper-style script.json.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -949,7 +949,7 @@ Export Il2Cpp dummy-DLL metadata for native analysis: IDA Python and Ghidra scri
 | `formats` | string |  | `all` | Comma-separated: ida, ghidra, header, json or all. |
 | `baseName` | string |  | `il2cpp` | Base name of the generated files. |
 | `assembly` | string |  |  | Assembly id, name or path; omit for all loaded. |
-| `overwrite` | boolean |  |  | Replace files of the same names if they exist. |
+| `overwrite` | boolean |  |  | Replace same-named files. |
 
 Structured output: `functions`, `structs`, `files`.
 
@@ -957,17 +957,17 @@ Structured output: `functions`, `structs`, `files`.
 
 **Generate C++ binding** (read-only, idempotent)
 
-Generate C++ binding code for a managed type of a Mono or Il2Cpp app: a struct resolving the class, field offsets, static fields and methods once, with typed accessors, property getters and invoke wrappers. style: mono (embedding API), il2cpp (runtime exports) or hostapi (a host's function table); omitted: detected, else mono.
+C++ binding code for a managed type of a Mono or Il2Cpp app: a struct resolving the class, field offsets, static fields and methods once, with typed accessors, property getters and invoke wrappers. style: mono (embedding API), il2cpp (runtime exports) or hostapi (a host function table); omitted: detected, else mono.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `type` | string | yes |  | Type or member: Ns.Type, Ns.Outer+Inner, Ns.Type::Method(int, string), short name or token (0x06000123). |
 | `assembly` | string |  |  | Assembly id, name or path; omit for all loaded. |
-| `members` | string |  |  | Comma-separated member names; default all but compiler-generated ones. |
-| `includeInherited` | boolean |  |  | Also bind property getters inherited from base classes. |
+| `members` | string |  |  | Comma-separated member names; default all but compiler-generated. |
+| `includeInherited` | boolean |  |  | Also bind inherited property getters. |
 | `style` | string |  |  | Omit to detect it. Values: mono, il2cpp, hostapi. |
-| `projectDir` | string |  |  | C/C++ project the header is for, scanned for a host function table and helpers. |
-| `headerPath` | string |  |  | Header save path (absolute or under projectDir; default projectDir); #include base. |
+| `projectDir` | string |  |  | C/C++ project of the header, scanned for a host function table and helpers. |
+| `headerPath` | string |  |  | Header path (absolute or under projectDir; default projectDir); #include base. |
 | `offset` | integer |  |  |  |
 | `maxTokens` | integer |  |  |  |
 
@@ -977,13 +977,13 @@ Structured output: `code`, `offset`, `nextOffset`, `totalChars`.
 
 **Name a native Il2Cpp binary from its metadata** (destructive, idempotent, long-running)
 
-Name the functions and data of a native Il2Cpp binary (GameAssembly, libil2cpp.so) from the loaded dummy assemblies, script.json and stringliteral.json: Ns_Type__Method (a duplicate gets _<RVA>), commented with Ns.Type::Method(args) and the methods sharing the code; below user and PDB names. Saved per file hash and reapplied on load.
+Name the functions and data of a native Il2Cpp binary (GameAssembly, libil2cpp.so) from the loaded dummy assemblies, script.json and stringliteral.json: Ns_Type__Method (duplicates get _<RVA>), commented with Ns.Type::Method(args) and methods sharing the code; below user and PDB names. Saved per file hash, reapplied on load.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `image` | string | yes |  | Image id, name or path. |
 | `assembly` | string |  |  | Dummy assemblies to use; omit for every loaded one with Il2Cpp metadata. |
-| `clear` | boolean |  |  | Remove the il2cpp names (and their saved copy) instead of applying them. |
+| `clear` | boolean |  |  | Remove the il2cpp names and saved copy instead. |
 
 Structured output: `image`, `applied`, `assemblies`, `functions`, `labels`, `sharedFunctions`, `strings`, `metadataSlots`, `methodInfoSlots`, `userNamesKept`, `suffixed`, `misses`, `saved`, `removed`, `notes`.
 
