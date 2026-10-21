@@ -13,11 +13,24 @@ public sealed class WasmValidationTests(ITestOutputHelper output) : IDisposable
     [Fact]
     public void Valid_fixtures_and_real_builds_validate()
     {
+        var empty = new List<string>();
+        int fromComponents = 0;
         foreach (var (name, bytes) in WasmTextTests.Corpus())
         {
-            var v = WasmValidator.Validate(WasmBinary.Read(bytes));
-            Assert.True(v.Valid, $"{name}: {string.Join("; ", v.Errors.Take(5))}");
+            // A component is validated through its core modules.
+            var modules = WasmComponent.Looks(bytes)
+                ? WasmComponent.CoreModules(bytes).Select(m => ($"{name}!{m.Name}", bytes.AsSpan(m.Offset, m.Length).ToArray())).ToList()
+                : [(name, bytes)];
+            if (WasmComponent.Looks(bytes) && modules.Count == 0) empty.Add(name);
+            if (WasmComponent.Looks(bytes)) fromComponents += modules.Count;
+            foreach (var (module, code) in modules)
+            {
+                var v = WasmValidator.Validate(WasmBinary.Read(code));
+                Assert.True(v.Valid, $"{module}: {string.Join("; ", v.Errors.Take(5))}");
+            }
         }
+        output.WriteLine($"{fromComponents} core modules of components validated");
+        if (empty.Count > 0) output.WriteLine($"{empty.Count} components with no core module, not validated: {string.Join(", ", empty)}");
     }
 
     [Fact]
