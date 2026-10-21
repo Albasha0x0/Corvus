@@ -663,6 +663,21 @@ public sealed class NativeIdaProviderTests(ITestOutputHelper output, IdaCacheFix
         }
     }
 
+    /// <summary>IDA types an ELF's imported symbols as functions in its extern segment, past the image's end: they are imports, not functions.</summary>
+    [IdaFact]
+    public async Task An_elf_s_imports_are_not_listed_as_functions()
+    {
+        var bytes = new NativeFormats.ElfWriter { Entry = NativeFormats.ElfWriter.TextRva, PltImports = ["memcpy", "malloc"] }.Build();
+        using var tmp = new TempDir();
+        var path = tmp.File("imports.so");
+        File.WriteAllBytes(path, bytes);
+        var size = Native.Elf.ElfFile.FromBytes(bytes, "imports.so").SizeOfImage;
+        await using var s = await Isolated().OpenAsync(path, null, Offline);
+        var functions = await s.ListFunctionsAsync();
+        Assert.NotEmpty(functions);
+        Assert.All(functions, f => Assert.True(f.StartRva < size, $"{f.Name} at 0x{f.StartRva:X}, past the image's 0x{size:X}"));
+    }
+
     [IdaFact]
     public async Task Same_image_cannot_be_open_twice()
     {

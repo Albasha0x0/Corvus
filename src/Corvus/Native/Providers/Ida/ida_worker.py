@@ -202,6 +202,12 @@ def rva_of(ea):
     return r if 0 <= r <= 0xFFFFFFFF else None
 
 
+def extern_at(m, ea):
+    # IDA's extern segment: imported symbols, typed as functions past the image's end
+    seg = m.ida_segment.getseg(ea)
+    return seg is not None and seg.type == m.ida_segment.SEG_XTRN
+
+
 def func_at(m, ea):
     f = m.ida_funcs.get_func(ea)
     if f is None and not _state["auto"] and m.ida_funcs.add_func(ea):
@@ -475,7 +481,7 @@ def op_functions(args):
             return partial({"rows": out}, rva_of(ea))
         f = m.ida_funcs.get_func(ea)
         start, end = rva_of(f.start_ea), rva_of(f.end_ea)
-        if start is None or end is None:
+        if start is None or end is None or extern_at(m, ea):
             continue
         flags = (1 if f.flags & m.ida_funcs.FUNC_THUNK else 0) | (2 if f.flags & m.ida_funcs.FUNC_LIB else 0) | (4 if is_thumb(m, f.start_ea) else 0) \
             | (8 if m.ida_nalt.get_tinfo(ida_typeinf.tinfo_t(), f.start_ea) else 0)
