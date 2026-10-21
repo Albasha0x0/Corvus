@@ -3,7 +3,8 @@ namespace Corvus.Core.Firmware;
 /// <summary>
 /// A firmware image as a container: the filesystems, boot images, archives and executables its signatures find at their
 /// offsets, each carved out by its header's size (an unsized one up to the next signature), and compressed streams decoded;
-/// each part is then opened by its own reader. Taken only when a filesystem or boot image lies inside the file.
+/// each part is then opened by its own reader. Taken only when a filesystem or boot image lies inside the file, or an archive
+/// follows a vendor header.
 /// </summary>
 internal static class FirmwareCarve
 {
@@ -18,14 +19,20 @@ internal static class FirmwareCarve
 
     private static string Extension(string format) => Extensions.GetValueOrDefault(format.Split(' ')[0], "bin");
 
-    public static ContainerContents? Open(byte[] data, string name, AnalysisLimits limits, CancellationToken ct) =>
-        Open(FsSource.Of(data, name), FirmwareSignatures.Scan(data, MaxHits, ct), limits, ct);
+    public static ContainerContents? Open(byte[] data, string name, AnalysisLimits limits, CancellationToken ct, bool allFiles = false) =>
+        Open(FsSource.Of(data, name), FirmwareSignatures.Scan(data, MaxHits, ct), limits, ct, allFiles);
 
     public static ContainerContents? Open(Stream stream, string name, AnalysisLimits limits, CancellationToken ct) =>
-        Open(new FsSource(stream, 0, stream.Length, name), FirmwareSignatures.Scan(stream, stream.Length, MaxHits, ct), limits, ct);
+        Open(new FsSource(stream, 0, stream.Length, name), FirmwareSignatures.Scan(stream, stream.Length, MaxHits, ct), limits, ct, allFiles: false);
 
-    private static ContainerContents? Open(FsSource src, List<SignatureHit> hits, AnalysisLimits limits, CancellationToken ct)
+    private static ContainerContents? Open(FsSource src, List<SignatureHit> hits, AnalysisLimits limits, CancellationToken ct, bool allFiles)
     {
+        // opened at this level, so the parts inside keep a nesting level for their own filesystems
+        if (hits.FirstOrDefault(h => Wrapped(h, src.Length)) is { Size: { } wrappedSize } wrapped && wrappedSize <= limits.MaxItemBytes)
+        {
+            var inner = Containers.Open(src.Read(wrapped.Offset, (int)wrappedSize), $"0x{wrapped.Offset:X}.{Extension(wrapped.Format)}", limits, ct, allFiles: allFiles);
+            return inner with { Kind = "firmware image", Notes = [$"firmware image: a {wrapped.Offset:N0}-byte vendor header, then a {inner.Kind} at 0x{wrapped.Offset:X}", .. inner.Notes] };
+        }
         // the file's own format at offset 0, alone, is not a firmware image
         if (!hits.Any(h => h.Kind is SignatureKind.Filesystem or SignatureKind.Boot && (h.Offset > 0 || h.Size is { } s && s < src.Length)))
             return null;
@@ -68,6 +75,13 @@ internal static class FirmwareCarve
         if (items.Count == 0) notes.Add("no part of this firmware image could be carved: nothing extracted");
         return new ContainerContents("firmware image", items, notes);
     }
+
+    /// <summary>A vendor header before one sized archive that runs to the end of the file (a factory image wrapping a zip).</summary>
+    private static bool Wrapped(SignatureHit h, long length) =>
+        h.Kind == SignatureKind.Archive && h.Offset is > 0 and <= HeaderMax && h.Size is { } size && h.Offset + size >= length - HeaderMax;
+
+    /// <summary>Bytes of an unknown header before the payload, and of padding after it.</summary>
+    private const int HeaderMax = 64 << 10;
 
     private static string? Codec(string format) => format switch
     {

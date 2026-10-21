@@ -657,9 +657,9 @@ public partial class UnpackTests(ContainerFixtures fx) : IClassFixture<Container
     public void ZipEntries_WithTraversalNames_StayInsideTheOutput() =>
         AssertContained(ContainerFixtures.Zip([.. EscapingNames.Select((n, i) => (n, Content(i)))]), "escaping.zip", r =>
         {
-            // Only code entries are extracted; "outside12.dll\0.txt" is a .txt.
-            Assert.Equal(EscapingNames.Length - 1, r.Files.Count);
-            Assert.DoesNotContain(r.Files, f => f.Path.Contains("outside12"));
+            // An unpack takes every file of a plain zip; "outside12.dll\0.txt" is a .txt.
+            Assert.Equal(EscapingNames.Length, r.Files.Count);
+            Assert.DoesNotContain(r.Files, f => f.Path.Contains("outside12") && f.Path.EndsWith(".dll"));
             Assert.Contains(r.Files, f => f.Path.EndsWith("outside9.exe.bin"));
             Assert.Contains(r.Files, f => Path.GetFileName(f.Path) == "_CON.dll");
         });
@@ -684,8 +684,17 @@ public partial class UnpackTests(ContainerFixtures fx) : IClassFixture<Container
         {
             // Rooted names keep their nesting folder.
             Assert.Contains(r.Files, f => f.Path.Contains("inner2.zip_unpacked") && f.Path.EndsWith("deep.dll"));
-            Assert.Equal(2 + EscapingNames.Length - 1 + 1, r.Files.Count);
+            Assert.Equal(2 + EscapingNames.Length + 1, r.Files.Count);
         });
+    }
+
+    [Fact]
+    public void ContainerAtTheNestingLimit_IsNoted()
+    {
+        var inner = ContainerFixtures.Zip(("b.zip", ContainerFixtures.Zip(("c.dll", Content(1)))));
+        var path = Save("nested.zip", ContainerFixtures.Zip(("a.zip", inner)));
+        var r = Unpacker.Unpack(path, _dir.File("nested-out"), load: false, AnalysisLimits.Default with { MaxDepth = 2 }, default);
+        Assert.Contains("b.zip: a container 2 levels deep, not opened (the nesting limit).", r.Notes);
     }
 
     [Fact]

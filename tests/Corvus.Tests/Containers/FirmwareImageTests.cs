@@ -242,6 +242,28 @@ public sealed class FirmwareImageTests
     }
 
     [Fact]
+    public void A_vendor_header_is_scanned_past_to_the_parts_after_it()
+    {
+        var header = new byte[0x200];
+        new Random(7).NextBytes(header);
+        // a header, then a uImage kernel and a squashfs root
+        var kernel = UImage(Gzip(Isa("mips32be.elf")));
+        var bare = Containers.Open([.. header, .. kernel, .. FsFixture("squashfs-gzip.img")], "vendor.img", AnalysisLimits.Default, default);
+        Assert.Equal("firmware image", bare.Kind);
+        Assert.Contains(bare.Items, i => i.Name == "0x200.uimage");
+        Assert.Contains(bare.Items, i => i.Name == $"0x{0x200 + kernel.Length:X}.squashfs");
+        // a header, then a zip holding the flash image: unpacked down to the root filesystem's programs
+        using var dir = new TempDir();
+        using var workspace = new AssemblyWorkspace(new ServerOptions());
+        var path = dir.File("factory.img");
+        File.WriteAllBytes(path, [.. header, .. ContainerFixtures.Zip(("flash.bin", FlashDump()))]);
+        var report = new UnpackService(workspace).Unpack(path, dir.File("out"), load: false, AnalysisLimits.Default, default);
+        Assert.Equal("firmware image", report.Container);
+        // the zip is read at the top level, keeping nesting levels for the filesystems inside
+        Assert.Contains(report.Files, f => Path.GetRelativePath(report.OutputDirectory, f.Path).Replace('\\', '/') == "flash.bin_unpacked/0x30000.squashfs_unpacked/bin/busybox");
+    }
+
+    [Fact]
     public void Firmware_view_lists_each_part_with_its_size()
     {
         var dump = FlashDump();

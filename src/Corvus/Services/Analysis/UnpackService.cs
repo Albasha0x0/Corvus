@@ -595,7 +595,12 @@ public sealed class UnpackService(AssemblyWorkspace workspace)
             if (found.Count % 200 == 0) progress?.Invoke($"{found.Count} entries read ({total / (1024 * 1024):N0} MB)");
 
             bool opens = MayContainMore(kind) && !(archived && kind == "data") || Containers.ReaderFor(item.Bytes, item.Name) != null;
-            if (depth >= limits.MaxDepth || !opens) continue;
+            if (!opens) continue;
+            if (depth >= limits.MaxDepth)
+            {
+                if (Containers.ReaderFor(item.Bytes, item.Name) != null || kind == "zip") notes.Add($"{item.Name}: a container {depth} levels deep, not opened (the nesting limit).");
+                continue;
+            }
             try
             {
                 var inner = Containers.Open(item.Bytes, item.Name, limits, ct, allFiles: allFiles);

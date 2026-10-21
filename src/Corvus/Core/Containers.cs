@@ -69,7 +69,7 @@ public static class Containers
             return UnityWebData.Open(web, name, location, allFiles, limits, ct, kind == "gzip" ? "gzip" : "Brotli");
         if (kind == "text" && Captures.LooksLikeHar(data) && Captures.Open(data, flows: false, allFiles, limits, ct) is { } har) return har;
         if (kind is "text" or "data" && Captures.LooksLikeFlows(data)) return Captures.Open(data, flows: true, allFiles, limits, ct)!;
-        if (kind == "zip") return OpenZip(data, name, limits, ct);
+        if (kind == "zip") return OpenZip(data, name, limits, ct, allFiles);
         if (kind == "jmod") return OpenZip(data[4..], name, limits, ct) with { Kind = "JMOD (Java module)" };
         if (kind is "wasm" or "webcil")
         {
@@ -111,7 +111,7 @@ public static class Containers
             if (NativeAotImageOf(data) is { } aot) return new ContainerContents("NativeAOT executable", [], [NativeAotNote(aot.Describe)]);
         }
         if (ReaderFor(data, name) is { } reader) return reader.Open(data, name, allFiles, limits, ct);
-        if (kind == "data" && Firmware.FirmwareCarve.Open(data, name, limits, ct) is { } firmware) return firmware;
+        if (kind == "data" && Firmware.FirmwareCarve.Open(data, name, limits, ct, allFiles) is { } firmware) return firmware;
         return Carve(data, name, pe != null ? "native PE" : kind, limits, ct);
     }
 
@@ -406,7 +406,7 @@ public static class Containers
             return Blob.ReadBounded(s, limits.MaxItemBytes);
         })))];
 
-    private static ContainerContents OpenZip(byte[] data, string name, AnalysisLimits limits, CancellationToken ct)
+    private static ContainerContents OpenZip(byte[] data, string name, AnalysisLimits limits, CancellationToken ct, bool allFiles = false)
     {
         ZipArchive zip;
         IReadOnlyCollection<ZipArchiveEntry> entries;
@@ -420,17 +420,17 @@ public static class Containers
             // Truncated or carved zips lack a central directory; recover from local headers.
             var (recovered, skipped, complete) = RecoverLocalEntries(data, limits, ct);
             if (recovered.Count == 0) throw new ToolError(ErrorCode.MalformedInput, $"{name}: corrupt zip ({ex.Message}).");
-            var contents = ReadZipEntries(recovered.Select(e => (e.Name, (Func<byte[]?>)(() => e.Bytes))).ToList(), limits, ct);
+            var contents = ReadZipEntries(recovered.Select(e => (e.Name, (Func<byte[]?>)(() => e.Bytes))).ToList(), limits, ct, allFiles);
             contents.Notes.Insert(0, $"Damaged zip ({ex.Message}): {recovered.Count} entr(ies) recovered from local headers"
                                      + (complete ? "." : "; the entries past the damage are lost."));
             contents.Notes.InsertRange(1, skipped);
             return contents;
         }
         using (zip)
-            return ReadZipEntries(ZipReaders(entries, limits), limits, ct);
+            return ReadZipEntries(ZipReaders(entries, limits), limits, ct, allFiles);
     }
 
-    private static ContainerContents ReadZipEntries(List<(string FullName, Func<byte[]?> Read)> entries, AnalysisLimits limits, CancellationToken ct)
+    private static ContainerContents ReadZipEntries(List<(string FullName, Func<byte[]?> Read)> entries, AnalysisLimits limits, CancellationToken ct, bool allFiles = false)
     {
         string? android = entries.Any(e => e.FullName == "AndroidManifest.xml") ? "Android package"
             : entries.Any(e => e.FullName is "BundleConfig.pb" or "base/manifest/AndroidManifest.xml") ? "Android App Bundle"
@@ -451,7 +451,8 @@ public static class Containers
         foreach (var e in entries)
         {
             ct.ThrowIfCancellationRequested();
-            if (!IsInteresting(e.FullName)) continue;
+            // a plain zip gives every file when all are asked for; a package (APK, NuGet) its code
+            if (!IsInteresting(e.FullName) && !(allFiles && kind == "zip archive" && !e.FullName.EndsWith('/'))) continue;
             if (items.Count >= limits.MaxItems) { notes.Add("Stopped: too many entries."); break; }
             byte[]? bytes;
             try { bytes = e.Read(); }
