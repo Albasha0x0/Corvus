@@ -23,7 +23,7 @@ public sealed class Il2CppRawLoader(AssemblyWorkspace workspace, string? cacheRo
     public const string DummyFolder = "DummyDll";
     public const int MaxEntries = 8;
     internal static readonly TimeSpan InUseWindow = TimeSpan.FromMinutes(10);
-    private const int CacheFormat = 2; // bump when the reader's output changes: older entries are then read again
+    private const int CacheFormat = 3; // bump when the reader's output changes: older entries are then read again
 
     public static string DefaultRoot =>
         Environment.GetEnvironmentVariable(RootVariable) is { Length: > 0 } custom
