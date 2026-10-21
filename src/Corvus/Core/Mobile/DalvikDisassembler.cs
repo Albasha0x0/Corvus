@@ -224,8 +224,9 @@ public sealed class DalvikDisassembler(DexFile dex)
             default:
                 var values = Dalvik.ArrayData(code, payload, out var width);
                 sb.Append("    .array-data ").Append(width.ToString(CultureInfo.InvariantCulture)).Append('\n');
+                // baksmali's writeSignedIntOrLongTo: an 8-byte element in int range carries no L suffix.
                 foreach (var v in values)
-                    sb.Append("        ").Append(width switch { 8 => Hex(v) + "L" + LikelyDouble(v), 1 => Hex(v) + "t", 2 => Hex(v) + "s", 4 => Hex(v) + LikelyFloat((int)v), _ => Hex(v) }).Append('\n');
+                    sb.Append("        ").Append(width switch { 8 => Hex(v) + (v is < int.MinValue or > int.MaxValue ? "L" : "") + LikelyDouble(v), 1 => Hex(v) + "t", 2 => Hex(v) + "s", 4 => Hex(v) + LikelyFloat((int)v), _ => Hex(v) }).Append('\n');
                 sb.Append("    .end array-data\n");
                 break;
         }

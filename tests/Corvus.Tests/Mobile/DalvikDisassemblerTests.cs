@@ -69,6 +69,17 @@ public sealed class DalvikDisassemblerTests(Xunit.Abstractions.ITestOutputHelper
     }
 
     [Fact]
+    public void Wide_array_data_marks_long_only_outside_int_range()
+    {
+        var b = new DexBuilder();
+        b.Class("Lcom/example/Wide;", 1, source: "Wide.java").Method("data", "V", [], 9,
+            Asm.FillArrayData(0, 4), Asm.ReturnVoid(), Asm.ArrayPayload(8, -1, 5, -0x7f7f7f7f7f7f7f01, 0x80000000)).Registers = 1;
+        var apk = Save(_dir, "wide.apk", AndroidSamples.Apk(30, ("classes.dex", b.Build())));
+        var text = _dex.Disassemble(apk, "Lcom/example/Wide;->data()V", false, default);
+        Assert.Contains("    .array-data 8\n        -0x1\n        0x5\n        -0x7f7f7f7f7f7f7f01L    # -2.937446524423077E-306\n        0x80000000L\n    .end array-data\n", text);
+    }
+
+    [Fact]
     public void Class_FieldsAnnotationsAndEveryMethod()
     {
         var text = _dex.Disassemble(Apk(), "com.example.app.Main", false, default);
