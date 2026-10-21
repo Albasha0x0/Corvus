@@ -10,13 +10,13 @@ namespace Corvus.Native.Dump;
 /// at the frame pointer on x64, x86 and AArch64, below it on RISC-V, the back chain on PowerPC), else for the top frame
 /// the link register. Frames are bounded by <c>maxFrames</c>, the thread's stack mapping and stack pointer progress.
 /// </summary>
-public sealed class ElfCoreUnwinder(IProcessMemory memory, ElfCoreArch arch, Func<ulong, ElfCoreImage?> imageAt)
+public sealed class CoreUnwinder(IProcessMemory memory, CoreArch arch, Func<ulong, CoreImage?> imageAt)
 {
     private const ulong PacMask = 0x0000_FFFF_FFFF_FFFF;
     /// <summary>The ELF ABI's link register save slot above the back chain word (PowerPC64, ELFv1 and ELFv2).</summary>
     private const ulong PpcLrSave = 16;
 
-    public WalkResult Walk(ElfCoreRegisters start, ulong stackLow, ulong stackHigh, int maxFrames, CancellationToken ct = default)
+    public WalkResult Walk(CoreRegisters start, ulong stackLow, ulong stackHigh, int maxFrames, CancellationToken ct = default)
     {
         maxFrames = Math.Clamp(maxFrames, 1, StackWalker.MaxFramesLimit);
         var frames = new List<WalkFrame> { new(start.Pc, start.Sp, FrameMethod.Context, false, false, start.Complete ? null : "register set is incomplete in the core") };
@@ -59,7 +59,7 @@ public sealed class ElfCoreUnwinder(IProcessMemory memory, ElfCoreArch arch, Fun
         return new WalkResult(frames, stop, notes);
     }
 
-    private (ElfCoreRegisters? Next, string Method, string? Note, string? Stop) Step(ElfCoreRegisters regs, bool top)
+    private (CoreRegisters? Next, string Method, string? Note, string? Stop) Step(CoreRegisters regs, bool top)
     {
         ulong lookup = top ? regs.Pc : regs.Pc - 1;
         var image = imageAt(lookup);
@@ -98,11 +98,11 @@ public sealed class ElfCoreUnwinder(IProcessMemory memory, ElfCoreArch arch, Fun
     /// that, the first such return address, then the same ranking without the call check. Other registers stay as they
     /// are (the scanned code is taken to keep the callee-saved ones).
     /// </summary>
-    private ElfCoreRegisters? Scan(ElfCoreRegisters regs)
+    private CoreRegisters? Scan(CoreRegisters regs)
     {
         ulong ptr = (ulong)arch.PointerSize;
         ulong at = (regs.Sp + ptr - 1) & ~(ptr - 1);
-        ElfCoreRegisters? first = null, firstUnwinding = null, firstCalling = null;
+        CoreRegisters? first = null, firstUnwinding = null, firstCalling = null;
         for (int slot = 0; slot < MaxScanSlots; slot++, at += ptr)
         {
             if (!ReadWord(at, out ulong value)) break;
@@ -157,7 +157,7 @@ public sealed class ElfCoreUnwinder(IProcessMemory memory, ElfCoreArch arch, Fun
         return true;
     }
 
-    private bool IsReturnAddress(ulong value, [System.Diagnostics.CodeAnalysis.NotNullWhen(true)] out ElfCoreImage? image)
+    private bool IsReturnAddress(ulong value, [System.Diagnostics.CodeAnalysis.NotNullWhen(true)] out CoreImage? image)
     {
         Span<byte> before = stackalloc byte[8];
         image = value < 0x10000 ? null : imageAt(value - 1);
@@ -173,7 +173,7 @@ public sealed class ElfCoreUnwinder(IProcessMemory memory, ElfCoreArch arch, Fun
 
     private string ChainName => arch.Arch == NativeArch.PowerPc ? "back chain" : "frame pointer";
 
-    private (ElfCoreRegisters? Next, string? Problem) ApplyCfi(ElfCoreRegisters regs, CfiRow row)
+    private (CoreRegisters? Next, string? Problem) ApplyCfi(CoreRegisters regs, CfiRow row)
     {
         ulong cfa;
         if (row.CfaExpression is { } cfaExpr)
@@ -225,7 +225,7 @@ public sealed class ElfCoreUnwinder(IProcessMemory memory, ElfCoreArch arch, Fun
         return (next, null);
     }
 
-    private bool Evaluate(ElfCoreRegisters regs, byte[] expr, ulong? cfa, out ulong value, out string? why) =>
+    private bool Evaluate(CoreRegisters regs, byte[] expr, ulong? cfa, out ulong value, out string? why) =>
         DwarfExpression.TryEvaluate(expr, arch.PointerSize, arch.BigEndian, (int dwarf, out ulong v) => regs.TryGet(arch.Slot(dwarf), out v), Read, cfa, out value, out why);
 
     private bool Read(ulong address, int size, out ulong value)
@@ -244,7 +244,7 @@ public sealed class ElfCoreUnwinder(IProcessMemory memory, ElfCoreArch arch, Fun
     /// x86 and AArch64; the record just below it on RISC-V; PowerPC's back chain at the stack pointer with the link
     /// register saved two words above the caller's back chain. None on ARM and s390x (no chain in the default ABI).
     /// </summary>
-    private ElfCoreRegisters? FrameChain(ElfCoreRegisters regs)
+    private CoreRegisters? FrameChain(CoreRegisters regs)
     {
         ulong ptr = (ulong)arch.PointerSize;
         var next = regs.Clone();

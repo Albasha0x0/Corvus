@@ -91,14 +91,14 @@ internal sealed class ElfMemoryHeader
 }
 
 /// <summary>A named function of a module, at its runtime address.</summary>
-public readonly record struct ElfCoreSymbol(ulong Start, ulong Size, string Name, string Source);
+public readonly record struct CoreSymbol(ulong Start, ulong Size, string Name, string Source);
 
 /// <summary>
 /// A module of a core as the unwinder and the namer read it: its .eh_frame (found through PT_GNU_EH_FRAME, or the
 /// .eh_frame section of a file), and function symbols (.symtab and .dynsym of a file; .dynsym through PT_DYNAMIC in
 /// memory). Bytes come from the matched file on disk, else from the core's memory. Built once per module and session.
 /// </summary>
-public sealed class ElfCoreImage
+public sealed class CoreImage
 {
     private const int MaxEhFrameBytes = 32 << 20;
     private const int MaxHdrBytes = 16 << 20;
@@ -109,9 +109,9 @@ public sealed class ElfCoreImage
     private readonly IReadOnlyList<ElfSegment> segments;
     private readonly bool is64, bigEndian;
     private readonly Lazy<CfiIndex?> cfi;
-    private readonly Lazy<List<ElfCoreSymbol>> symbols;
+    private readonly Lazy<List<CoreSymbol>> symbols;
 
-    private ElfCoreImage(DumpModule module, IProcessMemory memory, ElfFile? file, IReadOnlyList<ElfSegment> segments, bool is64, bool bigEndian, ulong bias,
+    private CoreImage(DumpModule module, IProcessMemory memory, ElfFile? file, IReadOnlyList<ElfSegment> segments, bool is64, bool bigEndian, ulong bias,
         string source, string? localPath, string detail)
     {
         Module = module;
@@ -125,7 +125,7 @@ public sealed class ElfCoreImage
         LocalPath = localPath;
         Detail = detail;
         cfi = new Lazy<CfiIndex?>(BuildCfi);
-        symbols = new Lazy<List<ElfCoreSymbol>>(file != null ? FileSymbols : MemorySymbols);
+        symbols = new Lazy<List<CoreSymbol>>(file != null ? FileSymbols : MemorySymbols);
     }
 
     public DumpModule Module { get; }
@@ -136,19 +136,19 @@ public sealed class ElfCoreImage
     public string? LocalPath { get; }
     public string Detail { get; }
     public bool HasCfi => cfi.Value != null;
-    public IReadOnlyList<ElfCoreSymbol> Symbols => symbols.Value;
+    public IReadOnlyList<CoreSymbol> Symbols => symbols.Value;
 
     /// <summary>The module's file on disk, mapped at the module's base.</summary>
-    public static ElfCoreImage FromFile(ElfFile file, DumpModule module, IProcessMemory memory, string path, string detail) =>
+    public static CoreImage FromFile(ElfFile file, DumpModule module, IProcessMemory memory, string path, string detail) =>
         new(module, memory, file, file.Segments, file.Is64Bit, file.BigEndian, module.Base - file.ImageBase, "disk", path, detail);
 
     /// <summary>The module as the core holds it; null when its ELF header is not captured.</summary>
-    public static ElfCoreImage? FromMemory(IProcessMemory memory, DumpModule module, string detail)
+    public static CoreImage? FromMemory(IProcessMemory memory, DumpModule module, string detail)
     {
         var header = new byte[0x1000];
         int n = memory.ReadMemory(module.Base, header);
         if (ElfMemoryHeader.Read(header[..n], module.Base) is not { } h) return null;
-        return new ElfCoreImage(module, memory, null, h.Segments, h.Is64, h.BigEndian, h.Bias, "core_memory", null, detail);
+        return new CoreImage(module, memory, null, h.Segments, h.Is64, h.BigEndian, h.Bias, "core_memory", null, detail);
     }
 
     /// <summary>Process bytes at <paramref name="address"/>: the core's memory, the rest from the file.</summary>
@@ -186,7 +186,7 @@ public sealed class ElfCoreImage
     }
 
     /// <summary>The function holding <paramref name="address"/>: the symbol whose extent covers it, or the nearest unsized symbol below.</summary>
-    public ElfCoreSymbol? SymbolAt(ulong address)
+    public CoreSymbol? SymbolAt(ulong address)
     {
         var list = symbols.Value;
         int lo = 0, hi = list.Count - 1, best = -1;
@@ -295,20 +295,20 @@ public sealed class ElfCoreImage
         return index;
     }
 
-    private List<ElfCoreSymbol> FileSymbols()
+    private List<CoreSymbol> FileSymbols()
     {
         var f = file!;
         var exported = new HashSet<uint>(f.Exports.Select(e => e.Rva));
         var list = f.Symbols.Where(s => s.Kind == ImageSymbolKind.Function)
-            .Select(s => new ElfCoreSymbol(f.ImageBase + s.Rva + Bias, s.Size, s.Name, exported.Contains(s.Rva) ? "export" : "symbol")).ToList();
+            .Select(s => new CoreSymbol(f.ImageBase + s.Rva + Bias, s.Size, s.Name, exported.Contains(s.Rva) ? "export" : "symbol")).ToList();
         list.Sort((a, b) => a.Start.CompareTo(b.Start));
         return list;
     }
 
     /// <summary>.dynsym through PT_DYNAMIC: the count from DT_HASH, else the gap up to DT_STRTAB.</summary>
-    private List<ElfCoreSymbol> MemorySymbols()
+    private List<CoreSymbol> MemorySymbols()
     {
-        var result = new List<ElfCoreSymbol>();
+        var result = new List<CoreSymbol>();
         if (segments.FirstOrDefault(s => s.Type == 2) is not { } dyn) return result;
         int word = is64 ? 8 : 4;
         var table = new ByteView(ReadLink(dyn.VirtualAddress, dyn.MemorySize, 0x4000), bigEndian);
@@ -350,7 +350,7 @@ public sealed class ElfCoreImage
             ulong size = is64 ? syms.U64(at + 16) : syms.U32(at + 8);
             if ((info & 0xF) is not (2 or 10) || shndx == 0 || value == 0) continue;
             if (strings.CString(name, 1024) is not { Length: > 0 } text) continue;
-            result.Add(new ElfCoreSymbol(value + Bias, size, text, "export"));
+            result.Add(new CoreSymbol(value + Bias, size, text, "export"));
         }
         result.Sort((a, b) => a.Start.CompareTo(b.Start));
         return result;
@@ -361,7 +361,7 @@ public sealed class ElfCoreImage
     /// A file whose GNU build id equals the core's matches; without a build id in the core, the first ELF file of the
     /// core's machine matches by name. Path is the match, else the first file found (a mismatch), else null.
     /// </summary>
-    public static (string? Path, bool Matches, string Detail) Find(ElfCoreModule module, IReadOnlyList<string> directories, ushort machine,
+    public static (string? Path, bool Matches, string Detail) Find(CoreModule module, IReadOnlyList<string> directories, ushort machine,
         Func<string, (ushort Machine, string? BuildId)?> probe)
     {
         string recorded = module.Module.Path.EndsWith(" (deleted)", StringComparison.Ordinal) ? module.Module.Path[..^10] : module.Module.Path;

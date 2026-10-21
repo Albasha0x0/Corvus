@@ -15,7 +15,7 @@ namespace Corvus.Services;
 /// code index (user, PDB, Il2Cpp and discovered names), Il2Cpp dummy DLLs for GameAssembly.dll, then a matching local
 /// PDB and the exports. .NET (CLR) frames are decoded through the runtime's DAC when a verified one is available. Dumps are re-read per call
 /// (positional reads); module images and names are cached. Linux and Android ELF cores go through the same tools
-/// (MinidumpService.ElfCore.cs).
+/// (MinidumpService.Core.cs).
 /// </summary>
 public sealed partial class MinidumpService(AssemblyWorkspace? workspace = null, NativeCodeService? code = null, Il2CppNavigator? navigator = null,
     DecompilerService? decompiler = null, StackTextService? stacks = null) : IDisposable
@@ -123,12 +123,12 @@ public sealed partial class MinidumpService(AssemblyWorkspace? workspace = null,
         }
 
         /// <summary>The ELF core of a core session, else null.</summary>
-        public ElfCoreFile? Core => Memory as ElfCoreFile;
+        public CoreFile? Core => Memory as CoreFile;
 
-        private readonly Dictionary<DumpModule, (ElfCoreImage? Image, string Detail)> _elf = [];
+        private readonly Dictionary<DumpModule, (CoreImage? Image, string Detail)> _elf = [];
 
         /// <summary>A core module's image (matched file, else core memory), or the reason there is none.</summary>
-        public (ElfCoreImage? Image, string Detail) Elf(DumpModule module)
+        public (CoreImage? Image, string Detail) Elf(DumpModule module)
         {
             using (AssemblyWorkspace.Lock(_elf))
             {
@@ -137,7 +137,7 @@ public sealed partial class MinidumpService(AssemblyWorkspace? workspace = null,
             }
         }
 
-        public IEnumerable<(DumpModule Module, ElfCoreImage? Image, string Detail)> ElfLoaded
+        public IEnumerable<(DumpModule Module, CoreImage? Image, string Detail)> ElfLoaded
         {
             get { lock (_elf) return _elf.Select(kv => (kv.Key, kv.Value.Image, kv.Value.Detail)).ToList(); }
         }
@@ -172,7 +172,7 @@ public sealed partial class MinidumpService(AssemblyWorkspace? workspace = null,
                     _ids.IsEmpty ? $"No dump file at '{dump}'." : $"No dump file at '{dump}', and no open dump has that id (open: {string.Join(", ", _ids.Keys.Order())}).",
                     "pass the path of a .dmp file");
         }
-        IProcessMemory file = ElfCoreFile.IsCore(path) ? ElfCoreFile.Open(path) : MinidumpFile.Open(path);
+        IProcessMemory file = CoreFile.IsCore(path) ? CoreFile.Open(path) : MinidumpFile.Open(path);
         string id = Register(path);
         if (string.IsNullOrWhiteSpace(imageDirectories)) imageDirectories = _imageDirectories.GetValueOrDefault(path);
         var dirs = Directories(imageDirectories, path);

@@ -202,7 +202,7 @@ public sealed class ElfCoreTests
     [Fact]
     public void Core_notes_give_threads_signal_files_auxv_and_process()
     {
-        using var core = ElfCoreFile.FromBytes(SyntheticCore.Core(arm64: false), "app.core");
+        using var core = CoreFile.FromBytes(SyntheticCore.Core(arm64: false), "app.core");
         Assert.Empty(core.Issues);
         Assert.Equal(NativeArch.X64, core.Arch);
         Assert.Equal([1001u, 1002u], core.Threads.Select(t => t.Id));
@@ -399,20 +399,20 @@ public sealed class ElfCoreTests
     }
 
     [Fact]
-    [FuzzEntry(typeof(ElfCoreFile), typeof(ElfMemoryHeader))]
+    [FuzzEntry(typeof(CoreFile), typeof(ElfMemoryHeader))]
     public void Fuzzed_cores_never_throw()
     {
         var failures = FormatFuzz.Run(SyntheticCore.Core(arm64: false), b =>
         {
             try
             {
-                using var core = ElfCoreFile.FromBytes(b);
+                using var core = CoreFile.FromBytes(b);
                 foreach (var t in core.Threads)
                 {
                     if (t.Registers == null || !t.Registers.Arch.Unwinds) continue;
-                    var images = new Dictionary<DumpModule, ElfCoreImage?>();
-                    ElfCoreImage? Image(ulong a) => core.ModuleAt(a) is { } m ? images.TryGetValue(m, out var i) ? i : images[m] = ElfCoreImage.FromMemory(core, m, "") : null;
-                    var walk = new ElfCoreUnwinder(core, t.Registers.Arch, Image).Walk(t.Registers, 0, 0, 64);
+                    var images = new Dictionary<DumpModule, CoreImage?>();
+                    CoreImage? Image(ulong a) => core.ModuleAt(a) is { } m ? images.TryGetValue(m, out var i) ? i : images[m] = CoreImage.FromMemory(core, m, "") : null;
+                    var walk = new CoreUnwinder(core, t.Registers.Arch, Image).Walk(t.Registers, 0, 0, 64);
                     foreach (var f in walk.Frames) _ = Image(f.LookupAddress)?.SymbolAt(f.LookupAddress);
                 }
             }
@@ -468,9 +468,9 @@ public sealed class ElfCoreTests
         BitConverter.GetBytes(SyntheticCore.Base + p.IntoB).CopyTo(stack, 24);
         BitConverter.GetBytes(SyntheticCore.Base + p.IntoM).CopyTo(stack, 0x38);
         var memory = new HeldThreadMemory(SyntheticCore.Module(arm64: false), stack, Code);
-        var image = ElfCoreImage.FromMemory(memory, memory.Modules[0], "");
-        var regs = new ElfCoreRegisters(ElfCoreArch.X64) { Pc = Code + 0x40, Sp = SyntheticCore.Stack };
-        var walk = new ElfCoreUnwinder(memory, ElfCoreArch.X64, a => memory.ModuleAt(a) != null ? image : null)
+        var image = CoreImage.FromMemory(memory, memory.Modules[0], "");
+        var regs = new CoreRegisters(CoreArch.X64) { Pc = Code + 0x40, Sp = SyntheticCore.Stack };
+        var walk = new CoreUnwinder(memory, CoreArch.X64, a => memory.ModuleAt(a) != null ? image : null)
             .Walk(regs, SyntheticCore.Stack, SyntheticCore.Stack + (ulong)stack.Length, 8);
         var caller = walk.Frames[1];
         Assert.Equal((SyntheticCore.Base + p.IntoB, SyntheticCore.Stack + 32, FrameMethod.Scan, true), (caller.Ip, caller.Sp, caller.Method, caller.Heuristic));
@@ -497,9 +497,9 @@ public sealed class ElfCoreTests
         BitConverter.GetBytes(SyntheticCore.Base + p.IntoB).CopyTo(stack, 32);
         BitConverter.GetBytes(SyntheticCore.Base + p.IntoM).CopyTo(stack, 64);
         var memory = new HeldThreadMemory(module, stack, Code);
-        var image = ElfCoreImage.FromMemory(memory, memory.Modules[0], "");
-        var regs = new ElfCoreRegisters(ElfCoreArch.X64) { Pc = Code + 0x80, Sp = SyntheticCore.Stack };
-        var walk = new ElfCoreUnwinder(memory, ElfCoreArch.X64, a => memory.ModuleAt(a) != null ? image : null)
+        var image = CoreImage.FromMemory(memory, memory.Modules[0], "");
+        var regs = new CoreRegisters(CoreArch.X64) { Pc = Code + 0x80, Sp = SyntheticCore.Stack };
+        var walk = new CoreUnwinder(memory, CoreArch.X64, a => memory.ModuleAt(a) != null ? image : null)
             .Walk(regs, SyntheticCore.Stack, SyntheticCore.Stack + (ulong)stack.Length, 8);
         Assert.Equal((SyntheticCore.Base + p.IntoB, SyntheticCore.Stack + 40, FrameMethod.Scan), (walk.Frames[1].Ip, walk.Frames[1].Sp, walk.Frames[1].Method));
         Assert.Equal(SyntheticCore.Base + p.IntoM, walk.Frames[2].Ip);
@@ -526,7 +526,7 @@ public sealed class ElfCoreTests
         var root = RealData.Path(RealData.ElfCores);
         using var service = new MinidumpService();
         int seen = 0;
-        foreach (var path in Directory.EnumerateFiles(root, "*", SearchOption.AllDirectories).Where(ElfCoreFile.IsCore))
+        foreach (var path in Directory.EnumerateFiles(root, "*", SearchOption.AllDirectories).Where(CoreFile.IsCore))
         {
             seen++;
             var summary = await service.Summarize(path, Path.GetDirectoryName(path), CancellationToken.None);

@@ -79,7 +79,7 @@ public sealed partial class MinidumpService
             {
                 var found = new DirectoryInfo(root).EnumerateFiles(p, options);
                 // the default core patterns also match other files (core.c, app.core.json): only ELF cores are kept
-                files.AddRange(string.IsNullOrWhiteSpace(pattern) && p is "*.core" or "core.*" ? found.Where(f => ElfCoreFile.IsCore(f.FullName)) : found);
+                files.AddRange(string.IsNullOrWhiteSpace(pattern) && p is "*.core" or "core.*" ? found.Where(f => CoreFile.IsCore(f.FullName)) : found);
             }
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException)

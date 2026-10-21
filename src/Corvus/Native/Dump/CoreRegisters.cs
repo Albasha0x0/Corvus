@@ -5,9 +5,9 @@ namespace Corvus.Native.Dump;
 /// general registers, PowerPC's link and count registers through <see cref="Slot"/>; <see cref="Pc"/> is a DWARF column
 /// on x86 and x64, an extra slot past the DWARF registers elsewhere.
 /// </summary>
-public sealed class ElfCoreArch
+public sealed class CoreArch
 {
-    private ElfCoreArch(NativeArch arch, string name, bool is64, bool bigEndian, string[] names, int pc, int sp, int fp, int returnColumn, int? link, bool unwinds)
+    private CoreArch(NativeArch arch, string name, bool is64, bool bigEndian, string[] names, int pc, int sp, int fp, int returnColumn, int? link, bool unwinds)
     {
         Arch = arch;
         Name = name;
@@ -46,31 +46,31 @@ public sealed class ElfCoreArch
         : Arch == NativeArch.PowerPc ? dwarf switch { 65 => 33, 66 => 34, _ => -1 } : -1;
     public int PointerSize => Is64 ? 8 : 4;
 
-    public static readonly ElfCoreArch X64 = new(NativeArch.X64, "x64", true, false,
+    public static readonly CoreArch X64 = new(NativeArch.X64, "x64", true, false,
         ["rax", "rdx", "rcx", "rbx", "rsi", "rdi", "rbp", "rsp", "r8", "r9", "r10", "r11", "r12", "r13", "r14", "r15", "rip", "eflags", "fs_base", "gs_base"],
         16, 7, 6, 16, null, true);
 
-    public static readonly ElfCoreArch X86 = new(NativeArch.X86, "x86", false, false,
+    public static readonly CoreArch X86 = new(NativeArch.X86, "x86", false, false,
         ["eax", "ecx", "edx", "ebx", "esp", "ebp", "esi", "edi", "eip", "eflags"], 8, 4, 5, 8, null, true);
 
-    public static readonly ElfCoreArch Arm64 = new(NativeArch.Arm64, "ARM64", true, false,
+    public static readonly CoreArch Arm64 = new(NativeArch.Arm64, "ARM64", true, false,
         [.. Enumerable.Range(0, 29).Select(i => $"x{i}"), "fp", "lr", "sp", "pc", "pstate"], 32, 31, 29, 30, 30, true);
 
-    public static readonly ElfCoreArch Arm = new(NativeArch.Arm, "ARM", false, false,
+    public static readonly CoreArch Arm = new(NativeArch.Arm, "ARM", false, false,
         [.. Enumerable.Range(0, 11).Select(i => $"r{i}"), "fp", "ip", "sp", "lr", "pc", "cpsr"], 15, 13, 11, 14, 14, true);
 
-    public static ElfCoreArch Ppc64(bool bigEndian) => new(NativeArch.PowerPc, bigEndian ? "ppc64" : "ppc64le", true, bigEndian,
+    public static CoreArch Ppc64(bool bigEndian) => new(NativeArch.PowerPc, bigEndian ? "ppc64" : "ppc64le", true, bigEndian,
         [.. Enumerable.Range(0, 32).Select(i => $"r{i}"), "nip", "lr", "ctr", "msr"], 32, 1, 31, 33, 33, true);
 
-    public static readonly ElfCoreArch S390x = new(NativeArch.Other, "s390x", true, true,
+    public static readonly CoreArch S390x = new(NativeArch.Other, "s390x", true, true,
         [.. Enumerable.Range(0, 16).Select(i => $"r{i}"), "psw_addr", "psw_mask"], 16, 15, 11, 14, 14, true);
 
-    public static readonly ElfCoreArch RiscV64 = new(NativeArch.RiscV, "riscv64", true, false,
+    public static readonly CoreArch RiscV64 = new(NativeArch.RiscV, "riscv64", true, false,
         ["zero", "ra", "sp", "gp", "tp", "t0", "t1", "t2", "s0", "s1", .. Enumerable.Range(0, 8).Select(i => $"a{i}"), .. Enumerable.Range(2, 10).Select(i => $"s{i}"),
          "t3", "t4", "t5", "t6", "pc"], 32, 2, 8, 1, 1, true);
 
     /// <summary>The register file for e_machine, or null when the core's machine is not read.</summary>
-    public static ElfCoreArch? For(ushort machine, bool is64, bool bigEndian) => machine switch
+    public static CoreArch? For(ushort machine, bool is64, bool bigEndian) => machine switch
     {
         62 when is64 => X64,
         3 when !is64 => X86,
@@ -101,20 +101,20 @@ public sealed class ElfCoreArch
     };
 }
 
-/// <summary>A thread's registers from NT_PRSTATUS, by <see cref="ElfCoreArch"/> slot; slots the unwinder could not recover are unknown.</summary>
-public sealed class ElfCoreRegisters
+/// <summary>A thread's registers from NT_PRSTATUS, by <see cref="CoreArch"/> slot; slots the unwinder could not recover are unknown.</summary>
+public sealed class CoreRegisters
 {
     private readonly ulong[] values;
     private readonly bool[] known;
 
-    public ElfCoreRegisters(ElfCoreArch arch)
+    public CoreRegisters(CoreArch arch)
     {
         Arch = arch;
         values = new ulong[arch.Count];
         known = new bool[arch.Count];
     }
 
-    public ElfCoreArch Arch { get; }
+    public CoreArch Arch { get; }
     public bool Complete { get; set; } = true;
 
     public ulong Pc { get => values[Arch.Pc]; set => Set(Arch.Pc, value); }
@@ -140,24 +140,24 @@ public sealed class ElfCoreRegisters
         if (slot >= 0 && slot < values.Length) known[slot] = false;
     }
 
-    public ElfCoreRegisters Clone()
+    public CoreRegisters Clone()
     {
-        var c = new ElfCoreRegisters(Arch) { Complete = Complete };
+        var c = new CoreRegisters(Arch) { Complete = Complete };
         values.CopyTo(c.values, 0);
         known.CopyTo(c.known, 0);
         return c;
     }
 
     /// <summary>pr_reg (elf_gregset_t) as the kernel writes it.</summary>
-    internal static ElfCoreRegisters Parse(ElfCoreArch arch, ByteView greg)
+    internal static CoreRegisters Parse(CoreArch arch, ByteView greg)
     {
-        var r = new ElfCoreRegisters(arch);
+        var r = new CoreRegisters(arch);
         var map = arch.GregMap;
         int word = arch.PointerSize;
         r.Complete = greg.Length >= (long)map.Length * word;
         for (int i = 0; i < map.Length; i++)
             if (map[i] >= 0 && greg.Has((long)i * word, word)) r.Set(map[i], greg.Word((long)i * word, arch.Is64));
-        if (arch == ElfCoreArch.RiscV64) r.Set(0, 0);
+        if (arch == CoreArch.RiscV64) r.Set(0, 0);
         return r;
     }
 

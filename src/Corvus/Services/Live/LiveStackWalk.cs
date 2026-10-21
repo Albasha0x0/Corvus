@@ -9,7 +9,7 @@ namespace Corvus.Services;
 
 /// <summary>
 /// A stop's stack outside Windows, unwound from the bytes the session script sends with it: each ELF module's .eh_frame
-/// CFI read from its file, else the frame pointer chain (<see cref="ElfCoreUnwinder"/>, as dump_stack walks a core).
+/// CFI read from its file, else the frame pointer chain (<see cref="CoreUnwinder"/>, as dump_stack walks a core).
 /// Only the captured stack is memory; the walk stops where it leaves it.
 /// </summary>
 internal sealed class LiveStackWalk : IProcessMemory
@@ -18,14 +18,14 @@ internal sealed class LiveStackWalk : IProcessMemory
     private const int MaxCachedFiles = 64;
     private static readonly ConcurrentDictionary<string, ElfFile?> Files = new(StringComparer.Ordinal);
     private readonly LiveSession _session;
-    private readonly ElfCoreArch _arch;
-    private readonly ConcurrentDictionary<(ulong, string), ElfCoreImage?> _images = new();
+    private readonly CoreArch _arch;
+    private readonly ConcurrentDictionary<(ulong, string), CoreImage?> _images = new();
     private readonly object _gate = new();
     private ulong _sp;
     private byte[] _stack = [];
     private DumpModule[] _modules = [];
 
-    private LiveStackWalk(LiveSession session, ElfCoreArch arch)
+    private LiveStackWalk(LiveSession session, CoreArch arch)
     {
         _session = session;
         _arch = arch;
@@ -34,10 +34,10 @@ internal sealed class LiveStackWalk : IProcessMemory
     /// <summary>The walker for a session's architecture (Frida's names), or null when it has no register file here.</summary>
     public static LiveStackWalk? For(LiveSession session) => session.Arch switch
     {
-        "x64" => new(session, ElfCoreArch.X64),
-        "ia32" => new(session, ElfCoreArch.X86),
-        "arm64" => new(session, ElfCoreArch.Arm64),
-        "arm" => new(session, ElfCoreArch.Arm),
+        "x64" => new(session, CoreArch.X64),
+        "ia32" => new(session, CoreArch.X86),
+        "arm64" => new(session, CoreArch.Arm64),
+        "arm" => new(session, CoreArch.Arm),
         _ => null,
     };
 
@@ -45,7 +45,7 @@ internal sealed class LiveStackWalk : IProcessMemory
     public WalkResult? Walk(IReadOnlyDictionary<string, string> registers, byte[] stack)
     {
         if (!registers.TryGetValue("pc", out var pc) || !registers.TryGetValue("sp", out var sp)) return null;
-        var regs = new ElfCoreRegisters(_arch);
+        var regs = new CoreRegisters(_arch);
         for (int i = 0; i < _arch.Count; i++)
             if (registers.TryGetValue(_arch.Names[i], out var v) || (Alias(_arch.Names[i]) is { } other && registers.TryGetValue(other, out v)))
                 regs.Set(i, Hex(v));
@@ -57,7 +57,7 @@ internal sealed class LiveStackWalk : IProcessMemory
             _stack = stack;
             lock (_session.Modules)
                 _modules = [.. _session.Modules.Select(m => new DumpModule(m.Base, (uint)Math.Min(m.Size, uint.MaxValue), 0, 0, m.Path, null, null, null)).OrderBy(m => m.Base)];
-            return new ElfCoreUnwinder(this, _arch, ImageAt).Walk(regs, _sp, _sp + (ulong)stack.Length, MaxFrames);
+            return new CoreUnwinder(this, _arch, ImageAt).Walk(regs, _sp, _sp + (ulong)stack.Length, MaxFrames);
         }
     }
 
@@ -67,8 +67,8 @@ internal sealed class LiveStackWalk : IProcessMemory
     private static ulong Hex(string s) =>
         ulong.TryParse(s.StartsWith("0x", StringComparison.OrdinalIgnoreCase) ? s[2..] : s, NumberStyles.HexNumber, CultureInfo.InvariantCulture, out var v) ? v : 0;
 
-    private ElfCoreImage? ImageAt(ulong address) => ModuleAt(address) is { } m
-        ? _images.GetOrAdd((m.Base, m.Path), _ => ElfAt(m.Path) is { } file ? ElfCoreImage.FromFile(file, m, this, m.Path, "") : null)
+    private CoreImage? ImageAt(ulong address) => ModuleAt(address) is { } m
+        ? _images.GetOrAdd((m.Base, m.Path), _ => ElfAt(m.Path) is { } file ? CoreImage.FromFile(file, m, this, m.Path, "") : null)
         : null;
 
     private static ElfFile? ElfAt(string path)

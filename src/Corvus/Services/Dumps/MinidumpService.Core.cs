@@ -31,11 +31,11 @@ public sealed partial class MinidumpService
 
     private (ushort Machine, string? BuildId)? Probe(string path) => _elfProbes.GetOrAdd(FileKey(path), _ => ElfMemoryHeader.Probe(path));
 
-    private (string? Path, bool Matches, string Detail) FindElf(ElfCoreFile core, ElfCoreModule module, IReadOnlyList<string> directories) =>
-        ElfCoreImage.Find(module, directories, core.Machine, Probe);
+    private (string? Path, bool Matches, string Detail) FindElf(CoreFile core, CoreModule module, IReadOnlyList<string> directories) =>
+        CoreImage.Find(module, directories, core.Machine, Probe);
 
     /// <summary>A core module's image: the matched file on disk, else the module as the core holds it.</summary>
-    internal (ElfCoreImage? Image, string Detail) LoadElf(ElfCoreFile core, DumpModule module, IReadOnlyList<string> directories)
+    internal (CoreImage? Image, string Detail) LoadElf(CoreFile core, DumpModule module, IReadOnlyList<string> directories)
     {
         if (core.CoreModule(module) is not { } cm) return (null, "not a module of the core");
         var (path, matches, detail) = FindElf(core, cm, directories);
@@ -50,12 +50,12 @@ public sealed partial class MinidumpService
                     if (_elfFiles.Count >= MaxCachedElfFiles) _elfFiles.Clear();
                     _elfFiles[key] = file;
                 }
-                return (ElfCoreImage.FromFile(file, module, core, path, detail), detail);
+                return (CoreImage.FromFile(file, module, core, path, detail), detail);
             }
             catch (ToolError ex) { detail = $"{path}: {ex.Message}"; }
         }
         string local = path != null && !matches ? $"{path}: {detail}" : detail;
-        var image = ElfCoreImage.FromMemory(core, module, $"from core memory; local file: {local}");
+        var image = CoreImage.FromMemory(core, module, $"from core memory; local file: {local}");
         return (image, image?.Detail ?? $"no image: {local}; the core does not hold its ELF header");
     }
 
@@ -85,16 +85,16 @@ public sealed partial class MinidumpService
     }
 
     /// <summary>The architecture of a core's process, as ClrMD names it.</summary>
-    private static System.Runtime.InteropServices.Architecture CoreArchitecture(ElfCoreFile core) => core.Arch switch
+    private static System.Runtime.InteropServices.Architecture CoreArchitecture(CoreFile core) => core.Arch switch
     {
         NativeArch.X86 => System.Runtime.InteropServices.Architecture.X86, NativeArch.Arm64 => System.Runtime.InteropServices.Architecture.Arm64,
         NativeArch.Arm => System.Runtime.InteropServices.Architecture.Arm, _ => System.Runtime.InteropServices.Architecture.X64,
     };
 
-    private static bool IsAndroid(ElfCoreFile core) =>
+    private static bool IsAndroid(CoreFile core) =>
         core.Files.Any(f => f.Path.StartsWith("/system/bin/linker", StringComparison.Ordinal) || f.Path.StartsWith("/apex/", StringComparison.Ordinal));
 
-    private static string? CoreRuntime(ElfCoreFile core)
+    private static string? CoreRuntime(CoreFile core)
     {
         foreach (var m in core.CoreModules)
         {
@@ -114,10 +114,10 @@ public sealed partial class MinidumpService
     };
 
     /// <summary>The auxiliary vector in words: known entries, strings (AT_EXECFN, AT_PLATFORM) read from the core.</summary>
-    internal static string AuxText(ElfCoreFile core) => string.Join(", ", core.AuxVector.Where(a => AuxNames.ContainsKey(a.Type)).Select(a =>
+    internal static string AuxText(CoreFile core) => string.Join(", ", core.AuxVector.Where(a => AuxNames.ContainsKey(a.Type)).Select(a =>
         a.Type is 15 or 24 or 31 && core.ReadString(a.Value) is { } text ? $"{AuxNames[a.Type]}={text}" : $"{AuxNames[a.Type]}={Hex(core, a.Value)}"));
 
-    private async Task<DumpReport> SummarizeCore(Session s, ElfCoreFile core, DacRequest dac, CancellationToken ct)
+    private async Task<DumpReport> SummarizeCore(Session s, CoreFile core, DacRequest dac, CancellationToken ct)
     {
         var notes = new List<string>();
         string os = IsAndroid(core) ? "Android" : "Linux";
@@ -161,11 +161,11 @@ public sealed partial class MinidumpService
         };
     }
 
-    private async Task<ExceptionSummary> DescribeSignal(Session s, ElfCoreFile core, ElfCoreThread thread, int signo, CancellationToken ct)
+    private async Task<ExceptionSummary> DescribeSignal(Session s, CoreFile core, CoreThread thread, int signo, CancellationToken ct)
     {
         var sig = core.Signal;
-        string name = ElfCoreFile.SignalName(signo) ?? $"signal {signo}";
-        string? code = sig != null ? ElfCoreFile.SignalCodeName(signo, sig.Code) ?? $"si_code {sig.Code}" : null;
+        string name = CoreFile.SignalName(signo) ?? $"signal {signo}";
+        string? code = sig != null ? CoreFile.SignalCodeName(signo, sig.Code) ?? $"si_code {sig.Code}" : null;
         string description = name + (code != null ? $" ({code})" : "");
         if (sig?.Address is { } fault) description += $" at address {Hex(core, fault)}" + (fault < 0x10000 ? " (a null or near-null pointer)" : "");
         if (sig?.SenderPid is { } sender && sig.Code <= 0) description += $", from pid {sender}";
@@ -179,7 +179,7 @@ public sealed partial class MinidumpService
             insn != null ? $"{insn} ({bytes})" : null, source, parameters, thread.Registers?.Format(), null, false);
     }
 
-    internal ModuleSummary CoreModuleRow(Session s, ElfCoreModule m)
+    internal ModuleSummary CoreModuleRow(Session s, CoreModule m)
     {
         var core = s.Core!;
         var (path, matches, detail) = FindElf(core, m, s.Directories);
@@ -188,7 +188,7 @@ public sealed partial class MinidumpService
             state, path, detail, null) { BuildId = m.BuildId };
     }
 
-    private async Task<List<ThreadSummary>> CoreThreadRows(Session s, ElfCoreFile core, IReadOnlyList<ElfCoreThread> threads, CancellationToken ct)
+    private async Task<List<ThreadSummary>> CoreThreadRows(Session s, CoreFile core, IReadOnlyList<CoreThread> threads, CancellationToken ct)
     {
         var faulting = core.FaultingThread;
         var rows = new List<ThreadSummary>();
@@ -204,7 +204,7 @@ public sealed partial class MinidumpService
         return rows;
     }
 
-    private MemoryRow CoreMemoryRow(ElfCoreFile core, ElfCoreSegment g)
+    private MemoryRow CoreMemoryRow(CoreFile core, CoreSegment g)
     {
         var module = core.ModuleAt(g.Start);
         bool mapped = core.Files.Any(f => f.Start < g.End && g.Start < f.End);
@@ -212,7 +212,7 @@ public sealed partial class MinidumpService
             module?.FileName, g.FileSize);
     }
 
-    private static ElfCoreThread PickCoreThread(ElfCoreFile core, string? thread)
+    private static CoreThread PickCoreThread(CoreFile core, string? thread)
     {
         if (core.Threads.Count == 0) throw new ToolError(ErrorCode.NotFound, "the core has no threads (no NT_PRSTATUS note).");
         var text = thread?.Trim();
@@ -226,14 +226,14 @@ public sealed partial class MinidumpService
             "pass a thread id (the LWP id, decimal or 0x hex), '#index' or 'exception'");
     }
 
-    private WalkResult CoreWalk(Session s, ElfCoreFile core, ElfCoreRegisters regs, int maxFrames, CancellationToken ct)
+    private WalkResult CoreWalk(Session s, CoreFile core, CoreRegisters regs, int maxFrames, CancellationToken ct)
     {
         var stack = core.SegmentAt(regs.Sp);
-        var unwinder = new ElfCoreUnwinder(core, regs.Arch, a => core.ModuleAt(a) is { } m ? s.Elf(m).Image : null);
+        var unwinder = new CoreUnwinder(core, regs.Arch, a => core.ModuleAt(a) is { } m ? s.Elf(m).Image : null);
         return unwinder.Walk(regs, stack?.Start ?? 0, stack?.End ?? 0, maxFrames, ct);
     }
 
-    private async Task<StackReport> CoreStack(Session s, ElfCoreFile core, string? thread, int maxFrames, int offset, int limit, CancellationToken ct)
+    private async Task<StackReport> CoreStack(Session s, CoreFile core, string? thread, int maxFrames, int offset, int limit, CancellationToken ct)
     {
         var t = PickCoreThread(core, thread);
         var regs = t.Registers ?? throw new ToolError(ErrorCode.Unsupported, $"thread {t.Id}: registers of {core.ArchName} are not read.");
@@ -257,7 +257,7 @@ public sealed partial class MinidumpService
                   $"{image.Symbols.Count} function symbols; {image.Detail}";
     }
 
-    private async Task<MemoryBytes> CoreReadBytes(Session s, ElfCoreFile core, string address, int length, bool imageFallback, CancellationToken ct)
+    private async Task<MemoryBytes> CoreReadBytes(Session s, CoreFile core, string address, int length, bool imageFallback, CancellationToken ct)
     {
         ulong va = ParseAddress(core, address);
         length = Math.Clamp(length, 1, MaxReadLength);
@@ -287,7 +287,7 @@ public sealed partial class MinidumpService
     }
 
     /// <summary>A core's signature: signal name | the first frame that is not raising machinery | the next frames; no signal: hang | top frames.</summary>
-    private async Task<DumpSignature> CoreSignature(Session s, ElfCoreFile core, int topFrames, IReadOnlyList<string> skip, CancellationToken ct)
+    private async Task<DumpSignature> CoreSignature(Session s, CoreFile core, int topFrames, IReadOnlyList<string> skip, CancellationToken ct)
     {
         var thread = core.FaultingThread ?? throw new ToolError(ErrorCode.MalformedInput, "the core has no threads.");
         var regs = thread.Registers ?? throw new ToolError(ErrorCode.Unsupported, $"registers of {core.ArchName} are not read.");
@@ -302,7 +302,7 @@ public sealed partial class MinidumpService
             frames.Add((Label(at, regs.Pc), null, Offset(at, regs.Pc)));
         }
         var fault = frames[0];
-        string name = ElfCoreFile.SignalName(signo) ?? $"signal {signo}";
+        string name = CoreFile.SignalName(signo) ?? $"signal {signo}";
         return new DumpSignature("exception", $"{name} | {fault.Label} | {string.Join(" > ", frames.Skip(1).Take(topFrames).Select(f => f.Label))}", fault.Version, fault.Offset, time);
     }
 }

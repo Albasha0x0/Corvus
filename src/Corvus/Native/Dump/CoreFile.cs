@@ -5,22 +5,22 @@ using Corvus.Native.Elf;
 namespace Corvus.Native.Dump;
 
 /// <summary>A thread of a core: NT_PRSTATUS (the first is the thread that took the signal).</summary>
-public sealed record ElfCoreThread(int Index, uint Id, int Signal, ElfCoreRegisters? Registers);
+public sealed record CoreThread(int Index, uint Id, int Signal, CoreRegisters? Registers);
 
 /// <summary>NT_SIGINFO: the signal that ended the process; <see cref="Address"/> for faults, <see cref="SenderPid"/> for kill and tkill.</summary>
 public sealed record ElfCoreSignal(int Number, int Code, int Errno, ulong? Address, uint? SenderPid);
 
 /// <summary>One NT_FILE entry: [Start, End) maps <see cref="Path"/> from byte <see cref="FileOffset"/>.</summary>
-public sealed record ElfCoreMapping(ulong Start, ulong End, ulong FileOffset, string Path);
+public sealed record CoreMapping(ulong Start, ulong End, ulong FileOffset, string Path);
 
 /// <summary>A mapped ELF image of the process (grouped NT_FILE entries), with the GNU build id its header in the core holds.</summary>
-public sealed record ElfCoreModule(DumpModule Module, string? BuildId, IReadOnlyList<ElfCoreMapping> Mappings);
+public sealed record CoreModule(DumpModule Module, string? BuildId, IReadOnlyList<CoreMapping> Mappings);
 
 /// <summary>NT_PRPSINFO.</summary>
 public sealed record ElfCoreProcess(string? Name, string? Arguments, uint Pid, uint ParentPid, uint Uid, uint Gid, char State);
 
 /// <summary>A PT_LOAD of the core: a mapping of the process, of which <see cref="FileSize"/> bytes are captured.</summary>
-public sealed record ElfCoreSegment(ulong Start, ulong MemorySize, ulong FileSize, long FileOffset, uint Flags)
+public sealed record CoreSegment(ulong Start, ulong MemorySize, ulong FileSize, long FileOffset, uint Flags)
 {
     public ulong End => Start + MemorySize;
     public string Protection => $"{((Flags & 4) != 0 ? 'r' : '-')}{((Flags & 2) != 0 ? 'w' : '-')}{((Flags & 1) != 0 ? 'x' : '-')}";
@@ -33,7 +33,7 @@ public sealed record ElfCoreSegment(ulong Start, ulong MemorySize, ulong FileSiz
 /// NT_PRPSINFO. Only the header check throws; other problems are recorded in <see cref="Issues"/>. Memory is read
 /// on demand with positional reads.
 /// </summary>
-public sealed class ElfCoreFile : IProcessMemory, IDisposable
+public sealed class CoreFile : IProcessMemory, IDisposable
 {
     private const int MaxSegments = 1 << 16;
     private const int MaxNotesBytes = 64 << 20;
@@ -45,13 +45,13 @@ public sealed class ElfCoreFile : IProcessMemory, IDisposable
 
     private readonly IDumpSource _source;
     private readonly List<ParseIssue> _issues = [];
-    private readonly List<ElfCoreSegment> _segments = [];
+    private readonly List<CoreSegment> _segments = [];
     private DumpMemoryRange[] _memory = [];
-    private readonly List<ElfCoreThread> _threads = [];
-    private readonly List<ElfCoreMapping> _files = [];
+    private readonly List<CoreThread> _threads = [];
+    private readonly List<CoreMapping> _files = [];
     private readonly List<(ulong Type, ulong Value)> _auxv = [];
     private readonly List<DumpModule> _modules = [];
-    private readonly List<ElfCoreModule> _coreModules = [];
+    private readonly List<CoreModule> _coreModules = [];
     private readonly List<DumpMemoryRegion> _regions = [];
     private readonly List<(ulong Offset, ulong Size, ulong Align)> _notes = [];
 
@@ -71,7 +71,7 @@ public sealed class ElfCoreFile : IProcessMemory, IDisposable
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException) { return false; }
     }
 
-    public static ElfCoreFile Open(string path)
+    public static CoreFile Open(string path)
     {
         var full = InputFiles.RequireRegularFile(path, "core file");
         if (!File.Exists(full)) throw Targets.FileNotFound(path);
@@ -81,7 +81,7 @@ public sealed class ElfCoreFile : IProcessMemory, IDisposable
         {
             throw new ToolError(ErrorCode.IoError, $"cannot read {path}: {ex.Message}");
         }
-        try { return new ElfCoreFile(source, full); }
+        try { return new CoreFile(source, full); }
         catch
         {
             source.Dispose();
@@ -89,9 +89,9 @@ public sealed class ElfCoreFile : IProcessMemory, IDisposable
         }
     }
 
-    public static ElfCoreFile FromBytes(byte[] bytes, string path = "") => new(new BytesDumpSource(bytes), path);
+    public static CoreFile FromBytes(byte[] bytes, string path = "") => new(new BytesDumpSource(bytes), path);
 
-    private ElfCoreFile(IDumpSource source, string path)
+    private CoreFile(IDumpSource source, string path)
     {
         _source = source;
         Path = path;
@@ -105,7 +105,7 @@ public sealed class ElfCoreFile : IProcessMemory, IDisposable
         var h = new ByteView(head, BigEndian);
         Machine = h.U16(18);
         Arch = ElfNames.Arch(Machine);
-        Registers = ElfCoreArch.For(Machine, Is64Bit, BigEndian);
+        Registers = CoreArch.For(Machine, Is64Bit, BigEndian);
         if (Registers == null) Issue("header", $"registers of {ElfNames.Machine(Machine)} ({(Is64Bit ? 64 : 32)}-bit) are not read");
         ReadSegments(h);
         ReadNotes();
@@ -120,17 +120,17 @@ public sealed class ElfCoreFile : IProcessMemory, IDisposable
     public ushort Machine { get; }
     public NativeArch Arch { get; }
     /// <summary>The register file of <see cref="Machine"/>; null when not known.</summary>
-    public ElfCoreArch? Registers { get; }
+    public CoreArch? Registers { get; }
     public string ArchName => Registers?.Name ?? ElfNames.Machine(Machine);
     public IReadOnlyList<ParseIssue> Issues => _issues;
-    public IReadOnlyList<ElfCoreSegment> Segments => _segments;
-    public IReadOnlyList<ElfCoreThread> Threads => _threads;
+    public IReadOnlyList<CoreSegment> Segments => _segments;
+    public IReadOnlyList<CoreThread> Threads => _threads;
     public ElfCoreSignal? Signal { get; private set; }
     public ElfCoreProcess? Process { get; private set; }
     public IReadOnlyList<(ulong Type, ulong Value)> AuxVector => _auxv;
     /// <summary>NT_FILE entries in note order.</summary>
-    public IReadOnlyList<ElfCoreMapping> Files => _files;
-    public IReadOnlyList<ElfCoreModule> CoreModules => _coreModules;
+    public IReadOnlyList<CoreMapping> Files => _files;
+    public IReadOnlyList<CoreModule> CoreModules => _coreModules;
     public IReadOnlyList<DumpModule> Modules => _modules;
     public IReadOnlyList<DumpUnloadedModule> UnloadedModules => [];
     public IReadOnlyList<DumpMemoryRange> MemoryRanges => _memory;
@@ -138,16 +138,16 @@ public sealed class ElfCoreFile : IProcessMemory, IDisposable
     public string Identity => $"core|{Path}|{FileSize}";
 
     /// <summary>The module holding AT_ENTRY (else AT_PHDR): the executable.</summary>
-    public ElfCoreModule? MainModule =>
+    public CoreModule? MainModule =>
         (Aux(9) is { } entry ? _coreModules.FirstOrDefault(m => m.Module.Contains(entry)) : null)
         ?? (Aux(3) is { } phdr ? _coreModules.FirstOrDefault(m => m.Module.Contains(phdr)) : null);
 
     /// <summary>The thread that took the signal: the first whose pr_cursig is set, else the first.</summary>
-    public ElfCoreThread? FaultingThread => _threads.FirstOrDefault(t => t.Signal != 0) ?? _threads.FirstOrDefault();
+    public CoreThread? FaultingThread => _threads.FirstOrDefault(t => t.Signal != 0) ?? _threads.FirstOrDefault();
 
     public ulong? Aux(ulong type) => _auxv.FirstOrDefault(a => a.Type == type) is var (t, v) && t == type ? v : null;
 
-    public ElfCoreModule? CoreModule(DumpModule module) => _coreModules.FirstOrDefault(m => ReferenceEquals(m.Module, module));
+    public CoreModule? CoreModule(DumpModule module) => _coreModules.FirstOrDefault(m => ReferenceEquals(m.Module, module));
 
     public void Dispose() => _source.Dispose();
 
@@ -188,7 +188,7 @@ public sealed class ElfCoreFile : IProcessMemory, IDisposable
         return best >= 0 && address - _memory[best].Start < _memory[best].Size ? best : -1;
     }
 
-    public ElfCoreSegment? SegmentAt(ulong address)
+    public CoreSegment? SegmentAt(ulong address)
     {
         int i = SegmentIndex(address);
         return i >= 0 && _segments[i].Contains(address) ? _segments[i] : null;
@@ -231,7 +231,7 @@ public sealed class ElfCoreFile : IProcessMemory, IDisposable
         return extent;
     }
 
-    public ElfCoreThread? ThreadById(uint id) => _threads.FirstOrDefault(t => t.Id == id);
+    public CoreThread? ThreadById(uint id) => _threads.FirstOrDefault(t => t.Id == id);
 
     /// <summary>A NUL-terminated string of process memory (at most <paramref name="max"/> bytes); null when unreadable.</summary>
     public string? ReadString(ulong address, int max = 4096)
@@ -276,7 +276,7 @@ public sealed class ElfCoreFile : IProcessMemory, IDisposable
                 Issue("memory", $"PT_LOAD at 0x{vaddr:X} holds 0x{captured:X} bytes past the end of the file; the core is truncated", (long)Math.Min(offset, long.MaxValue));
                 captured = (ulong)FileSize - offset;
             }
-            _segments.Add(new ElfCoreSegment(vaddr, memsz, captured, (long)Math.Min(offset, long.MaxValue), flags));
+            _segments.Add(new CoreSegment(vaddr, memsz, captured, (long)Math.Min(offset, long.MaxValue), flags));
             if (captured > 0) ranges.Add(new DumpMemoryRange(vaddr, captured, (long)offset));
         }
         _segments.Sort((a, b) => a.Start.CompareTo(b.Start));
@@ -370,8 +370,8 @@ public sealed class ElfCoreFile : IProcessMemory, IDisposable
         }
         int signal = d.U16(12);
         uint pid = d.U32(Is64Bit ? 32 : 24);
-        var regs = Registers != null ? ElfCoreRegisters.Parse(Registers, d.Slice(regAt, d.Length - regAt)) : null;
-        _threads.Add(new ElfCoreThread(_threads.Count, pid, signal, regs));
+        var regs = Registers != null ? CoreRegisters.Parse(Registers, d.Slice(regAt, d.Length - regAt)) : null;
+        _threads.Add(new CoreThread(_threads.Count, pid, signal, regs));
     }
 
     private void Prpsinfo(ByteView d)
@@ -406,14 +406,14 @@ public sealed class ElfCoreFile : IProcessMemory, IDisposable
                 break;
             }
             names += Encoding.UTF8.GetByteCount(path) + 1;
-            _files.Add(new ElfCoreMapping(d.Word(at, Is64Bit), d.Word(at + w, Is64Bit), d.Word(at + 2 * w, Is64Bit) * page, path));
+            _files.Add(new CoreMapping(d.Word(at, Is64Bit), d.Word(at + w, Is64Bit), d.Word(at + 2 * w, Is64Bit) * page, path));
         }
     }
 
     /// <summary>Mapped files grouped by path into modules: those whose first page reads as ELF, or with an executable mapping.</summary>
     private void BuildModules()
     {
-        var byPath = new Dictionary<string, List<ElfCoreMapping>>(StringComparer.Ordinal);
+        var byPath = new Dictionary<string, List<CoreMapping>>(StringComparer.Ordinal);
         foreach (var f in _files)
         {
             if (f.End <= f.Start) continue;
@@ -430,7 +430,7 @@ public sealed class ElfCoreFile : IProcessMemory, IDisposable
             bool executable = maps.Any(m => AnyExecutable(m.Start, m.End));
             if (!elf && !executable) continue;
             var module = new DumpModule(start, (uint)Math.Min(end - start, uint.MaxValue), 0, 0, path, null, null, null);
-            _coreModules.Add(new ElfCoreModule(module, elf ? MemoryBuildId(start) : null, maps));
+            _coreModules.Add(new CoreModule(module, elf ? MemoryBuildId(start) : null, maps));
         }
         _coreModules.Sort((a, b) => a.Module.Base.CompareTo(b.Module.Base));
         _modules.AddRange(_coreModules.Select(m => m.Module));

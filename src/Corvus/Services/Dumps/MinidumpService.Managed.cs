@@ -54,7 +54,7 @@ public sealed partial class MinidumpService
         try
         {
             ObjectDisposedException.ThrowIf(_disposed, this);
-            ElfCoreModule? runtime = null;
+            CoreModule? runtime = null;
             string? runtimeFile = null;
             if (s.Core is { } core)
             {

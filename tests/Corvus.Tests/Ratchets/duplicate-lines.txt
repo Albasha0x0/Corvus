@@ -14,7 +14,7 @@ Corvus/Native/Calls/Arm64CallSites.Dynamic.cs <-> Corvus/Native/Calls/DynamicImp
 Corvus/Native/Calls/Arm64CallTargets.cs <-> Corvus/Native/Calls/CallTargets.cs = 24
 Corvus/Native/Calls/Arm64Trace.cs <-> Corvus/Native/Calls/ValueTraceForward.cs = 16
 Corvus/Native/Code/Arm32Decoder.cs <-> Corvus/Native/Code/Arm64Decoder.cs = 36
-Corvus/Native/Dump/ElfCoreFile.cs <-> Corvus/Native/Dump/MinidumpFile.cs = 50
+Corvus/Native/Dump/CoreFile.cs <-> Corvus/Native/Dump/MinidumpFile.cs = 50
 Corvus/Native/Dump/ModuleNames.cs <-> Corvus/Native/Dump/StackWalker.cs = 16
 Corvus/Native/Elf/ElfFile.Mapping.cs <-> Corvus/Native/MachO/MachOFile.Mapping.cs = 88
 Corvus/Native/Elf/ElfFile.Mapping.cs <-> Corvus/Native/Pe/PeFile.Mapping.cs = 78
