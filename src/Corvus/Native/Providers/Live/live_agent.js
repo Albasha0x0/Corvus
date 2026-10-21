@@ -60,7 +60,7 @@ function moduleRow(m) {
   return { name: m.name, base: m.base.toString(), size: m.size, path: m.path };
 }
 
-// Frida's module registry lags the loader up to the next LoadLibrary on every release tested (16.7 to 17.24, frida/frida#3809):
+// Frida's module registry lags the loader up to the next LoadLibrary on every release tested (16.7 to 17.24; frida/frida-gum#1190, fixed in 4e628a8):
 // a DLL mapped through a delay-load import is missing from enumerateModules and onAdded until then; the loader's
 // own list (K32EnumProcessModules, which takes no loader lock, so a thread held inside DllMain does not block it) adds
 // those, leaving out the agent's cloaked ranges.
