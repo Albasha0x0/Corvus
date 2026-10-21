@@ -391,8 +391,9 @@ internal static class LivePrograms
         """;
 
     /// <summary>
-    /// launcher [--restricted] program [arguments]: starts the program as a child process (on Windows with
-    /// --restricted, under a restricted token), waits for it, prints its exit code and returns it.
+    /// launcher [--restricted] [--parent pid] program [arguments]: starts the program as a child process (on Windows,
+    /// under a restricted token with --restricted, and named the child of process pid with --parent, as a broker
+    /// starts a process for another), waits for it, prints its exit code and returns it.
     /// </summary>
     public const string Launcher = Platform + """
         #include <string.h>
@@ -423,19 +424,30 @@ internal static class LivePrograms
         #endif
         int main(int argc, char** argv)
         {
-            int code, restricted = argc > 1 && strcmp(argv[1], "--restricted") == 0;
-            argc -= restricted;
-            argv += restricted;
+            int code, restricted = 0, parent = 0;
+            for (; argc > 2 && strncmp(argv[1], "--", 2) == 0; argc--, argv++)
+                if (strcmp(argv[1], "--restricted") == 0) restricted = 1;
+                else if (strcmp(argv[1], "--parent") == 0) { parent = atoi(argv[2]); argc--; argv++; }
             if (argc < 2) return 2;
         #ifdef _WIN32
             char line[8192] = "";
             for (int i = 1; i < argc; i++) { strcat(line, "\""); strcat(line, argv[i]); strcat(line, "\" "); }
-            STARTUPINFOA si = { sizeof si };
+            STARTUPINFOEXA si = { { sizeof si } };
             PROCESS_INFORMATION pi;
+            if (parent)
+            {
+                HANDLE named = OpenProcess(PROCESS_CREATE_PROCESS, FALSE, parent);
+                SIZE_T size = 0;
+                InitializeProcThreadAttributeList(NULL, 1, 0, &size);
+                si.lpAttributeList = (LPPROC_THREAD_ATTRIBUTE_LIST)malloc(size);
+                InitializeProcThreadAttributeList(si.lpAttributeList, 1, 0, &size);
+                UpdateProcThreadAttribute(si.lpAttributeList, 0, PROC_THREAD_ATTRIBUTE_PARENT_PROCESS, &named, sizeof named, NULL, NULL);
+            }
             HANDLE token = restricted ? RestrictedToken() : NULL;
             if (restricted && !token) { printf("no restricted token %lu\n", GetLastError()); return 2; }
-            if (!(token ? CreateProcessAsUserA(token, NULL, line, NULL, NULL, FALSE, 0, NULL, NULL, &si, &pi)
-                        : CreateProcessA(NULL, line, NULL, NULL, FALSE, 0, NULL, NULL, &si, &pi))) { printf("start failed %lu\n", GetLastError()); return 2; }
+            DWORD flags = parent ? EXTENDED_STARTUPINFO_PRESENT : 0;
+            if (!(token ? CreateProcessAsUserA(token, NULL, line, NULL, NULL, FALSE, flags, NULL, NULL, &si.StartupInfo, &pi)
+                        : CreateProcessA(NULL, line, NULL, NULL, FALSE, flags, NULL, NULL, &si.StartupInfo, &pi))) { printf("start failed %lu\n", GetLastError()); return 2; }
             DWORD status = 0;
             WaitForSingleObject(pi.hProcess, INFINITE);
             GetExitCodeProcess(pi.hProcess, &status);

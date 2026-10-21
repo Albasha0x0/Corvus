@@ -161,6 +161,10 @@ runs (a fork that runs on without one is not held); `attach_child` there takes i
 its libraries loaded, so a child session closed before its first continue lets it run; a session that follows children
 there does not report threads that end.
 
+On Windows a process that another process starts on the program's behalf, naming the program as its parent (the WebView2
+runtime starts the browser process of a Tauri or WebView2 program this way), passes no hold: `action=children` lists it as started by
+another process, and `live_session action=attach program=<pid>` opens it.
+
 On Windows a child that runs sandboxed, as Chromium and Electron run their GPU, utility and renderer processes, keeps
 the attach to what its token allows. The session's agent loads from a folder that grants read access to restricted
 tokens and AppContainers, so a GPU process (a restricted token) attaches. A child whose sandbox still refuses the agent

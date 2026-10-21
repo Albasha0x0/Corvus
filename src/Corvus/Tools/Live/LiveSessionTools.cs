@@ -241,6 +241,11 @@ public sealed partial class LiveSessionTools(ServerOptions options, LiveSessionS
                 children = s.Children.Select(c => new LiveProcessRow(c.ProcessId, c.CommandLine) { State = c.State + (c.Session != null ? " in " + c.Session : "") }).ToList();
             text.AppendLine($"follows child processes{(s.ChildNames.Count > 0 ? " named " + string.Join(", ", s.ChildNames) : "")}: {children.Count} started, {children.Count(c => c.State == "held")} held");
             foreach (var c in children) text.AppendLine($"  pid {c.ProcessId} {c.State}: {c.Name}");
+            foreach (var (pid, name) in Services.LiveSessionService.StartedForProgram(s))
+            {
+                children.Add(new LiveProcessRow(pid, name) { State = "started by another process" });
+                text.AppendLine($"  pid {pid} started by another process, not held: {name} (live_session action=attach program={pid})");
+            }
         }
         if (action != "children")
         {

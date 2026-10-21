@@ -49,6 +49,36 @@ public sealed partial class LiveSessionService
             : " (resumed: not in childNames)"));
     }
 
+    /// <summary>
+    /// Processes that name the program as their parent but that another process started for it (the WebView2 runtime's
+    /// browser process), so no hold saw them; Windows only. A process older than the program has a reused parent id.
+    /// </summary>
+    public static List<(int ProcessId, string Name)> StartedForProgram(LiveSession session)
+    {
+        var found = new List<(int, string)>();
+        if (!OperatingSystem.IsWindows() || session.Ended != null) return found;
+        HashSet<int> known;
+        lock (session.Children) known = session.Children.Select(c => c.ProcessId).ToHashSet();
+        DateTime started;
+        try { using var program = System.Diagnostics.Process.GetProcessById(session.ProcessId); started = program.StartTime; }
+        catch (Exception e) when (e is ArgumentException or InvalidOperationException or System.ComponentModel.Win32Exception) { return found; }
+        using var snapshot = Native.Live.LiveNative.CreateToolhelp32Snapshot(Native.Live.LiveNative.TH32CS_SNAPPROCESS, 0);
+        if (snapshot.IsInvalid) return found;
+        var entry = new Native.Live.LiveNative.PROCESSENTRY32W { dwSize = (uint)Marshal.SizeOf<Native.Live.LiveNative.PROCESSENTRY32W>() };
+        for (bool more = Native.Live.LiveNative.Process32First(snapshot, ref entry); more; more = Native.Live.LiveNative.Process32Next(snapshot, ref entry))
+        {
+            int pid = (int)entry.th32ProcessID;
+            if (entry.th32ParentProcessID != session.ProcessId || known.Contains(pid)) continue;
+            try
+            {
+                using var child = System.Diagnostics.Process.GetProcessById(pid);
+                if (child.StartTime >= started) found.Add((pid, entry.szExeFile));
+            }
+            catch (Exception e) when (e is ArgumentException or InvalidOperationException or System.ComponentModel.Win32Exception) { }
+        }
+        return found;
+    }
+
     /// <summary>A child the session holds; the program that started it may have exited, as long as the session's worker still runs.</summary>
     private static LiveChild HeldChild(LiveSession parent, int pid)
     {

@@ -127,6 +127,36 @@ public sealed class LiveChildrenRealTests(ITestOutputHelper output) : LiveToolCa
         }
     }
 
+    // A process another process starts naming the program its parent (WebView2's browser process) passes no hold: children lists it to attach.
+    [LiveTargetFact("win-x64")]
+    public async Task Child_started_by_another_process_is_listed()
+    {
+        var launcher = LiveTarget.WinX64.Build(_dir, "launcher", LivePrograms.Launcher);
+        var probe = LiveTarget.WinX64.Build(_dir, "probe", LivePrograms.Probe);
+        await using var server = await Server();
+        var open = await Ok(server, "live_session", new() { ["action"] = "spawn", ["program"] = probe, ["arguments"] = new[] { "x", "30" }, ["childNames"] = new[] { "*" } });
+        var program = int.Parse(Regex.Match(open, @"pid (\d+)").Groups[1].Value, CultureInfo.InvariantCulture);
+        await Ok(server, "live_break", new() { ["session"] = "live-1", ["action"] = "continue" });
+        using var broker = Process.Start(new ProcessStartInfo(launcher) { ArgumentList = { "--parent", program.ToString(CultureInfo.InvariantCulture), probe, "y", "30" }, RedirectStandardOutput = true })!;
+        int child = 0;
+        try
+        {
+            for (int i = 0; i < 100 && child == 0; i++, await Task.Delay(100))
+                if (Regex.Match(await Ok(server, "live_session", new() { ["action"] = "children", ["session"] = "live-1" }, log: false),
+                        @"pid (\d+) started by another process, not held: probe\.exe \(live_session action=attach program=\1\)") is { Success: true } m)
+                    child = int.Parse(m.Groups[1].Value, CultureInfo.InvariantCulture);
+            Assert.NotEqual(0, child);
+            Assert.Contains("0 started, 0 held", await Ok(server, "live_session", new() { ["action"] = "children", ["session"] = "live-1" }));
+        }
+        finally
+        {
+            if (child != 0) Process.GetProcessById(child).Kill();
+            broker.Kill();
+        }
+        await Ok(server, "live_session", new() { ["action"] = "close", ["session"] = "live-1" });
+        Ended(program);
+    }
+
     [System.Runtime.Versioning.SupportedOSPlatform("windows")]
     private static void UserOnly(string folder)
     {
