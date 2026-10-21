@@ -351,6 +351,9 @@ public sealed class GhidraProvider(GhidraProviderOptions? options = null) : INat
 
     internal static string? Remediation(ErrorCode code, string message) => message.Contains(EngineMemoryLimit.Variable, StringComparison.Ordinal)
         ? $"Raise {EngineMemoryLimit.Variable} (MB; 0 turns the limit off) or lower {GhidraOptions.MaxMemoryVariable}, and retry."
+        // Ghidra's native decompiler crashes on some functions every time; the next request starts a new one
+        : message.Contains("Decompiler process died", StringComparison.Ordinal)
+        ? "Ghidra's decompiler fails on this function each time: decompile it with engine=ida, or read it with disassemble."
         : code switch
     {
         ErrorCode.Timeout => WorkerConnection.TimeoutNext(message),

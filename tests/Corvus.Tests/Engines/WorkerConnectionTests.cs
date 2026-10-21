@@ -161,6 +161,14 @@ public class WorkerConnectionTests
     }
 
     [Fact]
+    public void A_crash_of_Ghidras_decompiler_names_IDA_and_the_disassembly()
+    {
+        var next = GhidraProvider.Remediation(ErrorCode.Failed, "decompiling FUN_140230ba0 failed: Exception while decompiling 140230ba0: Decompiler process died");
+        Assert.Contains("engine=ida", next);
+        Assert.Contains("disassemble", next);
+    }
+
+    [Fact]
     public void An_open_out_of_time_names_the_open_limit_and_a_request_its_own()
     {
         foreach (var next in new[] { IdaProvider.Remediation(ErrorCode.Timeout, "open"), GhidraProvider.Remediation(ErrorCode.Timeout, "open") })
