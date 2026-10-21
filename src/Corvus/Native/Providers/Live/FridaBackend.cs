@@ -40,6 +40,9 @@ public sealed class FridaBackend : ILiveBackend
 
     public FridaEnvironment PrivateEnvironment { get; init; } = FridaEnvironment.Default;
 
+    /// <summary>Whether CORVUS_FRIDA_PYTHON is read; a test of the private environment turns it off, since the variable wins.</summary>
+    internal bool ReadsPythonVariable { get; init; } = true;
+
     public string Name => "frida";
 
     public (string Reason, string Remediation)? Unavailable() => PlatformProblem(OperatingSystem.IsMacOS())
@@ -98,7 +101,7 @@ public sealed class FridaBackend : ILiveBackend
         (PythonInterpreter, string)? privateEnvironment = null;
         if (InstallPinned && PrivateEnvironment.Complete && Ask(PrivateEnvironment.Python, FridaEnvironment.Source, log) is { Frida: { } pinned } p)
             privateEnvironment = (p.Python, pinned);
-        var (python, frida, createPrivate) = Choose(Found(log, found => basePython ??= found), InstallPinned, privateEnvironment);
+        var (python, frida, createPrivate) = Choose(Found(log, ReadsPythonVariable, found => basePython ??= found), InstallPinned, privateEnvironment);
         if (python != null) return new(python, frida, null);
         if (createPrivate)
         {
@@ -111,10 +114,10 @@ public sealed class FridaBackend : ILiveBackend
     }
 
     /// <summary>Each usable interpreter in search order with its frida version (null without one); <paramref name="usable"/> sees each first.</summary>
-    private static IEnumerable<(PythonInterpreter Python, string? Frida)> Found(List<string> log, Action<PythonInterpreter> usable)
+    private static IEnumerable<(PythonInterpreter Python, string? Frida)> Found(List<string> log, bool variable, Action<PythonInterpreter> usable)
     {
         var seen = new HashSet<string>(OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal);
-        foreach (var (path, source) in Candidates(log))
+        foreach (var (path, source) in Candidates(log, variable))
         {
             var exe = Directory.Exists(path) ? Path.Combine(path, OperatingSystem.IsWindows() ? "python.exe" : "python3") : path;
             if (!seen.Add(exe)) continue;
@@ -143,9 +146,9 @@ public sealed class FridaBackend : ILiveBackend
     }
 
     /// <summary>CORVUS_FRIDA_PYTHON, the interpreter the usual search finds first, then every python on PATH.</summary>
-    private static IEnumerable<(string Path, string Source)> Candidates(List<string> log)
+    private static IEnumerable<(string Path, string Source)> Candidates(List<string> log, bool variable)
     {
-        if (Environment.GetEnvironmentVariable(PythonVariable) is { Length: > 0 } env) yield return (env, PythonVariable);
+        if (variable && Environment.GetEnvironmentVariable(PythonVariable) is { Length: > 0 } env) yield return (env, PythonVariable);
         if (PythonLocator.Find([], log) is { } first) yield return (first.Executable, first.Source);
         foreach (var dir in (Environment.GetEnvironmentVariable("PATH") ?? "").Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries))
         {

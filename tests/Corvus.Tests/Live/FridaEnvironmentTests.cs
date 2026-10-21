@@ -160,7 +160,8 @@ public sealed class FridaEnvironmentRealTests(ITestOutputHelper output) : IDispo
         var bytes = new DirectoryInfo(env.Folder).EnumerateFiles("*", SearchOption.AllDirectories).Sum(f => f.Length);
         output.WriteLine($"private environment: {watch.Elapsed.TotalSeconds:0.0} s, {bytes / 1048576.0:0.0} MB on disk");
 
-        var backend = new FridaBackend { InstallPinned = true, PrivateEnvironment = env };
+        // CORVUS_FRIDA_PYTHON wins over the private environment (the live job sets it), so it is not read here.
+        var backend = new FridaBackend { InstallPinned = true, PrivateEnvironment = env, ReadsPythonVariable = false };
         Assert.Null(backend.Unavailable());
         Assert.Equal(FridaEnvironment.Source, backend.Python!.Source);
         Assert.Equal(FridaVersions.Pinned, backend.FridaVersion);
