@@ -19,7 +19,7 @@ public sealed class DecompileTools(AssemblyWorkspace workspace, DecompilerServic
     private const int MaxMembersPerCall = 25;
 
     [McpServerTool(Name = "decompile_member", Title = "Decompile to C#", UseStructuredContent = true, OutputSchemaType = typeof(CodePage))]
-    [Description("Decompile a type or member to C#: every overload unless a parameter list narrows it; async and iterator state machines and lambdas " +
+    [Description("Decompile a type or member to C#: every overload unless a parameter list picks one; async and iterator state machines and lambdas " +
                  "fold back into their method; a type whole, nested types included. Code the decompiler fails on shows as IL.")]
     public Task<string> DecompileMember(
         [Description(SymbolDescription)] string member,
@@ -93,7 +93,7 @@ public sealed class DecompileTools(AssemblyWorkspace workspace, DecompilerServic
 
     [McpServerTool(Name = "get_il", Title = "IL disassembly", UseStructuredContent = true, OutputSchemaType = typeof(CodePage))]
     [Description("IL disassembly (ildasm style, tokens, offsets, try blocks) of a member or type; each method starts with its normalized IL hash " +
-                 "(stable across rebuilds) and raw IL SHA-256. For when the C# looks wrong, or as patch_method_il input.")]
+                 "(stable across rebuilds) and raw IL SHA-256. For when the C# looks wrong; patch_method_il input.")]
     public Task<string> GetIL(
         [Description(SymbolDescription)] string symbol,
         [Description(AssemblyFilterDescription)] string? assembly = null,
@@ -152,7 +152,7 @@ public sealed class DecompileTools(AssemblyWorkspace workspace, DecompilerServic
     }
 
     [McpServerTool(Name = "export_project", Title = "Export C# project", UseStructuredContent = true, OutputSchemaType = typeof(ExportOutcome))]
-    [Description("Decompile an assembly into a C# project on disk (.cs per type, .csproj, resources) to browse with file tools; an .apk or .aab gives " +
+    [Description("Decompile an assembly into a C# project on disk (.cs per type, .csproj, resources); an .apk or .aab gives " +
                  "a Gradle project (manifest, resources, Java via JADX or smali). Written whole or not at all.")]
     public Task<string> ExportProject(
         [Description(AssemblyDescription)] string assembly,

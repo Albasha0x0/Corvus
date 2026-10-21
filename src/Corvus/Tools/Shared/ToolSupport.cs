@@ -7,13 +7,13 @@ namespace Corvus.Tools;
 internal static class ToolSupport
 {
     public const string SymbolDescription =
-        "Type or member: Ns.Type, Ns.Outer+Inner, Ns.Type::Method(int, string), short name or token (0x06000123).";
+        "Type or member: Ns.Type, Ns.Outer+Inner, Ns.Type::Method(int), short name or token.";
 
     public const string SymbolOrNativeDescription =
         "Type or member (Ns.Type::Method(int), short name, token) or native export (kernel32.dll!CreateFileW, native:<image>!<name|#ord|addr>).";
 
     public const string AssemblyFilterDescription =
-        "Assembly id, name or path; omit for all loaded.";
+        "Assembly id, name or path; omit: all loaded.";
 
     public const string AssemblyDescription = "Assembly id, name or path.";
 

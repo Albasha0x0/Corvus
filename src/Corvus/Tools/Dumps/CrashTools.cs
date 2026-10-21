@@ -40,8 +40,8 @@ public sealed class CrashTools(StackTextService stacks, MinidumpService dumps)
 
     [McpServerTool(Name = "bucket_minidumps", Title = "Group crash dumps", UseStructuredContent = true, OutputSchemaType = typeof(MinidumpService.DumpBuckets))]
     [Description("Group a folder of minidumps by signature: code | faulting module!function | next frames (raising frames skipped); .NET: clr | " +
-                 "exception type | top managed frames; no exception: hang | top frames. Names, not offsets, so rebases do not split a bucket. Each " +
-                 "bucket lists its dumps and newest one. Cached per file.")]
+                 "exception type | top managed frames; no exception: hang | top frames. Names, not offsets: rebases do not split a bucket. Each " +
+                 "bucket lists its dumps and the newest. Cached per file.")]
     public Task<string> BucketMinidumps(
         [Description("Folder of .dmp or core files.")] string folder,
         [Description("Also search subfolders.")] bool recursive = false,

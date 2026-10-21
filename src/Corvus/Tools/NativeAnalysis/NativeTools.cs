@@ -52,7 +52,7 @@ public sealed partial class NativeTools(AssemblyWorkspace workspace, OutputPager
     }
 
     public const string AddressDescription =
-        "Hex VA or RVA (rva:/va:/off: prefix), export, module!import or function.";
+        "Hex VA/RVA (rva:/va:/off:), export, module!import or function.";
 
     [McpServerTool(Name = "get_pe_info", Title = "Native image overview", UseStructuredContent = true, OutputSchemaType = typeof(PeSummary))]
     [Description("Overview of a native image: headers, sections, packaging tools, mitigations, import and export counts, TLS, PDB, load config, " +
@@ -519,8 +519,8 @@ public sealed partial class NativeTools(AssemblyWorkspace workspace, OutputPager
     }
 
     [McpServerTool(Name = "search_bytes", Title = "Search native bytes", UseStructuredContent = true, OutputSchemaType = typeof(ByteSearch))]
-    [Description("Find a byte pattern in the mapped sections of a native image (hex, or text as ASCII and UTF-16): VA, section and file " +
-                 "offset per hit; memory=engine searches the engine's loaded bytes.")]
+    [Description("Find a byte pattern in the mapped sections of a native image (hex, or text as ASCII and UTF-16): VA, section, file offset " +
+                 "per hit; memory=engine searches the engine's loaded bytes.")]
     public Task<string> SearchBytes(
         [Description(ImageDescription)] string image,
         [Description("Hex (48 8B 05 ?? ?? ?? ??): ?? any byte, 4? a nibble, 40&F8 masked bits.")] string? pattern = null,

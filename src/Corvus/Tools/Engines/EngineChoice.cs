@@ -13,7 +13,7 @@ namespace Corvus.Tools;
 internal sealed record EngineChoice(string Engine, string Note)
 {
     /// <summary>The engine parameter text shared by the tools with a built-in path.</summary>
-    public const string Description = "auto (default): IDA or Ghidra if it analyzed these bytes, else ours.";
+    public const string Description = "auto (default): IDA or Ghidra if analyzed, else ours.";
 
     /// <summary>The engine parameter text shared by the engine-only tools.</summary>
     public const string EngineOnlyDescription = "Default auto.";

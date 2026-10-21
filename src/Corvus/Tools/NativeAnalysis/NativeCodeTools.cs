@@ -281,7 +281,7 @@ public sealed partial class NativeCodeTools(AssemblyWorkspace workspace, NativeC
     }
 
     [McpServerTool(Name = "get_cfg", Title = "Native control-flow graph", UseStructuredContent = true, OutputSchemaType = typeof(CfgReport))]
-    [Description("Basic blocks of the native function containing an address, paged: range, instruction count, how each ends and its successors; switch " +
+    [Description("Basic blocks of the native function at an address, paged: range, instruction count, how each ends and its successors; switch " +
                  "tables with values per target; unresolved indirect jumps with the reason.")]
     public Task<string> GetCfg(
         [Description(NativeTools.ImageDescription)] string image,
@@ -334,7 +334,7 @@ public sealed partial class NativeCodeTools(AssemblyWorkspace workspace, NativeC
     private static partial Regex XrefRow();
 
     [McpServerTool(Name = "native_call_tree", Title = "Native call tree", UseStructuredContent = true, OutputSchemaType = typeof(NativeCallTreeResult))]
-    [Description("Callers or callees of a native function, several levels deep, through thunks and import slots, as nodes paged in tree order; " +
+    [Description("Callers or callees of a native function, several levels deep, through thunks and import slots, paged in tree order; " +
                  "module!import gives its callers. Crosses loaded images. Callees include GetProcAddress pointers ([dynamic]) and RTTI virtual " +
                  "targets ([virtual], [virtual?: one of n]). Repeats not expanded.")]
     public Task<string> NativeCallTree(

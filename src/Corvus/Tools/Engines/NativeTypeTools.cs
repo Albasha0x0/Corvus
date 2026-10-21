@@ -22,7 +22,7 @@ public sealed class NativeTypeTools(AssemblyWorkspace workspace, NativeEngineSer
 {
     private const string EngineDescription = EngineChoice.EngineOnlyDescription;
 
-    private const string KeptNote = " Kept in the annotations.";
+    private const string KeptNote = " Kept in annotations.";
 
     /// <summary>The image, an address in it and its engine session, with names and recovered types pushed first so user types apply on top.</summary>
     private async Task<(LoadedNative Native, uint Rva, INativeDecompilerSession Session)> Open(string image, string address, string? engine,
@@ -378,8 +378,8 @@ public sealed class NativeTypeTools(AssemblyWorkspace workspace, NativeEngineSer
     }
 
     [McpServerTool(Name = "set_native_local", Title = "Rename or retype a decompiler local", UseStructuredContent = true, OutputSchemaType = typeof(EditResult))]
-    [Description("Rename and/or retype a local or argument in native pseudocode, named as decompile_native shows it (v3, a1) or stack:0x28. Later " +
-                 "edits may use the new name; the first name again, or clear, drops the edit. A type that does not fit is refused." + KeptNote)]
+    [Description("Rename and/or retype a native pseudocode local or argument, named as decompile_native shows it (v3, a1) or stack:0x28. Later " +
+                 "edits may use the new name; the first name, or clear, drops the edit. A type that does not fit is refused." + KeptNote)]
     public Task<string> SetNativeLocal(
         [Description(NativeTools.ImageDescription)] string image,
         [Description(NativeTools.AddressDescription)] string function,
@@ -599,7 +599,7 @@ public sealed class NativeTypeTools(AssemblyWorkspace workspace, NativeEngineSer
     }
 
     [McpServerTool(Name = "declare_native_types", Title = "Declare C types in the engine", UseStructuredContent = true, OutputSchemaType = typeof(EditResult))]
-    [Description("Declare C types (structs, unions, enums, typedefs, function types) in the engine, replacing same-named ones; they win over " +
+    [Description("Declare C types (structs, unions, enums, typedefs, function types) in the engine, replacing same-named ones and winning over " +
                  "recovered types. Engine errors save nothing. typeName edits one type: members (enum), fields (struct, union), resize, nameGaps; " +
                  "delete or rename edits any named type." + KeptNote)]
     public Task<string> DeclareNativeTypes(

@@ -20,9 +20,9 @@ public sealed class NativeDiffTools(AssemblyWorkspace workspace, NativeCodeServi
 {
     private readonly NativeEditJournal journal = edits?.Journal ?? new NativeEditJournal(workspace, code, engines);
 
-    private const string OldDescription = "Older build: image id or path (load both; the second is app.dll#2).";
+    private const string OldDescription = "Older build: image id or path.";
     private const string NewDescription = "Newer build: image id or path.";
-    internal const string CodeOnlyDescription = "Match functions by code, not names.";
+    internal const string CodeOnlyDescription = "Match by code, not names.";
 
     /// <summary>
     /// One row of compare_native_images: a pair (both addresses, tier, basis, score, sizes; the new name and counts only where
@@ -159,8 +159,8 @@ public sealed class NativeDiffTools(AssemblyWorkspace workspace, NativeCodeServi
     public sealed record ImageError(string Image, BatchError Error);
 
     [McpServerTool(Name = "compare_native_images", Title = "Compare native builds", UseStructuredContent = true, OutputSchemaType = typeof(NativeComparison))]
-    [Description("Match the functions of two native builds (x86, x64, ARM64) in tiers: 1 same name, import or bytes; 2 control flow; 3 imports, " +
-                 "strings, constants; 4 call-graph neighbours; 5 fuzzy above minScore; unique pairs only. Per-tier counts and one view's rows by old " +
+    [Description("Match functions of two native builds (x86, x64, ARM64) in tiers: 1 same name, import or bytes; 2 control flow; 3 imports, " +
+                 "strings, constants; 4 call-graph neighbours; 5 fuzzy above minScore; unique pairs only. Per-tier counts, one view's rows by old " +
                  "address. oldResult / newResult compare two kept results.")]
     public Task<string> CompareNativeImages(
         [Description(OldDescription)] string? oldImage = null,
@@ -296,9 +296,9 @@ public sealed class NativeDiffTools(AssemblyWorkspace workspace, NativeCodeServi
     private const int MaxMapAddresses = 100;
 
     [McpServerTool(Name = "map_address_between_builds", Title = "Map an address to a new build", UseStructuredContent = true, OutputSchemaType = typeof(AddressMappings))]
-    [Description("Where addresses of the old build are in the new one: a function start to the matched function, an address inside one to the aligned " +
+    [Description("Where old-build addresses are in the new one: a function start to the matched function, an address inside one to the aligned " +
                  "instruction, a string to the same string, other data through references of matched instructions. Each: new address, confidence and " +
-                 "reason, or why not with candidates.")]
+                 "reason, or why not, with candidates.")]
     public Task<string> MapAddressBetweenBuilds(
         [Description(OldDescription)] string oldImage,
         [Description(NewDescription)] string newImage,
@@ -535,8 +535,8 @@ public sealed class NativeDiffTools(AssemblyWorkspace workspace, NativeCodeServi
     }
 
     [McpServerTool(Name = "migrate_native_names", Title = "Carry names to a new build", UseStructuredContent = true, OutputSchemaType = typeof(MigrationReport))]
-    [Description("Copy names, comments and engine types of the old build to the user annotations of the new one through the function match " +
-                 "(map_address_between_builds). Never replaces a user name, comment or type of the new build; skipped items have a reason code. " +
+    [Description("Copy names, comments and engine types of the old build to the new one's user annotations via the function match " +
+                 "(map_address_between_builds). Never replaces the new build's user names, comments or types; skipped items have a reason code. " +
                  "Applied as undoable edits.")]
     public Task<string> MigrateNativeNames(
         [Description(OldDescription)] string oldImage,
@@ -799,7 +799,7 @@ public sealed class NativeDiffTools(AssemblyWorkspace workspace, NativeCodeServi
 
     [McpServerTool(Name = "search_code_pattern", Title = "Search a code pattern", UseStructuredContent = true, OutputSchemaType = typeof(PatternSearch))]
     [Description("Find a byte pattern with ?? wildcards (as make_code_pattern writes it) in the executable sections of loaded native images, " +
-                 "by image then address, with the function and offset of each hit.")]
+                 "by image then address, with each hit's function and offset.")]
     public Task<string> SearchCodePattern(
         [Description("Hex bytes with ?? wildcards.")] string pattern,
         [Description("Image ids or paths; omit for every loaded native image.")] string[]? images = null,

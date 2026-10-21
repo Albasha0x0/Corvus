@@ -14,7 +14,7 @@ namespace Corvus.Tools;
 public sealed class ReferenceTools(AssemblyWorkspace workspace, ReferenceService references, NativeLinkService? link = null)
 {
     [McpServerTool(Name = "find_references", Title = "Find usages (xrefs to)", UseStructuredContent = true, OutputSchemaType = typeof(ReferenceList))]
-    [Description("Every usage of a symbol across loaded assemblies: call sites of a method (also via base or interface methods), reads, writes and " +
+    [Description("Every use of a symbol across loaded assemblies: call sites of a method (also via base or interface methods), reads, writes and " +
                  "address uses of a field, every use of a type (bases, signatures, locals, casts, attributes). A native export: P/Invoke callers and " +
                  "native call sites.")]
     public async Task<string> FindReferences(

@@ -121,7 +121,7 @@ public sealed class ReadyToRunTools(AssemblyWorkspace workspace, ReadyToRunServi
     }
 
     [McpServerTool(Name = "find_r2r_method", Title = "Managed method at a ReadyToRun address", UseStructuredContent = true, OutputSchemaType = typeof(R2rLookup))]
-    [Description("Managed method whose ReadyToRun code holds a native address (from a dump, profiler or debugger): name, token, range, offset and " +
+    [Description("Managed method whose ReadyToRun code holds a native address (dump, profiler, debugger): name, token, range, offset and " +
                  "instruction, or what an import cell resolves to. Addresses are in the file holding the code.")]
     public Task<string> FindR2RMethod(
         [Description(AssemblyDescription)] string assembly,

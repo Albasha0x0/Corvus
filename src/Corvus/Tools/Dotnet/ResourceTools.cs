@@ -153,7 +153,7 @@ public sealed partial class ResourceTools(AssemblyWorkspace workspace, ResourceS
         [Description("Name from list_resources.")] string name,
         [Description("Entry inside a .resources container.")] string? entry = null,
         [Description("Write the raw bytes to this file.")] string? outputPath = null,
-        [Description("Replace outputPath if it exists.")] bool overwrite = false,
+        [Description("Overwrite outputPath.")] bool overwrite = false,
         [Description(CharOffsetDescription)] int offset = 0,
         [Description(MaxTokensDescription)] int? maxTokens = null,
         CancellationToken cancellationToken = default) => Read(workspace, () =>

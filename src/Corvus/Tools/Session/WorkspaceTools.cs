@@ -91,7 +91,7 @@ public sealed class WorkspaceTools(AssemblyWorkspace workspace, Il2CppService il
     [Description("Load a .NET assembly or every assembly in a folder (app folder, Unity *_Data/Managed, DummyDll). PE, ELF, Mach-O or wasm files load " +
                  "as native images (universal Mach-O: one slice, name[slice]); format=raw maps headerless code; folder loads skip native files. An " +
                  "Il2Cpp game (folder, global-metadata.dat, .apk/.xapk/.aab/.ipa/.app, memory dump) loads as dummy assemblies with addresses " +
-                 "(metadata v24-39) plus the binary as a native image. A .gzf or .gpr program (copied) opens in Ghidra. A repeat load is a no-op.")]
+                 "(metadata v24-39) plus the native binary. A .gzf or .gpr program (copied) opens in Ghidra. A repeat load is a no-op.")]
     public Task<string> LoadAssembly(
         [Description("Absolute path to an assembly file or a folder.")] string path,
         [Description("Also load assemblies in subdirectories.")] bool recursive = false,

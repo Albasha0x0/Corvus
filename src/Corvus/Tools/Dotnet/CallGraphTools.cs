@@ -158,7 +158,7 @@ public sealed class CallGraphTools(AssemblyWorkspace workspace, CallGraphService
     }
 
     [McpServerTool(Name = "find_call_paths", Title = "Call paths to a method", UseStructuredContent = true, OutputSchemaType = typeof(CallPathList))]
-    [Description("How execution reaches a method: call chains from from=, or from entry points (methods nothing loaded calls), shortest first, direct " +
+    [Description("How execution reaches a method: call chains from from= or from entry points (methods nothing loaded calls), shortest first, direct " +
                  "calls preferred. A native to= follows native callers across loaded images and P/Invokes back to managed code.")]
     public async Task<string> FindCallPaths(
         [Description(ToolSupport.SymbolOrNativeDescription)] string to,

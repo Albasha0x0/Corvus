@@ -21,7 +21,7 @@ public sealed class AndroidTools(AndroidPackageService packages, DexService dex,
         [property: Description("The entry's size in bytes.")] long? Bytes,
         [property: Description("SHA-256 of the bytes written.")] string? Sha256);
 
-    public const string CodeDescription = "An Android package, a .dex, or a jar with classes*.dex.";
+    public const string CodeDescription = "An Android package, .dex, or jar with classes*.dex.";
     private const string MappingDescription = "R8/ProGuard mapping.txt: shows and accepts original names; kept per package.";
 
     [McpServerTool(Name = "get_android_manifest", Title = "Android manifest", UseStructuredContent = true, OutputSchemaType = typeof(AndroidManifestView))]
@@ -143,7 +143,7 @@ public sealed class AndroidTools(AndroidPackageService packages, DexService dex,
         [Description(PackageDescription)] string path,
         [Description("Entry path (res/xml/x.xml, assets/...), @type/name or resource id 0x7f...")] string name,
         [Description("Write the entry bytes to this file.")] string? outputPath = null,
-        [Description("Replace outputPath if it exists.")] bool overwrite = false,
+        [Description("Overwrite outputPath.")] bool overwrite = false,
         [Description(CharOffsetDescription)] int offset = 0,
         [Description(MaxTokensDescription)] int? maxTokens = null,
         CancellationToken cancellationToken = default) => Task.Run(() =>

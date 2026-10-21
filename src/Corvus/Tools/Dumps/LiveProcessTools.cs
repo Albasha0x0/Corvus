@@ -11,7 +11,7 @@ namespace Corvus.Tools;
 public sealed class LiveProcessTools(LiveProcessService live, LiveSessionService sessions)
 {
     [McpServerTool(Name = "inspect_process", Title = "Inspect a running process (read-only)", UseStructuredContent = true, OutputSchemaType = typeof(LiveProcessService.LiveReport))]
-    [Description("Inspects a running Windows process read-only, addresses named as in dumps. view=summary: identity, " +
+    [Description("Inspects a running Windows process read-only, naming addresses as dumps do. view=summary: identity, " +
                  "counts, main module, largest committed regions; modules (PDB, file on disk), regions, threads (TEB, stack, start), stacks " +
                  "(registers and frames): paged rows. Query, VM-read and get-context access only; nothing is written, suspended or connected.")]
     public Task<string> InspectProcess(

@@ -421,7 +421,7 @@ public sealed class NativeEditTools(AssemblyWorkspace workspace, NativeCodeServi
         [Description(NativeTools.ImageDescription)] string image,
         [Description("Output file path.")] string outputPath,
         [Description("Default json.")] string? format = null,
-        [Description("Replace outputPath if it exists.")] bool overwrite = false,
+        [Description("Overwrite outputPath.")] bool overwrite = false,
         RequestContext<CallToolRequestParams> context = null!,
         CancellationToken cancellationToken = default) => OrderedProgress.Run(context, async progress =>
     {
@@ -457,8 +457,8 @@ public sealed class NativeEditTools(AssemblyWorkspace workspace, NativeCodeServi
     }
 
     [McpServerTool(Name = "patch_bytes", Title = "Patch native bytes", UseStructuredContent = true, OutputSchemaType = typeof(EditOutcome))]
-    [Description("Replace bytes at a native address in memory, as an undoable edit every read path sees. A partly overwritten instruction is padded " +
-                 "with NOPs; mid-instruction, past the function end, header or ELF/Mach-O loader-rewritten bytes need allowUnsafe; encrypted bytes " +
+    [Description("Replace bytes at a native address in memory, as an undoable edit all reads see. A partly overwritten instruction gets NOP " +
+                 "padding; mid-instruction, past the function end, header or ELF/Mach-O loader-rewritten bytes need allowUnsafe; encrypted bytes " +
                  "are refused; signatures become invalid.")]
     public Task<string> PatchBytes(
         [Description(NativeTools.ImageDescription)] string image,
@@ -566,7 +566,7 @@ public sealed class NativeEditTools(AssemblyWorkspace workspace, NativeCodeServi
 
     [McpServerTool(Name = "list_native_edits", Title = "List native edits", UseStructuredContent = true, OutputSchemaType = typeof(NativeEditList))]
     [Description("Native edits of an image in order, each with the editId undo_native_edit takes: byte patches, names, comments, engine type edits. " +
-                 "Then the name layers (user, pdb, il2cpp, ida...) with counts and origin. search: matching names and comments instead.")]
+                 "Then the name layers (user, pdb, il2cpp, ida...): counts and origin. search: matching names and comments instead.")]
     public Task<string> ListNativeEdits(
         [Description(NativeTools.ImageDescription)] string image,
         [Description("Instead: matching names and comments: " + NameFilter.Description + ".")] string? search = null,
@@ -700,7 +700,7 @@ public sealed class NativeEditTools(AssemblyWorkspace workspace, NativeCodeServi
     }
 
     [McpServerTool(Name = "save_native", Title = "Save patched native image", UseStructuredContent = true, OutputSchemaType = typeof(NativeSaveResult))]
-    [Description("Write the patched native image to a new file: unpatched bytes identical, PE checksum recomputed, a signature invalidated " +
+    [Description("Write the patched native image to a new file: other bytes identical, PE checksum recomputed, a signature invalidated " +
                  "(stripSignature removes it). Atomic and verified; replaceOriginal=true keeps a .bak and refuses a file changed on disk.")]
     public Task<string> SaveNative(
         [Description(NativeTools.ImageDescription)] string image,

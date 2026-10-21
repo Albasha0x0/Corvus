@@ -233,7 +233,7 @@ public sealed class BrowseTools(AssemblyWorkspace workspace, ReferenceService re
                  "(symbol omitted; format=csharp decompiles them).")]
     public Task<string> GetAttributes(
         [Description(SymbolDescription + " Omit for assembly-level attributes.")] string? symbol = null,
-        [Description(AssemblyFilterDescription + " Required when symbol is omitted.")] string? assembly = null,
+        [Description(AssemblyFilterDescription + " Required without symbol.")] string? assembly = null,
         [Description("Only attributes whose type name contains this.")] string? filter = null,
         [Description("rows, or csharp (symbol omitted).")] string format = "rows",
         [Description("Rows to skip (characters with format=csharp).")] int offset = 0,

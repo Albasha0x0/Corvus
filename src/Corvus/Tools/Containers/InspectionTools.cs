@@ -116,7 +116,7 @@ public sealed class InspectionTools(InspectionService inspection, AssemblyWorksp
     }
 
     [McpServerTool(Name = "extract_embedded", Title = "Extract embedded content", UseStructuredContent = true, OutputSchemaType = typeof(EmbeddedPage))]
-    [Description("Embedded content of an assembly or of every assembly in a container (resources, byte arrays, long literals), decoded through hex, " +
+    [Description("Embedded content of an assembly or each assembly in a container (resources, byte arrays, long literals), decoded through hex, " +
                  "base64, compression and XOR until a PE, archive, ELF, Mach-O or text appears, plus high-entropy blobs, each with its encoding " +
                  "chain. save=true writes them (defanged names).")]
     public async Task<string> ExtractEmbedded(

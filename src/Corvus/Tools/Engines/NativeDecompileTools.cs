@@ -84,7 +84,7 @@ public sealed partial class NativeAnalysisTools
 
     [McpServerTool(Name = "decompile_native", Title = "Decompile native function", UseStructuredContent = true, OutputSchemaType = typeof(DecompileReport))]
     [Description("C pseudocode of a native function via IDA (Hex-Rays) or Ghidra. The first call runs auto-analysis (seconds to minutes); database " +
-                 "and answers are kept per file. Names, comments and types in effect are pushed first; user types win. functions=: several per " +
+                 "and answers kept per file. Names, comments and types are pushed first; user types win. functions=: several per " +
                  "request, failures per item.")]
     public Task<string> DecompileNative(
         [Description(NativeTools.ImageDescription)] string image,

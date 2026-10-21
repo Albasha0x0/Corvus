@@ -86,8 +86,8 @@ public sealed class BuildUpdateTools(AssemblyWorkspace workspace, NativeCodeServ
     private sealed record Item(string Category, string Kind, uint? OldRva, uint? NewRva, string Value, string Outcome, string Reason, double Confidence, int? Tier, string Detail);
 
     [McpServerTool(Name = "update_to_new_build", Title = "Update work to a new build", UseStructuredContent = true, OutputSchemaType = typeof(UpdateReport))]
-    [Description("Carry work from an old native build to the new one through one function match: names, comments, engine types, PDB and Il2Cpp " +
-                 "layers, patches, code-pattern drift, Il2Cpp method mapping, notes. Per-category counts with reason codes; a re-run reports " +
+    [Description("Carry work from an old native build to the new one via one function match: names, comments, engine types, PDB and Il2Cpp " +
+                 "layers, patches, code-pattern drift, Il2Cpp method mapping, notes. Per-category counts with reason codes; re-runs report " +
                  "already_present. .NET: notes via find_counterpart.")]
     public Task<string> UpdateToNewBuild(
         [Description("Old build: image id or path.")] string oldImage,

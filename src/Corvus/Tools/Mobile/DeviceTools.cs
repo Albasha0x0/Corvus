@@ -9,7 +9,7 @@ namespace Corvus.Tools;
 [McpServerToolType]
 public sealed class DeviceTools(DeviceService devices)
 {
-    private const string SerialDescription = "Device serial; optional with one device.";
+    private const string SerialDescription = "Device serial; omit with one device.";
 
     [McpServerTool(Name = "list_android_devices", Title = "List Android devices", UseStructuredContent = true)]
     [Description("Android devices and emulators adb sees: serial, state, product, model, transport. adb: CORVUS_ADB, else PATH, else SDK " +
@@ -66,16 +66,16 @@ public sealed class DeviceTools(DeviceService devices)
     [Description("One installed package (dumpsys package): versions, SDKs, paths, ABI, flags, install times, installer, uid, requested " +
                  "permissions with their grant state, and per-user state.")]
     public Task<AndroidPackageDetails> GetAndroidPackageInfo(
-        [Description("Package name, e.g. com.example.app.")] string package,
+        [Description("Package name (com.example.app).")] string package,
         [Description(SerialDescription)] string? serial = null,
         CancellationToken cancellationToken = default) =>
         Task.Run(() => devices.PackageInfo(package, serial, cancellationToken), cancellationToken);
 
     [McpServerTool(Name = "pull_android_package", Title = "Pull installed package", UseStructuredContent = true)]
-    [Description("Copy every APK of an installed package (base and splits) into a new or empty directory, with size and SHA-256 each, and summarize " +
-                 "the base APK. A failed pull leaves no files.")]
+    [Description("Copy every APK of an installed package (base and splits) into a new or empty directory, with size and SHA-256 each; summarizes the " +
+                 "base APK. A failed pull leaves no files.")]
     public Task<PulledPackage> PullAndroidPackage(
-        [Description("Package name, e.g. com.example.app.")] string package,
+        [Description("Package name (com.example.app).")] string package,
         [Description("A new or empty directory to write the APKs to.")] string outputDirectory,
         [Description(SerialDescription)] string? serial = null,
         CancellationToken cancellationToken = default) =>
@@ -86,7 +86,7 @@ public sealed class DeviceTools(DeviceService devices)
     public Task<PulledFile> PullAndroidFile(
         [Description("Path on the device.")] string remotePath,
         [Description("The local file to write.")] string outputPath,
-        [Description("Replace outputPath if it exists.")] bool overwrite = false,
+        [Description("Overwrite outputPath.")] bool overwrite = false,
         [Description(SerialDescription)] string? serial = null,
         CancellationToken cancellationToken = default) =>
         Task.Run(() => devices.PullFile(remotePath, outputPath, overwrite, serial, cancellationToken), cancellationToken);
@@ -115,7 +115,7 @@ public sealed class DeviceTools(DeviceService devices)
 
     [McpServerTool(Name = "install_android_package", Title = "Install package on device", UseStructuredContent = true, OutputSchemaType = typeof(EditOutcome))]
     [Description("Install an APK, a split set or a folder of APKs on a device in one session; failures come back by INSTALL_FAILED_ code. Changes the " +
-                 "device: needs the server option --allow-device-changes.")]
+                 "device: needs --allow-device-changes.")]
     public Task<string> InstallAndroidPackage(
         [Description("An .apk, split set or folder of APKs.")] string path,
         [Description("Fail if the app is installed instead of replacing it.")] bool keepInstalled = false,
@@ -132,7 +132,7 @@ public sealed class DeviceTools(DeviceService devices)
     [McpServerTool(Name = "uninstall_android_package", Title = "Uninstall package from device", UseStructuredContent = true, OutputSchemaType = typeof(EditOutcome))]
     [Description("Remove an app (and its data unless keepData) from a device; needs the server option --allow-device-changes.")]
     public Task<string> UninstallAndroidPackage(
-        [Description("Package name, e.g. com.example.app.")] string package,
+        [Description("Package name (com.example.app).")] string package,
         [Description("Keep app data and cache.")] bool keepData = false,
         [Description(SerialDescription)] string? serial = null,
         CancellationToken cancellationToken = default) =>

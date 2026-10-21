@@ -43,7 +43,7 @@ public sealed class NativePatchTools(AssemblyWorkspace workspace, NativeCodeServ
         [Description(NativeTools.ImageDescription)] string image,
         [Description("Output file path.")] string outputPath,
         [Description("Default json.")] string? format = null,
-        [Description("Replace outputPath if it exists.")] bool overwrite = false,
+        [Description("Overwrite outputPath.")] bool overwrite = false,
         CancellationToken cancellationToken = default)
     {
         var r = await Export(image, outputPath, format, overwrite, cancellationToken);
@@ -96,9 +96,9 @@ public sealed class NativePatchTools(AssemblyWorkspace workspace, NativeCodeServ
         IReadOnlyList<string> Notes);
 
     [McpServerTool(Name = "migrate_native_patches", Title = "Migrate patches to a new build", UseStructuredContent = true, OutputSchemaType = typeof(MigrationPatchReport))]
-    [Description("Carry byte patches from an old build to a new one through the build match (compare_native_images). A patch is reapplied only where " +
-                 "the mapped address holds the expected original bytes (patch_asm patches re-assembled), else refused with a reason code. Same image " +
-                 "as old and new with patchSet: replays the set.")]
+    [Description("Carry byte patches from an old build to a new one via the build match (compare_native_images). A patch is reapplied only where " +
+                 "the mapped address holds the original bytes (patch_asm patches re-assembled), else refused with a reason code. Same image " +
+                 "as old and new, with patchSet: replays it.")]
     public Task<string> MigrateNativePatches(
         [Description("Old build: image id or path (its in-memory patches are the source unless patchSet).")] string oldImage,
         [Description("New build: image id or path (the second load gets an id like name#2).")] string newImage,

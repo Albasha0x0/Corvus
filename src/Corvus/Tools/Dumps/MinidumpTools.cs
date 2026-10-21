@@ -83,7 +83,7 @@ public sealed class MinidumpTools(MinidumpService dumps, LiveSessionService? ses
     }, cancellationToken);
 
     [McpServerTool(Name = "dump_heap", Title = ".NET heap of a dump or session", UseStructuredContent = true, OutputSchemaType = typeof(MinidumpService.HeapReport))]
-    [Description("Lists the .NET GC heap of a minidump or session (through the DAC). stats: count and size per type, largest first; objects: matching objects " +
+    [Description("Lists the .NET GC heap of a minidump or session (via the DAC). stats: count and size per type, largest first; objects: matching objects " +
                  "(address, type, size, a string's value). Needs heap memory in the dump (else heap_not_captured).")]
     public Task<string> DumpHeap(
         [Description(HeapSourceDescription)] string dump,
@@ -127,8 +127,8 @@ public sealed class MinidumpTools(MinidumpService dumps, LiveSessionService? ses
     }
 
     [McpServerTool(Name = "read_dump_memory", Title = "Read crash dump memory", UseStructuredContent = true, OutputSchemaType = typeof(MinidumpService.MemoryRead))]
-    [Description("Hex dump of a dump's memory at an address with what is there (module!function, captured range, protection). " +
-                 "Bytes the dump lacks come from the module image (writable data shows initial values) unless dumpOnly.")]
+    [Description("Hex dump of a dump's memory at an address, with what is there (module!function, captured range, protection). " +
+                 "Bytes the dump lacks come from the module image (writable data: initial values) unless dumpOnly.")]
     public Task<string> ReadDumpMemory(
         [Description(DumpDescription)] string dump,
         [Description("Hex address, 'module+0x1234', or a module name (its base).")] string address,

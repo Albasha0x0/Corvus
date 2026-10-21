@@ -63,7 +63,7 @@ public sealed class EditTools(AssemblyWorkspace workspace, EditService edits, Ed
 
     [McpServerTool(Name = "patch_method_csharp", Title = "Replace method body with C#", UseStructuredContent = true, OutputSchemaType = typeof(EditResult))]
     [Description("Replace a method body (methods, constructors, accessors) with C# compiled against the assembly; private members accessible, " +
-                 "lambdas, LINQ, async and yield work. Errors name lines of your code.")]
+                 "lambdas, LINQ, async and yield work. Errors name your lines.")]
     public Task<string> PatchMethodCSharp(
         [Description(SymbolDescription)] string method,
         [Description("Statements of the new body only.")] string code,
@@ -168,7 +168,7 @@ public sealed class EditTools(AssemblyWorkspace workspace, EditService edits, Ed
     public Task<string> ExportEdits(
         [Description(AssemblyDescription)] string assembly,
         [Description("Output .json path.")] string outputPath,
-        [Description("Replace outputPath if it exists.")] bool overwrite = false,
+        [Description("Overwrite outputPath.")] bool overwrite = false,
         CancellationToken cancellationToken = default) => Read(workspace, () =>
         {
             var text = history.Export(workspace.Get(assembly), outputPath, overwrite, out var exported);
@@ -176,7 +176,7 @@ public sealed class EditTools(AssemblyWorkspace workspace, EditService edits, Ed
         }, cancellationToken);
 
     [McpServerTool(Name = "apply_edits", Title = "Apply an edit script", UseStructuredContent = true, OutputSchemaType = typeof(EditOutcome))]
-    [Description("Replay an export_edits script, each edit with its outcome. Another build needs targetBuild=other: symbols by name, renames followed " +
+    [Description("Replay an export_edits script, with each edit's outcome. Another build needs targetBuild=other: symbols by name, renames followed " +
                  "when the source build is loaded.")]
     public Task<string> ApplyEdits(
         [Description("The .json edit script.")] string path,
@@ -227,7 +227,7 @@ public sealed class EditTools(AssemblyWorkspace workspace, EditService edits, Ed
                  "reason code (docs/simplify.md).")]
     public Task<string> SimplifyMethods(
         [Description("Method or type (nested included): Ns.Type::M(int), short name or token; omit: whole assembly.")] string? symbol = null,
-        [Description(AssemblyFilterDescription + " Required when symbol is omitted.")] string? assembly = null,
+        [Description(AssemblyFilterDescription + " Required without symbol.")] string? assembly = null,
         [Description("Passes to run; omit for all three.")] string[]? passes = null,
         [Description("Max evaluation call depth.")] int maxDepth = 8,
         [Description("Max IL instructions per evaluated call, nested calls included.")] int budget = 100_000,
@@ -255,8 +255,8 @@ public sealed class EditTools(AssemblyWorkspace workspace, EditService edits, Ed
     }, cancellationToken));
 
     [McpServerTool(Name = "save_assembly", Title = "Save patched assembly", UseStructuredContent = true, OutputSchemaType = typeof(EditService.SavedFile))]
-    [Description("Write an assembly with its edits to a new file, atomically (replaceOriginal=true keeps a .bak; a file changed since load is " +
-                 "refused). Untouched bodies keep their bytes; members the writer changed are listed with reason codes (docs/saving.md).")]
+    [Description("Write an assembly and its edits to a new file, atomically (replaceOriginal=true keeps a .bak; a file changed since load is " +
+                 "refused). Untouched bodies keep their bytes; members the writer changed are listed, with reason codes (docs/saving.md).")]
     public Task<string> SaveAssembly(
         [Description(AssemblyDescription)] string assembly,
         [Description("Output path (.wasm writes Webcil for Blazor); default <original>.patched.dll.")] string? outputPath = null,

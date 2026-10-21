@@ -30,7 +30,7 @@ public sealed class Il2CppTools(AssemblyWorkspace workspace, Il2CppService il2cp
     }
 
     [McpServerTool(Name = "get_il2cpp_info", Title = "Il2Cpp addresses and offsets", UseStructuredContent = true, OutputSchemaType = typeof(Il2CppInfo))]
-    [Description("Native addresses (RVA, VA, file offset, vtable slot) of an Il2Cpp method or all methods of a type, field offsets and tokens. With " +
+    [Description("Native addresses (RVA, VA, file offset, vtable slot) of an Il2Cpp method or a type's methods, field offsets and tokens. With " +
                  "script.json: function bounds, methods sharing the code, MethodInfo slot, generic instantiations, metadata slots. With " +
                  "stringliteral.json and the binary: literals a method loads.")]
     public Task<string> GetIl2CppInfo(
@@ -393,7 +393,7 @@ public sealed class Il2CppTools(AssemblyWorkspace workspace, Il2CppService il2cp
     }
 
     [McpServerTool(Name = "find_method_by_address", Title = "Native address to method", UseStructuredContent = true, OutputSchemaType = typeof(Il2CppLookup))]
-    [Description("Map a native address (IDA, Ghidra, crash log) of an Il2Cpp game to the method(s) whose function contains it, or the string literal, " +
+    [Description("Map a native address (IDA, Ghidra, crash log) of an Il2Cpp game to the method(s) whose function holds it, or the string literal, " +
                  "type metadata or MethodInfo slot at it; script.json names generic instantiations (without it, a guess).")]
     public Task<string> FindMethodByAddress(
         [Description("Hex as IDA / Ghidra show it (0x1A2B3C, 1A2B3Ch, 00000001`8001A2B3); d: prefix for decimal.")] string address,
