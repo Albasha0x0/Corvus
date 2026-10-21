@@ -80,6 +80,45 @@ public class WorkerConnectionTests
     }
 
     [Fact]
+    public async Task A_worker_stopped_for_time_names_what_it_was_doing()
+    {
+        int? asked = null;
+        using var worker = new FakeWorkerProcess();
+        using var c = worker.Connect(Concurrent with { CancelGrace = TimeSpan.FromMilliseconds(200), StallReport = pid => { asked = pid; return "main thread in analysis"; } });
+        var e = await Assert.ThrowsAsync<ToolError>(() => c.RequestAsync("stubborn", null, TimeSpan.FromMilliseconds(200), default));
+        Assert.Contains("the worker was stopped.\nworker state:\nmain thread in analysis", e.Message);
+        Assert.Equal(worker.Id, asked);
+
+        using var silent = new FakeWorkerProcess();
+        using var s = silent.Connect(new WorkerConnectionOptions { StallReport = _ => "class search" });
+        e = await Assert.ThrowsAsync<ToolError>(() => s.WaitReadyAsync(TimeSpan.FromMilliseconds(200), default));
+        Assert.Contains("did not start within", e.Message);
+        Assert.Contains("worker state:\nclass search", e.Message);
+    }
+
+    [Fact]
+    public void A_thread_dump_summary_keeps_the_heap_line_and_running_Ghidra_threads()
+    {
+        const string threads = """
+            "main" #1 prio=5 os_prio=0 tid=0x1 nid=0x2 runnable
+               java.lang.Thread.State: RUNNABLE
+                    at ghidra.app.plugin.core.analysis.AutoAnalysisManager.startAnalysis(AutoAnalysisManager.java:700)
+                    at corvus.Worker.open(Worker.java:120)
+
+            "idle pool" #20 prio=5 waiting on condition
+               java.lang.Thread.State: WAITING (parking)
+                    at ghidra.util.worker.Worker.run(Worker.java:10)
+
+            "GC Thread#0" os_prio=2 runnable
+            """;
+        var summary = JavaThreadDump.Summary(threads, " garbage-first heap   total 1048576K, used 1040000K [0x0, 0x1)\n  region size 1024K");
+        Assert.StartsWith("heap: garbage-first heap   total 1048576K, used 1040000K", summary);
+        Assert.Contains("\"main\" #1", summary);
+        Assert.Contains("  at ghidra.app.plugin.core.analysis.AutoAnalysisManager.startAnalysis", summary);
+        Assert.DoesNotContain("idle pool", summary);
+    }
+
+    [Fact]
     public async Task Request_that_ignores_cancel_kills_the_worker()
     {
         using var worker = new FakeWorkerProcess();

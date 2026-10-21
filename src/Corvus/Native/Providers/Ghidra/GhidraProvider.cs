@@ -339,7 +339,12 @@ public sealed class GhidraProvider(GhidraProviderOptions? options = null) : INat
         try
         {
             return WorkerConnection.Start("Ghidra worker", start, Remediation,
-                new WorkerConnectionOptions { Concurrent = true, CancelGrace = _options.CancelGrace });
+                new WorkerConnectionOptions
+                {
+                    Concurrent = true,
+                    CancelGrace = _options.CancelGrace,
+                    StallReport = pid => JavaThreadDump.Report(java.Java, pid, Path.Combine(dirs.Root, "stalls")),
+                });
         }
         catch (Exception ex) when (ex is System.ComponentModel.Win32Exception or IOException or UnauthorizedAccessException)
         {

@@ -17,6 +17,11 @@ public sealed record WorkerConnectionOptions
     /// A timed-out request whose worker answers within the grace returns that answer (a result marked partial).
     /// </summary>
     public TimeSpan? CancelGrace { get; init; }
+    /// <summary>
+    /// Called with the worker's process id before a worker that missed its start or a request's time is stopped: what
+    /// it was doing (a thread dump summary), or null. Added to the timeout error.
+    /// </summary>
+    public Func<int, string?>? StallReport { get; init; }
 }
 
 /// <summary>A request the worker is running: its op, when it was sent, and the last progress the worker reported for it.</summary>
@@ -116,10 +121,20 @@ public sealed class WorkerConnection : IDisposable
         var done = await Task.WhenAny(_ready.Task, _closed.Task, Task.Delay(timeout, cancellationToken)).ConfigureAwait(false);
         if (done == _ready.Task) return _ready.Task.Result;
         if (done == _closed.Task) throw Died("start");
+        var stall = cancellationToken.IsCancellationRequested ? null : Stall();
         Kill(cancellationToken.IsCancellationRequested ? "cancelled" : "start timeout");
         cancellationToken.ThrowIfCancellationRequested();
-        throw new ToolError(ErrorCode.Timeout, $"{_name} did not start within {Seconds(timeout)}.{StderrSuffix()}",
+        throw new ToolError(ErrorCode.Timeout, $"{_name} did not start within {Seconds(timeout)}.{stall}{StderrSuffix()}",
             _remediation(ErrorCode.Timeout, "start"));
+    }
+
+    /// <summary>The stall report of the running worker as a message suffix, or empty.</summary>
+    private string Stall()
+    {
+        if (_options.StallReport is not { } report || _process.HasExited) return "";
+        try { return report(_process.Id) is { Length: > 0 } text ? "\nworker state:\n" + text : ""; }
+        // A report is best effort: the timeout error stands without it.
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException or System.ComponentModel.Win32Exception) { return ""; }
     }
 
     /// <summary>The next step after an engine request of <paramref name="op"/> ran out of time: the open's limit for opens, else the request's.</summary>
@@ -176,8 +191,9 @@ public sealed class WorkerConnection : IDisposable
                 Kill($"'{op}' cancelled");
                 throw new OperationCanceledException(cancellationToken);
             }
+            var stall = Stall();
             Kill($"'{op}' timed out");
-            throw new ToolError(ErrorCode.Timeout, $"{_name} did not finish '{op}' within {Seconds(timeout)}; the worker was stopped.",
+            throw new ToolError(ErrorCode.Timeout, $"{_name} did not finish '{op}' within {Seconds(timeout)}; the worker was stopped.{stall}",
                 _remediation(ErrorCode.Timeout, op));
         }
         finally
