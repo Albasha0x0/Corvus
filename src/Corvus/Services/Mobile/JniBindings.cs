@@ -219,6 +219,9 @@ public sealed partial class JniBindings(DexService dex)
         return candidates is [var single] ? $"L{single};" : null;
     }
 
+    // Relocation, symbol, hash, note and unwind sections hold no JNINativeMethod arrays; in an Il2Cpp library they are most of the data.
+    private static readonly string[] NoTables = [".rel", ".dyn", ".gnu.", ".hash", ".note", ".eh_frame", ".gcc_except_table", ".symtab", ".strtab", ".debug"];
+
     /// <summary>JNINativeMethod arrays in the library's data: {name, signature, function} pointer triples, relocations applied.</summary>
     private static List<Table> Tables(INativeImage image, CancellationToken ct)
     {
@@ -236,9 +239,23 @@ public sealed partial class JniBindings(DexService dex)
             string? s = end > 0 && buffer.AsSpan(0, end).IndexOfAnyExceptInRange((byte)0x21, (byte)0x7E) < 0 ? Encoding.ASCII.GetString(buffer, 0, end) : null;
             return strings[rva] = s;
         }
+        // One byte before the string reads: a signature starts with '(' (function pointer arrays fail here, not in Text).
+        bool OpensSignature(ulong va)
+        {
+            if (va < image.ImageBase || va - image.ImageBase >= image.SizeOfImage) return false;
+            Span<byte> first = stackalloc byte[1];
+            return image.Read((uint)(va - image.ImageBase), first) == 1 && first[0] == (byte)'(';
+        }
+        var code = image.Sections.Where(s => s.IsExecutable).Select(s => (Start: image.ImageBase + s.Rva, End: image.ImageBase + s.Rva + s.MappedSize)).ToArray();
+        bool InCode(ulong va)
+        {
+            foreach (var (start, end) in code)
+                if (va >= start && va < end) return true;
+            return false;
+        }
         foreach (var section in image.Sections)
         {
-            if (section.IsExecutable || section.MappedSize < 3u * (uint)ptr || section.RawSize == 0) continue;
+            if (section.IsExecutable || section.MappedSize < 3u * (uint)ptr || section.RawSize == 0 || NoTables.Any(p => section.Name.StartsWith(p, StringComparison.Ordinal))) continue;
             ct.ThrowIfCancellationRequested();
             var data = new byte[section.MappedSize];
             int got = image.Read(section.Rva, data);
@@ -249,8 +266,7 @@ public sealed partial class JniBindings(DexService dex)
             {
                 ulong fn = P(at + 2 * ptr);
                 if (image.Arch == NativeArch.Arm) fn &= ~1UL;
-                if (fn >= image.ImageBase && fn - image.ImageBase < image.SizeOfImage && image.SectionAt((uint)(fn - image.ImageBase)) is { IsExecutable: true }
-                    && Text(P(at), MaxNameLength) is { } name && MethodName().IsMatch(name)
+                if (InCode(fn) && OpensSignature(P(at + ptr)) && Text(P(at), MaxNameLength) is { } name && MethodName().IsMatch(name)
                     && Text(P(at + ptr), MaxSignatureLength) is { } sig && Signature().IsMatch(sig))
                 {
                     open ??= new Table(section.Rva + (uint)at, []);

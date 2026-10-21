@@ -36,7 +36,7 @@ public class JniBindingsTests
         return [adrp, add];
     }
 
-    internal static byte[] Library(string soName = "libnative.so")
+    internal static byte[] Library(string soName = "libnative.so", string dataSection = ".data.rel.ro")
     {
         const uint Data = ElfWriter.DataRva, Text = ElfWriter.TextRva;
         var data = new byte[0x400];
@@ -69,7 +69,7 @@ public class JniBindingsTests
         {
             Text = text,
             Data = data,
-            DataSectionName = ".data.rel.ro",
+            DataSectionName = dataSection,
             Relocations = relocations,
             SoName = soName,
             Symbols =
@@ -98,6 +98,20 @@ public class JniBindingsTests
         Assert.Equal("class_string", Owner());
         Assert.True(JniBindings.OwnerCached(library, table2));
         Assert.Equal("class_string", Owner());
+    }
+
+    /// <summary>Relocation, symbol and unwind sections are not scanned for tables: in an Il2Cpp library they are most of the data and hold none.</summary>
+    [Fact]
+    public void TablesAreReadFromDataSectionsOnly()
+    {
+        using var dir = new TempDir();
+        int Tables(string section)
+        {
+            var path = AndroidSamples.Save(dir, $"jni{section}.apk", AndroidSamples.Apk(30, ("classes.dex", Dex()), ("lib/arm64-v8a/libnative.so", Library(dataSection: section))));
+            return new JniBindings(new DexService()).List(path, null, null, null, 0, 100, default).Libraries.Single().RegisterNativesTables;
+        }
+        Assert.Equal(2, Tables(".data.rel.ro"));
+        Assert.Equal(0, Tables(".eh_frame"));
     }
 
     /// <summary>The owner search reads references and strings: virtual call resolution, 40-50 % of a large ARM32 library's index, is skipped.</summary>
