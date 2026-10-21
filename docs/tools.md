@@ -1779,7 +1779,7 @@ Structured output: `outputPath`, `bytes`, `patches`, `sha256`, `checksum`, `back
 
 **Export native patches** (destructive, idempotent)
 
-Write the image's byte patches for other tools: ida an IDAPython script (at rebased RVAs, where the original bytes are found), dif IDA's .dif, ips (file offsets below 16 MB) or ips32, json the full set (for migrate_native_patches). Relocation edits and the PE checksum are included: a .dif or IPS applied to the original gives save_native's bytes.
+Write the image's byte patches for other tools: ida an IDAPython script (at rebased RVAs, where the original bytes are found), dif an IDA .dif, ips (offsets below 16 MB) or ips32, json the full set (for migrate_native_patches). Relocation edits and PE checksum included: a .dif or IPS applied to the original gives the save_native bytes.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -1798,19 +1798,19 @@ Build-to-build comparison and carrying work to a new build.
 
 **Compare two builds** (read-only, idempotent, long-running)
 
-Compare two builds of an assembly: renamed, moved, added and removed types and members (matched by content in tiers, unique-only; else ambiguous) and how each matched member changed (signature, body by IL hash, metadata, Il2Cpp offset). oldResult / newResult compare two kept results instead.
+Compare two builds of an assembly: renamed, moved, added and removed types and members (matched by content in tiers, unique-only; else ambiguous) and how each matched member changed (signature, body by IL hash, metadata, Il2Cpp offset). oldResult / newResult compare two kept results.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `oldAssembly` | string |  |  | The old build (id, name or path). |
-| `newAssembly` | string |  |  | The new build (id, name or path). |
+| `oldAssembly` | string |  |  | Old build: id, name or path. |
+| `newAssembly` | string |  |  | New build: id, name or path. |
 | `namespace` | string |  |  | Only types whose old or new full name starts with this. |
 | `changes` | string[] |  |  | Kinds to list (unknown: unpaired for lack of evidence); default all but address. |
-| `typeCountsOnly` | boolean |  |  | Count added and removed types without listing them. |
-| `includeCompilerGenerated` | boolean |  |  | Also list compiler-generated types and members (closures, state machines). |
-| `tokenMap` | boolean |  |  | Keep the whole old -> new token map as a result (tokenMapResultId). |
+| `typeCountsOnly` | boolean |  |  | Count added and removed types, not listed. |
+| `includeCompilerGenerated` | boolean |  |  | Also compiler-generated types and members (closures, state machines). |
+| `tokenMap` | boolean |  |  | Keep the whole old-to-new token map as a result (tokenMapResultId). |
 | `offset` | integer |  |  |  |
-| `limit` | integer |  | `100` | Changes per page (default 100). |
+| `limit` | integer |  | `100` | Changes per page. |
 | `maxTokens` | integer |  |  |  |
 | `oldResult` | string |  |  | Instead: a kept result (r-...), last:N (recent call) or bundle entry (file.json#r-...). |
 | `newResult` | string |  |  | The new side, from the same tool. |
@@ -1821,18 +1821,18 @@ Structured output: `old`, `new`, `oldTypes`, `matchedTypes`, `typeChanges`, `mem
 
 **Find symbol in another build** (read-only, idempotent, long-running)
 
-Where a type or member of the old build went in the new one (by name, then content, unique-only; else candidates): new name and token, tier, confidence, body change. diff=true / il=true add unified diffs of the pair's C# / normalized IL with renames applied first.
+Where a type or member of the old build went in the new one (by name, then content, unique-only; else candidates): new name and token, tier, confidence, body change. diff=true and il=true add unified diffs of the C# and normalized IL of each pair, renames applied first.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `symbol` | string | yes |  | Old build: Type or member: Ns.Type, Ns.Outer+Inner, Ns.Type::Method(int, string), short name or token (0x06000123). |
-| `oldAssembly` | string | yes |  | The old build (id, name or path). |
-| `newAssembly` | string | yes |  | The new build (id, name or path). |
+| `oldAssembly` | string | yes |  | Old build: id, name or path. |
+| `newAssembly` | string | yes |  | New build: id, name or path. |
 | `diff` | boolean |  |  | C# diff of each pair (cut at 300 lines). |
 | `il` | boolean |  |  | Normalized IL diff of each method pair. |
-| `symbols` | string[] |  |  | Instead of symbol: up to 100 symbols. |
+| `symbols` | string[] |  |  | Instead of symbol: up to 100. |
 | `offset` | integer |  |  |  |
-| `limit` | integer |  | `25` | Symbols per page (default 25). |
+| `limit` | integer |  | `25` | Symbols per page. |
 | `maxTokens` | integer |  |  |  |
 
 Structured output: `old`, `new`, `items`, `offset`, `total`, `limit`, `totalExact`, `hasMore`, `nextOffset`.
@@ -1863,15 +1863,15 @@ Structured output: `old`, `new`, `hashBasis`, `caseSensitive`, `counts`, `view`,
 
 **Compare native builds** (read-only, idempotent, long-running)
 
-Match the functions of two native builds (x86 / x64 / ARM64) in tiers: 1 same name, import or bytes; 2 control flow; 3 imports, strings, constants; 4 call-graph neighbours; 5 fuzzy above minScore; unique pairs only. Returns per-tier counts and one view's rows by old address. oldResult / newResult compare two kept results instead.
+Match the functions of two native builds (x86, x64, ARM64) in tiers: 1 same name, import or bytes; 2 control flow; 3 imports, strings, constants; 4 call-graph neighbours; 5 fuzzy above minScore; unique pairs only. Per-tier counts and one view's rows by old address. oldResult / newResult compare two kept results.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `oldImage` | string |  |  | Older build: image id or path (load both; the second is app.dll#2). |
-| `newImage` | string |  |  | The newer build: native image id or path. |
-| `view` | string |  | `pairs` | pairs, changed (code differs), unmatched, ambiguous (with candidates); wasm: interface. Values: pairs, changed, unmatched, ambiguous. |
+| `newImage` | string |  |  | Newer build: image id or path. |
+| `view` | string |  | `pairs` | changed: code differs; ambiguous: with candidates; wasm: interface. Values: pairs, changed, unmatched, ambiguous. |
 | `tier` | integer |  | `0` | Only pairs of this tier (1-5); 0 for all. |
-| `codeOnly` | boolean |  |  | Match functions by code only, not by names. |
+| `codeOnly` | boolean |  |  | Match functions by code, not names. |
 | `minScore` | number |  | `0.7` | Least similarity for a fuzzy match (0-1). |
 | `offset` | integer |  |  |  |
 | `limit` | integer |  | `40` |  |
@@ -1890,14 +1890,14 @@ Changes to one function between two builds. view=asm: aligned instruction rows =
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `oldImage` | string |  |  | Older build: image id or path (load both; the second is app.dll#2). |
-| `newImage` | string |  |  | The newer build: native image id or path. |
+| `newImage` | string |  |  | Newer build: image id or path. |
 | `address` | string |  |  | In the function: Hex VA or RVA (rva:/va:/off: prefix), export, module!import or function. |
 | `addresses` | string[] |  |  | Instead of address: up to 20 functions, one summary each. |
 | `side` | string |  | `old` | Which build the address is in. Values: old, new. |
-| `view` | string |  | `asm` | asm, or pseudocode (needs an engine). Values: asm, pseudocode. |
+| `view` | string |  | `asm` | pseudocode needs an engine. Values: asm, pseudocode. |
 | `context` | integer |  | `4` | Unchanged rows around each change (0-50). |
-| `codeOnly` | boolean |  |  | Match functions by code only, not by names. |
-| `engine` | string |  |  | view=pseudocode: auto, ida or ghidra. Values: auto, ida, ghidra. |
+| `codeOnly` | boolean |  |  | Match functions by code, not names. |
+| `engine` | string |  |  | view=pseudocode: the engine. Values: auto, ida, ghidra. |
 | `offset` | integer |  |  |  |
 | `limit` | integer |  | `500` |  |
 | `maxTokens` | integer |  |  |  |
@@ -1910,15 +1910,15 @@ Structured output: `oldImage`, `newImage`, `oldFunction`, `newFunction`, `oldAdd
 
 **Map an address to a new build** (read-only, idempotent, long-running)
 
-Where addresses of the old build are in the new build: a function start to the matched function, an address inside one to the aligned instruction, a string to the same string, other data through the references of matched instructions. Each: new address, confidence and reason, or why not with nearby candidates.
+Where addresses of the old build are in the new one: a function start to the matched function, an address inside one to the aligned instruction, a string to the same string, other data through the references of matched instructions. Each: new address, confidence and reason, or why not with nearby candidates.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `oldImage` | string | yes |  | Older build: image id or path (load both; the second is app.dll#2). |
-| `newImage` | string | yes |  | The newer build: native image id or path. |
+| `newImage` | string | yes |  | Newer build: image id or path. |
 | `address` | string |  |  | Old build: Hex VA or RVA (rva:/va:/off: prefix), export, module!import or function. |
 | `addresses` | string[] |  |  | Instead of address: up to 100 addresses. |
-| `codeOnly` | boolean |  |  | Match functions by code only, not by names. |
+| `codeOnly` | boolean |  |  | Match functions by code, not names. |
 
 Structured output: `oldImage`, `newImage`, `results`, `failed`.
 
@@ -1926,17 +1926,17 @@ Structured output: `oldImage`, `newImage`, `results`, `failed`.
 
 **Make a code pattern** (read-only, idempotent, open-world, long-running)
 
-Make a rebuild-proof byte pattern for an address: displacements and relocated addresses as ?? ('48 8B 05 ?? ?? ?? ??'), unique in the executable sections. anchor=auto: at the address, else at a referencing instruction (with operand offset); xrefs: one per referencing instruction; range: [address, end). search_code_pattern finds it.
+Make a rebuild-proof byte pattern for an address: displacements and relocated addresses as ??, unique in the executable sections. anchor=auto: at the address, else at a referencing instruction (with operand offset); xrefs: one per referencing instruction; range: [address, end). search_code_pattern finds it.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `image` | string | yes |  | Image id, name or path. |
 | `address` | string |  |  | Hex VA or RVA (rva:/va:/off: prefix), export, module!import or function. |
-| `addresses` | string[] |  |  | Instead of address: up to 50 addresses. |
-| `anchor` | string |  | `auto` | auto, address, reference, xrefs or range. Values: auto, address, reference, xrefs, range. |
+| `addresses` | string[] |  |  | Instead of address: up to 50. |
+| `anchor` | string |  | `auto` | Where to anchor. Values: auto, address, reference, xrefs, range. |
 | `maxBytes` | integer |  | `64` | Longest pattern in bytes (8-512). |
 | `maxPatterns` | integer |  | `8` | anchor=xrefs: most signatures (1-32). |
-| `engine` | string |  |  | anchor=xrefs: auto, ours, ida or ghidra (engine references added). Values: auto, ours, ida, ghidra. |
+| `engine` | string |  |  | anchor=xrefs: ida or ghidra add engine references. Values: auto, ours, ida, ghidra. |
 | `format` | string |  | `ida` | ida, x64dbg, mask (\x48\x00 x?) or bitmask (0x48, 0x00 0b01). Values: ida, x64dbg, mask, bitmask. |
 | `end` | string |  |  | anchor=range: exclusive end, an address or +length. |
 
@@ -1963,18 +1963,18 @@ Structured output: `pattern`, `items`, `offset`, `total`, `failed`, `notes`, `li
 
 **Carry names to a new build** (edit, idempotent, long-running)
 
-Copy the old build's names, comments and engine types to the new build's user annotations through the function match (map_address_between_builds). Never replaces a user name, comment or type of the new build; each skipped item has a reason code. Applied as undoable edits (editIds).
+Copy names, comments and engine types of the old build to the user annotations of the new one through the function match (map_address_between_builds). Never replaces a user name, comment or type of the new build; each skipped item has a reason code. Applied as undoable edits (editIds).
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `oldImage` | string | yes |  | Older build: image id or path (load both; the second is app.dll#2). |
-| `newImage` | string | yes |  | The newer build: native image id or path. |
+| `newImage` | string | yes |  | Newer build: image id or path. |
 | `dryRun` | boolean |  | `true` | true previews; false applies. |
 | `minTier` | integer |  | `5` | Weakest match tier accepted: 1 (names, identical bytes) to 5 (all). |
 | `minScore` | number |  | `0` | Least mapping confidence accepted (0-1). |
 | `sources` | string[] |  |  | Layers to copy (default user). |
 | `namesOnly` | boolean |  |  | Names only, no comments. |
-| `codeOnly` | boolean |  |  | Match functions by code only, not by names. |
+| `codeOnly` | boolean |  |  | Match functions by code, not names. |
 | `offset` | integer |  |  |  |
 | `limit` | integer |  | `100` |  |
 | `maxTokens` | integer |  |  |  |
@@ -1985,15 +1985,15 @@ Structured output: `oldImage`, `newImage`, `dryRun`, `applied`, `editIds`, `set`
 
 **Migrate patches to a new build** (destructive, long-running)
 
-Carry byte patches from an old build to a new one through the build match (compare_native_images). A patch is reapplied only where the mapped address holds the expected original bytes (patch_asm patches re-assembled), else refused with a reason code. The same image as old and new with patchSet replays a patch set on its own build.
+Carry byte patches from an old build to a new one through the build match (compare_native_images). A patch is reapplied only where the mapped address holds the expected original bytes (patch_asm patches re-assembled), else refused with a reason code. Same image as old and new with patchSet: replays the set.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `oldImage` | string | yes |  | Old build: image id or path (its in-memory patches are the source unless patchSet). |
-| `newImage` | string | yes |  | New build: image id or path (load both; the second gets an id like name#2). |
+| `newImage` | string | yes |  | New build: image id or path (the second load gets an id like name#2). |
 | `patchSet` | string |  |  | A JSON patch set (export_native_patches format=json): path or text. |
 | `dryRun` | boolean |  | `true` | true previews; false applies. |
-| `codeOnly` | boolean |  |  | Match functions by code only, not by names. |
+| `codeOnly` | boolean |  |  | Match functions by code, not names. |
 | `offset` | integer |  |  |  |
 | `limit` | integer |  | `100` |  |
 | `maxTokens` | integer |  |  |  |
@@ -2004,19 +2004,19 @@ Structured output: `oldImage`, `newImage`, `source`, `dryRun`, `applied`, `editI
 
 **Update work to a new build** (destructive, idempotent, long-running)
 
-Carry work from an old native build to the new one through one function match: names, comments, engine types, PDB and Il2Cpp layers, patches, code-pattern drift, Il2Cpp method mapping, notes. Returns per-category counts with reason codes and items; a re-run reports already_present. .NET pairs: notes via find_counterpart.
+Carry work from an old native build to the new one through one function match: names, comments, engine types, PDB and Il2Cpp layers, patches, code-pattern drift, Il2Cpp method mapping, notes. Per-category counts with reason codes; a re-run reports already_present. .NET: notes via find_counterpart.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `oldImage` | string | yes |  | The old build: native image id or path. |
-| `newImage` | string | yes |  | The new build: native image id or path. |
+| `oldImage` | string | yes |  | Old build: image id or path. |
+| `newImage` | string | yes |  | New build: image id or path. |
 | `dryRun` | boolean |  | `true` | true previews; false applies. |
 | `include` | string[] |  |  | Categories to carry (default all). |
 | `patchSet` | string |  |  | Patch set (export_native_patches json): text or path. |
-| `stubPlacement` | string |  |  | Re-created patch stubs: auto, cave or section. Values: auto, cave, section. |
-| `oldIl2Cpp` | string[] |  |  | Old build's Il2Cpp dummy assemblies. |
-| `newIl2Cpp` | string[] |  |  | New build's Il2Cpp dummy assemblies. |
-| `codeOnly` | boolean |  |  | Match functions by code only, not by names. |
+| `stubPlacement` | string |  |  | Placement of re-created patch stubs. Values: auto, cave, section. |
+| `oldIl2Cpp` | string[] |  |  | Il2Cpp dummy assemblies, old build. |
+| `newIl2Cpp` | string[] |  |  | Il2Cpp dummy assemblies, new build. |
+| `codeOnly` | boolean |  |  | Match functions by code, not names. |
 | `maxPatterns` | integer |  | `100` | Most code patterns made (0-1000). |
 | `category` | string |  |  | Only items of this category. Values: names, pdb, il2cpp_names, patches, patterns, il2cpp_mapping, notes, dotnet. |
 | `outcome` | string |  |  | Only items with this outcome. Values: carried, would_carry, already_present, refused, not_applicable, ambiguous. |

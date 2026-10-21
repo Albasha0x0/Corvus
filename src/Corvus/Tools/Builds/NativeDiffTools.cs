@@ -21,8 +21,8 @@ public sealed class NativeDiffTools(AssemblyWorkspace workspace, NativeCodeServi
     private readonly NativeEditJournal journal = edits?.Journal ?? new NativeEditJournal(workspace, code, engines);
 
     private const string OldDescription = "Older build: image id or path (load both; the second is app.dll#2).";
-    private const string NewDescription = "The newer build: native image id or path.";
-    internal const string CodeOnlyDescription = "Match functions by code only, not by names.";
+    private const string NewDescription = "Newer build: image id or path.";
+    internal const string CodeOnlyDescription = "Match functions by code, not names.";
 
     /// <summary>
     /// One row of compare_native_images: a pair (both addresses, tier, basis, score, sizes; the new name and counts only where
@@ -159,13 +159,13 @@ public sealed class NativeDiffTools(AssemblyWorkspace workspace, NativeCodeServi
     public sealed record ImageError(string Image, BatchError Error);
 
     [McpServerTool(Name = "compare_native_images", Title = "Compare native builds", UseStructuredContent = true, OutputSchemaType = typeof(NativeComparison))]
-    [Description("Match the functions of two native builds (x86 / x64 / ARM64) in tiers: 1 same name, import or bytes; 2 " +
-                 "control flow; 3 imports, strings, constants; 4 call-graph neighbours; 5 fuzzy above minScore; unique pairs only. Returns " +
-                 "per-tier counts and one view's rows by old address. oldResult / newResult compare two kept results instead.")]
+    [Description("Match the functions of two native builds (x86, x64, ARM64) in tiers: 1 same name, import or bytes; 2 control flow; 3 imports, " +
+                 "strings, constants; 4 call-graph neighbours; 5 fuzzy above minScore; unique pairs only. Per-tier counts and one view's rows by old " +
+                 "address. oldResult / newResult compare two kept results.")]
     public Task<string> CompareNativeImages(
         [Description(OldDescription)] string? oldImage = null,
         [Description(NewDescription)] string? newImage = null,
-        [Description("pairs, changed (code differs), unmatched, ambiguous (with candidates); wasm: interface.")] string view = "pairs",
+        [Description("changed: code differs; ambiguous: with candidates; wasm: interface.")] string view = "pairs",
         [Description("Only pairs of this tier (1-5); 0 for all.")] int tier = 0,
         [Description(CodeOnlyDescription)] bool codeOnly = false,
         [Description("Least similarity for a fuzzy match (0-1).")] double minScore = 0.7,
@@ -296,9 +296,9 @@ public sealed class NativeDiffTools(AssemblyWorkspace workspace, NativeCodeServi
     private const int MaxMapAddresses = 100;
 
     [McpServerTool(Name = "map_address_between_builds", Title = "Map an address to a new build", UseStructuredContent = true, OutputSchemaType = typeof(AddressMappings))]
-    [Description("Where addresses of the old build are in the new build: a function start to the matched function, an address inside one " +
-                 "to the aligned instruction, a string to the same string, other data through the references of matched instructions. Each: " +
-                 "new address, confidence and reason, or why not with nearby candidates.")]
+    [Description("Where addresses of the old build are in the new one: a function start to the matched function, an address inside one to the aligned " +
+                 "instruction, a string to the same string, other data through the references of matched instructions. Each: new address, confidence " +
+                 "and reason, or why not with nearby candidates.")]
     public Task<string> MapAddressBetweenBuilds(
         [Description(OldDescription)] string oldImage,
         [Description(NewDescription)] string newImage,
@@ -352,10 +352,10 @@ public sealed class NativeDiffTools(AssemblyWorkspace workspace, NativeCodeServi
         [Description("In the function: " + NativeTools.AddressDescription)] string? address = null,
         [Description("Instead of address: up to 20 functions, one summary each.")] string[]? addresses = null,
         [Description("Which build the address is in.")] string side = "old",
-        [Description("asm, or pseudocode (needs an engine).")] string view = "asm",
+        [Description("pseudocode needs an engine.")] string view = "asm",
         [Description("Unchanged rows around each change (0-50).")] int context = 4,
         [Description(CodeOnlyDescription)] bool codeOnly = false,
-        [Description("view=pseudocode: auto, ida or ghidra.")] string? engine = null,
+        [Description("view=pseudocode: the engine.")] string? engine = null,
         [Description(RowOffsetDescription)] int offset = 0,
         [Description(LimitDescription)] int limit = 500,
         [Description(MaxTokensDescription)] int? maxTokens = null,
@@ -536,9 +536,9 @@ public sealed class NativeDiffTools(AssemblyWorkspace workspace, NativeCodeServi
     }
 
     [McpServerTool(Name = "migrate_native_names", Title = "Carry names to a new build", UseStructuredContent = true, OutputSchemaType = typeof(MigrationReport))]
-    [Description("Copy the old build's names, comments and engine types to the new build's user annotations through the function match " +
-                 "(map_address_between_builds). Never replaces a user name, comment or type of the new build; each skipped item has a reason " +
-                 "code. Applied as undoable edits (editIds).")]
+    [Description("Copy names, comments and engine types of the old build to the user annotations of the new one through the function match " +
+                 "(map_address_between_builds). Never replaces a user name, comment or type of the new build; each skipped item has a reason code. " +
+                 "Applied as undoable edits (editIds).")]
     public Task<string> MigrateNativeNames(
         [Description(OldDescription)] string oldImage,
         [Description(NewDescription)] string newImage,
@@ -655,17 +655,17 @@ public sealed class NativeDiffTools(AssemblyWorkspace workspace, NativeCodeServi
     private const int MaxPatternAddresses = 50;
 
     [McpServerTool(Name = "make_code_pattern", Title = "Make a code pattern", UseStructuredContent = true, OutputSchemaType = typeof(CodePatternResults))]
-    [Description("Make a rebuild-proof byte pattern for an address: displacements and relocated addresses as ?? ('48 8B 05 ?? ?? ?? ??'), " +
-                 "unique in the executable sections. anchor=auto: at the address, else at a referencing instruction (with operand offset); " +
-                 "xrefs: one per referencing instruction; range: [address, end). search_code_pattern finds it.")]
+    [Description("Make a rebuild-proof byte pattern for an address: displacements and relocated addresses as ??, unique in the executable sections. " +
+                 "anchor=auto: at the address, else at a referencing instruction (with operand offset); xrefs: one per referencing instruction; " +
+                 "range: [address, end). search_code_pattern finds it.")]
     public Task<string> MakeCodePattern(
         [Description(NativeTools.ImageDescription)] string image,
         [Description(NativeTools.AddressDescription)] string? address = null,
-        [Description("Instead of address: up to 50 addresses.")] string[]? addresses = null,
-        [Description("auto, address, reference, xrefs or range.")] string anchor = "auto",
+        [Description("Instead of address: up to 50.")] string[]? addresses = null,
+        [Description("Where to anchor.")] string anchor = "auto",
         [Description("Longest pattern in bytes (8-512).")] int maxBytes = 64,
         [Description("anchor=xrefs: most signatures (1-32).")] int maxPatterns = 8,
-        [Description("anchor=xrefs: auto, ours, ida or ghidra (engine references added).")] string? engine = null,
+        [Description("anchor=xrefs: ida or ghidra add engine references.")] string? engine = null,
         [Description("ida, x64dbg, mask (\\x48\\x00 x?) or bitmask (0x48, 0x00 0b01).")] string format = "ida",
         [Description("anchor=range: exclusive end, an address or +length.")] string? end = null,
         RequestContext<CallToolRequestParams> context = null!,

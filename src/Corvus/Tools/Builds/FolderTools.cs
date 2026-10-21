@@ -11,8 +11,8 @@ namespace Corvus.Tools;
 public sealed class FolderTools(FolderCompare folders)
 {
     [McpServerTool(Name = "compare_folders", Title = "Compare two folders or packages", UseStructuredContent = true)]
-    [Description("Compare two folders, zip-family archives or files: modified, added, removed, moved, case-only renames, links, unreadable; " +
-                 "changed binaries with MVID and version, text with a diff. oldResult / newResult compare kept results.")]
+    [Description("Compare two folders, zip-family archives or files: modified, added, removed, moved, case-only renames, links, unreadable; changed " +
+                 "binaries with MVID and version, text with a diff. oldResult / newResult compare kept results.")]
     public Task<FolderCompare.Comparison> CompareFolders(
         [Description("Old folder, archive or file.")] string? oldPath = null,
         [Description("New folder, archive or file.")] string? newPath = null,

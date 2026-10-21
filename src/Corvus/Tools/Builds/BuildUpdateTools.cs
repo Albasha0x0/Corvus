@@ -86,18 +86,18 @@ public sealed class BuildUpdateTools(AssemblyWorkspace workspace, NativeCodeServ
     private sealed record Item(string Category, string Kind, uint? OldRva, uint? NewRva, string Value, string Outcome, string Reason, double Confidence, int? Tier, string Detail);
 
     [McpServerTool(Name = "update_to_new_build", Title = "Update work to a new build", UseStructuredContent = true, OutputSchemaType = typeof(UpdateReport))]
-    [Description("Carry work from an old native build to the new one through one function match: names, comments, engine types, " +
-                 "PDB and Il2Cpp layers, patches, code-pattern drift, Il2Cpp method mapping, notes. Returns " +
-                 "per-category counts with reason codes and items; a re-run reports already_present. .NET pairs: notes via find_counterpart.")]
+    [Description("Carry work from an old native build to the new one through one function match: names, comments, engine types, PDB and Il2Cpp " +
+                 "layers, patches, code-pattern drift, Il2Cpp method mapping, notes. Per-category counts with reason codes; a re-run reports " +
+                 "already_present. .NET: notes via find_counterpart.")]
     public Task<string> UpdateToNewBuild(
-        [Description("The old build: native image id or path.")] string oldImage,
-        [Description("The new build: native image id or path.")] string newImage,
+        [Description("Old build: image id or path.")] string oldImage,
+        [Description("New build: image id or path.")] string newImage,
         [Description(DryRunDefaultTrueDescription)] bool dryRun = true,
         [Description("Categories to carry (default all).")] string[]? include = null,
         [Description("Patch set (export_native_patches json): text or path.")] string? patchSet = null,
-        [Description("Re-created patch stubs: auto, cave or section.")] string? stubPlacement = null,
-        [Description("Old build's Il2Cpp dummy assemblies.")] string[]? oldIl2Cpp = null,
-        [Description("New build's Il2Cpp dummy assemblies.")] string[]? newIl2Cpp = null,
+        [Description("Placement of re-created patch stubs.")] string? stubPlacement = null,
+        [Description("Il2Cpp dummy assemblies, old build.")] string[]? oldIl2Cpp = null,
+        [Description("Il2Cpp dummy assemblies, new build.")] string[]? newIl2Cpp = null,
         [Description(NativeDiffTools.CodeOnlyDescription)] bool codeOnly = false,
         [Description("Most code patterns made (0-1000).")] int maxPatterns = 100,
         [Description("Only items of this category.")] string? category = null,
