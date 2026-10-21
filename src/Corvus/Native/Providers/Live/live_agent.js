@@ -378,7 +378,7 @@ if (Process.platform === 'windows') {
   const exitUser = Process.getModuleByName('ntdll.dll').findExportByName('RtlExitUserProcess');
   if (exitUser !== null)
     Interceptor.attach(exitUser, function () {
-      beforeExit(Process.arch === 'x64' ? this.context.rcx.toInt32() : this.context.sp.add(4).readS32());
+      beforeExit(Process.arch === 'x64' ? this.context.rcx.toInt32() : Process.arch === 'arm64' ? this.context.x0.toInt32() : this.context.sp.add(4).readS32());
     });
 } else {
   // exit() and a return from main end in _exit
