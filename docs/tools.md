@@ -2249,7 +2249,7 @@ Structured output: `applied`, `dryRun`, `changes`, `editIds`, `failed`, `digest`
 
 **Re-run native auto-analysis** (destructive, open-world, long-running)
 
-Re-run IDA or Ghidra auto-analysis over an image (or from-to) and save; a full run also completes a Ghidra analysis the open budget cut short. options= sets analyzers for this run; analyzers=true lists them.
+Re-run IDA or Ghidra auto-analysis over an image (or from-to) and save; a full run also completes an analysis the open budget cut short. options= sets analyzers for this run; analyzers=true lists them.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|

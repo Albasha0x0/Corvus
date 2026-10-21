@@ -256,8 +256,9 @@ def op_open(args):
     _state["auto"] = args.get("auto", True) is not False
     raw = args.get("raw")
     overrides = args.get("overrides")
-    # a headerless image (bitness, Thumb, base, entry) and import overrides are set up before auto-analysis sees the image
-    rc = m.idapro.open_database(path, _state["auto"] and not ((raw or overrides) and not reuse), cmdline)
+    # analysis runs after the open (analyze_within), so a headerless image (bitness, Thumb, base, entry) and import
+    # overrides are set up before it sees the image and it stops within the open's budget
+    rc = m.idapro.open_database(path, False, cmdline)
     if rc != 0:
         raise WorkerError("provider_unavailable", "open_database returned %d for %s (%d characters; database %s, %d characters)"
                           % (rc, path, len(path), idb, len(idb)))
@@ -275,8 +276,7 @@ def op_open(args):
             raise WorkerError("invalid_argument", "IDA loaded the image with processor %s, not %s" % (got, wanted))
         if not reuse:
             setup_overrides(m, overrides, warnings)
-    if _state["auto"]:
-        m.ida_auto.auto_wait()
+    complete = analyze_within(m, args.get("budget_seconds")) if _state["auto"] else True
 
     _state["base"] = m.ida_nalt.get_imagebase()
     ftype = m.ida_ida.inf_get_filetype()
@@ -312,7 +312,23 @@ def op_open(args):
         m.ida_loader.save_database(m.ida_loader.get_path(m.ida_loader.PATH_TYPE_IDB), 0)
     result = info(m, reuse, time.time() - start)
     result["warnings"] = warnings
+    result["analysis_complete"] = complete
     return result
+
+
+def analyze_within(m, seconds):
+    # auto_wait in steps, so the open answers within its budget or request deadline; what is left stays queued in the
+    # saved database and runs on the next open. True: the queue ran empty.
+    end = time.time() + float(seconds) if seconds else None
+    m.ida_auto.enable_auto(True)
+    step, bad = m.ida_auto.auto_make_step, m.idautils.ida_idaapi.BADADDR
+    while True:
+        for _ in range(500):
+            if not step(0, bad):
+                m.ida_auto.auto_wait()
+                return True
+        if (end is not None and time.time() >= end) or cancelled():
+            return bool(m.ida_auto.auto_is_ok())
 
 
 INPUT_STAMP = "input"  # SHA-256 of the input the database was made from

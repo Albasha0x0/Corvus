@@ -21,13 +21,15 @@ internal sealed class IdaSession(IdaProvider provider, IdaInstallation ida, Pyth
     protected override int MaxRestarts => provider.Options.MaxRestarts;
     protected override int JournalSaveThreshold => provider.Options.JournalSaveThreshold;
     internal string DatabasePath => _databasePath;
-    /// <summary>False when opened without auto-analysis: the engine's function list is not complete.</summary>
-    public bool AnalysisComplete => Options.Analysis != EngineAnalysis.None;
+    /// <summary>False when opened without auto-analysis, or when the analysis ran out of the open's time: the engine's function list is not complete.</summary>
+    public bool AnalysisComplete => Options.Analysis != EngineAnalysis.None && _analysisFinished;
+    private bool _analysisFinished = true;
     public string? DatabaseNote => Note;
 
     protected override string? Note => string.Join("; ", new[]
     {
-        AnalysisComplete ? null : "no auto-analysis: functions made where asked",
+        Options.Analysis == EngineAnalysis.None ? "no auto-analysis: functions made where asked"
+            : _analysisFinished ? null : "analysis partial: the open's time ran out; the next open or reanalyze_native continues it",
         Entry?.SnapshotOf is { } pid ? $"read-only snapshot of the database process {pid} has open: edits are not saved" : null,
         _adoptedFrom != null ? $"started from a copy of {_adoptedFrom} (that file is never changed)" : null,
         _adoptionRejected,
@@ -182,6 +184,8 @@ internal sealed class IdaSession(IdaProvider provider, IdaInstallation ida, Pyth
                 ("disable", new JsonArray(ov.DisabledAnalyzers.Select(a => (JsonNode)a).ToArray())));
         var remaining = Options.OpenTimeout - clock.Elapsed;
         if (remaining <= TimeSpan.Zero) remaining = TimeSpan.FromSeconds(1);
+        // the analysis stops early enough to save what it has inside the open's limit, as Ghidra's does
+        var budget = Options.AnalysisBudget ?? remaining - TimeSpan.FromSeconds(Math.Min(120, remaining.TotalSeconds * 0.2));
         var adopting = reuse ? _adopting : null;
         _adopting = null;
         JsonElement info;
@@ -189,7 +193,7 @@ internal sealed class IdaSession(IdaProvider provider, IdaInstallation ida, Pyth
         {
             info = await worker.RequestAsync("open", IdaProvider.Args(("input", Entry!.InputCopy), ("idb", _databasePath), ("ida_args", idaArgs),
                 ("auto", Options.Analysis != EngineAnalysis.None), ("sha256", Entry.Sha256), ("adopted", adopting != null),
-                ("md5", adopting != null ? Md5(Entry.InputCopy) : null), ("raw", raw), ("overrides", overrideArgs)), remaining, cancellationToken).ConfigureAwait(false);
+                ("md5", adopting != null ? Md5(Entry.InputCopy) : null), ("raw", raw), ("overrides", overrideArgs), ("budget_seconds", Math.Max(1, budget.TotalSeconds))), remaining, cancellationToken).ConfigureAwait(false);
         }
         catch (ToolError e) when (adopting != null)
         {
@@ -210,10 +214,14 @@ internal sealed class IdaSession(IdaProvider provider, IdaInstallation ida, Pyth
         }
         ImageBase = loadedBase;
         DecompilerAvailable = info.GetProperty("decompiler").GetBoolean();
+        _analysisFinished = !info.TryGetProperty("analysis_complete", out var done) || done.GetBoolean();
         if (info.TryGetProperty("idb", out var idb) && idb.GetString() is { Length: > 0 } actual && !PathsEqual(actual, _databasePath))
             _databasePath = actual;
         Options.Progress?.Report(new NativeProviderProgress("ready", clock.Elapsed));
     }
+
+    /// <summary>After a reanalysis: whether the queue ran empty, so the database now holds a complete analysis.</summary>
+    internal void Reanalyzed(bool complete) => _analysisFinished = complete;
 
     private static string Md5(string path)
     {

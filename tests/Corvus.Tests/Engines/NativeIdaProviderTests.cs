@@ -616,6 +616,39 @@ public sealed class NativeIdaProviderTests(ITestOutputHelper output, IdaCacheFix
     }
 
     [IdaFact]
+    public async Task An_open_out_of_analysis_time_keeps_a_partial_database_and_the_next_open_completes_it()
+    {
+        // 5,000 functions, each calling the next: push rbp; mov rbp, rsp; call next; pop rbp; ret
+        const int count = 5_000;
+        byte[] function = [0x55, 0x48, 0x89, 0xE5, 0xE8, 0x02, 0, 0, 0, 0x5D, 0xC3];
+        byte[] last = [0x55, 0x48, 0x89, 0xE5, 0x90, 0x90, 0x90, 0x90, 0x90, 0x5D, 0xC3];
+        var b = new PeBuilder();
+        var text = b.Add(".text", [.. Enumerable.Repeat(function, count - 1).SelectMany(f => f), .. last], 0x60000020);
+        b.EntryPoint = text.Rva;
+        using var tmp = new TempDir();
+        var path = tmp.File("many-functions.exe");
+        File.WriteAllBytes(path, b.Build());
+        var provider = Isolated();
+
+        int partial;
+        await using (var s = (IdaSession)await provider.OpenAsync(path, null, Offline with { AnalysisBudget = TimeSpan.FromMilliseconds(100) }))
+        {
+            partial = (await s.ListFunctionsAsync()).Count;
+            output.WriteLine($"first open: {partial} functions, {s.OpenTime.TotalSeconds:0.0} s; {s.DatabaseNote}");
+            Assert.False(s.AnalysisComplete);
+            Assert.Contains("analysis partial", s.DatabaseNote);
+        }
+        await using (var s = (IdaSession)await provider.OpenAsync(path, null, Offline))
+        {
+            var functions = (await s.ListFunctionsAsync()).Count;
+            output.WriteLine($"second open: {functions} functions, {s.OpenTime.TotalSeconds:0.0} s");
+            Assert.True(s.ReusedDatabase);
+            Assert.True(s.AnalysisComplete);
+            Assert.True(functions >= count && functions > partial, $"{functions} functions after {partial}");
+        }
+    }
+
+    [IdaFact]
     public async Task Same_image_cannot_be_open_twice()
     {
         await using var s = await Provider.OpenAsync(System64, null, Offline);

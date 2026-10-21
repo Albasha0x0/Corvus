@@ -33,7 +33,7 @@ public sealed class NativeEngineControlTools(AssemblyWorkspace workspace, Native
     }
 
     [McpServerTool(Name = "reanalyze_native", Title = "Re-run native auto-analysis", UseStructuredContent = true, OutputSchemaType = typeof(ReanalysisReport))]
-    [Description("Re-run IDA or Ghidra auto-analysis over an image (or from-to) and save; a full run also completes a Ghidra analysis the open budget " +
+    [Description("Re-run IDA or Ghidra auto-analysis over an image (or from-to) and save; a full run also completes an analysis the open budget " +
                  "cut short. options= sets analyzers for this run; analyzers=true lists them.")]
     public Task<string> ReanalyzeNative(
         [Description(NativeTools.ImageDescription)] string image,

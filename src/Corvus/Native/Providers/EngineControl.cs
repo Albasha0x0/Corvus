@@ -123,6 +123,7 @@ public static class EngineControl
         {
             var args = WorkerRows.Args(("options", Pairs(options)), ("start", start), ("end", end), ("budget_seconds", seconds));
             var result = Reanalysis(await session.CallAsync("reanalyze", args, cancellationToken, saves: true, timeout: ReanalysisTimeout(seconds)).ConfigureAwait(false));
+            session.Reanalyzed(result.Complete);
             return result;
         }
 
