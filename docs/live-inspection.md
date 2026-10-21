@@ -28,7 +28,7 @@ What is read, and how:
 - Threads: `NtQueryInformationThread` (basic information: TEB, priorities; start address; suspend count),
   `GetThreadDescription`, the stack range from the TEB (`ReadProcessMemory`), registers with `GetThreadContext`
   (`Wow64GetThreadContext` for a 32-bit process seen from the 64-bit server).
-- Stacks: `ReadProcessMemory` of the stack and code, unwound by our own walker (x64 unwind data, x86 EBP chain).
+- Stacks: `ReadProcessMemory` of the stack and code, unwound by our own walker (x64 unwind data; x86 PDB frame data, call targets and EBP chain).
 - Process identity: `QueryFullProcessImageName`, `GetProcessTimes`, `IsWow64Process2`, `GetExitCodeProcess`.
 
 What is never done: no memory write (`WriteProcessMemory`), no protection change (`VirtualProtectEx`), no allocation

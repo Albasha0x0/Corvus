@@ -52,6 +52,24 @@ public class PdbTests
     // ---- reading ----
 
     [Fact]
+    public void X86_frame_data_keeps_programs_and_sizes_the_search_from_fpo_data()
+    {
+        var b = PdbBuilder.Sample();
+        b.FrameData.Add((0x1000, 0x40, 60, 8, 16, "$T0 .raSearch = $eip $T0 ^ = $esp $T0 4 + ="));
+        // FPO_DATA for the same block (a filter that runs on its own stack), and for a block FRAMEDATA leaves out.
+        b.FpoData.Add((0x1000, 0x40, 0, 2, 0, false, 0));
+        b.FpoData.Add((0x1100, 0x20, 1, 1, 3, true, 0));
+        var table = PdbFile.FromBytes(b.Build()).FrameData.Value!;
+        Assert.Equal(2, table.Count);
+        var filter = table.Find(0x1010)!;
+        Assert.Equal(("$T0 .raSearch = $eip $T0 ^ = $esp $T0 4 + =", 0u, 0u, 8u), (filter.Program, filter.Locals, filter.SavedRegs, filter.Params));
+        var fpo = table.Find(0x111F)!;
+        Assert.Equal(((string?)null, 4u, 12u, 4u, true), (fpo.Program, fpo.Locals, fpo.SavedRegs, fpo.Params, fpo.SavesFramePointer));
+        Assert.Null(table.Find(0x1040));
+        Assert.Null(PdbFile.FromBytes(PdbBuilder.Sample().Build()).FrameData.Value);
+    }
+
+    [Fact]
     public void ReadsIdentityModulesSectionsAndSymbols()
     {
         var pdb = PdbFile.FromBytes(PdbBuilder.Sample().Build());

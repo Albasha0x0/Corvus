@@ -59,8 +59,8 @@ public sealed class MinidumpTools(MinidumpService dumps, LiveSessionService? ses
             page => new MinidumpService.DumpReport(id, view) { Items = page.Cast<object>().ToList(), Offset = offset, Total = total }, noun);
 
     [McpServerTool(Name = "dump_stack", Title = "Crash dump stack", UseStructuredContent = true, OutputSchemaType = typeof(MinidumpService.StackReport))]
-    [Description("Call stack of a minidump thread: x64 unwind data, x86 call targets and EBP chain; JIT code without unwind data adds " +
-                 "scanned frames. Names from loaded images (code index, PDB, Il2Cpp) or exports. .NET frames (DAC): token, IL " +
+    [Description("Call stack of a minidump thread: x64 unwind data, x86 PDB frame data, call targets, EBP chain; JIT code without " +
+                 "unwind data: a stack scan. Names from loaded images (code index, PDB, Il2Cpp) or exports. .NET frames (DAC): token, IL " +
                  "offset, assembly, C# statement; Mono JIT frames from the runtime's report beside the dump. ELF cores: CFI, then frame pointer.")]
     public Task<string> DumpStack(
         [Description(DumpDescription)] string dump,

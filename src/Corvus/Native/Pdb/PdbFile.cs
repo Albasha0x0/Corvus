@@ -129,6 +129,8 @@ public sealed class PdbFile
     public DebugInfoFormat Format { get; private init; }
     /// <summary>DWARF: the debug file's GNU build-id or Mach-O UUID (lowercase hex), else null.</summary>
     public string? BuildId { get; private init; }
+    /// <summary>x86 frame data (FRAMEDATA, FPO_DATA), read from the file on first use; null value when the PDB has none.</summary>
+    public Lazy<PdbFrameTable?> FrameData { get; private set; } = new((PdbFrameTable?)null);
     /// <summary>Source lines (and for DWARF inlined functions); null when the debug information has no line tables.</summary>
     public IDebugSourceLookup? Source { get; private set; }
     /// <summary>DWARF: its types as CodeView records (TPI body, record offsets, notes); null for a PDB, whose types are read from its file.</summary>
@@ -141,6 +143,7 @@ public sealed class PdbFile
     private readonly IssueLog _log = new("pdb");
     private (uint From, uint To)[] _omap = [];
     private IReadOnlyList<PdbSection> _addressSections = [];
+    private int _fpoStream = 0xFFFF, _frameDataStream = 0xFFFF;
 
     private PdbFile(string path, long fileSize)
     {
@@ -211,6 +214,21 @@ public sealed class PdbFile
         symbols.Sort((a, b) => a.Rva is { } x ? b.Rva is { } y ? x.CompareTo(y) : -1 : b.Rva is null ? 0 : 1);
         pdb.Symbols = symbols;
         if (pdb.Modules.Any(m => m.C13Bytes > 0)) pdb.Source = new PdbLines(pdb, reopen, names);
+        if (msf.HasStream(pdb._frameDataStream) || msf.HasStream(pdb._fpoStream))
+        {
+            var (frameData, fpo, omap, hasOmap) = (pdb._frameDataStream, pdb._fpoStream, pdb._omap, pdb.HasOmap);
+            pdb.FrameData = new(() =>
+            {
+                // The file can change or go away after the first read: frame data is then absent, not an error on every lookup.
+                try
+                {
+                    using var m = reopen();
+                    var table = names >= 0 && m.HasStream(names) ? m.ReadStream(names) : [];
+                    return PdbFrameTable.Read(m, frameData, fpo, table, rva => hasOmap ? MapOriginal(omap, rva) : rva);
+                }
+                catch (Exception ex) when (ex is Core.ToolError or IOException or UnauthorizedAccessException) { return null; }
+            });
+        }
         pdb.Issues = [.. msf.Issues, .. pdb._log.ToList()];
         return pdb;
     }
@@ -342,6 +360,7 @@ public sealed class PdbFile
             msf.Read(DbiStream, offset, buf);
             for (int i = 0; i < Math.Min(count, streams.Length); i++) streams[i] = BinaryPrimitives.ReadUInt16LittleEndian(buf.AsSpan(i * 2));
         }
+        (_fpoStream, _frameDataStream) = (streams[0], streams[9]);
         Sections = ReadSectionStream(msf, streams[5]);
         _addressSections = Sections;
         if (msf.HasStream(streams[4]) && msf.HasStream(streams[10]))
@@ -405,16 +424,21 @@ public sealed class PdbFile
         if (segment == 0 || segment > _addressSections.Count) return null;
         ulong rva = (ulong)_addressSections[segment - 1].VirtualAddress + offset;
         if (rva > uint.MaxValue) return null;
-        if (!HasOmap) return (uint)rva;
-        int lo = 0, hi = _omap.Length - 1, found = -1;
+        return HasOmap ? MapOriginal(_omap, rva) : (uint)rva;
+    }
+
+    /// <summary>An RVA of the original layout through OMAP-from-source; null when it maps nowhere.</summary>
+    private static uint? MapOriginal((uint From, uint To)[] omap, ulong rva)
+    {
+        int lo = 0, hi = omap.Length - 1, found = -1;
         while (lo <= hi)
         {
             int mid = (lo + hi) >>> 1;
-            if (_omap[mid].From <= rva) { found = mid; lo = mid + 1; }
+            if (omap[mid].From <= rva) { found = mid; lo = mid + 1; }
             else hi = mid - 1;
         }
-        if (found < 0 || _omap[found].To == 0) return null;
-        ulong mapped = _omap[found].To + (rva - _omap[found].From);
+        if (found < 0 || omap[found].To == 0) return null;
+        ulong mapped = omap[found].To + (rva - omap[found].From);
         return mapped <= uint.MaxValue ? (uint)mapped : null;
     }
 

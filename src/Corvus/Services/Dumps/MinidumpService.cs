@@ -55,6 +55,7 @@ public sealed partial class MinidumpService(AssemblyWorkspace? workspace = null,
         {
             IReadOnlyList<PdbName>? pdb = null;
             string? pdbPath = null;
+            Lazy<PdbFrameTable?>? frameData = null;
             try
             {
                 if (image.CodeView is { Format: "RSDS" } && Environment.GetEnvironmentVariable(PdbService.AutoVariable) != "0")
@@ -65,6 +66,7 @@ public sealed partial class MinidumpService(AssemblyWorkspace? workspace = null,
                         var file = PdbFile.Open(location.Path, image.Sections);
                         pdb = PdbNaming.Choose(file, image.SizeOfImage);
                         pdbPath = file.Path;
+                        if (image.Arch == NativeArch.X86) frameData = file.FrameData;
                     }
                 }
             }
@@ -72,7 +74,7 @@ public sealed partial class MinidumpService(AssemblyWorkspace? workspace = null,
             {
                 NamesError = $"PDB not read: {ex.Message}";
             }
-            return new ModuleNames(image, pdb, pdbPath);
+            return new ModuleNames(image, pdb, pdbPath, frameData);
         }
     }
 
@@ -113,9 +115,13 @@ public sealed partial class MinidumpService(AssemblyWorkspace? workspace = null,
             }
         }
 
-        /// <summary>A stack walker over this session's memory, with function starts from the modules' PDB, symbol table and export names.</summary>
+        /// <summary>
+        /// A stack walker over this session's memory, with function starts from the modules' PDB, symbol table and export
+        /// names, and x86 frame data from their PDB.
+        /// </summary>
         public StackWalker Walker(IProcessMemory? view = null) => new(view ?? Memory, m => Code(m).Image,
-            address => Memory.ModuleAt(address) is { } m && Code(m).Names?.Lookup((uint)(address - m.Base)).Start is { } start ? m.Base + start : null);
+            address => Memory.ModuleAt(address) is { } m && Code(m).Names?.Lookup((uint)(address - m.Base)).Start is { } start ? m.Base + start : null,
+            address => Memory.ModuleAt(address) is { } m ? Code(m).Names?.FrameData?.Find((uint)(address - m.Base)) : null);
 
         public IEnumerable<(DumpModule Module, ModuleCode Code)> Loaded
         {

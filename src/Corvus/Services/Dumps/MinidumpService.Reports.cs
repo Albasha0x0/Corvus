@@ -114,7 +114,7 @@ public sealed partial class MinidumpService
         [property: Description("user, pdb, il2cpp, discovered, export, nearest_export (a guess) or none.")] string? SymbolSource,
         string? FunctionAddress,
         [property: Description("native, managed (JIT or ReadyToRun code), unloaded_module or unknown.")] string Kind,
-        [property: Description("How the frame was found: context, unwind_info, epilog, leaf, machine_frame, frame_pointer, call_target (x86: the return address whose call targets this function), scan (heuristic), or clr (the runtime's own stack walk).")] string Method,
+        [property: Description("How the frame was found: context, unwind_info, epilog, leaf, machine_frame, frame_data (PDB), frame_pointer, call_target (x86: the return address whose call targets this function), scan (heuristic), or clr (the runtime's own stack walk).")] string Method,
         [property: Description("derived (frame pointer chain, x86 call target) or inferred (a stack scan or a frame chained from one, may be stale; or a nearest-export name); absent when unwind data or the runtime observed it.")] string? Basis,
         string? Note,
         [property: Description("Managed frames: the method token, for decompile_member with assembly.")] string? Token = null,

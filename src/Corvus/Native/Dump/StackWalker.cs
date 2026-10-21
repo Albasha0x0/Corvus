@@ -16,6 +16,8 @@ public static class FrameMethod
     public const string Leaf = "leaf";
     /// <summary>x64 UWOP_PUSH_MACHFRAME: an interrupt or exception frame.</summary>
     public const string MachineFrame = "machine_frame";
+    /// <summary>x86 frame data from the module's PDB (FRAMEDATA program or FPO_DATA sizes).</summary>
+    public const string FrameData = "frame_data";
     /// <summary>x86 saved frame pointer chain (EBP).</summary>
     public const string FramePointer = "frame_pointer";
     /// <summary>x86 without a frame pointer: the nearest stack slot holding a return address whose call targets this function.</summary>
@@ -38,8 +40,9 @@ public sealed record WalkResult(IReadOnlyList<WalkFrame> Frames, string Stop, IR
 /// Walks a thread's stack in a dump. x64: virtual unwind with the modules' exception data (.pdata RUNTIME_FUNCTION,
 /// UNWIND_INFO codes: push nonvol, alloc small / large, set frame register, save nonvol / xmm128 (near and far),
 /// machine frame, chained info; epilog emulation for the top frame; leaf functions), falling back to a stack scan
-/// (frames marked heuristic) where no unwind data is available (no image, JIT code) or it leads nowhere. x86: a return
-/// address whose call instruction targets the current function (frames that omit the frame pointer), the EBP chain, then a scan. Unwind data and code bytes come from the module images the caller supplies (a matching file
+/// (frames marked heuristic) where no unwind data is available (no image, JIT code) or it leads nowhere. x86: the
+/// module PDB's frame data (FRAMEDATA programs, FPO_DATA), a return address whose call instruction targets the current
+/// function (frames that omit the frame pointer), the EBP chain, then a scan. Unwind data and code bytes come from the module images the caller supplies (a matching file
 /// from disk, or the image rebuilt from dump memory) and from captured memory. Every loop is bounded.
 /// </summary>
 public sealed class StackWalker
@@ -57,15 +60,23 @@ public sealed class StackWalker
     private readonly IProcessMemory _dump;
     private readonly Func<DumpModule, PeFile?> _image;
     private readonly Func<ulong, ulong?>? _functionStart;
+    private readonly Func<ulong, Pdb.PdbFrameRecord?>? _frameData;
     private readonly int _ptr;
+    /// <summary>x86: bytes of arguments the current frame's function pops on return (frame data), for its caller's step.</summary>
+    private uint _calleeParams;
+    /// <summary>x86: the last frame data step found the caller through EBP.</summary>
+    private bool _frameDataReadEbp;
 
     /// <param name="image">The module's image (or null when there is none); called once per module, cache it.</param>
     /// <param name="functionStart">x86: the start address of the function holding an address (PDB or export names), or null.</param>
-    public StackWalker(IProcessMemory dump, Func<DumpModule, PeFile?> image, Func<ulong, ulong?>? functionStart = null)
+    /// <param name="frameData">x86: the PDB frame data record of the code block holding an address, or null.</param>
+    public StackWalker(IProcessMemory dump, Func<DumpModule, PeFile?> image, Func<ulong, ulong?>? functionStart = null,
+        Func<ulong, Pdb.PdbFrameRecord?>? frameData = null)
     {
         _dump = dump;
         _image = image;
         _functionStart = functionStart;
+        _frameData = frameData;
         _ptr = dump.Is64Bit ? 8 : 4;
     }
 
@@ -78,10 +89,12 @@ public sealed class StackWalker
             return new WalkResult([new WalkFrame(start.Ip, start.Sp, FrameMethod.Context, false, false, null)],
                 "unsupported_architecture", [$"stacks are walked for x64 and x86 dumps; this one is {_dump.Arch}"]);
         var ctx = start.Clone();
-        (_scanBudget, _callerBudget) = (MaxScanSlotsPerWalk, MaxScanSlotsPerWalk);
+        (_scanBudget, _callerBudget, _calleeParams) = (MaxScanSlotsPerWalk, MaxScanSlotsPerWalk, 0);
         (_stackLow, _stackHigh) = (stackLow, stackHigh);
         frames.Add(new WalkFrame(ctx.Ip, ctx.Sp, FrameMethod.Context, false, false, start.Complete ? null : "register context is incomplete in the dump"));
         bool top = true, guessedFp = false;
+        // After a scan EBP is a guess, and so is every frame found through it: the EBP chain, or frame data that reads EBP.
+        bool ThroughEbp(string method) => method == FrameMethod.FramePointer || method == FrameMethod.FrameData && _frameDataReadEbp;
         string stop = "max_frames";
         while (frames.Count < maxFrames)
         {
@@ -94,8 +107,8 @@ public sealed class StackWalker
             }
             if (next.Ip == 0)
             {
-                // after a scan EBP is a guess, and so is every frame chained from it: a zero return address read through it does not end the stack
-                if (method == FrameMethod.FramePointer && guessedFp && Scan(ctx.Sp, stackHigh, ctx) is { } above)
+                // A zero return address read through a guessed EBP does not end the stack.
+                if (ThroughEbp(method) && guessedFp && Scan(ctx.Sp, stackHigh, ctx) is { } above)
                     (next, method, heuristic, note) = (above, FrameMethod.Scan, true, "the guessed frame pointer gave a zero return address; scanned the stack");
                 else
                 {
@@ -117,10 +130,10 @@ public sealed class StackWalker
                 notes.Add($"the next frame's stack pointer 0x{next.Sp:X} is outside the thread's stack 0x{stackLow:X}-0x{stackHigh:X}");
                 break;
             }
-            if (method == FrameMethod.FramePointer && guessedFp && !heuristic)
+            if (ThroughEbp(method) && guessedFp && !heuristic)
                 (heuristic, note) = (true, note ?? "chained from the frame pointer a scan guessed");
             frames.Add(new WalkFrame(next.Ip, next.Sp, method, heuristic, method != FrameMethod.MachineFrame, note));
-            guessedFp = method == FrameMethod.Scan || method == FrameMethod.FramePointer && guessedFp;
+            guessedFp = method == FrameMethod.Scan || ThroughEbp(method) && guessedFp;
             ctx = next;
             top = method == FrameMethod.MachineFrame; // after a machine frame the address is an interrupted instruction
         }
@@ -390,6 +403,9 @@ public sealed class StackWalker
 
     private (DumpContext? Next, string Method, bool Heuristic, string? Note) StepX86(DumpContext ctx, bool top)
     {
+        uint calleeParams = _calleeParams;
+        var record = _frameData?.Invoke(top ? ctx.Ip : ctx.Ip - 1);
+        _calleeParams = record?.Params ?? 0;
         if (top)
         {
             // at the first instruction(s) of a standard prolog the caller's frame pointer is still live
@@ -417,6 +433,8 @@ public sealed class StackWalker
                 return (p, FrameMethod.Leaf, false, "the instruction address is not code (a call to a bad address): return address read at the stack pointer");
             }
         }
+        // Frame data describes the body of a block, so the prolog checks above come first.
+        if (record != null && FrameDataStep(ctx, record, calleeParams) is { } unwound) return (unwound, FrameMethod.FrameData, false, null);
         ulong ebp = ctx.Fp;
         uint nextEbp = 0, ret = 0;
         // a saved EBP off the thread's stack is not a frame (code that uses EBP freely, such as a hook's, left it)
@@ -536,6 +554,56 @@ public sealed class StackWalker
     }
 
     private const int TailWindow = 512;
+
+    /// <summary>
+    /// The caller's registers from the PDB frame data of the current code block, or null when its program fails or gives
+    /// no plausible caller. <paramref name="calleeParams"/>: argument bytes the called function popped, which lie above
+    /// this frame's stack pointer.
+    /// </summary>
+    private DumpContext? FrameDataStep(DumpContext ctx, Pdb.PdbFrameRecord record, uint calleeParams)
+    {
+        _frameDataReadEbp = false;
+        // The return address lies past the callee's arguments, the locals and the saved registers; up to three more
+        // slots allow for a stack aligned after the prolog.
+        ulong start = ctx.Sp + calleeParams + record.Locals + record.SavedRegs, search = start;
+        for (int i = 0; i < 4; i++)
+            if (_dump.TryReadU32(start + (ulong)(4 * i), out uint v) && IsPlausibleReturn(v, strict: false))
+            {
+                search = start + (ulong)(4 * i);
+                break;
+            }
+        // Without a program (FPO_DATA, or an empty FRAMEDATA one) the return address is at the search start; EBP is
+        // the first saved register when the block saves it, and a standard frame chains through it.
+        string program = record.Program is { Length: > 0 } p ? p
+            : record.StandardFrame ? "$T0 $ebp = $eip $T0 4 + ^ = $ebp $T0 ^ = $esp $T0 8 + ="
+            : record.SavesFramePointer ? "$eip .raSearch ^ = $ebp $esp .cbCalleeParams + .cbSavedRegs + 4 - ^ = $esp .raSearch 4 + ="
+            : "$eip .raSearch ^ = $esp .raSearch 4 + =";
+        if (search > uint.MaxValue) return null;
+        var variables = new Dictionary<string, uint>(StringComparer.Ordinal)
+        {
+            ["$eip"] = (uint)ctx.Ip, ["$esp"] = (uint)ctx.Sp, ["$ebp"] = (uint)ctx.Fp,
+            ["$eax"] = (uint)ctx.Gpr[0], ["$ecx"] = (uint)ctx.Gpr[1], ["$edx"] = (uint)ctx.Gpr[2], ["$ebx"] = (uint)ctx.Gpr[3],
+            ["$esi"] = (uint)ctx.Gpr[6], ["$edi"] = (uint)ctx.Gpr[7],
+            [".raSearch"] = (uint)search, [".raSearchStart"] = (uint)search,
+            [".cbLocals"] = record.Locals, [".cbParams"] = record.Params, [".cbSavedRegs"] = record.SavedRegs, [".cbCalleeParams"] = calleeParams,
+        };
+        uint esp = (uint)ctx.Sp, eip = (uint)ctx.Ip;
+        uint? Read(uint at) => _dump.TryReadU32(at, out uint got) ? got : null;
+        var shifted = new Dictionary<string, uint>(variables) { ["$ebp"] = (uint)ctx.Fp ^ 0x10000 };
+        var result = X86FrameProgram.Run(program, variables, Read);
+        // A program that assigns neither the return address nor the stack pointer describes no caller.
+        if (result == null || result["$eip"] == eip && result["$esp"] == esp) return null;
+        // Run again with another EBP: a caller found through EBP is as certain as EBP itself.
+        _frameDataReadEbp = X86FrameProgram.Run(program, shifted, Read) is not { } other || other["$eip"] != result["$eip"] || other["$esp"] != result["$esp"];
+        var next = ctx.Clone();
+        next.Ip = result["$eip"];
+        next.Sp = result["$esp"];
+        next.Fp = result["$ebp"];
+        // Programs name the saved registers by CodeView number: 20 EBX, 23 ESI, 24 EDI.
+        (next.Gpr[3], next.Gpr[6], next.Gpr[7]) = (Saved("$20", "$ebx"), Saved("$23", "$esi"), Saved("$24", "$edi"));
+        uint Saved(string number, string name) => result.TryGetValue(number, out uint v) ? v : result[name];
+        return next.Sp > ctx.Sp && (next.Ip == 0 || IsPlausibleReturn((uint)next.Ip, strict: false)) ? next : null;
+    }
 
     /// <summary>The first stack slot at or above <paramref name="from"/> holding a plausible return address.</summary>
     private DumpContext? Scan(ulong from, ulong limit, DumpContext basis)

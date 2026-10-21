@@ -59,7 +59,7 @@
             "type": "string"
           },
           "method": {
-            "description": "How the frame was found: context, unwind_info, epilog, leaf, machine_frame, frame_pointer, call_target (x86: the return address whose call targets this function), scan (heuristic), or clr (the runtime's own stack walk).",
+            "description": "How the frame was found: context, unwind_info, epilog, leaf, machine_frame, frame_data (PDB), frame_pointer, call_target (x86: the return address whose call targets this function), scan (heuristic), or clr (the runtime's own stack walk).",
             "type": "string"
           },
           "basis": {

@@ -21,11 +21,13 @@ public sealed class ModuleNames
     private readonly string[] _names;
     private readonly string[] _sources;
     private readonly uint[] _sizes;
+    private readonly Lazy<PdbFrameTable?>? _frameData;
 
-    public ModuleNames(PeFile image, IReadOnlyList<PdbName>? pdb, string? pdbPath)
+    public ModuleNames(PeFile image, IReadOnlyList<PdbName>? pdb, string? pdbPath, Lazy<PdbFrameTable?>? frameData = null)
     {
         _image = image;
         PdbPath = pdbPath;
+        _frameData = frameData;
         var map = new SortedDictionary<uint, (string Name, string Source, uint Size)>();
         foreach (var e in image.Exports)
             if (e.ForwardedTo == null && e.Name != null) map.TryAdd(e.Rva, (e.Name, "export", 0u));
@@ -46,6 +48,8 @@ public sealed class ModuleNames
 
     /// <summary>The PDB the names came from, or null (exports only).</summary>
     public string? PdbPath { get; }
+    /// <summary>The PDB's x86 frame data, read on first use; null without a PDB or when it has none.</summary>
+    public PdbFrameTable? FrameData => _frameData?.Value;
     /// <summary>The image's COFF symbol table named functions.</summary>
     public bool HasSymbols { get; }
     public int Count => _starts.Length;

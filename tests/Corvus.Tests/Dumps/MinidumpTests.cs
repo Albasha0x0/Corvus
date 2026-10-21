@@ -152,8 +152,12 @@ internal static class SyntheticCrashX86
     public const uint Base = 0x1000_0000, HaltBase = 0x2000_0000, Stack = 0x00E0_0000;
     public const uint LeafRva = 0x1000, MidRva = 0x1020, TopRva = 0x1040, JumpRva = 0x1060, TrapRva = 0x1070, TailRva = 0x1080, OuterRva = 0x10A0;
 
-    /// <summary>A PE32 with .text at 0x1000 and .rdata at 0x2000: exports, and one import whose IAT slot VA the code gets.</summary>
-    internal static byte[] Pe32(string dll, uint imageBase, Func<uint, byte[]> text, (string Name, uint Rva)[] exports, (string Module, string Name)? import)
+    /// <summary>
+    /// A PE32 with .text at 0x1000 and .rdata at 0x2000: exports, one import whose IAT slot VA the code gets, and a
+    /// CodeView record naming a PDB.
+    /// </summary>
+    internal static byte[] Pe32(string dll, uint imageBase, Func<uint, byte[]> text, (string Name, uint Rva)[] exports, (string Module, string Name)? import,
+        (Guid Guid, uint Age, string Pdb)? codeView = null)
     {
         var blob = new PeBlob(0x2000);
         uint descriptors = 0, slot = 0;
@@ -192,11 +196,26 @@ internal static class SyntheticCrashX86
         blob.Patch32(dir + 28, eat);
         blob.Patch32(dir + 32, names);
         blob.Patch32(dir + 36, ordinals);
+        uint debug = 0;
+        if (codeView is { } cv)
+        {
+            blob.Align(4);
+            debug = blob.Zero(28);
+            uint record = blob.Here;
+            blob.Bytes("RSDS"u8);
+            blob.Bytes(cv.Guid.ToByteArray());
+            blob.U32(cv.Age);
+            blob.Ascii(cv.Pdb);
+            blob.Patch32(debug + 12, 2);
+            blob.Patch32(debug + 16, blob.Here - record);
+            blob.Patch32(debug + 20, record);
+        }
         var b = new PeBuilder { Is64 = false, Machine = 0x14C, ImageBase = imageBase, Characteristics = 0x2102 };
         b.Add(".text", text(imageBase + slot), 0x60000020);
         b.Add(".rdata", blob.ToArray());
         b.Directories[PeDirectory.Export] = (dir, blob.Here - dir);
         if (import != null) b.Directories[PeDirectory.Import] = (descriptors, 40);
+        if (debug != 0) b.Directories[6] = (debug, 28);
         return b.Build();
     }
 
@@ -359,6 +378,54 @@ public sealed class MinidumpTests
         var walk = await service.Stack(path, "102", true, 64, 0, 64, dir.Path, default);
         Assert.Equal(["halt!Halt+0x2", "synth32!Trap+0x6"], walk.Items.Take(2).Select(f => f.Symbol));
         Assert.Equal("call_target", walk.Items[1].Method);
+    }
+
+    /// <summary>
+    /// filt32.dll: Outer (an EBP frame) calls Caller, which calls Block; Block calls halt.dll!Halt through esi, so no
+    /// call instruction names Halt, and EBP still holds Outer's frame. Only Outer is exported.
+    /// </summary>
+    [Fact]
+    public async Task X86_frame_data_from_the_module_pdb_finds_the_frames_the_ebp_chain_skips()
+    {
+        const uint Base = 0x1300_0000;
+        var guid = new Guid("5a5a5a5a-1111-2222-3333-444455556666");
+        using var dir = new TempDir();
+        File.WriteAllBytes(Path.Combine(dir.Path, "filt32.dll"), SyntheticCrashX86.Pe32("filt32.dll", Base, _ =>
+        {
+            var text = new byte[0x30];
+            new byte[] { 0x55, 0x8B, 0xEC, 0xE8 }.CopyTo(text, 0); // Outer: push ebp; mov ebp, esp; call Caller; pop ebp; ret
+            BinaryPrimitives.WriteInt32LittleEndian(text.AsSpan(4), 0x10 - 8);
+            new byte[] { 0x5D, 0xC3 }.CopyTo(text, 8);
+            text[0x10] = 0xE8; // Caller: call Block; ret
+            BinaryPrimitives.WriteInt32LittleEndian(text.AsSpan(0x11), 0x20 - 0x15);
+            text[0x15] = 0xC3;
+            new byte[] { 0xFF, 0xD6, 0xC3 }.CopyTo(text, 0x20); // Block: call esi; ret
+            return text;
+        }, [("Outer", 0x1000)], null, (guid, 1, @"C:\build\filt32.pdb")));
+        var pdb = new PdbBuilder { Guid = guid, Age = 1 };
+        pdb.FrameData.Add((0x1020, 3, 0, 0, 0, "$T0 .raSearch = $eip $T0 ^ = $esp $T0 4 + ="));
+        File.WriteAllBytes(Path.Combine(dir.Path, "filt32.pdb"), pdb.Build());
+        var halt = SyntheticCrashX86.Mapped(SyntheticCrashX86.HaltImage());
+        var stack = new byte[0x100];
+        void Put(int at, uint v) => BinaryPrimitives.WriteUInt32LittleEndian(stack.AsSpan(at), v);
+        Put(0x00, Base + 0x1022);
+        Put(0x04, Base + 0x1015);
+        Put(0x44, Base + 0x1008);
+        var d = new MinidumpBuilder { FullMemory = true, ProcessorArchitecture = 0 };
+        d.Modules.Add(new MinidumpBuilder.Module(Base, 0x3000, 0, @"Z:\nowhere\filt32.dll"));
+        d.Modules.Add(new MinidumpBuilder.Module(SyntheticCrashX86.HaltBase, (uint)halt.Length, 0, @"Z:\nowhere\halt.dll"));
+        d.Memory.Add((SyntheticCrashX86.HaltBase, halt));
+        d.Memory.Add((SyntheticCrashX86.Stack, stack));
+        d.Regions.Add(new MinidumpBuilder.Region(SyntheticCrashX86.HaltBase, (ulong)halt.Length, 0x20));
+        d.Regions.Add(new MinidumpBuilder.Region(SyntheticCrashX86.Stack, 0x100, 0x04));
+        d.Threads.Add(new MinidumpBuilder.Thread(107, SyntheticCrashX86.Stack,
+            MinidumpBuilder.ContextX86(SyntheticCrashX86.HaltBase + 0x1000, SyntheticCrashX86.Stack, ebp: SyntheticCrashX86.Stack + 0x40)));
+        var path = dir.File("filt32.dmp");
+        File.WriteAllBytes(path, d.Build());
+        using var service = new MinidumpService();
+        var walk = await service.Stack(path, "107", true, 64, 0, 64, dir.Path, default);
+        Assert.Equal(["halt!Halt", "filt32!Outer+0x22", "filt32!Outer+0x15", "filt32!Outer+0x8"], walk.Items.Take(4).Select(f => f.Symbol));
+        Assert.Equal("frame_data", walk.Items[2].Method);
     }
 
     /// <summary>A function that tail-jumps through an import slot (jmp [slot]) leaves its caller's return address on top: the caller is a call target.</summary>
