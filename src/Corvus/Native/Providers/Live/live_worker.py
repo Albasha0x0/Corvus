@@ -23,6 +23,26 @@ _out = threading.Lock()
 OUTPUT_CHUNK = 4096  # bytes of one program output chunk kept in its event
 
 
+def parent_of(pid):
+    """The parent process id /proc reports (Linux); None elsewhere or once the process is gone."""
+    try:
+        with open("/proc/%d/status" % pid, "r", encoding="ascii", errors="replace") as f:
+            for line in f:
+                if line.startswith("PPid:"):
+                    return int(line.split()[1])
+    except (OSError, ValueError, IndexError):
+        pass
+    return None
+
+
+def image_of(pid):
+    """The path of the image a process runs, as /proc/<pid>/exe links it (Linux); None elsewhere."""
+    try:
+        return os.readlink("/proc/%d/exe" % pid)
+    except OSError:
+        return None
+
+
 def emit(obj):
     line = json.dumps(obj, ensure_ascii=True, separators=(",", ":"))
     with _out:
@@ -106,9 +126,15 @@ class Session:
         if nested:  # a fork's own child, before the fork ran a program: not followed
             self.resume_quietly(child.pid)
             return
+        parent = child.parent_pid
+        if origin == "exec" and fork is None and parent == child.pid:
+            # posix_spawn and vfork run the program with no fork event: the exec names the child as its own parent
+            parent = parent_of(child.pid)
         if fork is not None:
             self.detach_quietly(fork)
-        elif child.parent_pid != self.pid:
+        elif parent != self.pid:
+            if origin == "exec" and parent_of(child.pid) is not None:
+                self.resume_quietly(child.pid)  # an exec in another process's tree is not followed, nor left held
             return
         elif origin == "fork":
             # a fork names no program until its exec: it is followed there, and held (or not) as the program it runs
@@ -125,7 +151,8 @@ class Session:
                 self.detach_quietly(session)
             self.resume_quietly(child.pid)
             return
-        path = child.path or (child.argv[0] if child.argv else child.identifier) or ""
+        # a program that starts a copy of itself runs /proc/self/exe: the image the link names is the program's own
+        path = image_of(child.pid) or child.path or (child.argv[0] if child.argv else child.identifier) or ""
         name = path.replace("\\", "/").rsplit("/", 1)[-1].lower()
         held = self.child_names is None or name in self.child_names or name.rsplit(".", 1)[0] in self.child_names
         if held:

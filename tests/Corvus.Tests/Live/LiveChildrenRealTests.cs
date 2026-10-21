@@ -208,4 +208,32 @@ public sealed class LiveChildrenRealTests(ITestOutputHelper output) : LiveToolCa
         await Ok(server, "live_session", new() { ["action"] = "close", ["session"] = "live-1" });
         Ended(parent);
     }
+
+    // ---- a program that starts a copy of itself through /proc/self/exe: the copy is held by the program's name, and a
+    // stop point set in its session is hit there (fork and execv, and posix_spawn, which reports no fork)
+
+    [LiveTargetFact("linux-x64")] public Task Copy_started_by_fork_and_exec_on_linux_x64() => CopyStopped(LiveTarget.LinuxX64, "fork");
+    [LiveTargetFact("linux-x86")] public Task Copy_started_by_fork_and_exec_on_linux_x86() => CopyStopped(LiveTarget.LinuxX86, "fork");
+    [LiveTargetFact("linux-x64")] public Task Copy_started_by_posix_spawn_on_linux_x64() => CopyStopped(LiveTarget.LinuxX64, "spawn");
+    [LiveTargetFact("linux-x86")] public Task Copy_started_by_posix_spawn_on_linux_x86() => CopyStopped(LiveTarget.LinuxX86, "spawn");
+
+    private async Task CopyStopped(LiveTarget target, string mode)
+    {
+        var exe = target.Build(_dir, "selfstart", LivePrograms.SelfStarter);
+        await using var server = await Server();
+        await Ok(server, "live_session", new() { ["action"] = "spawn", ["program"] = exe, ["arguments"] = new[] { mode }, ["childNames"] = new[] { "selfstart" } });
+        await Ok(server, "live_break", new() { ["session"] = "live-1", ["action"] = "continue" });
+        var copy = await HeldChild(server, exe);
+        await Ok(server, "live_session", new() { ["action"] = "attach_child", ["session"] = "live-1", ["program"] = copy.ToString(CultureInfo.InvariantCulture) });
+        Assert.Contains("s1 set at", await Ok(server, "live_break", new() { ["session"] = "live-2", ["action"] = "set", ["at"] = "libc.so.6!exit" }));
+        var stop = await Ok(server, "live_break", new() { ["session"] = "live-2", ["action"] = "continue", ["wait"] = true, ["waitSeconds"] = 60 });
+        Assert.Matches($@"thread {copy} stopped at s1 \(libc\.so\.6!", stop);
+        Assert.Matches(@"selfstart!main\+0x[0-9A-F]+", stop);
+        await Ok(server, "live_break", new() { ["session"] = "live-2", ["action"] = "continue" });
+        Assert.Matches(@"exit code 0(?![0-9xX])", await UntilExited(server, "live-1"));
+        Assert.Contains("copy exited 3", await Events(server, "live-1", kind: "output"));
+        await Ok(server, "live_session", new() { ["action"] = "close", ["session"] = "live-2" });
+        await Ok(server, "live_session", new() { ["action"] = "close", ["session"] = "live-1" });
+        Ended(copy);
+    }
 }

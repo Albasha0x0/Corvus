@@ -468,6 +468,30 @@ internal static class LivePrograms
         }
         """;
 
+    /// <summary>
+    /// selfstart [fork|spawn] (Linux): starts a copy of itself through /proc/self/exe, by fork and execv or by posix_spawn;
+    /// the copy pauses and exits with 3, and the first prints the copy's exit code.
+    /// </summary>
+    public const string SelfStarter = Platform + """
+        #include <string.h>
+        #include <spawn.h>
+        #include <sys/wait.h>
+        extern char** environ;
+        int main(int argc, char** argv)
+        {
+            if (argc > 1 && strcmp(argv[1], "copy") == 0) { Pause(200); exit(3); }
+            char* args[] = { argv[0], "copy", NULL };
+            pid_t pid;
+            if (argc > 1 && strcmp(argv[1], "spawn") == 0) { if (posix_spawn(&pid, "/proc/self/exe", NULL, NULL, args, environ) != 0) return 2; }
+            else if ((pid = fork()) == 0) { execv("/proc/self/exe", args); _exit(127); }
+            int status = 0;
+            waitpid(pid, &status, 0);
+            printf("copy exited %d\n", WIFEXITED(status) ? WEXITSTATUS(status) : 128);
+            fflush(stdout);
+            return 0;
+        }
+        """;
+
     /// <summary>What workers prints for <paramref name="calls"/> calls per thread.</summary>
     public static long WorkersTotal(int calls) => WorkerThreads * Enumerable.Range(0, calls).Sum(i => (long)(i % 7));
 

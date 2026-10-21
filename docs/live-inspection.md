@@ -180,7 +180,8 @@ action=continue` starts it, and it follows its own children as its parent does. 
 unobserved. A child never stays suspended: when the session closes (by request, at its deadline or with the server),
 every child it still holds runs on, an attached child whose session has not continued too, and a child session closed
 before its first continue goes back to its parent's hold. On Linux a child is reported at its `exec`, by the program it
-runs (a fork that runs on without one is not held); `attach_child` there takes it from the hold stopped (`SIGSTOP`), with
+runs, whether a fork or `posix_spawn` started it (a fork that runs on without one is not held); a program that starts a
+copy of itself through `/proc/self/exe` has its copy named by its own image; `attach_child` there takes it from the hold stopped (`SIGSTOP`), with
 its libraries loaded, so a child session closed before its first continue lets it run; a session that follows children
 there does not report threads that end.
 
