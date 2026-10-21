@@ -70,6 +70,16 @@ public class WorkerConnectionTests
     }
 
     [Fact]
+    public async Task A_worker_that_exits_reports_what_it_wrote_to_stderr()
+    {
+        using var worker = new FakeWorkerProcess();
+        using var c = worker.Connect(Concurrent);
+        var e = await Assert.ThrowsAsync<ToolError>(() => c.RequestAsync("exit_with_message", new JsonObject { ["message"] = "license check failed" }, NoLimit, default));
+        Assert.Equal(ErrorCode.ProviderUnavailable, e.Code);
+        Assert.Contains("license check failed", e.Message);
+    }
+
+    [Fact]
     public async Task Request_that_ignores_cancel_kills_the_worker()
     {
         using var worker = new FakeWorkerProcess();

@@ -9,7 +9,7 @@ namespace Corvus.Tests;
 /// <summary>
 /// A worker thread behind anonymous pipes, speaking <see cref="WorkerProtocol"/> with concurrent requests. Ops: echo,
 /// save, sleep {ms} (cancellable), hold (until <see cref="Release"/>, cancellable), partial (until cancelled, then a result marked partial), stubborn (ignores cancel),
-/// timeout (the request's time limit), set {key,value} / get {key} (per-process state), crash, close, cancel; <see cref="Ops"/> adds or replaces ops.
+/// timeout (the request's time limit), set {key,value} / get {key} (per-process state), crash, exit_with_message {message}, close, cancel; <see cref="Ops"/> adds or replaces ops.
 /// </summary>
 internal sealed class FakeWorkerProcess : ChildProcess
 {
@@ -134,6 +134,17 @@ internal sealed class FakeWorkerProcess : ChildProcess
                     Reply(Ok(id, new JsonObject { ["value"] = State.TryGetValue((string)args["key"]!, out var v) ? v : null }));
                     break;
                 case "crash":
+                    Kill();
+                    break;
+                case "exit_with_message":
+                    // stdout closes first and the message follows, as two pipes of one exit can be read
+                    lock (_write) _workerOut.Dispose();
+                    Thread.Sleep(200);
+                    lock (_write)
+                    {
+                        _workerErr.Write(Encoding.UTF8.GetBytes((string)args["message"]! + "\n"));
+                        _workerErr.Dispose();
+                    }
                     Kill();
                     break;
                 case "close":

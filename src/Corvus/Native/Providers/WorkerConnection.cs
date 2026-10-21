@@ -39,6 +39,7 @@ public sealed class WorkerConnection : IDisposable
     private readonly TaskCompletionSource<JsonElement> _ready = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private readonly TaskCompletionSource _closed = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private readonly TaskCompletionSource _stdoutDone = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    private readonly TaskCompletionSource _stderrDone = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private readonly object _sync = new();
     private readonly Dictionary<long, TaskCompletionSource<WorkerMessage.Response>> _pending = [];
     private readonly Dictionary<long, WorkerRequestState> _running = [];
@@ -60,11 +61,12 @@ public sealed class WorkerConnection : IDisposable
         new Thread(ReadStdout) { IsBackground = true, Name = name + " stdout" }.Start();
         new Thread(ReadStderr) { IsBackground = true, Name = name + " stderr" }.Start();
         new Thread(WriteStdin) { IsBackground = true, Name = name + " stdin" }.Start();
-        // Responses written just before exit are still in the pipe: closed means stdout EOF, or exit plus a short
-        // grace for the case where a surviving grandchild holds the pipe open.
+        // Responses and the exit message written just before exit are still in
+        // the pipes: closed means their EOF, or exit plus a short grace for the
+        // case where a surviving grandchild holds a pipe open.
         _process.Exited.ContinueWith(async _ =>
         {
-            await Task.WhenAny(_stdoutDone.Task, Task.Delay(500)).ConfigureAwait(false);
+            await Task.WhenAny(Task.WhenAll(_stdoutDone.Task, _stderrDone.Task), Task.Delay(500)).ConfigureAwait(false);
             OnClosed();
         }, TaskScheduler.Default);
     }
@@ -321,6 +323,9 @@ public sealed class WorkerConnection : IDisposable
         }
         catch (Exception ex) when (ex is IOException or ObjectDisposedException) { }
         _stdoutDone.TrySetResult();
+        // The exit message is read on its own thread: give it a moment, so the
+        // error carries it.
+        _stderrDone.Task.Wait(1000);
         OnClosed();
     }
 
@@ -334,6 +339,7 @@ public sealed class WorkerConnection : IDisposable
             while ((n = reader.Read(buffer, 0, buffer.Length)) > 0) _stderr.Append(new string(buffer, 0, n));
         }
         catch (Exception ex) when (ex is IOException or ObjectDisposedException) { }
+        _stderrDone.TrySetResult();
     }
 
     private void OnClosed()
