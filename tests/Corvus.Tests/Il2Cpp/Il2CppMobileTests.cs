@@ -262,6 +262,24 @@ public sealed class Il2CppMobileTests(ITestOutputHelper output) : IDisposable
     }
 
     [Fact]
+    public void PackageTrimLeavesExtractionsUsedRecentlyForOtherReaders()
+    {
+        var root = _dir.File("packages-trim");
+        string Entry(string name, TimeSpan age)
+        {
+            var dir = Directory.CreateDirectory(Path.Combine(root, name)).FullName;
+            File.WriteAllText(Path.Combine(dir, Il2CppPackages.MarkerFileName), "{}");
+            Directory.SetLastWriteTimeUtc(dir, DateTime.UtcNow - age);
+            return dir;
+        }
+        var recent = Enumerable.Range(0, Il2CppPackages.MaxPackages + 2).Select(i => Entry($"recent{i}", TimeSpan.FromSeconds(i))).ToList();
+        var old = Enumerable.Range(0, 2).Select(i => Entry($"old{i}", TimeSpan.FromHours(1 + i))).ToList();
+        Il2CppPackages.Trim(root, recent[0]);
+        Assert.All(recent, d => Assert.True(Directory.Exists(d), d)); // beyond the limit, but a reader may still use its binary
+        Assert.All(old, d => Assert.False(Directory.Exists(d), d));
+    }
+
+    [Fact]
     public void DumpsNameAnyGameBinaryAndMatchCopiesByIdentity()
     {
         // An Il2CppDumper dump beside libil2cpp.so.

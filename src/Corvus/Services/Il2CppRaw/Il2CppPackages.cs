@@ -14,8 +14,8 @@ namespace Corvus.Services;
 public static partial class Il2CppPackages
 {
     public const string FolderName = "packages";
-    private const string MarkerFileName = "package.json";
-    private const int MaxPackages = 8;
+    internal const string MarkerFileName = "package.json";
+    internal const int MaxPackages = 8;
     /// <summary>The Unity version is in the first bytes of data.unity3d; the rest (often hundreds of MB) is not needed.</summary>
     private const int VersionHeaderBytes = 1 << 16;
     private const long MaxEntryBytes = 2L << 30;
@@ -240,14 +240,18 @@ public static partial class Il2CppPackages
         else if (items.FirstOrDefault(i => i.Path == data + "data.unity3d") is { } bundle) wanted.Add((bundle, VersionHeaderBytes));
     }
 
-    /// <summary>Keeps the <see cref="MaxPackages"/> most recently used extractions.</summary>
-    private static void Trim(string root, string keep)
+    /// <summary>
+    /// Keeps the <see cref="MaxPackages"/> most recently used extractions, and any used within
+    /// <see cref="Il2CppRawLoader.InUseWindow"/>: another workspace or server may still be reading its binary.
+    /// </summary>
+    internal static void Trim(string root, string keep)
     {
         try
         {
+            var recent = DateTime.UtcNow - Il2CppRawLoader.InUseWindow;
             foreach (var old in Directory.EnumerateDirectories(root).Where(d => File.Exists(Path.Combine(d, MarkerFileName)) && !d.Equals(keep, StringComparison.OrdinalIgnoreCase))
                          .OrderByDescending(Directory.GetLastWriteTimeUtc).Skip(MaxPackages - 1))
-                TryDelete(old);
+                if (Directory.GetLastWriteTimeUtc(old) < recent) TryDelete(old);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
     }
