@@ -155,8 +155,12 @@ internal sealed class ClrHelperClient : IClrBackend, ILiveClrReads
         return new ToolError(ErrorCode.ProviderUnavailable, $"the 32-bit .NET decoder exited ({why}){(stderr.Length > 0 ? ": " + Format.Clip(stderr.Trim(), 500) : "")}.", "call again to restart it");
     }
 
+    /// <summary>The process was ended: this client answers no further call.</summary>
+    public bool Ended { get; private set; }
+
     public void Dispose()
     {
+        Ended = true;
         try { _input.WriteLine("exit"); }
         catch (Exception ex) when (ex is IOException or ObjectDisposedException) { }
         _process.Dispose(); // waits for the exit, so the folder is free

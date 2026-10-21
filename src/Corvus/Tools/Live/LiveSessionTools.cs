@@ -763,14 +763,17 @@ public sealed partial class LiveSessionTools(ServerOptions options, LiveSessionS
 
     private static string Until(LiveDeferred d) => d.UntilCompiled ? $"deferred until {d.Module} is compiled" : $"deferred until {d.Module} loads";
 
+    /// <summary>The error of a session call while sessions are off, naming the flag that turns them on.</summary>
+    internal static ToolError SessionsOff(bool spawn = false, bool attach = false) =>
+        new(ErrorCode.Unsupported, "Sessions on running programs are off in this server.",
+            spawn ? $"start the server with {ServerOptions.AllowLiveSpawnOption} (or {ServerOptions.AllowLiveSpawnVariable}=1)"
+            : attach ? $"start the server with {ServerOptions.AllowLiveAttachOption} (or {ServerOptions.AllowLiveAttachVariable}=1)"
+            : $"start the server with {ServerOptions.AllowLiveAttachOption} or {ServerOptions.AllowLiveSpawnOption}");
+
     /// <summary>The opt-in flags: starting a program needs --allow-live-spawn, attaching --allow-live-attach (each turns on --allow-live).</summary>
     private void Require(bool spawn, bool attach = false)
     {
-        if (!options.AllowLive)
-            throw new ToolError(ErrorCode.Unsupported, "Sessions on running programs are off in this server.",
-                spawn ? $"start the server with {ServerOptions.AllowLiveSpawnOption} (or {ServerOptions.AllowLiveSpawnVariable}=1)"
-                : attach ? $"start the server with {ServerOptions.AllowLiveAttachOption} (or {ServerOptions.AllowLiveAttachVariable}=1)"
-                : $"start the server with {ServerOptions.AllowLiveAttachOption} or {ServerOptions.AllowLiveSpawnOption}");
+        if (!options.AllowLive) throw SessionsOff(spawn, attach);
         if (spawn && !options.AllowLiveSpawn)
             throw new ToolError(ErrorCode.Unsupported, "Starting a program under a session is off in this server.",
                 $"start the server with {ServerOptions.AllowLiveSpawnOption} (or {ServerOptions.AllowLiveSpawnVariable}=1) as well");

@@ -2715,13 +2715,13 @@ Structured output: `dump`, `threadId`, `threadName`, `context`, `architecture`, 
 
 ### dump_heap
 
-**Crash dump .NET heap** (read-only, idempotent, long-running)
+**.NET heap of a dump or session** (read-only, idempotent, long-running)
 
-Lists the .NET GC heap of a minidump (through the DAC). stats: count and size per type, largest first; objects: matching objects (address, type, size, a string's value). Needs heap memory in the dump (else heap_not_captured).
+Lists the .NET GC heap of a minidump or session (through the DAC). stats: count and size per type, largest first; objects: matching objects (address, type, size, a string's value). Needs heap memory in the dump (else heap_not_captured).
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `dump` | string | yes |  | A .dmp path or the id open_minidump returned. |
+| `dump` | string | yes |  | A .dmp path, open_minidump's id, or a session id (live-1): its program, read while it runs. |
 | `mode` | string |  | `stats` | stats (per type) or objects (one row each). Values: stats, objects. |
 | `type` | string |  |  | Type full name, '*' / '?' wildcards; default all. |
 | `minSize` | integer |  | `0` | Min object size in bytes. |
@@ -2734,13 +2734,13 @@ Structured output: `dump`, `mode`, `type`, `minSize`, `walked`, `matchedBytes`, 
 
 ### dump_object
 
-**Crash dump .NET object** (read-only, idempotent)
+**.NET object of a dump or session** (read-only, idempotent)
 
-One .NET object of a dump (DAC): type, size, fields (references expanded depth levels), a string's or boxed value, or array elements.
+One .NET object of a dump or session (DAC): type, size, fields (references expanded depth levels), a string's or boxed value, or array elements.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `dump` | string | yes |  | A .dmp path or the id open_minidump returned. |
+| `dump` | string | yes |  | A .dmp path, open_minidump's id, or a session id (live-1): its program, read while it runs. |
 | `address` | string | yes |  | Hex address of the object. |
 | `depth` | integer |  | `1` | Levels of referenced objects expanded (up to 3). |
 | `maxFields` | integer |  | `100` | Max fields listed, nested ones included. |

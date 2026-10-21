@@ -153,6 +153,11 @@ managed code unnamed; a stop point on a managed method is then set when the JIT 
 machine from a symbol server, into the same signature-checked cache as `open_minidump downloadDac=true`; it is off by
 default and refused under `CORVUS_OFFLINE=1`.
 
+`dump_heap` and `dump_object` take a session id in place of a dump: heap statistics by type, matching objects and one
+object's fields, read from the running program through the same runtime reader, without stopping it. The program runs
+during the read, so each report says that objects allocated, moved or freed meanwhile can be missing or counted twice,
+and an object listed before a garbage collection may be gone; a snapshot (`live_session action=snapshot`) holds one state.
+
 A stop point or watch on `module!name` whose module is not loaded yet is deferred, as a debugger defers an unresolved
 breakpoint: the loading thread waits at the module's load, before any of the module's code runs, until the point is set
 (a `module` event says so), so its first call is caught. A deferred point the loaded module does not resolve is

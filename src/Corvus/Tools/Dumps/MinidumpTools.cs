@@ -9,9 +9,10 @@ namespace Corvus.Tools;
 
 /// <summary>Windows crash dumps (minidumps): summary, stack walks, captured memory.</summary>
 [McpServerToolType]
-public sealed class MinidumpTools(MinidumpService dumps)
+public sealed class MinidumpTools(MinidumpService dumps, LiveSessionService? sessions = null, ServerOptions? options = null)
 {
     private const string DumpDescription = "A .dmp path or the id open_minidump returned.";
+    private const string HeapSourceDescription = "A .dmp path, open_minidump's id, or a session id (live-1): its program, read while it runs.";
     private const string ImageDirectoriesDescription =
         "Program binary folders (';'-separated), kept for the dump, plus its own folder.";
 
@@ -81,11 +82,11 @@ public sealed class MinidumpTools(MinidumpService dumps)
         return ToolOutput.List(r.Items, r.Offset, limit, r.Total, DumpText.Frame, page => r with { Items = page }, "frame", header);
     }, cancellationToken);
 
-    [McpServerTool(Name = "dump_heap", Title = "Crash dump .NET heap", UseStructuredContent = true, OutputSchemaType = typeof(MinidumpService.HeapReport))]
-    [Description("Lists the .NET GC heap of a minidump (through the DAC). stats: count and size per type, largest first; objects: matching objects " +
+    [McpServerTool(Name = "dump_heap", Title = ".NET heap of a dump or session", UseStructuredContent = true, OutputSchemaType = typeof(MinidumpService.HeapReport))]
+    [Description("Lists the .NET GC heap of a minidump or session (through the DAC). stats: count and size per type, largest first; objects: matching objects " +
                  "(address, type, size, a string's value). Needs heap memory in the dump (else heap_not_captured).")]
     public Task<string> DumpHeap(
-        [Description(DumpDescription)] string dump,
+        [Description(HeapSourceDescription)] string dump,
         [Description("stats (per type) or objects (one row each).")] string? mode = "stats",
         [Description("Type full name, '*' / '?' wildcards; default all.")] string? type = null,
         [Description("Min object size in bytes.")] long minSize = 0,
@@ -95,23 +96,35 @@ public sealed class MinidumpTools(MinidumpService dumps)
         [Description(ToolSupport.MaxTokensDescription)] int? maxTokens = null,
         CancellationToken cancellationToken = default) => Task.Run(async () =>
     {
-        var r = await dumps.Heap(dump, mode, type, (ulong)Math.Max(0, minSize), offset, limit, maxObjects, cancellationToken);
+        var r = Session(dump) is { } session
+            ? dumps.Heap(session, await sessions!.ClrAsync(session, cancellationToken), mode, type, (ulong)Math.Max(0, minSize), offset, limit, maxObjects, cancellationToken)
+            : await dumps.Heap(dump, mode, type, (ulong)Math.Max(0, minSize), offset, limit, maxObjects, cancellationToken);
         var header = $"{r.Dump}: {r.Walked:N0} objects walked, {r.MatchedBytes:N0} bytes matching{(r.Type != null ? $" type {r.Type}" : "")}{(r.MinSize > 0 ? $" of at least {r.MinSize} bytes" : "")}\n" +
                      string.Concat(r.Notes.Select(n => $"note: {n}\n"));
         return ToolOutput.List(r.Items, r.Offset, limit, r.Total, DumpText.HeapRow, page => r with { Items = page }, r.Mode == "stats" ? "type" : "object", header, r.TotalExact);
     }, cancellationToken);
 
-    [McpServerTool(Name = "dump_object", Title = "Crash dump .NET object", UseStructuredContent = true)]
-    [Description("One .NET object of a dump (DAC): type, size, fields (references expanded depth levels), a string's or " +
+    [McpServerTool(Name = "dump_object", Title = ".NET object of a dump or session", UseStructuredContent = true)]
+    [Description("One .NET object of a dump or session (DAC): type, size, fields (references expanded depth levels), a string's or " +
                  "boxed value, or array elements.")]
     public Task<MinidumpService.ObjectReport> DumpObject(
-        [Description(DumpDescription)] string dump,
+        [Description(HeapSourceDescription)] string dump,
         [Description("Hex address of the object.")] string address,
         [Description("Levels of referenced objects expanded (up to 3).")] int depth = 1,
         [Description("Max fields listed, nested ones included.")] int maxFields = 100,
         [Description("Max array elements listed.")] int maxArrayItems = 32,
         CancellationToken cancellationToken = default) =>
-        Task.Run(() => dumps.Object(dump, address, depth, maxFields, maxArrayItems, cancellationToken), cancellationToken);
+        Task.Run(async () => Session(dump) is { } session
+            ? dumps.Object(session, await sessions!.ClrAsync(session, cancellationToken), address, depth, maxFields, maxArrayItems)
+            : await dumps.Object(dump, address, depth, maxFields, maxArrayItems, cancellationToken), cancellationToken);
+
+    /// <summary>The running session <paramref name="dump"/> names, or null for a dump.</summary>
+    private LiveSession? Session(string dump)
+    {
+        if (!LiveSessionService.IsSessionId(dump)) return null;
+        if (sessions == null || options?.AllowLive != true) throw LiveSessionTools.SessionsOff();
+        return sessions.Running(dump);
+    }
 
     [McpServerTool(Name = "read_dump_memory", Title = "Read crash dump memory", UseStructuredContent = true, OutputSchemaType = typeof(MinidumpService.MemoryRead))]
     [Description("Hex dump of a dump's memory at an address with what is there (module!function, captured range, protection). " +

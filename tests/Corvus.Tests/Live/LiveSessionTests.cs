@@ -944,4 +944,20 @@ public sealed class LiveSessionTests : IDisposable
         Assert.Null(FridaBackend.Remediation(ErrorCode.Timeout, "set"));
         Assert.Null(FridaBackend.Remediation(ErrorCode.Failed, "open"));
     }
+
+    [Fact]
+    public async Task The_heap_tools_take_a_session_and_name_why_its_program_has_no_heap_to_read()
+    {
+        using var dumps = new MinidumpService(_workspace);
+        var off = await Assert.ThrowsAsync<ToolError>(() => new MinidumpTools(dumps, _service, new ServerOptions()).DumpHeap("live-1"));
+        Assert.Contains("Sessions on running programs are off", off.Message);
+        var tools = new MinidumpTools(dumps, _service, new ServerOptions { AllowLiveSpawn = true });
+        await _tools.LiveSession("spawn", program: Sqlite);
+        var heap = await Assert.ThrowsAsync<ToolError>(() => tools.DumpHeap("live-1"));
+        Assert.Equal(ErrorCode.Unsupported, heap.Code);
+        Assert.Contains("the program of session live-1 has loaded no .NET runtime", heap.Message);
+        Assert.Contains("has loaded no .NET runtime", (await Assert.ThrowsAsync<ToolError>(() => tools.DumpObject("live-1", "0x1000"))).Message);
+        await _tools.LiveSession("close", session: "live-1");
+        Assert.Contains("The program of session live-1 has ended", (await Assert.ThrowsAsync<ToolError>(() => tools.DumpHeap("live-1"))).Message);
+    }
 }

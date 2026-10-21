@@ -76,63 +76,115 @@ public sealed partial class MinidumpService
         return decoder;
     }
 
+
+    /// <summary>A running program's heap changes during a read: said in every live heap and object report.</summary>
+    internal const string LiveHeapNote = "The program runs during the read: objects allocated, moved or freed meanwhile can be missing or counted twice; " +
+                                         "a snapshot (live_session action=snapshot, then open_minidump) holds one state.";
+
+    private static bool HeapStats(string? mode) => (mode?.Trim().ToLowerInvariant() ?? "stats") switch
+    {
+        "" or "stats" => true,
+        "objects" => false,
+        _ => throw new ToolError(ErrorCode.InvalidArgument, $"mode '{mode}' is not stats or objects."),
+    };
+
     public async Task<HeapReport> Heap(string path, string? mode, string? type, ulong minSize, int offset, int limit, long maxObjects, CancellationToken ct)
     {
-        bool stats = (mode?.Trim().ToLowerInvariant() ?? "stats") switch
-        {
-            "" or "stats" => true,
-            "objects" => false,
-            _ => throw new ToolError(ErrorCode.InvalidArgument, $"mode '{mode}' is not stats or objects."),
-        };
+        bool stats = HeapStats(mode);
         using var s = Open(path, null);
         var decoder = await RequireRuntime(s, heap: true, ct);
+        using (AssemblyWorkspace.Lock(decoder.Gate))
+            return HeapOf(s.Id, decoder, a => Hex(s.Memory, a), HeapHint(s.Core != null), stats, type, minSize, offset, limit, maxObjects, [], ct);
+    }
+
+    /// <summary>The heap of a session's running program, read through its runtime without stopping it.</summary>
+    public HeapReport Heap(LiveSession session, LiveClr? clr, string? mode, string? type, ulong minSize, int offset, int limit, long maxObjects, CancellationToken ct)
+    {
+        bool stats = HeapStats(mode);
+        var runtime = LiveRuntime(session, clr);
+        return runtime.Decode(decoder =>
+        {
+            if (decoder.Facts().Heap is { Walkable: false } state)
+                throw new ToolError(ErrorCode.Conflict, $"{state.Reason}: a garbage collection is in progress.", "call again");
+            // cancelling ends the 32-bit decoder process, which the session keeps for its stops: that walk runs to its end
+            return HeapOf(session.Id, decoder, a => LiveHex(session, a), "call again", stats, type, minSize, offset, limit, maxObjects, [LiveHeapNote],
+                decoder.OutOfProcess ? CancellationToken.None : ct);
+        });
+    }
+
+    private HeapReport HeapOf(string id, ClrDecoder decoder, Func<ulong, string> hex, string hint, bool stats, string? type, ulong minSize, int offset, int limit,
+        long maxObjects, List<string> notes, CancellationToken ct)
+    {
         offset = Math.Max(0, offset);
         limit = Math.Clamp(limit, 1, MaxListLimit);
         maxObjects = Math.Clamp(maxObjects, 1, 100_000_000);
         string? pattern = string.IsNullOrWhiteSpace(type) ? null : type.Trim();
-        var notes = new List<string>();
-        using (AssemblyWorkspace.Lock(decoder.Gate))
+        var (rows, objects, matched, walked, stopped) = decoder.Walk(pattern, minSize, maxObjects, stats ? 0 : offset, stats ? 0 : limit, ct);
+        if (walked == 0)
+            throw new ToolError(ErrorCode.Unsupported, "heap_not_captured: no object of the GC heap is readable in this dump.", hint);
+        if (stopped) notes.Add($"The walk stopped after {walked} objects (maxObjects): counts cover only that part of the heap.");
+        ulong bytes = 0;
+        foreach (var r in rows) bytes += r.TotalSize;
+        if (stats)
         {
-            var (rows, objects, matched, walked, stopped) = decoder.Walk(pattern, minSize, maxObjects, stats ? 0 : offset, stats ? 0 : limit, ct);
-            if (walked == 0)
-                throw new ToolError(ErrorCode.Unsupported, "heap_not_captured: no object of the GC heap is readable in this dump.", HeapHint(s.Core != null));
-            if (stopped) notes.Add($"The walk stopped after {walked} objects (maxObjects): counts cover only that part of the heap.");
-            ulong bytes = 0;
-            foreach (var r in rows) bytes += r.TotalSize;
-            if (stats)
+            var page = rows.Skip(offset).Take(limit).Select(r =>
             {
-                var page = rows.Skip(offset).Take(limit).Select(r =>
-                {
-                    var (assembly, _) = AssemblyFor(r.Type.ModulePath, r.Type.Mvid);
-                    return new HeapRow(r.Type.Name, r.TotalSize) { Count = r.Count, Assembly = assembly, Token = TypeDefToken(r.Type.Token) };
-                }).ToList();
-                return new HeapReport(s.Id, "stats", pattern, minSize, walked, bytes, page, offset, rows.Count, !stopped, notes);
-            }
-            var list = objects.Select(o => new HeapRow(o.Type, o.Size) { Address = Hex(s.Memory, o.Address), Value = o.Value }).ToList();
-            return new HeapReport(s.Id, "objects", pattern, minSize, walked, bytes, list, offset, (int)Math.Min(matched, int.MaxValue), !stopped, notes);
+                var (assembly, _) = AssemblyFor(r.Type.ModulePath, r.Type.Mvid);
+                return new HeapRow(r.Type.Name, r.TotalSize) { Count = r.Count, Assembly = assembly, Token = TypeDefToken(r.Type.Token) };
+            }).ToList();
+            return new HeapReport(id, "stats", pattern, minSize, walked, bytes, page, offset, rows.Count, !stopped, notes);
         }
+        var list = objects.Select(o => new HeapRow(o.Type, o.Size) { Address = hex(o.Address), Value = o.Value }).ToList();
+        return new HeapReport(id, "objects", pattern, minSize, walked, bytes, list, offset, (int)Math.Min(matched, int.MaxValue), !stopped, notes);
     }
+
+    private static ulong ObjectAddress(string address) =>
+        NativeAddress.Number((address ?? "").Trim())
+        ?? throw new ToolError(ErrorCode.InvalidArgument, $"'{address}' is not an address.", "pass the hex address of a managed object (dump_heap objects, the exception address of open_minidump)");
 
     public async Task<ObjectReport> Object(string path, string address, int depth, int maxFields, int maxArrayItems, CancellationToken ct)
     {
         using var s = Open(path, null);
-        ulong at = NativeAddress.Number((address ?? "").Trim())
-                   ?? throw new ToolError(ErrorCode.InvalidArgument, $"'{address}' is not an address.", "pass the hex address of a managed object (dump_heap objects, the exception address of open_minidump)");
+        ulong at = ObjectAddress(address);
         var decoder = await RequireRuntime(s, heap: false, ct);
+        using (AssemblyWorkspace.Lock(decoder.Gate))
+            return ObjectOf(s.Id, decoder, a => Hex(s.Memory, a), "(or the dump does not hold it)", at, depth, maxFields, maxArrayItems, []);
+    }
+
+    /// <summary>One object of a session's running program, read through its runtime without stopping it.</summary>
+    public ObjectReport Object(LiveSession session, LiveClr? clr, string address, int depth, int maxFields, int maxArrayItems)
+    {
+        ulong at = ObjectAddress(address);
+        return LiveRuntime(session, clr).Decode(decoder =>
+            ObjectOf(session.Id, decoder, a => LiveHex(session, a), "(a garbage collection can move or free an object after its address was listed)", at, depth, maxFields, maxArrayItems, [LiveHeapNote]));
+    }
+
+    private ObjectReport ObjectOf(string id, ClrDecoder decoder, Func<ulong, string> hex, string missing, ulong at, int depth, int maxFields, int maxArrayItems, List<string> notes)
+    {
         depth = Math.Clamp(depth, 1, 3);
         maxFields = Math.Clamp(maxFields, 1, 1000);
         maxArrayItems = Math.Clamp(maxArrayItems, 0, 1000);
-        using (AssemblyWorkspace.Lock(decoder.Gate))
-        {
-            var view = decoder.Object(at, depth, maxFields, maxArrayItems)
-                       ?? throw new ToolError(ErrorCode.NotFound, $"no managed object at {Hex(s.Memory, at)} (or the dump does not hold it).",
-                           "pass an object address from dump_heap mode=objects or open_minidump's managed exception");
-            var notes = new List<string>();
-            var (assembly, check) = AssemblyFor(view.Type.ModulePath, view.Type.Mvid);
-            if (check == "mismatch") notes.Add($"{assembly} is another build of the type's module (MVID differs).");
-            var fields = view.Fields.Select(f => new ObjectFieldRow(f.Path, f.Depth, f.Type, f.Offset, f.Value, f.Address is { } a ? Hex(s.Memory, a) : null)).ToList();
-            return new ObjectReport(s.Id, Hex(s.Memory, view.Address), view.Type.Name, view.Size, assembly,
-                TypeDefToken(view.Type.Token), check, view.Value, view.Length, fields, view.Truncated, notes);
-        }
+        var view = decoder.Object(at, depth, maxFields, maxArrayItems)
+                   ?? throw new ToolError(ErrorCode.NotFound, $"no managed object at {hex(at)} {missing}.",
+                       "pass an object address from dump_heap mode=objects or open_minidump's managed exception");
+        var (assembly, check) = AssemblyFor(view.Type.ModulePath, view.Type.Mvid);
+        if (check == "mismatch") notes.Add($"{assembly} is another build of the type's module (MVID differs).");
+        var fields = view.Fields.Select(f => new ObjectFieldRow(f.Path, f.Depth, f.Type, f.Offset, f.Value, f.Address is { } a ? hex(a) : null)).ToList();
+        return new ObjectReport(id, hex(view.Address), view.Type.Name, view.Size, assembly,
+            TypeDefToken(view.Type.Token), check, view.Value, view.Length, fields, view.Truncated, notes);
     }
+
+    /// <summary>The session's runtime, or an error naming why its program has none to read.</summary>
+    private static LiveClr LiveRuntime(LiveSession session, LiveClr? clr)
+    {
+        if (clr == null)
+            throw new ToolError(ErrorCode.Unsupported, $"the program of session {session.Id} has loaded no .NET runtime (CoreCLR or .NET Framework) this tool reads.",
+                "a program spawned suspended loads its runtime once it runs (live_break action=continue)");
+        if (clr.Unavailable is { } why)
+            throw new ToolError(ErrorCode.Unsupported, $"the program's runtime ({clr.RuntimeName}) cannot be read: {why}.",
+                "open the session with downloadDac=true for a DAC this machine lacks");
+        return clr;
+    }
+
+    private static string LiveHex(LiveSession session, ulong v) => session.Arch is "ia32" or "arm" ? $"0x{v & 0xFFFFFFFF:X}" : $"0x{v:X}";
 }

@@ -59,6 +59,23 @@ public sealed class LiveClr : IDisposable
         return default;
     }
 
+    /// <summary>
+    /// A read of the runtime's heap or objects through its decoder (see <see cref="ClrDecoder.Walk"/>). Errors of the read
+    /// itself reach the caller; a 32-bit decoder that stopped during it stops the session's decoder, as for the other reads.
+    /// </summary>
+    internal T Decode<T>(Func<ClrDecoder, T> read)
+    {
+        string? stopped = null;
+        lock (_decoder.Gate)
+        {
+            if (Unavailable is { } why) throw new ToolError(ErrorCode.Unsupported, $"the program's runtime cannot be read: {why}.");
+            try { return read(_decoder); }
+            catch (ToolError e) when (_decoder.Ended) { Lost = stopped = e.Message; }
+        }
+        Stopped?.Invoke(stopped);
+        throw new ToolError(ErrorCode.ProviderUnavailable, $"the program's runtime cannot be read: decoder_stopped: {stopped}.");
+    }
+
     /// <summary>Drops what was read before: the program has run since (new modules, code compiled, code moved to a later tier).</summary>
     public void Refresh() => Read(live => { live.Refresh(); return 0; });
 

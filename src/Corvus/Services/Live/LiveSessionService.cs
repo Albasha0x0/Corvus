@@ -326,6 +326,21 @@ public sealed partial class LiveSessionService(AssemblyWorkspace workspace, Nati
         _sessions.TryGetValue(id?.Trim() ?? "", out var s) ? s
             : throw new ToolError(ErrorCode.NotFound, $"No session '{id}'.", "live_session action=list shows the sessions; action=attach or spawn opens one");
 
+    /// <summary>Whether <paramref name="text"/> is a session id (live-1) rather than a path, process name or dump id.</summary>
+    public static bool IsSessionId(string? text) => System.Text.RegularExpressions.Regex.IsMatch(text?.Trim() ?? "", @"^live-\d+$", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+
+    /// <summary>
+    /// The session <paramref name="id"/> while its program runs; after its exit the process id may name another process,
+    /// so an ended program is not_found.
+    /// </summary>
+    public LiveSession Running(string id)
+    {
+        var session = Get(id);
+        if (session.State is "exited" or "failed" || session.Closed && session.Spawned)
+            throw new ToolError(ErrorCode.NotFound, $"The program of session {session.Id} has ended ({session.Ended}).", "open_minidump reads a snapshot saved while it ran (live_session action=snapshot)");
+        return session;
+    }
+
     /// <summary>Attaches to a process (id or name) or starts <paramref name="program"/>; returns the open session.</summary>
     public async Task<LiveSession> OpenAsync(bool spawn, string program, IReadOnlyList<string> arguments, CancellationToken ct,
         IReadOnlyList<string>? environment = null, IReadOnlyList<string>? childNames = null, bool stopped = false, bool downloadDac = false)

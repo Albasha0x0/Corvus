@@ -549,17 +549,25 @@ public sealed class LiveDotnetRealTests(ITestOutputHelper output) : LiveToolCall
         await Refused(server, "live_coverage", new() { ["action"] = "report", ["run"] = runs[0], ["format"] = "dot" }, "unsupported");
     }
 
-    /// <summary>Builds a 32-bit .NET Framework program: Main calls Add <paramref name="rounds"/> times, 20 ms apart, then Late; Unused never runs.</summary>
-    private string Calc32(int rounds = 10)
+    /// <summary>Builds a 32-bit .NET Framework program <paramref name="name"/>.exe from <paramref name="source"/>.</summary>
+    private string Framework32(string name, string source)
     {
         File.WriteAllText(_dir.File("Directory.Build.props"), "<Project />");
         File.WriteAllText(_dir.File("Directory.Build.targets"), "<Project />");
-        File.WriteAllText(_dir.File("calc.csproj"), """
+        File.WriteAllText(_dir.File($"{name}.csproj"), $"""
             <Project Sdk="Microsoft.NET.Sdk">
-              <PropertyGroup><OutputType>Exe</OutputType><TargetFramework>net48</TargetFramework><PlatformTarget>x86</PlatformTarget><AssemblyName>Calc</AssemblyName></PropertyGroup>
+              <PropertyGroup><OutputType>Exe</OutputType><TargetFramework>net48</TargetFramework><PlatformTarget>x86</PlatformTarget><AssemblyName>{name}</AssemblyName></PropertyGroup>
             </Project>
             """);
-        File.WriteAllText(_dir.File("Program.cs"), $$"""
+        File.WriteAllText(_dir.File("Program.cs"), source);
+        var (code, log) = Tools.Dotnet(_dir.Path, "build", "-c", "Release", "-o", "out", "-nologo");
+        var exe = _dir.File(Path.Combine("out", $"{name}.exe"));
+        Assert.True(code == 0 && File.Exists(exe), log);
+        return exe;
+    }
+
+    /// <summary>Builds a 32-bit .NET Framework program: Main calls Add <paramref name="rounds"/> times, 20 ms apart, then Late; Unused never runs.</summary>
+    private string Calc32(int rounds = 10) => Framework32("Calc", $$"""
             static class Calc
             {
                 [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
@@ -575,10 +583,55 @@ public sealed class LiveDotnetRealTests(ITestOutputHelper output) : LiveToolCall
                 static int Late() { return 2; }
             }
             """);
-        var (code, log) = Tools.Dotnet(_dir.Path, "build", "-c", "Release", "-o", "out", "-nologo");
-        var exe = _dir.File(Path.Combine("out", "Calc.exe"));
-        Assert.True(code == 0 && File.Exists(exe), log);
-        return exe;
+
+    /// <summary>shelf pause: holds 1234 Item objects, prints "ready", then sleeps pause ms; builds for .NET and .NET Framework.</summary>
+    private const string Shelf = """
+        class Item
+        {
+            public int Id;
+            public string Name;
+            public Item(int id) { Id = id; Name = "item-" + id; }
+        }
+
+        static class Shelf
+        {
+            static System.Collections.Generic.List<Item> s_items = new System.Collections.Generic.List<Item>();
+
+            static void Main(string[] args)
+            {
+                for (int i = 0; i < 1234; i++) s_items.Add(new Item(i));
+                System.Console.WriteLine("ready");
+                System.Threading.Thread.Sleep(int.Parse(args[0]));
+                System.GC.KeepAlive(s_items);
+            }
+        }
+        """;
+
+    /// <summary>The heap of a running program by type, its objects and one object's fields, read without stopping it.</summary>
+    [DotnetTargetFact("win-x64")]
+    public Task Heap_of_a_running_program_on_win_x64() => HeapOfARunningProgram(DotnetTarget.WinX64.Build(_dir, source: Shelf));
+
+    /// <summary>As on x64, for a 32-bit .NET Framework program read by the 32-bit decoder process.</summary>
+    [DotnetTargetFact("win-x64")]
+    public Task Heap_of_a_running_32_bit_framework_program() => HeapOfARunningProgram(Framework32("Shelf", Shelf));
+
+    private async Task HeapOfARunningProgram(string exe)
+    {
+        await using var server = await Server();
+        await Spawn(server, exe, "live-1", "120000");
+        await Ok(server, "live_break", new() { ["session"] = "live-1", ["action"] = "continue" });
+        for (int i = 0; i < 300 && !(await Events(server, "live-1", kind: "output", log: false)).Contains("ready"); i++) await Task.Delay(100);
+        var stats = await Ok(server, "dump_heap", new() { ["dump"] = "live-1", ["type"] = "Item" });
+        Assert.Matches(@"(?m)^ *Item  1,234 objects, [\d,]+ bytes", stats);
+        Assert.Contains("note: The program runs during the read", stats);
+        var objects = await Ok(server, "dump_heap", new() { ["dump"] = "live-1", ["mode"] = "objects", ["type"] = "Item", ["limit"] = 1 });
+        var address = Regex.Match(objects, @"(0x[0-9A-F]+)  Item  \d+ bytes").Groups[1].Value;
+        Assert.False(address.Length == 0, objects);
+        var item = await Ok(server, "dump_object", new() { ["dump"] = "live-1", ["address"] = address });
+        Assert.Matches(@"(?m)^type: Item\r?$", item);
+        Assert.Matches(@"Name\s+1\s+System\.String\s+\d+\s+""item-\d+""", item);
+        Assert.Contains("closed", await Ok(server, "live_session", new() { ["action"] = "close", ["session"] = "live-1" }));
+        Assert.Contains("has ended", await Refused(server, "dump_heap", new() { ["dump"] = "live-1" }, "not_found"));
     }
 
     /// <summary>

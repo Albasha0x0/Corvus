@@ -54,6 +54,8 @@ public sealed class ClrDecoder : IDisposable
     public bool Loaded => _backend != null;
     /// <summary>Decoded in the 32-bit decoder process.</summary>
     public bool OutOfProcess => _backend is ClrHelperClient;
+    /// <summary>The 32-bit decoder process was ended (it failed or ran past its budget).</summary>
+    internal bool Ended => _backend is ClrHelperClient { Ended: true };
 
     private ClrDecoder(string runtimeName, string? version, DacState dac, IClrBackend? backend)
     {
