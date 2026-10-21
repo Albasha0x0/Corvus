@@ -32,6 +32,8 @@ internal sealed class TlsStream(TlsKeyLog? keys, Func<string?, ITcpConsumer> inn
         public readonly bool Client = client;
         public readonly MemoryStream Buffer = new(), Handshake = new();
         public bool Encrypted, Broken;
+        /// <summary>The client sends 0-RTT data under its early traffic secret until EndOfEarlyData, or until the server rejects it.</summary>
+        public bool Early;
         public RecordCipher? Cipher;
         public ulong Seq;
         public byte[]? Secret;
@@ -74,9 +76,17 @@ internal sealed class TlsStream(TlsKeyLog? keys, Func<string?, ITcpConsumer> inn
             if (type == 22) Handshake(s, body, plain: true);
             return;
         }
+        if (s.Cipher == null && s.Early) s.Cipher = EarlyCipher(s, header, body);
         if (s.Cipher == null) return;
         var plain = s.Cipher.Open(s.Seq, header, body);
-        if (plain == null)
+        if (plain == null && s.Early && ServerHello != null)
+        {
+            // a server that rejects early data skips it, and the client goes on under its handshake secret
+            s.Early = false;
+            Switch(s, "CLIENT_HANDSHAKE_TRAFFIC_SECRET");
+            plain = s.Cipher?.Open(s.Seq, header, body);
+        }
+        if (plain == null || s.Cipher == null)
         {
             Outcome = "records did not authenticate with the logged keys";
             s.Broken = true;
@@ -130,6 +140,8 @@ internal sealed class TlsStream(TlsKeyLog? keys, Func<string?, ITcpConsumer> inn
         {
             case 1 when plain && s.Client:
                 ClientHello ??= TlsHello.Parse(m);
+                if (ClientHello is { } hello1 && hello1.Extensions.Contains(42) && keys?.Find(hello1.Random, "CLIENT_EARLY_TRAFFIC_SECRET") is { } early)
+                    (s.Encrypted, s.Early, s.Secret) = (true, true, early);
                 break;
             case 2 when plain && !s.Client:
                 if (TlsHello.Parse(m) is not { } hello || hello.Random.AsSpan().SequenceEqual(RetryRandom)) break;
@@ -142,6 +154,10 @@ internal sealed class TlsStream(TlsKeyLog? keys, Func<string?, ITcpConsumer> inn
                 break;
             case 8 when !plain: // EncryptedExtensions: TLS 1.3's ALPN
                 if (m.Length >= 6) Alpn ??= Extensions(m[6..Math.Min(m.Length, 6 + BinaryPrimitives.ReadUInt16BigEndian(m[4..]))]);
+                break;
+            case 5 when !plain && s.Early: // EndOfEarlyData
+                s.Early = false;
+                Switch(s, "CLIENT_HANDSHAKE_TRAFFIC_SECRET");
                 break;
             case 20 when !plain: // Finished: application traffic keys from the next record
                 Switch(s, s.Client ? "CLIENT_TRAFFIC_SECRET_0" : "SERVER_TRAFFIC_SECRET_0");
@@ -175,7 +191,7 @@ internal sealed class TlsStream(TlsKeyLog? keys, Func<string?, ITcpConsumer> inn
         if (Suite13(Cipher) == null) { Outcome = $"cipher suite 0x{Cipher:x4} is not decrypted"; return; }
         if (keys is not { Sessions: > 0 }) { Outcome = "no key log"; return; }
         if (ClientHello == null || keys.Find(ClientHello.Random, "SERVER_HANDSHAKE_TRAFFIC_SECRET") == null) { Outcome = "no keys for this session in the key log"; return; }
-        Switch(_client, "CLIENT_HANDSHAKE_TRAFFIC_SECRET");
+        if (!_client.Early) Switch(_client, "CLIENT_HANDSHAKE_TRAFFIC_SECRET");
         Switch(_server, "SERVER_HANDSHAKE_TRAFFIC_SECRET");
     }
 
@@ -186,6 +202,15 @@ internal sealed class TlsStream(TlsKeyLog? keys, Func<string?, ITcpConsumer> inn
         s.Cipher = s.Secret != null ? Cipher13(s.Secret, suite) : null;
         s.Seq = 0;
         if (s.Secret == null) Outcome = $"the key log has no {label}";
+    }
+
+    /// <summary>The early data's cipher: the resumed session's suite is named only in the ServerHello, so each offered TLS 1.3 suite is tried on the first record.</summary>
+    private RecordCipher? EarlyCipher(Side s, ReadOnlySpan<byte> header, ReadOnlySpan<byte> body)
+    {
+        foreach (var c in ClientHello?.Ciphers ?? [])
+            if (Suite13(c) is { } suite && Cipher13(s.Secret!, suite) is var cipher && cipher.Open(0, header, body) != null)
+                return cipher;
+        return null;
     }
 
     private static RecordCipher Cipher13(byte[] secret, (bool Gcm, int Key, HashAlgorithmName Hash) suite) =>

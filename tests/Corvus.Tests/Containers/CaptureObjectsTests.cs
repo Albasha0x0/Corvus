@@ -117,6 +117,49 @@ public sealed class CaptureObjectsTests : IDisposable
         Assert.Contains("1,400 body bytes not captured", entry.Detail);
     }
 
+    /// <summary>A TLS 1.3 record sealed with a traffic secret (AES-128-GCM): the payload, its inner content type, then the tag.</summary>
+    private static byte[] Sealed(byte[] secret, ulong seq, byte content, byte[] payload)
+    {
+        var key = TlsStream.ExpandLabel(System.Security.Cryptography.HashAlgorithmName.SHA256, secret, "key", 16);
+        var iv = TlsStream.ExpandLabel(System.Security.Cryptography.HashAlgorithmName.SHA256, secret, "iv", 12);
+        for (int i = 0; i < 8; i++) iv[11 - i] ^= (byte)(seq >> (8 * i));
+        byte[] inner = [.. payload, content];
+        byte[] header = [23, 3, 3, (byte)((inner.Length + 16) >> 8), (byte)(inner.Length + 16)];
+        var cipher = new byte[inner.Length];
+        var tag = new byte[16];
+        using (var gcm = new System.Security.Cryptography.AesGcm(key, 16)) gcm.Encrypt(iv, inner, cipher, tag, header);
+        return [.. header, .. cipher, .. tag];
+    }
+
+    private static byte[] PlainRecord(byte type, byte[] body) => [type, 3, 1, (byte)(body.Length >> 8), (byte)body.Length, .. body];
+
+    [Fact]
+    public void Tls_13_early_data_decrypts_with_the_early_traffic_secret()
+    {
+        // a resumed session: the client's first request goes out as 0-RTT data before the ServerHello
+        byte[] early = [.. Enumerable.Repeat((byte)1, 32)], clientHs = [.. Enumerable.Repeat((byte)2, 32)], serverHs = [.. Enumerable.Repeat((byte)3, 32)],
+            clientApp = [.. Enumerable.Repeat((byte)4, 32)], serverApp = [.. Enumerable.Repeat((byte)5, 32)];
+        var random = new string('0', 64);
+        var keyLog = _dir.File("early.keys");
+        File.WriteAllLines(keyLog, [.. new[] { ("CLIENT_EARLY_TRAFFIC_SECRET", early), ("CLIENT_HANDSHAKE_TRAFFIC_SECRET", clientHs), ("SERVER_HANDSHAKE_TRAFFIC_SECRET", serverHs),
+            ("CLIENT_TRAFFIC_SECRET_0", clientApp), ("SERVER_TRAFFIC_SECRET_0", serverApp) }.Select(k => $"{k.Item1} {random} {Convert.ToHexStringLower(k.Item2)}")]);
+        var hello = Hello(0x0303, [0x1301], [0x2b, 0x2a], versions: [0x0304]);
+        byte[] serverHello = [2, 0, 0, 46, 3, 3, .. new byte[32], 0, 0x13, 0x01, 0, 0, 6, 0, 0x2b, 0, 2, 3, 4];
+        byte[] encryptedExtensions = [8, 0, 0, 6, 0, 4, 0, 0x2a, 0, 0], finished = [20, 0, 0, 32, .. new byte[32]];
+        static byte[] Get(string path) => A($"GET {path} HTTP/1.1\r\nHost: tls.example.com\r\n\r\n");
+        static byte[] Ok(string body) => A($"HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: {body.Length}\r\n\r\n{body}");
+        var frames = Connection(51100, 443,
+        [
+            (true, [.. PlainRecord(22, hello), .. Sealed(early, 0, 23, Get("/early"))]),
+            (false, [.. PlainRecord(22, serverHello), .. Sealed(serverHs, 0, 22, encryptedExtensions), .. Sealed(serverHs, 1, 22, finished), .. Sealed(serverApp, 0, 23, Ok("sent early"))]),
+            (true, [.. Sealed(early, 1, 22, [5, 0, 0, 0]), .. Sealed(clientHs, 0, 22, finished), .. Sealed(clientApp, 0, 23, Get("/second"))]),
+            (false, Sealed(serverApp, 1, 23, Ok("sent after the handshake"))),
+        ]);
+        var files = Files(Unpack("early.pcap", Pcap(frames), keyLog));
+        Assert.Equal("sent early", Encoding.ASCII.GetString(files["tls.example.com/early.txt"]));
+        Assert.Equal("sent after the handshake", Encoding.ASCII.GetString(files["tls.example.com/second.txt"]));
+    }
+
     [Fact]
     public void Other_tcp_streams_are_written_by_direction()
     {
