@@ -121,6 +121,16 @@ public sealed class DotnetTargetFactAttribute : FactAttribute
     }
 }
 
+/// <summary>Runs when the target's program can be built and observed and CORVUS_SNAPSHOT_RUNS is set.</summary>
+public sealed class SnapshotRunsFactAttribute : FactAttribute
+{
+    public SnapshotRunsFactAttribute(string target)
+    {
+        if (DotnetTarget.Of(target).Missing is { } reason) Skip = reason;
+        else if (LiveDotnetRealTests.SnapshotRuns == 0) Skip = "Set CORVUS_SNAPSHOT_RUNS to the number of runs.";
+    }
+}
+
 /// <summary>Runs on Windows x64 with Frida, the .NET Framework 4.8 reference assemblies and a native image (NGEN) of System.dll.</summary>
 public sealed class FrameworkNativeImageFactAttribute : FactAttribute
 {
@@ -198,12 +208,67 @@ public sealed class LiveDotnetRealTests(ITestOutputHelper output) : LiveToolCall
     private async Task ReadersProgram(DotnetTarget target)
     {
         var exe = target.Build(_dir);
-        var input = _dir.File(InputName);
-        File.WriteAllText(input, new string('x', 1000));
-        const int threads = 4, rounds = 400;
+        var input = ReadersInput();
         using var root = target.RuntimeRoot();
         await using var server = await Server();
 
+        var stop = await SnapshotRun(server, target, exe, input);
+
+        // close ends a program the session started
+        var pid2 = await Spawn(server, exe, "live-2", input, "2", "100000", "20");
+        await Ok(server, "live_break", new() { ["session"] = "live-2", ["action"] = "continue" });
+        await Task.Delay(2_000);
+        Assert.Contains($"pid {pid2}, running", await Ok(server, "live_session", new() { ["action"] = "status", ["session"] = "live-2" }));
+        Assert.Contains($"pid {pid2}, closed", await Ok(server, "live_session", new() { ["action"] = "close", ["session"] = "live-2" }));
+        Ended(pid2);
+
+        // a return address is never the entry of the function stopped at
+        var entry = Regex.Match(stop, @"#0 (0x[0-9A-F]+) ").Groups[1].Value;
+        Assert.DoesNotMatch($@"#[1-9]\d* {entry} ", stop);
+    }
+
+    /// <summary>The number of runs of the snapshot loop (CORVUS_SNAPSHOT_RUNS); 0 when unset.</summary>
+    internal static int SnapshotRuns => int.TryParse(Environment.GetEnvironmentVariable("CORVUS_SNAPSHOT_RUNS"), out var n) ? Math.Max(n, 0) : 0;
+
+    /// <summary>
+    /// The snapshot run repeated CORVUS_SNAPSHOT_RUNS times, each on a new
+    /// server: after each snapshot the program finishes every open and exits
+    /// with code 0. Opt-in: set CORVUS_SNAPSHOT_RUNS (such as 30) with the full
+    /// set (CORVUS_ALL_TESTS=1). Regression: a program once stayed running
+    /// 2 minutes after a snapshot (1 in 6 runs).
+    /// </summary>
+    [SnapshotRunsFact("win-x64")] public Task A_dotnet_program_exits_after_every_repeated_snapshot_on_win_x64() => RepeatedSnapshots(DotnetTarget.WinX64);
+    [SnapshotRunsFact("win-x86")] public Task A_dotnet_program_exits_after_every_repeated_snapshot_on_win_x86() => RepeatedSnapshots(DotnetTarget.WinX86);
+    [SnapshotRunsFact("linux-x64")] public Task A_dotnet_program_exits_after_every_repeated_snapshot_on_linux_x64() => RepeatedSnapshots(DotnetTarget.LinuxX64);
+
+    private async Task RepeatedSnapshots(DotnetTarget target)
+    {
+        var exe = target.Build(_dir);
+        var input = ReadersInput();
+        using var root = target.RuntimeRoot();
+        for (int run = 1; run <= SnapshotRuns; run++)
+        {
+            var clock = System.Diagnostics.Stopwatch.StartNew();
+            await using (var server = await Server()) await SnapshotRun(server, target, exe, input);
+            Output.WriteLine($"run {run} of {SnapshotRuns}: exit code 0, every open done ({clock.Elapsed.TotalSeconds:F0} s)");
+        }
+    }
+
+    private string ReadersInput()
+    {
+        var input = _dir.File(InputName);
+        File.WriteAllText(input, new string('x', 1000));
+        return input;
+    }
+
+    /// <summary>
+    /// Starts the program in session live-1, stops at a file open of the
+    /// input, snapshots it while it runs, then checks that it finishes every
+    /// open and exits with code 0; closes the session. Returns the stop's stack.
+    /// </summary>
+    private async Task<string> SnapshotRun(InProcessServer server, DotnetTarget target, string exe, string input)
+    {
+        const int threads = 4, rounds = 400;
         var pid = await Spawn(server, exe, "live-1", input, $"{threads}", $"{rounds}", "20");
         Assert.Contains("w1", await Ok(server, "live_watch", new() { ["session"] = "live-1", ["action"] = "set", ["at"] = target.FileOpen, ["rateLimit"] = 100_000 }));
         Assert.Contains("program started", await Ok(server, "live_break", new() { ["session"] = "live-1", ["action"] = "continue" }));
@@ -253,18 +318,7 @@ public sealed class LiveDotnetRealTests(ITestOutputHelper output) : LiveToolCall
         Assert.Equal(total, opened.Count(watched));
         Assert.Contains("closed", await Ok(server, "live_session", new() { ["action"] = "close", ["session"] = "live-1" }));
         Ended(pid);
-
-        // close ends a program the session started
-        var pid2 = await Spawn(server, exe, "live-2", input, "2", "100000", "20");
-        await Ok(server, "live_break", new() { ["session"] = "live-2", ["action"] = "continue" });
-        await Task.Delay(2_000);
-        Assert.Contains($"pid {pid2}, running", await Ok(server, "live_session", new() { ["action"] = "status", ["session"] = "live-2" }));
-        Assert.Contains($"pid {pid2}, closed", await Ok(server, "live_session", new() { ["action"] = "close", ["session"] = "live-2" }));
-        Ended(pid2);
-
-        // a return address is never the entry of the function stopped at
-        var entry = Regex.Match(stop, @"#0 (0x[0-9A-F]+) ").Groups[1].Value;
-        Assert.DoesNotMatch($@"#[1-9]\d* {entry} ", stop);
+        return stop;
     }
 
     /// <summary>A stop at a JIT-compiled method by name, deferred until the runtime compiles it; the stack names the managed frames.</summary>
