@@ -827,13 +827,14 @@ public sealed partial class LiveSessionService(AssemblyWorkspace workspace, Nati
         return info.State == MemCommit && (info.Protect & AnyExecute) != 0;
     }
 
-    private readonly ConcurrentDictionary<string, (Native.Dump.ModuleNames? Pe, (uint Rva, string Name)[] Exports)> _exports = new(StringComparer.OrdinalIgnoreCase);
+    private readonly ConcurrentDictionary<string, (Native.Dump.ModuleNames? Pe, (uint Rva, uint Size, string Name)[] Symbols)> _exports = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>
-    /// The export at or before <paramref name="rva"/> in a module no image is loaded for (system DLLs), as a debugger names export
-    /// symbols; null where a PE's unwind data puts the address in a function that is not exported.
+    /// The function symbol holding <paramref name="rva"/> in a module no image is loaded for (system libraries), as dump_stack names
+    /// a core's frames: a PE's exports and COFF symbols within its unwind data, an ELF's .symtab and .dynsym functions (exports
+    /// where it has no sized symbols), the nearest below when a symbol has no size; null past a sized symbol's end.
     /// </summary>
-    private (uint Rva, string Name)? NearestExport(string path, uint rva)
+    private (uint Rva, string Name)? NearestSymbol(string path, uint rva)
     {
         var (pe, table) = _exports.GetOrAdd(path, p =>
         {
@@ -842,8 +843,7 @@ public sealed partial class LiveSessionService(AssemblyWorkspace workspace, Nati
                 if (!File.Exists(p)) return (null, []);
                 var image = NativeImageLoader.Open(p);
                 if (image is Native.Pe.PeFile file) return (new Native.Dump.ModuleNames(file, null, null), []);
-                return (null, [.. image.Exports.Where(x => x.ForwardedTo == null && !string.IsNullOrEmpty(x.Name))
-                    .Select(x => (x.Rva, x.Name!)).DistinctBy(x => x.Rva).OrderBy(x => x.Rva)]);
+                return (null, SymbolTable(image));
             }
             catch (Exception e) when (e is ToolError or IOException or UnauthorizedAccessException or InvalidDataException) { return (null, []); }
         });
@@ -855,7 +855,20 @@ public sealed partial class LiveSessionService(AssemblyWorkspace workspace, Nati
             if (table[mid].Rva <= rva) { best = mid; lo = mid + 1; }
             else hi = mid - 1;
         }
-        return best >= 0 ? table[best] : null;
+        return best < 0 || table[best].Size > 0 && rva - table[best].Rva >= table[best].Size ? null : (table[best].Rva, table[best].Name);
+    }
+
+    /// <summary>An image's function symbols with their sizes, and its other exports that are not data, by RVA; an exported symbol keeps its export name.</summary>
+    internal static (uint Rva, uint Size, string Name)[] SymbolTable(INativeImage image)
+    {
+        var map = new SortedDictionary<uint, (uint Size, string Name)>();
+        var data = image.Symbols.Where(s => s.Kind != ImageSymbolKind.Function).Select(s => s.Rva).ToHashSet();
+        foreach (var x in image.Exports)
+            if (x.ForwardedTo == null && !string.IsNullOrEmpty(x.Name) && !data.Contains(x.Rva)) map.TryAdd(x.Rva, (0u, x.Name));
+        foreach (var s in image.Symbols)
+            if (s.Kind == ImageSymbolKind.Function && !string.IsNullOrEmpty(s.Name) && s.Rva != 0)
+                map[s.Rva] = ((uint)Math.Min(s.Size, uint.MaxValue), map.TryGetValue(s.Rva, out var e) ? e.Name : s.Name);
+        return [.. map.Select(kv => (kv.Key, kv.Value.Size, kv.Value.Name))];
     }
 
     private readonly ConcurrentDictionary<string, (uint Rva, string Name)[]> _exportTables = new(StringComparer.OrdinalIgnoreCase);
@@ -968,14 +981,17 @@ public sealed partial class LiveSessionService(AssemblyWorkspace workspace, Nati
             return managed is not { Offset: 0 } && session.CompiledName(address) is { } compiled ? compiled : managed ?? new(address, null, null, 0, null, 0, null, null);
         }
         var rva = (uint)(address - module.Base);
+        // A return address can be the first byte past a noreturn call at a
+        // function's end, so the call before it names the frame.
+        var call = returnAddress && rva > 0 ? rva - 1 : rva;
         var native = Match(module);
         if (native == null)
-            return ManagedName(session, address, module) ?? (NearestExport(module.Path, rva) is { } e ? new(address, module.Name, null, rva, e.Name, rva - e.Rva, null, null)
+            return ManagedName(session, address, module) ?? (NearestSymbol(module.Path, call) is { } e ? new(address, module.Name, null, rva, e.Name, rva - e.Rva, null, null)
                 : new(address, module.Name, null, rva, null, 0, null, null));
         string? function = null, source = null;
         long offset = 0;
         EvidenceName? named = null;
-        if (code.Ready(native) is { } index && index.FunctionAt(rva) is { } f)
+        if (code.Ready(native) is { } index && index.FunctionAt(call) is { } f)
         {
             var name = index.NameAt(f.Start);
             function = name ?? $"sub_{native.Image.ImageBase + f.Start:X}";
@@ -984,9 +1000,9 @@ public sealed partial class LiveSessionService(AssemblyWorkspace workspace, Nati
         }
         // code the module writes at run time (a packed DLL) has no file bytes to index: its exports name it
         else if (native.Image.Sections.FirstOrDefault(s => s.Contains(rva)) is { IsExecutable: true } s && rva - s.Rva >= s.RawSize
-                 && NearestExport(module.Path, rva) is { } e)
+                 && NearestSymbol(module.Path, call) is { } e)
             (function, offset) = (e.Name, rva - e.Rva);
-        if (PdbService.StateOf(native)?.Pdb.Source is { } lines && lines.Lookup([returnAddress && rva > 0 ? rva - 1 : rva], ct)[0] is { } at)
+        if (PdbService.StateOf(native)?.Pdb.Source is { } lines && lines.Lookup([call], ct)[0] is { } at)
             source = $"{at.File ?? "?"}:{at.Line}";
         return new(address, module.Name, native, rva, function, offset, source, named);
     }

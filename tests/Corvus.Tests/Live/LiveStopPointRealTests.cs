@@ -244,6 +244,30 @@ public sealed class LiveStopPointRealTests(ITestOutputHelper output) : LiveToolC
         Ended(pid);
     }
 
+    // ---- a library no image is loaded for names frames by its symbol table: a static function, and a return address
+    // just past a noreturn call at a function's end, are named as dump_stack names them
+
+    [LiveTargetFact("linux-x64")] public Task Library_frames_by_symbol_table_on_linux_x64() => LibraryFramesBySymbolTable(LiveTarget.LinuxX64);
+    [LiveTargetFact("linux-x86")] public Task Library_frames_by_symbol_table_on_linux_x86() => LibraryFramesBySymbolTable(LiveTarget.LinuxX86);
+
+    private async Task LibraryFramesBySymbolTable(LiveTarget target)
+    {
+        var lib = target.BuildLibrary(_dir, "leaver", LivePrograms.Leaver, debugInfo: false);
+        var exe = target.Build(_dir, "loader", LivePrograms.Loader);
+        await using var server = await Server();
+        var pid = await Spawn(server, exe, "live-1", lib, "10");
+        await Set(server, "libc.so.6!exit");
+        var stop = await Ok(server, "live_break", new() { ["session"] = "live-1", ["action"] = "continue", ["wait"] = true, ["waitSeconds"] = 60 });
+        // Finish ends at PluginWork's first byte, so a lookup of the return
+        // address itself would name PluginWork.
+        Assert.Matches(@"#1 0x[0-9A-F]+ libleaver\.so!Finish\+0x[0-9A-F]+", stop);
+        Assert.Matches(@"#2 0x[0-9A-F]+ libleaver\.so!PluginWork\+0x[0-9A-F]+", stop);
+        await Ok(server, "live_break", new() { ["session"] = "live-1", ["action"] = "continue" });
+        Assert.Matches(@"exit code 3(?![0-9xX])", await UntilExited(server, "live-1"));
+        await Ok(server, "live_session", new() { ["action"] = "close", ["session"] = "live-1" });
+        Ended(pid);
+    }
+
     // ---- a function with no prototype: its calls are recorded as raw values
 
     [LiveTargetFact("win-x64")] public Task Raw_values_on_win_x64() => RawValues(LiveTarget.WinX64);

@@ -344,6 +344,19 @@ internal static class LivePrograms
         }
         """;
 
+    /// <summary>
+    /// leaver (a Linux shared library): PluginWork(i) returns twice its argument below 3, else calls the static Finish, which
+    /// exits with i through a noreturn call at its end; PluginOther returns twice its argument.
+    /// </summary>
+    public const string Leaver = """
+        #include <stdio.h>
+        #include <stdlib.h>
+        #define EXPORT __attribute__((visibility("default"), noinline))
+        static __attribute__((noinline, noreturn)) void Finish(int code) { printf("leaving %d\n", code); fflush(stdout); exit(code); }
+        EXPORT int PluginWork(int i) { if (i < 3) return i * 2; Finish(i); }
+        EXPORT int PluginOther(int i) { return i * 2; }
+        """;
+
     /// <summary>loader [library] [calls]: loads the library after a pause, calls PluginWork and PluginOther that many times, prints the sum.</summary>
     public const string Loader = Platform + """
         #ifndef _WIN32

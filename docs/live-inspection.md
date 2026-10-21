@@ -119,7 +119,8 @@ an `error` event naming the version and the range, and a Frida older than 17.0 i
 Addresses are joined to the static model: the program's own image is loaded and indexed when the session opens, so a
 stack reads `orders.exe!AddLine+0x1B  orders.c:9`, not a bare address (names from the PDB, the exports, and the COFF
 symbol table a MinGW-style link keeps in the image); other modules join once loaded with
-`load_assembly`. Managed code compiled ahead of time reads by its method, and stop points take the same names: a NativeAOT
+`load_assembly`, and until then are named from their file as `dump_stack` names a core's frames (a DLL's exports within
+its unwind data, an ELF's `.symtab` and `.dynsym` functions), a return address by the call before it. Managed code compiled ahead of time reads by its method, and stop points take the same names: a NativeAOT
 program from its own metadata (`app.exe!Ns_Type__Method`), an Il2Cpp game's binary once `apply_il2cpp_names` has named it
 (`GameAssembly.dll!Ns_Type__Update`). Source lines and `file:line` stop points come from the PDB line tables on Windows and the DWARF line
 tables on Linux; on Linux a stop's frames are unwound from its stack with each module's `.eh_frame` CFI, as `dump_stack`

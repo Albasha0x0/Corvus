@@ -479,6 +479,33 @@ public sealed class LiveSessionTests : IDisposable
         Assert.Matches($@"#1 0x{LibBase + inner:X} old\.dll\+0x{inner:X}\r?\n", stop);
     }
 
+    // An unloaded ELF names frames by its .symtab and .dynsym functions, as
+    // dump_stack does. A static function is not named after the export below
+    // it, and a return address just past a noreturn call at a function's end
+    // names that function.
+    [Fact]
+    public async Task An_unloaded_elf_names_frames_by_its_symbol_table_and_a_return_address_by_its_call()
+    {
+        await _tools.LiveSession("attach", program: "4242");
+        await _tools.LiveBreak("live-1", "set", at: "e_sqlite3!sqlite3_open");
+        using var dir = new TempDir();
+        var lib = dir.File("libpython.so");
+        const uint T = NativeFormats.ElfWriter.TextRva;
+        File.WriteAllBytes(lib, new NativeFormats.ElfWriter
+        {
+            Machine = NativeFormats.ElfWriter.EmX64, Text = Enumerable.Repeat((byte)0x90, 0x60).ToArray(),
+            Symbols = [new("Py_Exit", T, 0x10), new("Py_FdIsInteractive", T + 0x10, 0x10), new("PyErr_Print", T + 0x20, 0x10)],
+            StaticSymbols = [new("handle_system_exit", T + 0x30, 0x20, Bind: 0)],
+        }.Build());
+        const ulong LibBase = 0x7ff8_0000_0000;
+        _backend.Load("libpython.so", lib, LibBase, 0x30000);
+        await Task.Delay(100);
+        _backend.HitWith("s1", 9, LibBase + T + 0x10, LibBase + T + 0x38);
+        var stop = await _tools.LiveBreak("live-1", wait: true, waitSeconds: 10);
+        Assert.Contains($"#1 0x{LibBase + T + 0x10:X} libpython.so!Py_Exit+0x10", stop);
+        Assert.Contains($"#2 0x{LibBase + T + 0x38:X} libpython.so!handle_system_exit+0x8", stop);
+    }
+
     [Fact]
     public async Task A_watch_and_a_stop_point_in_the_same_prologue_are_refused_in_either_order()
     {
