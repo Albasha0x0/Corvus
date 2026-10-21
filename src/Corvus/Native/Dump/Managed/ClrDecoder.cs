@@ -19,6 +19,18 @@ internal interface IClrBackend : IDisposable
     ObjectView? Object(ulong address, int depth, int maxFields, int maxArrayItems);
 }
 
+/// <summary>The reads of a running program's CLR (see <see cref="ClrLiveReads"/>): in this process, or in the 32-bit decoder process.</summary>
+internal interface ILiveClrReads
+{
+    void Refresh();
+    LiveMethod? MethodAt(ulong ip);
+    /// <summary>The managed frames of a thread held with <paramref name="registers"/>.</summary>
+    IReadOnlyList<ulong> Frames(uint thread, IReadOnlyDictionary<string, string> registers, int max);
+    LiveCode? CodeOf(string path, int typeToken, int methodToken);
+    LiveModuleImage? ModuleImage(string path);
+    IReadOnlyList<uint> Prepared(string path);
+}
+
 /// <summary>
 /// .NET (CoreCLR and .NET Framework) state of a dumped process through ClrMD and the runtime's own DAC: threads,
 /// stacks, exceptions and the GC heap. The dumped program is never run; the DAC is Microsoft's debugging library for
@@ -207,8 +219,8 @@ public sealed class ClrDecoder : IDisposable
 
     /// <summary>
     /// Opens the CLR of a running process read through <paramref name="reader"/> (which the decoder then owns); the process
-    /// is never suspended. Null when it hosts no CLR. A process of another architecture than this server's gives a decoder
-    /// without a runtime: the 32-bit decoder process reads dump files only.
+    /// is never suspended. Null when it hosts no CLR. A 32-bit process under this 64-bit server is read by the 32-bit
+    /// decoder process; another architecture gives a decoder without a runtime.
     /// </summary>
     public static async Task<ClrDecoder?> OpenLive(LiveDataReader reader, DacRequest request, CancellationToken ct)
     {
@@ -224,9 +236,23 @@ public sealed class ClrDecoder : IDisposable
             string flavor = module.FileName.Equals("clr.dll", StringComparison.OrdinalIgnoreCase) ? ".NET Framework CLR" : "CoreCLR";
             if (reader.Architecture != RuntimeInformation.ProcessArchitecture)
             {
-                target.Dispose();
-                return new ClrDecoder($"{flavor} {module.FileVersion}".TrimEnd(), module.FileVersion,
-                    new DacState("bitness_mismatch", null, $"a {reader.Architecture} process needs a {reader.Architecture} DAC, which this {RuntimeInformation.ProcessArchitecture} server reads from dump files only"), null);
+                var helper = reader.Architecture == Architecture.X86 && RuntimeInformation.ProcessArchitecture == Architecture.X64 ? ClrHelperClient.Locate() : null;
+                if (helper == null)
+                {
+                    target.Dispose();
+                    return new ClrDecoder($"{flavor} {module.FileVersion}".TrimEnd(), module.FileVersion,
+                        new DacState("bitness_mismatch", null, reader.Architecture == Architecture.X86
+                            ? $"a 32-bit process needs the 32-bit DAC, loaded by the 32-bit decoder ({ClrHelperClient.Folder}/{ClrHelperClient.FileName}), which is not installed beside this server"
+                            : $"a {reader.Architecture} process needs a {reader.Architecture} DAC, which this {RuntimeInformation.ProcessArchitecture} server cannot load"), null);
+                }
+                // the DAC is found and checked here; the 32-bit process loads it and reads the process itself
+                int pid = reader.ProcessId;
+                try
+                {
+                    return await Decode(target, module, flavor, request, reader.Architecture,
+                        (_, c, bytes) => ClrHelperClient.StartLive(helper, pid, c.Path, Convert.ToHexStringLower(SHA256.HashData(bytes))), ownsTarget: false, ct).ConfigureAwait(false);
+                }
+                finally { target.Dispose(); }
             }
             return await Decode(target, module, flavor, request, reader.Architecture, (clr, c, _) => new InProcessClr(target, clr.CreateRuntime(c.Path)), ownsTarget: true, ct).ConfigureAwait(false);
         }
@@ -239,6 +265,9 @@ public sealed class ClrDecoder : IDisposable
 
     /// <summary>The runtime as ClrMD reads it, when it is decoded in this process; calls go under <see cref="Gate"/>.</summary>
     internal ClrRuntime? Runtime => _disposed ? null : (_backend as InProcessClr)?.Runtime;
+
+    /// <summary>The reads of a running program's runtime, when one is decoded; calls go under <see cref="Gate"/>.</summary>
+    internal ILiveClrReads? Live => _disposed ? null : _backend switch { InProcessClr p => p.Live, ILiveClrReads helper => helper, _ => null };
 
     /// <summary>
     /// Finds and verifies the DAC, and loads it through <paramref name="load"/>; a failure gives a decoder without a
@@ -361,6 +390,11 @@ public sealed class ClrDecoder : IDisposable
         private readonly ClrReads _reads = new(runtime);
 
         public ClrRuntime Runtime => runtime;
+
+        private InProcessLive? _live;
+
+        /// <summary>The live reads, when the target is a running process.</summary>
+        public ILiveClrReads? Live => target.DataReader is LiveDataReader reader ? _live ??= new InProcessLive(new ClrLiveReads(runtime), reader) : null;
         public ManagedFacts Facts() => _reads.Facts();
         public ManagedException? Exception(uint? threadId) => _reads.Exception(threadId);
         public IReadOnlyList<ManagedFrame> Frames(uint threadId, int maxFrames) => _reads.Frames(threadId, maxFrames);
@@ -381,6 +415,29 @@ public sealed class ClrDecoder : IDisposable
             runtime.Dispose();
             target.Dispose();
         }
+    }
+
+    /// <summary>The live reads in this process: a held thread's context goes to the data reader for the walk.</summary>
+    private sealed class InProcessLive(ClrLiveReads reads, LiveDataReader reader) : ILiveClrReads
+    {
+        public void Refresh()
+        {
+            reader.FlushCachedData();
+            reads.Refresh();
+        }
+
+        public LiveMethod? MethodAt(ulong ip) => reads.MethodAt(ip);
+
+        public IReadOnlyList<ulong> Frames(uint thread, IReadOnlyDictionary<string, string> registers, int max)
+        {
+            if (!reader.SetContext(thread, registers)) return [];
+            try { return reads.Frames(thread, max); }
+            finally { reader.ClearContext(thread); }
+        }
+
+        public LiveCode? CodeOf(string path, int typeToken, int methodToken) => reads.CodeOf(path, typeToken, methodToken);
+        public LiveModuleImage? ModuleImage(string path) => reads.ModuleImage(path);
+        public IReadOnlyList<uint> Prepared(string path) => reads.Prepared(path);
     }
 
     /// <summary>Module images ClrMD asks for, from local folders only (matched by timestamp and size); never the network.</summary>

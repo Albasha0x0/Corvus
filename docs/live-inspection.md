@@ -137,15 +137,16 @@ a point on JIT-compiled code is refused.
 Attach refuses the server's own process and the processes it runs under (the MCP client, its terminal, the editor), by id
 or by name: a session held there would freeze the client driving it.
 
-In a .NET program on Windows x64, the runtime's own DAC (read through ClrMD from the process's memory) names JIT-compiled
+In a .NET program on Windows (x64, and 32-bit x86 under the 64-bit server), the runtime's own DAC (read through ClrMD from the process's memory) names JIT-compiled
 and ReadyToRun code: a stop's managed frames read `app.dll!Ns.Type.Method(System.String)+0x1B`, walked by the runtime
 from the stop's registers. A stop point or watch takes a managed method by name (`Ns.Type::Method`, a parameter list
 for an overload, or `app.dll!Ns.Type::Method`); a method without code yet is deferred until the runtime compiles it
 (ReadyToRun code is bound at once): the compiling thread waits as the JIT returns the code until the point is set, so its
 first call is caught, `Main` included. When tiered compilation compiles the method again, the point is set on the new
 code as well; a compile for a running loop (on-stack replacement) is left unhooked. An assembly bundled into a single-file app, or a
-.NET Framework assembly whose native image (`name.ni.dll`) loads in its place, is named the same way. A runtime of another architecture, or one whose DAC
-cannot be found, leaves managed code unnamed. A session opened with `downloadDac=true` fetches a DAC found nowhere on this
+.NET Framework assembly whose native image (`name.ni.dll`) loads in its place, is named the same way. A 32-bit runtime is read by the bundled 32-bit decoder process
+(`clr32/`), which checks the DAC's hash before loading it. Another architecture, or a runtime whose DAC cannot be found, leaves
+managed code unnamed. A session opened with `downloadDac=true` fetches a DAC found nowhere on this
 machine from a symbol server, into the same signature-checked cache as `open_minidump downloadDac=true`; it is off by
 default and refused under `CORVUS_OFFLINE=1`.
 

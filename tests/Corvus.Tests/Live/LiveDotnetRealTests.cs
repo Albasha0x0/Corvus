@@ -225,10 +225,10 @@ public sealed class LiveDotnetRealTests(ITestOutputHelper output) : LiveToolCall
             thread = "";
         }
         Assert.False(thread.Length == 0, "no stop on an open of the input file in 50 stops");
-        // native frames by module and export; the managed caller named by the runtime (x64), else as the runtime library's precompiled code or JIT code outside every module
+        // native frames by module and export; the managed caller named by the runtime (on x86 read by the 32-bit decoder process)
         var api = target.Windows ? @"KERNELBASE\.dll!CreateFileW" : @"libc\.so\.6!(?:__libc_)?open(?:64)?\b"; // glibc exports open and its aliases at one address
         var caller = !target.Windows ? @"libSystem\.Native\.so!SystemNative_Open\S*"
-            : target.Is64 ? @"System\.Private\.CoreLib\.dll!\S.*\(.*\)\+0x[0-9A-F]+" : @"System\.Private\.CoreLib\.dll\+0x[0-9A-F]+|0x\k<b>";
+            : @"System\.Private\.CoreLib\.dll!\S.*\(.*\)\+0x[0-9A-F]+";
         // a frame with debug information ends in its source file and line
         Assert.Matches($@"thread {thread} stopped at s1 \({api}\)\r?\n  #0 0x[0-9A-F]+ {api}(?:  \S+:\d+)?\r?\n  #1 0x(?<b>[0-9A-F]+) ({caller})(?:  \S+:\d+)?\r?\n", stop);
 
@@ -548,12 +548,8 @@ public sealed class LiveDotnetRealTests(ITestOutputHelper output) : LiveToolCall
         await Refused(server, "live_coverage", new() { ["action"] = "report", ["run"] = runs[0], ["format"] = "dot" }, "unsupported");
     }
 
-    /// <summary>
-    /// Managed coverage of a 32-bit .NET Framework program, whose runtime this 64-bit server cannot read: the methods are
-    /// counted from the JIT's compiles, also when the program file was loaded with load_assembly first.
-    /// </summary>
-    [DotnetTargetFact("win-x64")]
-    public async Task Managed_coverage_of_a_32_bit_framework_program()
+    /// <summary>Builds a 32-bit .NET Framework program: Main calls Add ten times, 20 ms apart; Unused never runs.</summary>
+    private string Calc32()
     {
         File.WriteAllText(_dir.File("Directory.Build.props"), "<Project />");
         File.WriteAllText(_dir.File("Directory.Build.targets"), "<Project />");
@@ -579,6 +575,34 @@ public sealed class LiveDotnetRealTests(ITestOutputHelper output) : LiveToolCall
         var (code, log) = Tools.Dotnet(_dir.Path, "build", "-c", "Release", "-o", "out", "-nologo");
         var exe = _dir.File(Path.Combine("out", "Calc.exe"));
         Assert.True(code == 0 && File.Exists(exe), log);
+        return exe;
+    }
+
+    /// <summary>
+    /// A 32-bit .NET Framework program under this 64-bit server: its runtime is read by the 32-bit decoder process, so a
+    /// stop names the managed caller the runtime compiled, not only the method the stop point was set in.
+    /// </summary>
+    [DotnetTargetFact("win-x64")]
+    public async Task Frames_of_a_32_bit_framework_program_are_named_by_its_runtime()
+    {
+        var exe = Calc32();
+        await using var server = await Server();
+        await Spawn(server, exe, "live-1");
+        await Ok(server, "live_break", new() { ["session"] = "live-1", ["action"] = "set", ["at"] = "Calc::Add" });
+        await Ok(server, "live_break", new() { ["session"] = "live-1", ["action"] = "continue" });
+        var stop = await Ok(server, "live_break", new() { ["session"] = "live-1", ["action"] = "list", ["wait"] = true, ["waitSeconds"] = 60 });
+        Assert.Matches(@"#0 0x[0-9A-F]+ Calc\.exe!Calc\.Add\(Int32, Int32\)", stop);
+        Assert.Matches(@"#1 0x[0-9A-F]+ Calc\.exe!Calc\.Main\(\)\+0x[0-9A-F]+", stop);
+    }
+
+    /// <summary>
+    /// Managed coverage of a 32-bit .NET Framework program, whose runtime this 64-bit server cannot read: the methods are
+    /// counted from the JIT's compiles, also when the program file was loaded with load_assembly first.
+    /// </summary>
+    [DotnetTargetFact("win-x64")]
+    public async Task Managed_coverage_of_a_32_bit_framework_program()
+    {
+        var exe = Calc32();
         await using var server = await Server();
         await Ok(server, "load_assembly", new() { ["path"] = exe });
         await Spawn(server, exe, "live-1");

@@ -1,4 +1,3 @@
-using Microsoft.Diagnostics.Runtime;
 using Corvus.Core;
 using Corvus.Native.Dump.Managed;
 using Corvus.Native.Live;
@@ -8,25 +7,20 @@ namespace Corvus.Services;
 /// <summary>
 /// The .NET runtime of a session's program, read through ClrMD and the runtime's own DAC from the process's memory with
 /// the inspector's read-only handle; the program is never suspended. Names JIT-compiled and ReadyToRun code, walks a
-/// held thread's managed frames from the registers its stop captured, and finds a managed method's code. Windows, and
-/// a program of this server's architecture, only.
+/// held thread's managed frames from the registers its stop captured, and finds a managed method's code. Windows only;
+/// a 32-bit program under this 64-bit server is read by the 32-bit decoder process.
 /// </summary>
 public sealed class LiveClr : IDisposable
 {
     private readonly ClrDecoder _decoder;
-    private readonly LiveDataReader _reader;
 
-    private LiveClr(ClrDecoder decoder, LiveDataReader reader)
-    {
-        _decoder = decoder;
-        _reader = reader;
-    }
+    private LiveClr(ClrDecoder decoder) => _decoder = decoder;
 
     /// <summary>Runtime name and version, e.g. ".NET 10.0.11 (CoreCLR)".</summary>
     public string RuntimeName => _decoder.RuntimeName;
 
-    /// <summary>Why the runtime's code cannot be named (no DAC, another architecture); null when it can.</summary>
-    public string? Unavailable => _decoder.Runtime == null ? $"{_decoder.Dac.Status}: {_decoder.Dac.Detail}" : null;
+    /// <summary>Why the runtime's code cannot be named (no DAC, no 32-bit decoder); null when it can.</summary>
+    public string? Unavailable => _decoder.Live == null ? $"{_decoder.Dac.Status}: {_decoder.Dac.Detail}" : null;
 
     /// <summary>The runtime of process <paramref name="pid"/>; null when it hosts none (yet).</summary>
     public static async Task<LiveClr?> OpenAsync(int pid, DacRequest request, CancellationToken ct)
@@ -35,10 +29,9 @@ public sealed class LiveClr : IDisposable
         var reader = new LiveDataReader(LiveProcess.Attach(pid, ct));
         try
         {
+            // the decoder owns the reader from here
             var decoder = await ClrDecoder.OpenLive(reader, request, ct).ConfigureAwait(false);
-            if (decoder != null) return new LiveClr(decoder, reader);
-            reader.Dispose();
-            return null;
+            return decoder != null ? new LiveClr(decoder) : null;
         }
         catch
         {
@@ -47,48 +40,29 @@ public sealed class LiveClr : IDisposable
         }
     }
 
-    /// <summary>Drops what was read before: the program has run since (new modules, code compiled, code moved to a later tier).</summary>
-    public void Refresh()
+    private T? Read<T>(Func<ILiveClrReads, T> read)
     {
         lock (_decoder.Gate)
         {
-            if (_decoder.Runtime is not { } runtime) return;
-            _reader.FlushCachedData();
-            runtime.FlushCachedData();
+            if (_decoder.Live is not { } live) return default;
+            try { return read(live); }
+            catch (ToolError) { return default; } // the 32-bit decoder stopped
         }
     }
 
+    /// <summary>Drops what was read before: the program has run since (new modules, code compiled, code moved to a later tier).</summary>
+    public void Refresh() => Read(live => { live.Refresh(); return 0; });
+
     /// <summary>The method whose code holds <paramref name="ip"/>: its assembly file, signature and code start; null for other code.</summary>
-    public (string Assembly, string Signature, ulong Start)? MethodAt(ulong ip)
-    {
-        lock (_decoder.Gate)
-        {
-            if (_decoder.Runtime?.GetMethodByInstructionPointer(ip) is not { } m) return null;
-            var hc = m.HotColdInfo;
-            ulong start = hc.ColdSize > 0 && ip >= hc.ColdStart && ip - hc.ColdStart < hc.ColdSize ? hc.ColdStart : hc.HotStart;
-            return (FileName(m.Type?.Module), m.Signature ?? m.Name ?? "?", start == 0 || start > ip ? ip : start);
-        }
-    }
+    public (string Assembly, string Signature, ulong Start)? MethodAt(ulong ip) =>
+        Read(live => live.MethodAt(ip)) is { } m ? (m.Assembly, m.Signature, m.Start) : null;
 
     /// <summary>
     /// The managed frames of a held thread, innermost first, walked by the runtime from the registers its stop captured
     /// (instruction pointers of methods only); empty when the runtime does not know the thread or the walk finds nothing.
     /// </summary>
-    public IReadOnlyList<ulong> Frames(long thread, IReadOnlyDictionary<string, string> registers, int max)
-    {
-        lock (_decoder.Gate)
-        {
-            if (_decoder.Runtime is not { } runtime || thread is <= 0 or > uint.MaxValue || !_reader.SetContext((uint)thread, registers)) return [];
-            try
-            {
-                var t = runtime.Threads.FirstOrDefault(x => x.OSThreadId == (uint)thread);
-                if (t == null) return [];
-                return [.. t.EnumerateStackTrace(false, max).Where(f => f.Kind == ClrStackFrameKind.ManagedMethod && f.InstructionPointer != 0).Select(f => f.InstructionPointer)];
-            }
-            catch (Exception e) when (e is InvalidOperationException or ClrDiagnosticsException) { return []; }
-            finally { _reader.ClearContext((uint)thread); }
-        }
-    }
+    public IReadOnlyList<ulong> Frames(long thread, IReadOnlyDictionary<string, string> registers, int max) =>
+        thread is <= 0 or > uint.MaxValue ? [] : Read(live => live.Frames((uint)thread, registers, max)) ?? [];
 
     /// <summary>
     /// Where the method <paramref name="methodToken"/> of type <paramref name="typeToken"/> in the module loaded from
@@ -100,49 +74,24 @@ public sealed class LiveClr : IDisposable
     {
         lock (_decoder.Gate)
         {
-            if (_decoder.Runtime is not { } runtime) return null;
-            var module = runtime.EnumerateModules().FirstOrDefault(m => m.Name is { } n && SamePath(n, path));
-            var type = module?.EnumerateTypeDefToMethodTableMap().FirstOrDefault(x => x.Token == typeToken) is { MethodTable: > 0 } map ? runtime.GetTypeByMethodTable(map.MethodTable) : null;
-            if (type?.Methods.FirstOrDefault(m => m.MetadataToken == methodToken) is { NativeCode: var c } method && c != 0 && c != ulong.MaxValue)
-                return (c, method.CompilationType == MethodCompilationType.Jit ? "JIT" : "ReadyToRun");
-            if (module is { Layout: ModuleLayout.Flat }) return null;
-            ulong at = module?.ImageBase is > 0 and var b ? b : imageBase;
+            if (Read(live => live.CodeOf(path, typeToken, methodToken)) is not { } code) return null;
+            if (code.Code != 0) return (code.Code, code.Kind ?? "JIT");
+            if (code.Flat) return null;
+            ulong at = code.ModuleBase > 0 ? code.ModuleBase : imageBase;
             return at != 0 && ReadyToRunEntry(path, methodToken) is { } rva ? (at + rva, "ReadyToRun") : null;
         }
     }
 
     /// <summary>Where the runtime mapped the module loaded from <paramref name="path"/>, and whether as the file (flat) rather than as an image; null before it loads.</summary>
-    public (ulong Base, bool Flat)? ModuleImage(string path)
-    {
-        lock (_decoder.Gate)
-            return _decoder.Runtime?.EnumerateModules().FirstOrDefault(m => m.Name is { } n && SamePath(n, path)) is { ImageBase: > 0 } m
-                ? (m.ImageBase, m.Layout == ModuleLayout.Flat) : null;
-    }
-
-    /// <summary>True when the runtime's module <paramref name="name"/> is the file at <paramref name="path"/>; a bundled assembly is named by its bundle-relative path.</summary>
-    private static bool SamePath(string name, string path) => Path.IsPathRooted(name)
-        ? string.Equals(Path.GetFullPath(name), Path.GetFullPath(path), StringComparison.OrdinalIgnoreCase)
-        : path.Replace('\\', '/').EndsWith('/' + name.Replace('\\', '/'), StringComparison.OrdinalIgnoreCase);
-
-    private readonly Dictionary<string, Native.ReadyToRun.R2RImage?> _r2r = new(StringComparer.OrdinalIgnoreCase);
+    public (ulong Base, bool Flat)? ModuleImage(string path) => Read(live => live.ModuleImage(path)) is { } m ? (m.Base, m.Flat) : null;
 
     /// <summary>
     /// The metadata tokens of the methods of an assembly the runtime has prepared code for: JIT-compiled at a first call,
     /// or ReadyToRun code bound at a first call.
     /// </summary>
-    public IReadOnlyList<uint> Prepared(string path)
-    {
-        lock (_decoder.Gate)
-        {
-            if (_decoder.Runtime is not { } runtime) return [];
-            var found = new List<uint>();
-            foreach (var module in runtime.EnumerateModules().Where(m => m.Name is { } n && SamePath(n, path)))
-                foreach (var type in module.EnumerateTypeDefToMethodTableMap().Select(x => runtime.GetTypeByMethodTable(x.MethodTable)).OfType<ClrType>())
-                    foreach (var m in type.Methods)
-                        if (m.Type == type && m.MetadataToken != 0 && m.NativeCode != 0 && m.NativeCode != ulong.MaxValue) found.Add((uint)m.MetadataToken);
-            return found;
-        }
-    }
+    public IReadOnlyList<uint> Prepared(string path) => Read(live => live.Prepared(path)) ?? [];
+
+    private readonly Dictionary<string, Native.ReadyToRun.R2RImage?> _r2r = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>
     /// The RVA of a method's precompiled body in the image at <paramref name="path"/> (its own ReadyToRun code, not a
@@ -163,9 +112,6 @@ public sealed class LiveClr : IDisposable
         return entry != null && entry.RuntimeFunction >= 0 && entry.RuntimeFunction < image.RuntimeFunctions.Count
             ? image.RuntimeFunctions[entry.RuntimeFunction].Begin : null;
     }
-
-    private static string FileName(ClrModule? module) =>
-        module?.Name is { Length: > 0 } path ? Path.GetFileName(path) : module?.AssemblyName ?? "?";
 
     public void Dispose() => _decoder.Dispose();
 }

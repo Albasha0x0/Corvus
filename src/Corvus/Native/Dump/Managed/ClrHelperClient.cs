@@ -8,10 +8,11 @@ namespace Corvus.Native.Dump.Managed;
 
 /// <summary>
 /// The 32-bit decoder process (a .NET Framework x86 program beside the server) that loads a 32-bit DAC this 64-bit
-/// process cannot. It opens the dump file itself, checks the DAC file's SHA-256 before loading it, and answers one
-/// request line with one JSON line. A call that fails or times out ends the process; the decoder is then reopened.
+/// process cannot. It opens the dump file or the running process itself, checks the DAC file's SHA-256 before loading
+/// it, and answers one request line with one JSON line. A call that fails or times out ends the process; the decoder
+/// is then reopened.
 /// </summary>
-internal sealed class ClrHelperClient : IClrBackend
+internal sealed class ClrHelperClient : IClrBackend, ILiveClrReads
 {
     public const string Folder = "clr32", FileName = "Corvus.Clr32.exe";
     /// <summary>Overrides the decoder's path (tests and custom layouts).</summary>
@@ -43,7 +44,14 @@ internal sealed class ClrHelperClient : IClrBackend
     }
 
     /// <summary>Starts the decoder on <paramref name="dump"/> with the verified DAC; throws when it cannot open the runtime.</summary>
-    public static ClrHelperClient Start(string helper, string dump, string dac, string sha256, IReadOnlyList<string> imageDirectories)
+    public static ClrHelperClient Start(string helper, string dump, string dac, string sha256, IReadOnlyList<string> imageDirectories) =>
+        Start(helper, [dump, dac, sha256, string.Join(';', imageDirectories)]);
+
+    /// <summary>Starts the decoder on running process <paramref name="pid"/> (never suspended) with the verified DAC.</summary>
+    public static ClrHelperClient StartLive(string helper, int pid, string dac, string sha256) =>
+        Start(helper, ["--pid", pid.ToString(CultureInfo.InvariantCulture), dac, sha256]);
+
+    private static ClrHelperClient Start(string helper, string[] arguments)
     {
         // ClrMD creates its default symbol cache (%TEMP%\symbols) on every dump open: the decoder gets a temporary folder of its own
         var temp = Path.Combine(Path.GetTempPath(), "corvus-clr32", $"{Environment.ProcessId}-{Guid.NewGuid():N}");
@@ -51,7 +59,7 @@ internal sealed class ClrHelperClient : IClrBackend
         ChildProcess process;
         try
         {
-            process = ChildProcess.Start(new ChildProcessStart(helper, [dump, dac, sha256, string.Join(';', imageDirectories)])
+            process = ChildProcess.Start(new ChildProcessStart(helper, arguments)
             {
                 WorkingDirectory = Path.GetDirectoryName(helper),
                 Environment = new Dictionary<string, string?> { ["TMP"] = temp, ["TEMP"] = temp },
@@ -91,6 +99,20 @@ internal sealed class ClrHelperClient : IClrBackend
 
     public ObjectView? Object(ulong address, int depth, int maxFields, int maxArrayItems) =>
         Call<ObjectView?>(FormattableString.Invariant($"object\t{address}\t{depth}\t{maxFields}\t{maxArrayItems}"));
+
+    public void Refresh() => Call<object?>("refresh");
+
+    public LiveMethod? MethodAt(ulong ip) => Call<LiveMethod?>(FormattableString.Invariant($"method_at\t{ip}"));
+
+    public IReadOnlyList<ulong> Frames(uint thread, IReadOnlyDictionary<string, string> registers, int max) =>
+        Call<List<ulong>>(FormattableString.Invariant($"live_frames\t{thread}\t{max}\t{string.Join(';', registers.Select(r => Field(r.Key) + "=" + Field(r.Value)))}"));
+
+    public LiveCode? CodeOf(string path, int typeToken, int methodToken) =>
+        Call<LiveCode?>(FormattableString.Invariant($"code_of\t{Field(path)}\t{typeToken}\t{methodToken}"));
+
+    public LiveModuleImage? ModuleImage(string path) => Call<LiveModuleImage?>($"module_image\t{Field(path)}");
+
+    public IReadOnlyList<uint> Prepared(string path) => Call<List<uint>>($"prepared\t{Field(path)}");
 
     /// <summary>A request field: tabs and line breaks never occur in type names, so they are dropped; "-" stands for none.</summary>
     private static string Field(string? value) => string.IsNullOrEmpty(value) ? "-" : value.Replace('\t', ' ').Replace('\n', ' ').Replace('\r', ' ');

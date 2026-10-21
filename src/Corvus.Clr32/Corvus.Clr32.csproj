@@ -1,6 +1,6 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
-  <!-- The 32-bit .NET decoder: a 64-bit server cannot load a 32-bit DAC, so a 32-bit dump is decoded here (.NET Framework, present on every Windows). -->
+  <!-- The 32-bit .NET decoder: a 64-bit server cannot load a 32-bit DAC, so a 32-bit dump or process is decoded here (.NET Framework, present on every Windows). -->
   <PropertyGroup>
     <OutputType>Exe</OutputType>
     <TargetFramework>net48</TargetFramework>
@@ -15,12 +15,13 @@
     <AutoGenerateBindingRedirects>true</AutoGenerateBindingRedirects>
     <GenerateBindingRedirectsOutputType>true</GenerateBindingRedirectsOutputType>
     <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
-    <Version>1.1.0</Version>
+    <Version>1.2.0</Version>
   </PropertyGroup>
 
   <ItemGroup>
     <Compile Include="..\Corvus\Native\Dump\Managed\ClrModel.cs" Link="Shared\ClrModel.cs" />
     <Compile Include="..\Corvus\Native\Dump\Managed\ClrReads.cs" Link="Shared\ClrReads.cs" />
+    <Compile Include="..\Corvus\Native\Dump\Managed\ClrLiveReads.cs" Link="Shared\ClrLiveReads.cs" />
     <Compile Include="..\Corvus\Native\Dump\Managed\ClrHeapView.cs" Link="Shared\ClrHeapView.cs" />
     <Compile Include="..\Corvus\Core\Wildcard.cs" Link="Shared\Wildcard.cs" />
   </ItemGroup>

@@ -13,7 +13,6 @@ namespace Corvus.Native.Dump.Managed;
 /// </summary>
 public sealed class LiveDataReader(LiveProcess process) : ByteDataReader, IDataReader, IDisposable
 {
-    private const int X64ContextSize = 0x4D0;
     private readonly ConcurrentDictionary<uint, byte[]> _contexts = new();
 
     public LiveProcess Process => process;
@@ -30,33 +29,15 @@ public sealed class LiveDataReader(LiveProcess process) : ByteDataReader, IDataR
     public int ProcessId => process.Pid;
     public override int PointerSize => process.Is64Bit ? 8 : 4;
 
-    /// <summary>
-    /// The x64 registers a thread was stopped with (Frida's names: rip or pc, rsp or sp, rax..r15); false when the
-    /// process is not x64 or the stop has no instruction and stack pointer.
-    /// </summary>
+    /// <summary>The registers a thread was stopped with (see <see cref="StopContext.From"/>); false when they make no context.</summary>
     public bool SetContext(uint threadId, IReadOnlyDictionary<string, string> registers)
     {
-        if (process.Arch != NativeArch.X64) return false;
-        ulong Reg(string name, string? alias = null) =>
-            registers.TryGetValue(name, out var v) || (alias != null && registers.TryGetValue(alias, out v)) ? Hex(v) : 0;
-        ulong ip = Reg("rip", "pc"), sp = Reg("rsp", "sp");
-        if (ip == 0 || sp == 0) return false;
-        var c = new byte[X64ContextSize];
-        const uint ContextAmd64 = 0x100000, Control = 1, Integer = 2, Segments = 4;
-        BinaryPrimitives.WriteUInt32LittleEndian(c.AsSpan(0x30), ContextAmd64 | Control | Integer | Segments);
-        BinaryPrimitives.WriteUInt16LittleEndian(c.AsSpan(0x38), 0x33); // user-mode code segment
-        BinaryPrimitives.WriteUInt16LittleEndian(c.AsSpan(0x42), 0x2B);
-        for (int i = 0; i < 16; i++) BinaryPrimitives.WriteUInt64LittleEndian(c.AsSpan(0x78 + 8 * i), i == 4 ? sp : Reg(DumpContext.X64Names[i]));
-        BinaryPrimitives.WriteUInt64LittleEndian(c.AsSpan(0xF8), ip);
+        if (StopContext.From(Architecture, registers) is not { } c) return false;
         _contexts[threadId] = c;
         return true;
     }
 
     public void ClearContext(uint threadId) => _contexts.TryRemove(threadId, out _);
-
-    private static ulong Hex(string s) =>
-        ulong.TryParse(s.StartsWith("0x", StringComparison.OrdinalIgnoreCase) ? s[2..] : s, System.Globalization.NumberStyles.HexNumber,
-            System.Globalization.CultureInfo.InvariantCulture, out var v) ? v : 0;
 
     public IEnumerable<ModuleInfo> EnumerateModules()
     {
