@@ -97,9 +97,9 @@ public sealed class SessionTools(AssemblyWorkspace workspace, IndexingService in
             new(".NET decompilation, search, navigation, editing", true, "built in", null),
             ReferencePacks.Offline
                 ? new("reference pack download", false, "CORVUS_OFFLINE is set: assemblies targeting an uninstalled .NET version resolve fewer references", "unset CORVUS_OFFLINE")
-                : new("reference pack download", true, "downloads the reference pack of an uninstalled target framework on demand", null),
+                : new("reference pack download", true, "on demand, for an uninstalled target framework", null),
         ];
-        capabilities.Add(new("native PE analysis (headers, imports, exports, resources, C++ classes, bytes)", true, "built in", null));
+        capabilities.Add(new("native PE analysis", true, "built in", null));
         var availability = new List<Native.Providers.ProviderAvailability>();
         foreach (var provider in engines?.Providers ?? [])
         {
@@ -112,17 +112,17 @@ public sealed class SessionTools(AssemblyWorkspace workspace, IndexingService in
             capabilities.Add(p.Enabled
                 ? new("engine background analysis on load", true,
                     $"on ({p.Engine}): {(p.Running != null ? $"analyzing {p.Running} ({p.RunningSeconds:0} s)" : "idle")}, {p.Queued} queued, {p.Done} done, {p.Failed} failed, {p.Cancelled} cancelled" +
-                    (p.LastError != null ? $"; last error: {p.LastError}" : ""), null)
-                : new("engine background analysis on load", false, "off: the first engine call on an image waits for the engine's auto-analysis",
-                    $"start the server with --prewarm ida|ghidra|auto (or {ServerOptions.PrewarmVariable})"));
-        capabilities.Add(new("native engine preference (list_functions, disassemble, get_cfg, find_xrefs, native_call_tree)", true,
+                    (p.LastError != null ? $"; last error: {Bounded(p.LastError, 160)}" : ""), null)
+                : new("engine background analysis on load", false, "off: a first engine call waits for the analysis",
+                    $"--prewarm ida|ghidra|auto (or {ServerOptions.PrewarmVariable})"));
+        capabilities.Add(new("native engine preference", true,
             options.Engine switch
             {
-                EngineMode.Ours => "default ours: the built-in index; no engine is consulted unless a call passes engine=ida or engine=ghidra",
-                EngineMode.Ida => "default ida: IDA's analysis, started or waited for by the call; engine=ours, ghidra or auto per call",
-                EngineMode.Ghidra => "default ghidra: Ghidra's analysis, started or waited for by the call; engine=ours, ida or auto per call",
-                _ => "default auto: the functions, references and blocks of the first engine (IDA, then Ghidra) that has analyzed an image's bytes, open or saved, else the built-in index",
-            } + $"; --engine auto|ours|ida|ghidra (or {ServerOptions.EngineVariable}) sets the default, each of those tools takes engine", null));
+                EngineMode.Ours => "default ours: the built-in index",
+                EngineMode.Ida => "default ida: IDA's analysis, started or waited for",
+                EngineMode.Ghidra => "default ghidra: Ghidra's analysis, started or waited for",
+                _ => "default auto: the first engine (IDA, then Ghidra) with an analysis of the image, else the built-in index",
+            } + $"; set by --engine (or {ServerOptions.EngineVariable}), per call by engine=", null));
         capabilities.AddRange(ExternalToolCapabilities());
         if (options.AllowLive)
             capabilities.Add(options.LiveAllow.Count > 0
@@ -158,9 +158,14 @@ public sealed class SessionTools(AssemblyWorkspace workspace, IndexingService in
     /// <summary>One capability per external program the server runs (test oracles left out), probed once per file.</summary>
     internal static IEnumerable<Capability> ExternalToolCapabilities() =>
         Native.Providers.ExternalTools.Table.Where(t => !t.TestOracle).Select(Native.Providers.ExternalTools.Probe).Select(p =>
-            new Capability($"external tool: {p.Name}, for {p.Purpose}", p.Usable,
-                p.Usable ? $"{p.Path} (from {p.Source}{(p.Version != null ? $", version {p.Version}" : "")})" : p.Problem!,
+            new Capability($"{p.Name}: {p.Purpose}", p.Usable,
+                p.Usable ? Found(p) : p.Problem!,
                 p.Usable ? null : p.Remediation));
+
+    // A path the user set in the tool's variable is theirs already; a searched one is named.
+    private static string Found(Native.Providers.ExternalToolProbe p) =>
+        (p.Source == Native.Providers.ExternalTools.Get(p.Id).Variable ? $"from {p.Source}" : $"{p.Path} (from {p.Source})") +
+        (p.Version != null ? $", version {p.Version}" : ", version unknown");
 
     /// <summary>The session backend: whether it can start, and for Frida its version against the tested range.</summary>
     internal static Capability LiveBackendCapability(Native.Providers.Live.ILiveBackend backend)
@@ -177,10 +182,14 @@ public sealed class SessionTools(AssemblyWorkspace workspace, IndexingService in
             untested == null ? null : Native.Providers.Live.FridaBackend.Upgrade);
     }
 
-    // The report budget: a reason already in an unavailableTools row is said once, there.
+    // The report budget: a reason or a fix already in an unavailableTools row is said once, there.
     internal static List<Capability> PointToUnavailable(List<Capability> capabilities, List<UnavailableGroup> unavailable) =>
-        [.. capabilities.Select(c => !c.Available && c.Detail.Length > 40 && unavailable.Any(u => u.Reason.Contains(c.Detail, StringComparison.Ordinal))
+        [.. capabilities.Select(c => !c.Available && unavailable.Any(u => c.Detail.Length > 40 && u.Reason.Contains(c.Detail, StringComparison.Ordinal) ||
+                c.Remediation != null && u.Remediation == c.Remediation)
             ? c with { Detail = "unavailable: see unavailableTools", Remediation = null } : c)];
+
+    // An engine's message is unbounded; status keeps its head so the report budget holds.
+    private static string Bounded(string text, int max) => text.Length <= max ? text : text[..(max - 3)] + "...";
 
     private static NoteCounts? NoteCountsOf(NotesService? notes)
     {

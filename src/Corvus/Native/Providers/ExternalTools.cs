@@ -37,7 +37,7 @@ public static partial class ExternalTools
     private static readonly string Exe = OperatingSystem.IsWindows() ? ".exe" : "";
 
     public static readonly ExternalTool Java = new("java", "Java (JDK 17+)", "CORVUS_JAVA", ExternalToolKind.Executable, ["java" + Exe], ["-version"], 17,
-        "runs the Java decompiler (decompile_java)", false,
+        "decompile_java", false,
         Ops(("jar", ["-Xss16m", "-jar", "{jar}"])))
     {
         KnownDirectories = () => Environment.GetEnvironmentVariable("JAVA_HOME") is { Length: > 0 } home ? [(System.IO.Path.Combine(home, "bin"), "JAVA_HOME")] : [],
@@ -45,15 +45,15 @@ public static partial class ExternalTools
     };
 
     public static readonly ExternalTool JavaDecompiler = new("jadx", "JADX headless server (jadx-headless-mcp fat jar)", "CORVUS_JAVA_DECOMPILER", ExternalToolKind.Jar,
-        ["jadx-headless-mcp*.jar"], [], 0, "Java / Kotlin source for decompile_java", false,
+        ["jadx-headless-mcp*.jar"], [], 0, "decompile_java (Java and Kotlin source)", false,
         Ops(("server", ["--threads", "{threads}", "--decompile-timeout-ms", "{timeoutMs}", "--max-source-bytes", "{maxBytes}", "--resources", "none"])));
 
     public static readonly ExternalTool JavaDecompiler2 = new("vineflower", "Vineflower (jar)", "CORVUS_JAVA_DECOMPILER2", ExternalToolKind.Jar,
         ["vineflower*.jar"], [], 0, "decompile_java engine=vineflower", false,
         Ops(("decompile", ["-log=WARN", "{input}", "{output}"]), ("library", ["-e={jar}"])));
 
-    public static readonly ExternalTool PythonDecompiler = new("python-decompiler", "Python decompiler (pycdc, or a program that prints the source of the .pyc it is given)",
-        "CORVUS_PY_DECOMPILER", ExternalToolKind.Executable, ["pycdc" + Exe], [], 0, "Python source in summarize_file view=python", false,
+    public static readonly ExternalTool PythonDecompiler = new("python-decompiler", "Python decompiler (pycdc or a compatible program)",
+        "CORVUS_PY_DECOMPILER", ExternalToolKind.Executable, ["pycdc" + Exe], [], 0, "summarize_file view=python (Python source)", false,
         Ops(("decompile", ["{input}"])));
 
     public static readonly ExternalTool Adb = new("adb", "Android Debug Bridge (adb)", "CORVUS_ADB", ExternalToolKind.Executable, ["adb" + Exe], ["version"], 0,
@@ -105,7 +105,7 @@ public static partial class ExternalTools
         Ops(("descriptor-set", ["--proto_path", "{root}", "--descriptor_set_out", "{out}", "{file}"])));
 
     public static readonly ExternalTool TShark = new("tshark", "TShark (Wireshark)", "CORVUS_TSHARK", ExternalToolKind.Executable, ["tshark" + Exe], ["--version"], 3,
-        "search_container kind=packet for fields not decoded in-process", false,
+        "search_container kind=packet (fields not decoded in-process)", false,
         Ops(("fields", ["-r", "{file}", "-n", "-2", "-Y", "{filter}", "-T", "fields", "-E", "separator=/t", "-E", "occurrence=a", "-E", "aggregator=,", "-E", "quote=n",
                 "-e", "frame.number", "-e", "frame.time_epoch", "-e", "ip.src", "-e", "ipv6.src", "-e", "ip.dst", "-e", "ipv6.dst",
                 "-e", "tcp.srcport", "-e", "udp.srcport", "-e", "tcp.dstport", "-e", "udp.dstport", "-e", "_ws.col.protocol"]),
@@ -200,8 +200,8 @@ public static partial class ExternalTools
     }
 
     public static string Remediation(ExternalTool tool) => tool.Kind == ExternalToolKind.Jar
-        ? $"set {tool.Variable} to the {tool.Name} jar (or its folder); it runs with {Java.Variable} / JAVA_HOME / PATH java"
-        : $"set {tool.Variable} to the {tool.Name} executable (or its folder), or put it on PATH";
+        ? $"set {tool.Variable} to the jar or its folder (run by {Java.Variable}, JAVA_HOME or PATH java)"
+        : $"set {tool.Variable} to the program or its folder, or put it on PATH";
 
     private static readonly ConcurrentDictionary<string, ExternalToolProbe> Probes = new(StringComparer.Ordinal);
 
@@ -214,7 +214,7 @@ public static partial class ExternalTools
             var configured = Environment.GetEnvironmentVariable(tool.Variable);
             var why = configured is { Length: > 0 }
                 ? $"{tool.Variable} is set to '{configured.Trim()}', which is not {(tool.Kind == ExternalToolKind.Jar ? "a jar or a folder with one" : "the program or a folder with it")}"
-                : $"not found ({tool.Variable} is not set{(tool.Kind == ExternalToolKind.Executable ? " and it is not on PATH" : "")})";
+                : "not found";
             return new(tool.Id, tool.Name, tool.Purpose, false, null, null, null, why, Remediation(tool));
         }
         return Probes.GetOrAdd(tool.Id + "|" + at.Path + "|" + Stamp(at.Path), _ => VersionProbe(tool, at.Path, at.Source));

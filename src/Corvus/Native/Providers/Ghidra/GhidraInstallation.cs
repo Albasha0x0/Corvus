@@ -47,7 +47,7 @@ public sealed record GhidraInstallation(string Directory, string Version, string
         if (!string.IsNullOrWhiteSpace(explicitDirectory)) (dir, source) = (explicitDirectory, "configured");
         else if (Environment.GetEnvironmentVariable(GhidraOptions.DirectoryVariable) is { Length: > 0 } env) (dir, source) = (env, GhidraOptions.DirectoryVariable);
         else if (Environment.GetEnvironmentVariable(StandardDirectoryVariable) is { Length: > 0 } std) (dir, source) = (std, StandardDirectoryVariable);
-        var fix = $"Install Ghidra 12 or newer and set {GhidraOptions.DirectoryVariable} to its directory (the one holding ghidraRun and Ghidra/application.properties).";
+        var fix = $"set {GhidraOptions.DirectoryVariable} to a Ghidra 12 or newer folder (the one holding ghidraRun)";
         if (dir == null)
         {
             reason = $"Ghidra was not found: neither {GhidraOptions.DirectoryVariable} nor {StandardDirectoryVariable} is set.";

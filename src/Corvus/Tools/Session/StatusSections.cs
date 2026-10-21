@@ -30,8 +30,8 @@ internal sealed class BudgetStatus : IStatusSection
                 o.TimeoutSeconds == defaults.TimeoutSeconds ? "default" : "--timeout");
         bool json = string.Equals(Environment.GetEnvironmentVariable(CallFilter.ResultModeVariable), "json", StringComparison.OrdinalIgnoreCase);
         yield return new("delivery", json ? "text block = the structured JSON, plus structuredContent"
-            : "readable text, plus structuredContent for tools with an output schema; each part fitted on its own: lists continue at nextOffset, " +
-              "other results keep their head and a resultId (results section)", json ? CallFilter.ResultModeVariable : "default");
+            : "text, plus structuredContent where a tool has an output schema; each part fitted alone: lists continue at nextOffset, " +
+              "other results keep their head and a resultId", json ? CallFilter.ResultModeVariable : "default");
     }
 
     /// <summary>The connected client's clientInfo.name, when the server is in this provider.</summary>
@@ -129,8 +129,16 @@ internal sealed class WorkersStatus : IStatusSection
     public string Name => "workers";
     public int Order => 50;
 
+    // Programs are few; their instances are not, so each program is one field naming at most this many.
+    internal const int PidsPerProgram = 3;
+
     public IEnumerable<StatusField> Fields(IServiceProvider services) =>
-        Native.Providers.ChildProcess.Live().Select(w => new StatusField(w.Program, $"pid {w.Id}, started {w.Started:yyyy-MM-ddTHH:mm:ssZ}"));
+        Native.Providers.ChildProcess.Live().GroupBy(w => w.Program, StringComparer.Ordinal).Select(g => new StatusField(g.Key, Describe([.. g])));
+
+    /// <summary>One program's running children, oldest first: pid and start of each up to <see cref="PidsPerProgram"/>, then a count.</summary>
+    internal static string Describe(IReadOnlyList<(int Id, string Program, DateTimeOffset Started)> children) =>
+        string.Join("; ", children.Take(PidsPerProgram).Select(w => $"pid {w.Id}, started {w.Started:yyyy-MM-ddTHH:mm:ssZ}")) +
+        (children.Count > PidsPerProgram ? $"; {children.Count - PidsPerProgram} more" : "");
 }
 
 /// <summary>This server process: run id (also in each trace line), process id and start time.</summary>

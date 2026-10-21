@@ -74,7 +74,7 @@ public sealed record IdaInstallation(string Directory, string LibraryPath, strin
         if (dir == null)
         {
             reason = "IDA Pro was not found: CORVUS_IDA_DIR is not set and no ida-config.json names an install directory.";
-            remediation = "Install IDA Pro 9 or newer and start it once (it records its directory in ida-config.json), or set CORVUS_IDA_DIR to the IDA install directory.";
+            remediation = "set CORVUS_IDA_DIR to an IDA Pro 9 or newer folder, or start IDA once so ida-config.json names it";
             return null;
         }
         dir = dir.Trim().Trim('"');

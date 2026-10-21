@@ -74,14 +74,14 @@ public static class ToolAvailability
         var result = new List<Unavailable>();
         ProviderAvailability? Missing(string provider) => engines.FirstOrDefault(e => e.ProviderId == provider && !e.IsAvailable)
             ?? (engines.Any(e => e.ProviderId == provider) ? null : new ProviderAvailability(provider, false, $"no {provider} provider in this build", null, new Dictionary<string, string>()));
-        // unavailable when no provider that can serve it is available; one reason, or each provider's
+        // Unavailable when no provider that can serve it is available. Several missing providers each have a row of
+        // their own (ida_python, ghidra_script, the engine= modes) giving the reason and fix, so this row names them.
         (string Reason, string? Remediation)? AllMissing(string[] providers)
         {
             var missing = providers.Select(Missing).ToList();
             if (missing.Any(m => m == null)) return null;
             if (missing.Count == 1) return (missing[0]!.Reason ?? $"{providers[0]} is not available", missing[0]!.Remediation);
-            return (string.Join("; ", missing.Select(m => $"{m!.ProviderId}: {m.Reason ?? "not available"}")),
-                string.Join("; or ", missing.Where(m => m!.Remediation != null).Select(m => m!.Remediation)) is { Length: > 0 } r ? r : null);
+            return ($"neither {string.Join(" nor ", providers)} is available (their own rows say why)", null);
         }
 
         foreach (var (tool, providers) in EngineOnly.Where(e => registered.Contains(e.Key)))
