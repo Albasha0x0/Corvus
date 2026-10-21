@@ -263,9 +263,9 @@ running after the script until it exits or `action=stop`; every run ends with th
 among the arguments, so the same run can be repeated.
 
 `action=snapshot` writes the session's process as a standard dump file with the operating system's own writer (MiniDumpWriteDump
-on Windows, as dotnet-dump and ProcDump write them; GDB's `gcore` on Linux) and opens it
-with the dump tools; the program keeps running. The dump goes to `outputPath`, else a new
-file under the temp folder's `corvus-snapshots`. Saved while a thread is held at a stop, the dump records that stop:
+on Windows, as dotnet-dump and ProcDump write them; GDB's `gcore` on Linux; lldb's `process save-core` on macOS, the
+modified memory as a Mach-O core) and opens it with the dump tools; the program keeps running. The dump goes to `outputPath`, else a new
+file under the temp folder's `corvus-snapshots`. Saved while a thread is held at a stop, a Windows dump or a Linux core records that stop:
 on Windows as its exception (a breakpoint, as a debugger's `.dump` at a break does), in a Linux core as the stopped
 thread's registers and signal (`SIGTRAP`, `TRAP_BRKPT` at the stop's address). Either way `dump_stack` walks from the stop.
 On Linux GDB stops every thread, and a thread waiting in `vfork` for a child that has not run its program yet cannot
@@ -293,9 +293,10 @@ of the same program (3,020 functions, statically linked C runtime): stop points 
 - Sessions run on Windows, Linux and macOS. Minidumps and core files open with `open_minidump` on any OS.
 - On macOS (tested on Apple silicon, as GitHub's macos-latest machine runs it: Developer Mode on, the user in the
   `_developer` group), a session observes the programs a debugger may: built on the machine or signed with the
-  `get-task-allow` entitlement. `snapshot` fails with `provider_unavailable` there (lldb's `process save-core` writes a
-  core file), and following child processes (`childNames`) fails with `unsupported`, since Frida's child gating misses a
-  fork there intermittently.
+  `get-task-allow` entitlement. `snapshot` needs lldb (the Xcode command line tools); the core's thread ids are
+  lldb's, not the session's, so `dump_stack` takes a thread by `#index` there (`open_minidump view=threads` lists
+  them). Following child processes (`childNames`) fails with `unsupported`, since Frida's child gating misses a fork
+  there intermittently.
 - On Windows ARM64, ARM64 programs are observed natively. x64 and x86 programs run under emulation: `module!export`
   resolves to the export the program calls (the x64 or x86 view of a system DLL), and `snapshot` is refused
   (`unsupported`), since the dump would hold the emulator's ARM64 threads rather than the program's registers.

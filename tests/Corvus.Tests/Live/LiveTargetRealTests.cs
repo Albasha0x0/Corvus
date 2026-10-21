@@ -165,8 +165,6 @@ public sealed class LiveTargetRealTests(ITestOutputHelper output) : LiveToolCall
 
             if (target.Emulated)
                 Assert.Contains("emulated on an ARM64 machine", await Refused(server, "live_session", new() { ["action"] = "snapshot", ["session"] = "live-1" }, "unsupported"));
-            else if (target.Mac)
-                Assert.Contains("lldb's process save-core", await Refused(server, "live_session", new() { ["action"] = "snapshot", ["session"] = "live-1" }, "provider_unavailable"));
             else
             {
                 var snapshot = await Ok(server, "live_session", new() { ["action"] = "snapshot", ["session"] = "live-1" });
@@ -175,7 +173,10 @@ public sealed class LiveTargetRealTests(ITestOutputHelper output) : LiveToolCall
                 Assert.True(File.Exists(dump.Groups[1].Value), snapshot);
                 try
                 {
-                    var stack = await Ok(server, "dump_stack", new() { ["dump"] = dump.Groups[3].Value, ["thread"] = Regex.Match(stop, @"thread (\d+) stopped").Groups[1].Value });
+                    // A Mach-O core numbers threads as lldb does: the program's
+                    // main thread is the first.
+                    var thread = target.Mac ? "#0" : Regex.Match(stop, @"thread (\d+) stopped").Groups[1].Value;
+                    var stack = await Ok(server, "dump_stack", new() { ["dump"] = dump.Groups[3].Value, ["thread"] = thread });
                     // The stopped thread waits inside the backend; at a
                     // function's entry its caller is the first frame of the
                     // program.

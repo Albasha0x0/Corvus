@@ -8,7 +8,8 @@ namespace Corvus.Native.Diagnostics;
 
 /// <summary>
 /// A snapshot of a running process as a dump file, through the operating system's own writer: MiniDumpWriteDump on
-/// Windows (as dotnet-dump and ProcDump write them), GDB's gcore on Linux (an ELF core). The process keeps running.
+/// Windows (as dotnet-dump and ProcDump write them), GDB's gcore on Linux (an ELF core), lldb's process save-core on
+/// macOS (a Mach-O core). The process keeps running.
 /// </summary>
 public static class ProcessSnapshot
 {
@@ -37,7 +38,8 @@ public static class ProcessSnapshot
         {
             if (OperatingSystem.IsWindows()) WriteMinidump(pid, partial, stop);
             else if (OperatingSystem.IsLinux()) WriteCore(pid, partial, ct, stop);
-            else throw new ToolError(ErrorCode.ProviderUnavailable, "Snapshots are written on Windows (MiniDumpWriteDump) and Linux (gcore).", "on macOS, lldb's process save-core writes one");
+            else if (OperatingSystem.IsMacOS()) WriteMachCore(pid, partial, ct);
+            else throw new ToolError(ErrorCode.ProviderUnavailable, "Snapshots are written on Windows (MiniDumpWriteDump), Linux (gcore) and macOS (lldb).");
             File.Move(partial, full, overwrite);
             return new FileInfo(full).Length;
         }
@@ -157,6 +159,8 @@ public static class ProcessSnapshot
         }
     }
 
+    private static string? OnPath(string name) => Environment.GetEnvironmentVariable("PATH")?.Split(Path.PathSeparator).Select(d => Path.Combine(d, name)).FirstOrDefault(File.Exists);
+
     // How long a thread may wait in vfork, before or during the write, until the snapshot is given up.
     internal static readonly TimeSpan VforkWait = TimeSpan.FromSeconds(10);
     private static readonly TimeSpan CoreTimeout = TimeSpan.FromMinutes(5);
@@ -167,8 +171,7 @@ public static class ProcessSnapshot
     /// </summary>
     internal static void WriteCore(int pid, string path, CancellationToken ct, Stop? stop, bool waitOutVfork = true)
     {
-        var gcore = Environment.GetEnvironmentVariable("PATH")?.Split(Path.PathSeparator).Select(d => Path.Combine(d, "gcore")).FirstOrDefault(File.Exists)
-                    ?? throw new ToolError(ErrorCode.ProviderUnavailable, "gcore (GDB) is not on PATH.", "install GDB (it ships gcore)");
+        var gcore = OnPath("gcore") ?? throw new ToolError(ErrorCode.ProviderUnavailable, "gcore (GDB) is not on PATH.", "install GDB (it ships gcore)");
         // GDB stops every thread, and a thread in vfork stops only once its
         // child execs or exits. The child's exec can wait on the stopped
         // program (a session's child gate hooks exec there), so GDB would
@@ -312,6 +315,27 @@ public static class ProcessSnapshot
             file.Position = offset;
             file.Write(notes);
         }
+    }
+
+    /// <summary>lldb attaches, writes the modified memory as a Mach-O core (process save-core) and detaches.</summary>
+    private static void WriteMachCore(int pid, string path, CancellationToken ct)
+    {
+        var lldb = OnPath("lldb") ?? throw new ToolError(ErrorCode.ProviderUnavailable, "lldb is not on PATH.", "install the Xcode command line tools (xcode-select --install)");
+        var info = new ProcessStartInfo(lldb) { RedirectStandardInput = true, RedirectStandardOutput = true, RedirectStandardError = true };
+        foreach (var a in new[] { "--batch", "--no-lldbinit", "-p", pid.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                     "-o", $"process save-core --style modified-memory \"{path.Replace("\\", "\\\\").Replace("\"", "\\\"")}\"", "-o", "process detach" })
+            info.ArgumentList.Add(a);
+        using var p = Process.Start(info)!;
+        p.StandardInput.Close();
+        var stderr = p.StandardError.ReadToEndAsync(ct);
+        var stdout = p.StandardOutput.ReadToEnd();
+        if (!p.WaitForExit(TimeSpan.FromMinutes(5))) { p.Kill(true); throw new ToolError(ErrorCode.Timeout, "lldb did not finish within 5 minutes."); }
+        if (File.Exists(path) && new FileInfo(path).Length > 0) return;
+        var output = $"{stdout}\n{stderr.Result}".Trim();
+        var failure = $"lldb process save-core failed (exit {p.ExitCode}): {output[Math.Max(0, output.Length - 1000)..]}";
+        throw output.Contains("attach failed", StringComparison.Ordinal)
+            ? new ToolError(ErrorCode.AccessDenied, failure, "lldb attaches to programs signed with the get-task-allow entitlement (debug builds), or run the server as root")
+            : new ToolError(ErrorCode.IoError, failure, "check the disk space at the output path");
     }
 
     [DllImport("kernel32.dll", SetLastError = true)]

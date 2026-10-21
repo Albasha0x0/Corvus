@@ -241,6 +241,12 @@ jobs:
           sudo apt-get install -y --no-install-recommends gdb
           sudo sysctl -w kernel.yama.ptrace_scope=0
 
+      # Snapshots on macOS are written by lldb's process save-core (the Xcode
+      # command line tools).
+      - name: lldb (macOS)
+        if: runner.os == 'macOS'
+        run: lldb --version
+
       - name: Build
         run: dotnet build -c Release
 

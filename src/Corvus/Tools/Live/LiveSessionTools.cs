@@ -190,8 +190,10 @@ public sealed partial class LiveSessionTools(ServerOptions options, LiveSessionS
         // exception, an x86 program's x86 CONTEXT taken as the WoW64 thread's 32-bit side; in a Linux core the thread's own)
         Native.Diagnostics.ProcessSnapshot.Stop? stop = null;
         var held = s.Held.FirstOrDefault();
-        // an ARM64 stop is recorded in a Windows dump only (a Linux core's ARM64 NT_PRSTATUS is not rewritten)
-        if (held != null && (s.Arch is "x64" or "ia32" || s.Arch == "arm64" && OperatingSystem.IsWindows()))
+        // A macOS core keeps lldb's registers. An ARM64 stop is recorded in a
+        // Windows dump only, since a Linux core's ARM64 NT_PRSTATUS is not
+        // rewritten.
+        if (held != null && !OperatingSystem.IsMacOS() && (s.Arch is "x64" or "ia32" || s.Arch == "arm64" && OperatingSystem.IsWindows()))
         {
             var registers = new Dictionary<string, ulong>(StringComparer.OrdinalIgnoreCase);
             foreach (var (name, value) in held.Registers)

@@ -69,7 +69,6 @@ public sealed class LiveSessionOptionsRealTests(ITestOutputHelper output) : Live
             var path = _dir.File(target.Windows ? "probe.dmp" : "probe.core");
             var args = new Dictionary<string, object?> { ["action"] = "snapshot", ["session"] = "live-2", ["outputPath"] = path };
             if (target.Emulated) Assert.Contains("emulated on an ARM64 machine", await Refused(server, "live_session", args, "unsupported"));
-            else if (target.Mac) Assert.Contains("lldb's process save-core", await Refused(server, "live_session", args, "provider_unavailable"));
             else
             {
                 Assert.Contains($"written to {path}", await Ok(server, "live_session", args));
