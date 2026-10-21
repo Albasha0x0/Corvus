@@ -106,13 +106,13 @@ public sealed partial class NativeCodeTools(AssemblyWorkspace workspace, NativeC
     }
 
     [McpServerTool(Name = "list_functions", Title = "List native functions", UseStructuredContent = true, OutputSchemaType = typeof(FunctionList))]
-    [Description("Functions of a native image (x86 / x64 / ARM): address, size, name (user, PDB, Il2Cpp, export, module!import thunk or sub_<rva>), " +
-                 "flags (thunk, arm (A32), noreturn, unresolved jumps, invalid code, funclets and exception chunks), how it was found and its caller " +
-                 "count; an exact name filter adds an open engine's function record.")]
+    [Description("Functions of a native image (x86, x64, ARM): address, size, name (user, PDB, Il2Cpp, export, module!import thunk or sub_<rva>), " +
+                 "flags (thunk, arm (A32), noreturn, unresolved jumps, invalid code, funclets, exception chunks), how found, caller count; an exact " +
+                 "name filter adds the open engine's function record.")]
     public Task<string> ListFunctions(
         [Description(NativeTools.ImageDescription)] string image,
         [Description("Name filter: " + NameFilter.Description + ".")] string? filter = null,
-        [Description("address (default), name, size (largest first) or callers (most called first).")] string? sort = null,
+        [Description("Default address; size and callers: largest first.")] string? sort = null,
         [Description(RowOffsetDescription)] int offset = 0,
         [Description("Max rows.")] int limit = 150,
         [Description(EngineDescription)] string? engine = null,
@@ -121,8 +121,8 @@ public sealed partial class NativeCodeTools(AssemblyWorkspace workspace, NativeC
         [Description("Lowest start address.")] string? from = null,
         [Description("Start addresses below this one.")] string? to = null,
         [Description("Engines: true keeps functions with a prototype, false those without.")] bool? hasType = null,
-        [Description("Sort direction instead of the sort's default.")] bool? descending = null,
-        [Description("functions (default) or candidates (engine code in no function, by references).")] string? view = null,
+        [Description("Reverse the default direction of sort.")] bool? descending = null,
+        [Description("candidates: engine code in no function, by references.")] string? view = null,
         [Description(MaxTokensDescription)] int? maxTokens = null,
         RequestContext<CallToolRequestParams> context = null!,
         CancellationToken cancellationToken = default) => OrderedProgress.Run(context, async progress =>
@@ -181,13 +181,13 @@ public sealed partial class NativeCodeTools(AssemblyWorkspace workspace, NativeC
     }
 
     [McpServerTool(Name = "disassemble", Title = "Disassemble native code", UseStructuredContent = true, OutputSchemaType = typeof(DisassemblyPage))]
-    [Description("MASM-syntax disassembly of the native function containing an address (with block labels), or of maxInstructions from the address " +
-                 "when in no function or fromAddress=true. References named, strings as comments, calls with recovered arguments; data in the way " +
-                 "(strings, pointers, IAT slots, switch tables) shown as data; warnings repeat in a footer.")]
+    [Description("MASM-syntax disassembly of the native function containing an address (block labels), or of maxInstructions from the address when in " +
+                 "no function or fromAddress=true. References named, strings as comments, calls with recovered arguments; data in the way (strings, " +
+                 "pointers, IAT slots, switch tables) shown as data.")]
     public Task<string> Disassemble(
         [Description(NativeTools.ImageDescription)] string image,
         [Description(NativeTools.AddressDescription)] string address,
-        [Description("maxInstructions from the address, not the whole containing function.")] bool fromAddress = false,
+        [Description("maxInstructions from the address, not the containing function.")] bool fromAddress = false,
         [Description("Max instructions.")] int maxInstructions = 2000,
         [Description(CharOffsetDescription)] int offset = 0,
         [Description(MaxTokensDescription)] int? maxTokens = null,
@@ -287,7 +287,7 @@ public sealed partial class NativeCodeTools(AssemblyWorkspace workspace, NativeC
         [Description(NativeTools.ImageDescription)] string image,
         [Description(NativeTools.AddressDescription)] string address,
         [Description(RowOffsetDescription)] int offset = 0,
-        [Description("Blocks per page (default 150).")] int limit = 150,
+        [Description("Blocks per page.")] int limit = 150,
         [Description(MaxTokensDescription)] int? maxTokens = null,
         [Description(EngineDescription)] string? engine = null,
         RequestContext<CallToolRequestParams> context = null!,
@@ -336,16 +336,16 @@ public sealed partial class NativeCodeTools(AssemblyWorkspace workspace, NativeC
     [McpServerTool(Name = "native_call_tree", Title = "Native call tree", UseStructuredContent = true, OutputSchemaType = typeof(NativeCallTreeResult))]
     [Description("Callers or callees of a native function, several levels deep, through thunks and import slots, as nodes paged in tree order; " +
                  "module!import gives its callers. Crosses loaded images. Callees include GetProcAddress pointers ([dynamic]) and RTTI virtual " +
-                 "targets ([virtual], [virtual?: one of n]). Repeats are not expanded.")]
+                 "targets ([virtual], [virtual?: one of n]). Repeats not expanded.")]
     public Task<string> NativeCallTree(
         [Description(NativeTools.ImageDescription)] string image,
         [Description(NativeTools.AddressDescription)] string function,
-        [Description("callees (default), callers, or both (depth 1, by call site).")] string direction = "callees",
+        [Description("both: depth 1, by call site.")] string direction = "callees",
         [Description("Levels (1-8).")] int depth = 3,
-        [Description("Max nodes in the tree (default 250).")] int maxNodes = 250,
+        [Description("Max nodes in the tree.")] int maxNodes = 250,
         [Description(RowOffsetDescription)] int offset = 0,
         [Description("Max nodes per page.")] int limit = 200,
-        [Description("Call edges: all (default), direct or virtual.")] string? calls = null,
+        [Description("Call edges (default all).")] string? calls = null,
         [Description(EngineDescription)] string? engine = null,
         [Description(MaxTokensDescription)] int? maxTokens = null,
         RequestContext<CallToolRequestParams> context = null!,
@@ -446,13 +446,13 @@ public sealed partial class NativeCodeTools(AssemblyWorkspace workspace, NativeC
     }
 
     [McpServerTool(Name = "search_native_strings", Title = "Search native strings", UseStructuredContent = true, OutputSchemaType = typeof(NativeStringList))]
-    [Description("Strings (ASCII and UTF-16) a native image's code or data references, with address, reference count and first referencing " +
-                 "function. Also Il2Cpp literals (after apply_il2cpp_names) and NativeAOT frozen strings, by the slot or object code loads; with an " +
-                 "engine, its unreferenced strings in other encodings too.")]
+    [Description("Strings (ASCII, UTF-16) referenced by the code or data of a native image, with address, reference count and first referencing " +
+                 "function. Also Il2Cpp literals (after apply_il2cpp_names) and NativeAOT frozen strings, by the slot or object code loads; an engine " +
+                 "adds unreferenced strings in other encodings.")]
     public Task<string> SearchNativeStrings(
         [Description(NativeTools.ImageDescription)] string image,
-        [Description("Case-insensitive substring, or a regex with regex=true; omit to list all.")] string? query = null,
-        [Description("Treat query as a regular expression.")] bool regex = false,
+        [Description("Case-insensitive substring, or regex with regex=true; omit for all.")] string? query = null,
+        [Description("query is a regex.")] bool regex = false,
         [Description(RowOffsetDescription)] int offset = 0,
         [Description("Max rows.")] int limit = 100,
         [Description(EngineDescription)] string? engine = null,

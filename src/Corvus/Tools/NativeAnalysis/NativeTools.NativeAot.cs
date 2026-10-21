@@ -14,13 +14,13 @@ namespace Corvus.Tools;
 public sealed partial class NativeTools
 {
     [McpServerTool(Name = "get_nativeaot_info", Title = "NativeAOT metadata", UseStructuredContent = true, OutputSchemaType = typeof(NativeAotInfo))]
-    [Description("What a NativeAOT image's metadata recovers (.NET 7-10; PE, ELF, Mach-O). view=summary: versions, header, stages, " +
-                 "counts. sections. types: MethodTables (name, origin, kind, base). type: one's flags, bases, interfaces, slots. methods: " +
-                 "named bodies. strings: frozen strings, references. statics: bases, known fields. Names apply as the nativeaot layer.")]
+    [Description("What NativeAOT metadata recovers (.NET 7-10; PE, ELF, Mach-O). view=summary: versions, header, stages, counts. types: MethodTables " +
+                 "(name, origin, kind, base). type: flags, bases, interfaces, slots. methods: named bodies. strings: frozen strings, references. " +
+                 "statics: bases, known fields. Names apply as the nativeaot layer.")]
     public Task<string> GetNativeAotInfo(
         [Description(ImageDescription)] string image,
         [Description("What to show (default summary).")] string? view = null,
-        [Description("view=type: a type name or MethodTable address; list views: substring filter.")] string? query = null,
+        [Description("view=type: a type name or MethodTable address; list views: substring.")] string? query = null,
         [Description(RowOffsetDescription)] int offset = 0,
         [Description(LimitDescription)] int limit = DefaultAotLimit,
         [Description(MaxTokensDescription)] int? maxTokens = null,

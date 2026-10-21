@@ -29,12 +29,12 @@ public sealed partial class NativeTools
     public sealed record NumberConversions(IReadOnlyList<ConvertedNumber> Items);
 
     [McpServerTool(Name = "convert_number", Title = "Convert a number", UseStructuredContent = true, OutputSchemaType = typeof(NumberConversions))]
-    [Description("Exact number conversions instead of mental arithmetic: signed and unsigned decimal, hex, binary and octal at a width, LE and " +
-                 "BE bytes and their ASCII, the bits as float or double. Input: decimal, 0x or h-suffixed hex, 0b, 0o, negative, _ separators, C " +
-                 "suffixes, 'ABCD' (C multi-character constant) or \"text\" (bytes in memory order).")]
+    [Description("Exact number conversions: signed and unsigned decimal, hex, binary and octal at a width, LE and BE bytes and their ASCII, the bits " +
+                 "as float or double. Input: decimal, 0x or h-suffixed hex, 0b, 0o, negative, _ separators, C suffixes, 'ABCD' (C multi-character " +
+                 "constant) or \"text\" (bytes in memory order).")]
     public Task<string> ConvertNumber(
         [Description("Numbers to convert.")] string[] numbers,
-        [Description("Width in bytes: 1, 2, 4 or 8 (default: the smallest that fits).")] int? size = null) => Task.Run(() =>
+        [Description("Width in bytes: 1, 2, 4 or 8 (default: smallest that fits).")] int? size = null) => Task.Run(() =>
     {
         if (numbers is not { Length: > 0 }) throw new ToolError(ErrorCode.InvalidArgument, "No numbers given.", "numbers=[\"0x41424344\", \"-1\"]");
         if (numbers.Length > 256) throw new ToolError(ErrorCode.InvalidArgument, $"{numbers.Length} numbers; at most 256 per call.", "split the list");

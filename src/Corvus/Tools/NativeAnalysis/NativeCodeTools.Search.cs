@@ -19,11 +19,11 @@ public sealed partial class NativeCodeTools
 {
     [McpServerTool(Name = "search_instructions", Title = "Search native instructions", UseStructuredContent = true, OutputSchemaType = typeof(InstructionMatchList))]
     [Description("Find instructions by mnemonic, operand or whole-line regex (case-insensitive) and an operand value (immediate, displacement or " +
-                 "target) in every function, one function, or an address range; a page stopped by the scan budget goes on at nextOffset.")]
+                 "target) in every function, one function or an address range; a page stopped by the scan budget goes on at nextOffset.")]
     public Task<string> SearchInstructions(
         [Description(NativeTools.ImageDescription)] string image,
-        [Description("Mnemonic regex, e.g. '^(call|jmp)$'.")] string? mnemonic = null,
-        [Description("Operand text regex, e.g. 'rsp\\+|fs:'.")] string? operands = null,
+        [Description("Mnemonic regex, e.g. ^(call|jmp)$")] string? mnemonic = null,
+        [Description("Operand text regex, e.g. rsp\\+|fs:")] string? operands = null,
         [Description("Regex over the whole instruction text.")] string? text = null,
         [Description("Operand value: 0x10B, 267, an address, or range 0x100..0x1FF.")] string? value = null,
         [Description("Only this function: " + NativeTools.AddressDescription)] string? function = null,

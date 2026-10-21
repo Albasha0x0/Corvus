@@ -21,7 +21,7 @@ public sealed partial class NativeTools(AssemblyWorkspace workspace, OutputPager
     /// <summary>A tool's timeoutSeconds as an engine request limit; null when not given.</summary>
     public static TimeSpan? EngineTimeout(int? seconds) => seconds is { } s ? TimeSpan.FromSeconds(Math.Clamp(s, 1, 3600)) : null;
 
-    public const string ImageDescription = "Native image id, file name or path.";
+    public const string ImageDescription = "Image id, name or path.";
 
     /// <summary>Runs work on a loaded native image under the read lock; a path that is not loaded yet is loaded first.</summary>
     private Task<string> OnImage(string image, Func<LoadedNative, string> work, CancellationToken ct) => Task.Run(() =>
@@ -52,17 +52,17 @@ public sealed partial class NativeTools(AssemblyWorkspace workspace, OutputPager
     }
 
     public const string AddressDescription =
-        "Hex VA or RVA (rva:/va:/off: prefix), export, module!import or function name.";
+        "Hex VA or RVA (rva:/va:/off: prefix), export, module!import or function.";
 
     [McpServerTool(Name = "get_pe_info", Title = "Native image overview", UseStructuredContent = true, OutputSchemaType = typeof(PeSummary))]
-    [Description("Overview of a native image: headers, sections, packaging tools, mitigations, import / export counts, TLS, PDB, load config, version, " +
-                 "manifest, rich header, overlay, signature, anomalies; ELF soname, build id, hardening; Mach-O slices, libraries, entitlements; " +
-                 "Go build info; implied capabilities. view=code: code index statistics, late-bound imports.")]
+    [Description("Overview of a native image: headers, sections, packaging tools, mitigations, import and export counts, TLS, PDB, load config, " +
+                 "version, manifest, rich header, overlay, signature, anomalies; ELF soname, build id, hardening; Mach-O slices, libraries, " +
+                 "entitlements; Go build info; implied capabilities. view=code: code index statistics, late-bound imports.")]
     public async Task<string> GetPeInfo(
         [Description(ImageDescription)] string image,
         [Description(CharOffsetDescription)] int offset = 0,
         [Description(MaxTokensDescription)] int? maxTokens = null,
-        [Description("summary, or code (waits for the code index).")]
+        [Description("code waits for the code index.")]
         string? view = null,
         CancellationToken cancellationToken = default)
     {
@@ -256,12 +256,12 @@ public sealed partial class NativeTools(AssemblyWorkspace workspace, OutputPager
     }
 
     [McpServerTool(Name = "list_imports", Title = "List native imports", UseStructuredContent = true, OutputSchemaType = typeof(ImportList))]
-    [Description("Functions a native image imports, per library (delay-load and lazy binding marked), with the IAT slot code calls through; " +
-                 "API sets show their DLL. bind=true: the export each binds to ('at VA [image]' when loaded, else its path; load_assembly " +
-                 "loadProviders=true loads them) or why it does not resolve.")]
+    [Description("Imports of a native image per library (delay-load, lazy binding marked), with the IAT slot code calls through; API sets show their " +
+                 "DLL. bind=true: the export each binds to (at VA [image] when loaded, else its path; load_assembly loadProviders=true loads them) or " +
+                 "why not.")]
     public async Task<string> ListImports(
         [Description(ImageDescription)] string image,
-        [Description("Only this library (name with or without .dll).")] string? library = null,
+        [Description("Only this library (.dll optional).")] string? library = null,
         [Description("Name substring (case-insensitive).")] string? filter = null,
         [Description("Bind each import to the export it reaches, with a summary.")] bool bind = false,
         [Description(RowOffsetDescription)] int offset = 0,
@@ -340,7 +340,7 @@ public sealed partial class NativeTools(AssemblyWorkspace workspace, OutputPager
     [Description("Exported functions and data of a native image: ordinal, VA, name (demangled C++ form, ELF symbol version), forwarders and re-exports.")]
     public Task<string> ListExports(
         [Description(ImageDescription)] string image,
-        [Description("Name substring (case-insensitive; the demangled form too).")] string? filter = null,
+        [Description("Name substring (case-insensitive; demangled form too).")] string? filter = null,
         [Description(RowOffsetDescription)] int offset = 0,
         [Description("Max rows.")] int limit = 300,
         [Description(MaxTokensDescription)] int? maxTokens = null,
@@ -367,9 +367,9 @@ public sealed partial class NativeTools(AssemblyWorkspace workspace, OutputPager
     }, cancellationToken);
 
     [McpServerTool(Name = "resolve_address", Title = "Resolve native address", UseStructuredContent = true, OutputSchemaType = typeof(AddressInfo))]
-    [Description("What a native address is: RVA, VA, file offset, section, nearest export or import, name, source; Il2Cpp method or " +
-                 "metadata slot; NativeAOT MethodTable, object or method; IAT slot's export, export's importers. Code index: function and " +
-                 "offset, instruction or data item, comment, references. PDB global: the field. DWARF: source line, inlined calls.")]
+    [Description("What a native address is: RVA, VA, file offset, section, nearest export or import, name, source; Il2Cpp method or metadata slot; " +
+                 "NativeAOT MethodTable, object or method; IAT slot export, export importers. Code index: function and offset, instruction or data, " +
+                 "comment, references. PDB global: the field. DWARF: source line, inlined calls.")]
     public Task<string> ResolveAddress(
         [Description(ImageDescription)] string image,
         [Description(AddressDescription)] string? address = null,
@@ -519,18 +519,18 @@ public sealed partial class NativeTools(AssemblyWorkspace workspace, OutputPager
     }
 
     [McpServerTool(Name = "search_bytes", Title = "Search native bytes", UseStructuredContent = true, OutputSchemaType = typeof(ByteSearch))]
-    [Description("Find a byte pattern in a native image's mapped sections (hex, or text as ASCII and UTF-16): each hit's VA, section and " +
-                 "file offset; memory=engine searches the engine's loaded bytes.")]
+    [Description("Find a byte pattern in the mapped sections of a native image (hex, or text as ASCII and UTF-16): VA, section and file " +
+                 "offset per hit; memory=engine searches the engine's loaded bytes.")]
     public Task<string> SearchBytes(
         [Description(ImageDescription)] string image,
-        [Description("Hex ('48 8B 05 ?? ?? ?? ??'): ?? any byte, 4? a nibble, 40&F8 masked bits.")] string? pattern = null,
+        [Description("Hex (48 8B 05 ?? ?? ?? ??): ?? any byte, 4? a nibble, 40&F8 masked bits.")] string? pattern = null,
         [Description("pattern is text (ASCII and UTF-16LE).")] bool text = false,
-        [Description("Only this section (e.g. .text, .rdata).")] string? section = null,
+        [Description("Only this section, e.g. .text.")] string? section = null,
         [Description("Max hits.")] int limit = 200,
         [Description(RowOffsetDescription)] int offset = 0,
-        [Description("Instead of pattern: up to 50 patterns.")] string[]? patterns = null,
-        [Description("Bit mask per pattern byte ('FF F0 FF').")] string? mask = null,
-        [Description("file (default), or engine / ida / ghidra: its loaded bytes.")] string memory = "file",
+        [Description("Instead of pattern: up to 50.")] string[]? patterns = null,
+        [Description("Bit mask per pattern byte (FF F0 FF).")] string? mask = null,
+        [Description("file, or engine / ida / ghidra: its loaded bytes.")] string memory = "file",
         [Description(MaxTokensDescription)] int? maxTokens = null,
         CancellationToken cancellationToken = default)
     {
@@ -816,8 +816,8 @@ public sealed partial class NativeTools(AssemblyWorkspace workspace, OutputPager
         [property: Description("Bytes read from the requested address (all pages).")] int TotalBytes);
 
     [McpServerTool(Name = "read_bytes", Title = "Read native bytes or values", UseStructuredContent = true, OutputSchemaType = typeof(ByteDump))]
-    [Description("Hex dump (with ASCII) of a native image's bytes at an address, as the loader maps them (.bss as ??). type= reads length values " +
-                 "instead: u8-u64, i8-i64 (be suffix: u32be), f32, f64, ptr (target named), C names (int, DWORD, char *), cstr or wstr. Structs: " +
+    [Description("Hex dump (with ASCII) of native image bytes at an address, as the loader maps them (.bss as ??). type= reads length values instead: " +
+                 "u8-u64, i8-i64 (be suffix: u32be), f32, f64, ptr (target named), C names (int, DWORD, char *), cstr or wstr. Structs: " +
                  "get_native_type read=true.")]
     public Task<string> ReadBytes(
         [Description(ImageDescription)] string image,
@@ -825,7 +825,7 @@ public sealed partial class NativeTools(AssemblyWorkspace workspace, OutputPager
         [Description("Bytes (default 256, max 65536); with type: values (default 1, max 4096).")] int? length = null,
         [Description("Bytes from address (a page's nextOffset).")] int offset = 0,
         [Description(MaxTokensDescription)] int? maxTokens = null,
-        [Description("Value type to read instead of dumping bytes.")] string? type = null,
+        [Description("Value type to read instead of a dump.")] string? type = null,
         CancellationToken cancellationToken = default) => OnImage(image, native =>
     {
         var pe = native.Image;

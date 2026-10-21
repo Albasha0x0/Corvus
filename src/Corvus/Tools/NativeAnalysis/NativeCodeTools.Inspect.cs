@@ -116,9 +116,9 @@ public sealed partial class NativeCodeTools
     private const int MaxInspectCount = 64;
 
     [McpServerTool(Name = "inspect_instruction", Title = "Inspect native instructions", UseStructuredContent = true, OutputSchemaType = typeof(InstructionReport))]
-    [Description("What is at an address of a native image, instruction by instruction (decoded, mid_instruction, data...). An instruction: bytes, " +
-                 "prefixes, encoding; operands (kind, size, access, registers, memory parts); registers and flags read and written; memory " +
-                 "accesses; stack change; flow; references; call arguments; switch table; pages a walk of up to 64.")]
+    [Description("What is at an address of a native image, instruction by instruction (decoded, mid_instruction, data...): bytes, prefixes, encoding; " +
+                 "operands (kind, size, access, registers, memory parts); registers and flags read and written; memory accesses; stack change; flow; " +
+                 "references; call arguments; switch table. Up to 64 per walk.")]
     public Task<string> InspectInstruction(
         [Description(NativeTools.ImageDescription)] string image,
         [Description(NativeTools.AddressDescription)] string address,

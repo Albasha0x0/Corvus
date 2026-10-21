@@ -43,9 +43,9 @@ public sealed class NativeExceptionTools(AssemblyWorkspace workspace, NativeCode
     private const int MaxIpStates = 64;
 
     [McpServerTool(Name = "get_exception_info", Title = "Native exception handling", UseStructuredContent = true, OutputSchemaType = typeof(ExceptionReport))]
-    [Description("Exception handling of the native function at an address. ELF / Mach-O: FDE, compact unwind or EHABI entry, personality, LSDA " +
-                 "call sites, landing pads, caught types. MSVC: handler, try blocks, caught types, unwind map, SEH scopes, IP-to-state, catch " +
-                 "blocks, funclets, filters, chained fragments. No address: image counts, failed metadata checks.")]
+    [Description("Exception handling of the native function at an address. ELF, Mach-O: FDE, compact unwind or EHABI entry, personality, LSDA call " +
+                 "sites, landing pads, caught types. MSVC: handler, try blocks, caught types, unwind map, SEH scopes, IP-to-state, funclets, filters. " +
+                 "No address: image counts, failed metadata checks.")]
     public Task<string> GetExceptionInfo(
         [Description(NativeTools.ImageDescription)] string image,
         [Description(NativeTools.AddressDescription + " Omit for an image summary.")] string? address = null,

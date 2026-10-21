@@ -37,15 +37,14 @@ public sealed partial class NativeCodeTools
     private const int MaxEngineData = 300_000;
 
     [McpServerTool(Name = "list_globals", Title = "List native globals", UseStructuredContent = true, OutputSchemaType = typeof(GlobalList))]
-    [Description("Named data items of a native image outside code, from every name source (PDB with type and size, user names and types, Il2Cpp, " +
-                 "NativeAOT, exports, symbol tables); with an engine also its defined data with type and value. get_native_type read=true reads " +
-                 "one's fields.")]
+    [Description("Named data of a native image outside code, from every name source (PDB with type and size, user names and types, Il2Cpp, NativeAOT, " +
+                 "exports, symbol tables); an engine adds its defined data with type and value. get_native_type read=true reads their fields.")]
     public Task<string> ListGlobals(
         [Description(NativeTools.ImageDescription)] string image,
         [Description("Name substring (case-insensitive).")] string? filter = null,
         [Description("Only this section, e.g. .data.")] string? section = null,
         [Description(RowOffsetDescription)] int offset = 0,
-        [Description("Max rows (default 200).")] int limit = 200,
+        [Description(ToolSupport.LimitDescription)] int limit = 200,
         [Description(EngineDescription)] string? engine = null,
         [Description(MaxTokensDescription)] int? maxTokens = null,
         RequestContext<CallToolRequestParams> context = null!,

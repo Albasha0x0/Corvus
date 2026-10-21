@@ -68,7 +68,7 @@ public sealed class NativeFunctionTools(AssemblyWorkspace workspace, NativeCodeS
     [McpServerTool(Name = "analyze_native_function", Title = "Native function dossier", UseStructuredContent = true, OutputSchemaType = typeof(FunctionDossier))]
     [Description("Everything known about one native function, in sections of at most maxItems facts: identity, signature (parameters, this class, " +
                  "result use), frame (unwind, locals, EH), callers, callees (targets, arguments), data (strings, globals, imports), flow (blocks, " +
-                 "loops, switches), annotations; optional constants, params (values callers pass), pseudocode.")]
+                 "loops, switches), annotations; optional constants, params, pseudocode.")]
     public Task<string> AnalyzeNativeFunction(
         [Description(NativeTools.ImageDescription)] string image,
         [Description("In the function; up to 16 comma-separated (a dossier each): " + NativeTools.AddressDescription)] string address,

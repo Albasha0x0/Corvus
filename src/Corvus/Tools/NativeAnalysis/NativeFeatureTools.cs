@@ -41,13 +41,13 @@ public sealed class NativeFeatureTools(AssemblyWorkspace workspace, NativeCodeSe
         IReadOnlyList<FeatureHubRecord> Hubs, IReadOnlyList<string> Notes);
 
     [McpServerTool(Name = "trace_native_feature", Title = "Trace a native feature", UseStructuredContent = true, OutputSchemaType = typeof(FeatureReport))]
-    [Description("Native code behind a behaviour, from a text or value: strings, names, imports (also late-bound), exports, RTTI classes and " +
-                 "constants matching query (\"quoted\": exact) lead to their references, ranked by function; hubs: callers within callerDepth " +
-                 "reaching several. An engine (auto: one that analyzed the bytes) adds strings, references, pseudocode.")]
+    [Description("Native code behind a behaviour: strings, names, imports (also late-bound), exports, RTTI classes and constants matching query " +
+                 "(\"quoted\": exact) lead to their references, ranked by function; hubs: callers within callerDepth reaching several. An engine adds " +
+                 "strings, references, pseudocode.")]
     public Task<string> TraceNativeFeature(
         [Description(NativeTools.ImageDescription)] string image,
-        [Description("Case-insensitive substring, or a regex with regex=true.")] string query,
-        [Description("Treat query as a regular expression.")] bool regex = false,
+        [Description("Case-insensitive substring, or regex with regex=true.")] string query,
+        [Description("query is a regex.")] bool regex = false,
         [Description("Comma-separated: strings, names, imports, exports, classes, constants (default all).")] string? kinds = null,
         [Description("Matches followed (1-500); the rest are counted.")] int maxSeeds = 50,
         [Description("Caller levels searched for hubs (0-3).")] int callerDepth = 1,

@@ -39,18 +39,18 @@ public sealed class PdbTools(AssemblyWorkspace workspace, PdbService pdbs)
     }
 
     [McpServerTool(Name = "load_pdb", Title = "Load native debug symbols", UseStructuredContent = true, OutputSchemaType = typeof(EditResult))]
-    [Description("Load a native image's debug symbols: PDB (GUID and age checked), or DWARF for ELF and Mach-O (own sections, build-id or " +
-                 ".gnu_debuglink, dSYM): names, types, source lines. Searched: path, image folder, symbol paths and caches, CORVUS_DEBUG_DIRS. " +
-                 "Names have source 'pdb' (user names win); adds missed function starts. Local matches load automatically.")]
+    [Description("Load debug symbols for a native image: PDB (GUID and age checked) or DWARF (own sections, build-id, .gnu_debuglink, dSYM): names, " +
+                 "types, source lines. Searched: path, image folder, symbol paths and caches, CORVUS_DEBUG_DIRS. Names get source pdb (user names " +
+                 "win). Local matches load on their own.")]
     public Task<string> LoadPdb(
         [Description(NativeTools.ImageDescription)] string image,
-        [Description("PDB or debug file, dSYM, or a folder (or symbol store) to look in first.")] string? path = null,
-        [Description("Download when nothing local matches: symbol server (PDB), debuginfod (ELF).")] bool download = false,
-        [Description("Default: PDB _NT_SYMBOL_PATH servers, else Microsoft's; DWARF CORVUS_DEBUGINFOD_URLS.")] string? server = null,
-        [Description("Use path's file even if GUID/age or build-id differs (names may be wrong).")] bool allowMismatch = false,
-        [Description("Download time limit in seconds.")] int timeoutSeconds = 120,
+        [Description("PDB or debug file, dSYM, or a folder or symbol store to look in first.")] string? path = null,
+        [Description("If nothing local matches: symbol server (PDB), debuginfod (ELF).")] bool download = false,
+        [Description("Default: _NT_SYMBOL_PATH servers, else Microsoft (PDB); CORVUS_DEBUGINFOD_URLS (DWARF).")] string? server = null,
+        [Description("Use the path file even if GUID/age or build-id differs.")] bool allowMismatch = false,
+        [Description("Download time limit, seconds.")] int timeoutSeconds = 120,
         [Description("Download size limit in MB.")] int maxMegabytes = 2048,
-        [Description("Remove the PDB names and their saved copy instead (not read again this session).")] bool clear = false,
+        [Description("Remove the PDB names and saved copy instead.")] bool clear = false,
         RequestContext<CallToolRequestParams> context = null!,
         CancellationToken cancellationToken = default) => OrderedProgress.Run(context, async progress =>
     {
@@ -143,13 +143,13 @@ public sealed class PdbTools(AssemblyWorkspace workspace, PdbService pdbs)
 
     [McpServerTool(Name = "search_pdb_symbols", Title = "Search native debug symbols", UseStructuredContent = true, OutputSchemaType = typeof(PdbSymbolList))]
     [Description("Symbols of the PDB or DWARF loaded for a native image (load_pdb, or found automatically): address, kind, size, name, " +
-                 "signature (undecorated or demangled), and object file or unit.")]
+                 "signature (undecorated or demangled), object file or unit.")]
     public Task<string> SearchPdbSymbols(
         [Description(NativeTools.ImageDescription)] string image,
         [Description("Name or decorated name substring (case-insensitive); empty for all.")] string? query = null,
         [Description("Only this kind (default all).")] string? kind = null,
         [Description(RowOffsetDescription)] int offset = 0,
-        [Description("Max rows (default 150).")] int limit = 150,
+        [Description(ToolSupport.LimitDescription)] int limit = 150,
         [Description(MaxTokensDescription)] int? maxTokens = null,
         CancellationToken cancellationToken = default) => Task.Run(async () =>
     {

@@ -59,15 +59,15 @@ public sealed class NativeCallTools(AssemblyWorkspace workspace, NativeCodeServi
     }
 
     [McpServerTool(Name = "get_call_arguments", Title = "Native call arguments", UseStructuredContent = true, OutputSchemaType = typeof(CallArgumentsReport))]
-    [Description("Call sites of a native image (x86 / x64 / ARM) with argument values, by constant propagation under the calling convention: " +
-                 "immediates, strings, named addresses, earlier call results, globals (differing merges are unknown). Known Win32 / CRT / " +
-                 "libc APIs give parameter names and decoded constants. Pass address and/or callee.")]
+    [Description("Call sites (x86, x64, ARM) with argument values, by constant propagation under the calling convention: immediates, strings, named " +
+                 "addresses, earlier call results, globals (differing merges are unknown). Known Win32, CRT and libc APIs give parameter names and " +
+                 "decoded constants. Pass address and/or callee.")]
     public Task<string> GetCallArguments(
         [Description(NativeTools.ImageDescription)] string image,
         [Description("A call, or an address in a function (all its calls): " + NativeTools.AddressDescription)] string? address = null,
         [Description("Only calls to this API, module!name or function; without address, image-wide.")] string? callee = null,
         [Description(ToolSupport.RowOffsetDescription)] int offset = 0,
-        [Description("Max call sites (default 50, max 1000).")] int limit = 50,
+        [Description("Max call sites (max 1000).")] int limit = 50,
         [Description(ToolSupport.MaxTokensDescription)] int? maxTokens = null,
         RequestContext<CallToolRequestParams> context = null!,
         CancellationToken cancellationToken = default) => OrderedProgress.Run(context, async progress =>

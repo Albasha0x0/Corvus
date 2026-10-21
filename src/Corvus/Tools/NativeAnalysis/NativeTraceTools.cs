@@ -85,13 +85,13 @@ public sealed class NativeTraceTools(AssemblyWorkspace workspace, NativeCodeServ
                                         "or result (the call's return)";
 
     [McpServerTool(Name = "trace_native_values", Title = "Native value trace", UseStructuredContent = true, OutputSchemaType = typeof(ValueTraceReport))]
-    [Description("Traces a value through native code (x86 / x64 / ARM) across functions and images. Backward: constants, strings, function " +
-                 "pointers, API results, via copies, stack, merges, loops; parameters bind to callers' arguments, results to returns, globals to " +
-                 "writers. Forward: API and callee arguments, global readers, returns, compares, switches, dereferences.")]
+    [Description("Trace a value through native code (x86, x64, ARM) across functions and images. Backward: constants, strings, function pointers, API " +
+                 "results, via copies, stack, merges, loops; parameters bind to caller arguments, results to returns, globals to writers. Forward: " +
+                 "API and callee arguments, global readers, returns, compares, switches, dereferences.")]
     public Task<string> TraceNativeValues(
         [Description(NativeTools.ImageDescription)] string image,
         [Description("An instruction, call, function start (with argument) or writable global: " + NativeTools.AddressDescription)] string address,
-        [Description("The value at address: " + LocationHelp + ".")] string? location = null,
+        [Description("The value at address: a register (rdx, xmm1, x1, w2, r1), a stack slot ([rsp+28h], [ebp-8], [x29-8]), op1 / op2 (an operand) or result (the call return).")] string? location = null,
         [Description("Argument of the call or parameter of the function at address: 1-based or API name.")]
         string? argument = null,
         [Description("backward (default: the values that reach it), forward (its uses) or both.")] string? direction = null,
@@ -100,11 +100,10 @@ public sealed class NativeTraceTools(AssemblyWorkspace workspace, NativeCodeServ
         [Description("Nodes in the graph (1-5000).")] int maxNodes = 500,
         [Description("Call sites bound per parameter or return (1-256).")] int maxCallers = 16,
         [Description("Writers (backward) or readers (forward) per global (1-256).")] int maxWriters = 16,
-        [Description("Stop at writable globals, not following their writers / readers.")] bool stopAtGlobals = false,
+        [Description("Stop at writable globals instead of following writers / readers.")] bool stopAtGlobals = false,
         [Description(ToolSupport.RowOffsetDescription)] int offset = 0,
         [Description("Nodes per page (max 1000).")] int limit = 200,
-        [Description("ours, ida or ghidra (its IR; ours where it cannot place the seed), or auto (default: an " +
-                     "analyzing engine, else ours).")] string? engine = null,
+        [Description("ida or ghidra: its IR (ours where it cannot place the seed); ours; auto (default): an analyzing engine, else ours.")] string? engine = null,
         [Description(ToolSupport.MaxTokensDescription)] int? maxTokens = null,
         RequestContext<CallToolRequestParams> context = null!,
         CancellationToken cancellationToken = default) => OrderedProgress.Run(context, async progress =>

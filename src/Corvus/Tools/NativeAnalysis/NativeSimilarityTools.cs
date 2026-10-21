@@ -48,9 +48,9 @@ public sealed class NativeSimilarityTools(AssemblyWorkspace workspace, NativeCod
         IReadOnlyList<string> Notes);
 
     [McpServerTool(Name = "find_similar_functions", Title = "Find similar functions", UseStructuredContent = true, OutputSchemaType = typeof(SimilarityReport))]
-    [Description("Functions like a given one in a native image, ranked by score with evidence: instruction-shape similarity (registers, " +
-                 "addresses, constants ignored), containment, CFG shape, shared strings, constants, imports, callees. scope=all: every loaded " +
-                 "image of the architecture. view=duplicates: same-shape groups; view=clusters: near-duplicates image-wide.")]
+    [Description("Functions like a given one, ranked by score with evidence: instruction-shape similarity (registers, addresses, constants ignored), " +
+                 "containment, CFG shape, shared strings, constants, imports, callees. scope=all: every loaded image of the architecture. " +
+                 "view=duplicates: same-shape groups; clusters: near-duplicates image-wide.")]
     public Task<string> FindSimilarFunctions(
         [Description(NativeTools.ImageDescription)] string image,
         [Description("view=similar: an address in the function.")] string? address = null,
