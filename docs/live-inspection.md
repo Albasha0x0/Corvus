@@ -215,8 +215,8 @@ A managed assembly (`match=app.dll!part`; the program's own assembly or one next
 is covered on Windows from the runtime's record of the methods it has prepared code for: a method is JIT-compiled, or
 its ReadyToRun code bound, at its first call. The record is read each second and when the program exits (the exiting
 thread is held at `RtlExitUserProcess` meanwhile), so a report lists which methods ran, by metadata token, without
-counts; its report is text only (no `format=dot`). A runtime the server cannot read (a 32-bit program under a 64-bit
-server, or one without a DAC) is covered from the JIT's compiles instead: each method's first compile after the run
+counts; its report is text only (no `format=dot`). A runtime the server cannot read (one without a DAC, or a 32-bit
+program when the 32-bit decoder is not installed) is covered from the JIT's compiles instead: each method's first compile after the run
 starts, which leaves out methods compiled before it and precompiled (ReadyToRun, NGEN) code.
 
 `live_timeline` collects a timestamped trace from the OS diagnostics channel: an event tracing session (ETW) with the

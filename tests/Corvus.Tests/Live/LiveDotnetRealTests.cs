@@ -548,8 +548,8 @@ public sealed class LiveDotnetRealTests(ITestOutputHelper output) : LiveToolCall
         await Refused(server, "live_coverage", new() { ["action"] = "report", ["run"] = runs[0], ["format"] = "dot" }, "unsupported");
     }
 
-    /// <summary>Builds a 32-bit .NET Framework program: Main calls Add ten times, 20 ms apart; Unused never runs.</summary>
-    private string Calc32()
+    /// <summary>Builds a 32-bit .NET Framework program: Main calls Add <paramref name="rounds"/> times, 20 ms apart; Unused never runs.</summary>
+    private string Calc32(int rounds = 10)
     {
         File.WriteAllText(_dir.File("Directory.Build.props"), "<Project />");
         File.WriteAllText(_dir.File("Directory.Build.targets"), "<Project />");
@@ -558,7 +558,7 @@ public sealed class LiveDotnetRealTests(ITestOutputHelper output) : LiveToolCall
               <PropertyGroup><OutputType>Exe</OutputType><TargetFramework>net48</TargetFramework><PlatformTarget>x86</PlatformTarget><AssemblyName>Calc</AssemblyName></PropertyGroup>
             </Project>
             """);
-        File.WriteAllText(_dir.File("Program.cs"), """
+        File.WriteAllText(_dir.File("Program.cs"), $$"""
             static class Calc
             {
                 [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
@@ -567,7 +567,7 @@ public sealed class LiveDotnetRealTests(ITestOutputHelper output) : LiveToolCall
                 static void Main()
                 {
                     int t = 0;
-                    for (int i = 0; i < 10; i++) { t = Add(t, i); System.Threading.Thread.Sleep(20); }
+                    for (int i = 0; i < {{rounds}}; i++) { t = Add(t, i); System.Threading.Thread.Sleep(20); }
                     System.Console.WriteLine(t);
                 }
             }
@@ -596,13 +596,39 @@ public sealed class LiveDotnetRealTests(ITestOutputHelper output) : LiveToolCall
     }
 
     /// <summary>
-    /// Managed coverage of a 32-bit .NET Framework program, whose runtime this 64-bit server cannot read: the methods are
-    /// counted from the JIT's compiles, also when the program file was loaded with load_assembly first.
+    /// Managed coverage of a running 32-bit .NET Framework program from its runtime's record, read by the 32-bit decoder
+    /// process: methods compiled before the run started count too.
     /// </summary>
     [DotnetTargetFact("win-x64")]
     public async Task Managed_coverage_of_a_32_bit_framework_program()
     {
+        var exe = Calc32(rounds: 100);
+        await using var server = await Server();
+        await Spawn(server, exe, "live-1");
+        await Ok(server, "live_break", new() { ["session"] = "live-1", ["action"] = "set", ["at"] = "Calc::Add" });
+        await Ok(server, "live_break", new() { ["session"] = "live-1", ["action"] = "continue" });
+        await Ok(server, "live_break", new() { ["session"] = "live-1", ["action"] = "list", ["wait"] = true, ["waitSeconds"] = 60 });
+        await Ok(server, "live_break", new() { ["session"] = "live-1", ["action"] = "clear", ["stopPoint"] = "s1" });
+        await Ok(server, "live_break", new() { ["session"] = "live-1", ["action"] = "continue" });
+        var start = await Ok(server, "live_coverage", new() { ["session"] = "live-1", ["action"] = "start", ["match"] = "Calc.exe!" });
+        var run = Regex.Match(start, @"^(cov-\d+) recording which of \d+ methods of Calc\.exe run in live-1, from the runtime's record");
+        Assert.True(run.Success, start);
+        await UntilExited(server, "live-1");
+        var report = await Ok(server, "live_coverage", new() { ["action"] = "report", ["run"] = run.Groups[1].Value });
+        Assert.Matches(@"ran  0x06000001  Calc::Add\(int, int\)", report);
+        Assert.Matches(@"ran  0x06000003  Calc::Main\(\)", report);
+        Assert.DoesNotMatch(@"ran  0x06000002", report);
+    }
+
+    /// <summary>
+    /// Without the 32-bit decoder a 32-bit program's methods are counted from the JIT's compiles, also when the program
+    /// file was loaded with load_assembly first.
+    /// </summary>
+    [DotnetTargetFact("win-x64")]
+    public async Task Managed_coverage_of_a_32_bit_program_without_the_decoder()
+    {
         var exe = Calc32();
+        using var missing = new EnvironmentScope().Set(Corvus.Native.Dump.Managed.ClrHelperClient.PathVariable, _dir.File(Path.Combine("missing", "decoder.exe")));
         await using var server = await Server();
         await Ok(server, "load_assembly", new() { ["path"] = exe });
         await Spawn(server, exe, "live-1");

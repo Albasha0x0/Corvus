@@ -402,13 +402,15 @@ public sealed partial class LiveSessionService
             .Where(p => filter == null || p.Name.Contains(filter, StringComparison.OrdinalIgnoreCase)).OrderBy(p => p.Rva).ToList());
         if (points.Count == 0)
             throw new ToolError(ErrorCode.NotFound, $"No method of {file}{(filter != null ? $" has a name containing '{filter}'" : " has a body")}.", "search_symbols shows the assembly's methods");
-        // this server reads a runtime of its own architecture only, also once one loads
-        var other = session.Arch switch
+        // this server reads a runtime of its own architecture, and a 32-bit one through the 32-bit decoder process, also once one loads
+        var arch = session.Arch switch
         {
             "ia32" => Architecture.X86, "x64" => Architecture.X64,
             "arm64" => Architecture.Arm64, _ => RuntimeInformation.ProcessArchitecture,
-        } != RuntimeInformation.ProcessArchitecture;
-        if (other) return await StartJitCoverageAsync(session, asm, points, $"a {session.Arch} process", ct).ConfigureAwait(false);
+        };
+        bool decoded = arch == RuntimeInformation.ProcessArchitecture
+                       || (arch == Architecture.X86 && RuntimeInformation.ProcessArchitecture == Architecture.X64 && Native.Dump.Managed.ClrHelperClient.Locate() != null);
+        if (!decoded) return await StartJitCoverageAsync(session, asm, points, $"a {session.Arch} process", ct).ConfigureAwait(false);
         if (await ClrAsync(session, ct).ConfigureAwait(false) is { Unavailable: { } reason } && !reason.StartsWith("load_failed", StringComparison.Ordinal))
             return await StartJitCoverageAsync(session, asm, points, reason, ct).ConfigureAwait(false);
         if (BeforeCoverageRun is { } before) await before().ConfigureAwait(false);
