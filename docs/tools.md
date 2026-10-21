@@ -908,7 +908,7 @@ Il2Cpp metadata, addresses, symbols and bindings.
 
 **Il2Cpp addresses and offsets** (read-only, idempotent)
 
-Native addresses (RVA, VA, file offset, vtable slot) of an Il2Cpp method or every method of a type, field offsets and tokens. With script.json: function bounds, methods sharing the code, MethodInfo slot, generic instantiations, metadata slots (Ns.Type_TypeInfo). With stringliteral.json and the binary: literals a method loads.
+Native addresses (RVA, VA, file offset, vtable slot) of an Il2Cpp method or all methods of a type, field offsets and tokens. With script.json: function bounds, methods sharing the code, MethodInfo slot, generic instantiations, metadata slots. With stringliteral.json and the binary: literals a method loads.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -924,7 +924,7 @@ Structured output: `symbol`, `members`, `items`, `offset`, `total`, `limit`, `to
 
 **Native address to method** (read-only, idempotent)
 
-Map a native address (IDA, Ghidra, crash log) of an Il2Cpp game to the method(s) whose function contains it, or the string literal, type metadata or MethodInfo slot at it; script.json names generic instantiations (without it a containing method is a guess).
+Map a native address (IDA, Ghidra, crash log) of an Il2Cpp game to the method(s) whose function contains it, or the string literal, type metadata or MethodInfo slot at it; script.json names generic instantiations (without it, a guess).
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -941,7 +941,7 @@ Structured output: `address`, `items`, `offset`, `total`, `limit`, `totalExact`,
 
 **Export IDA/Ghidra scripts** (destructive, idempotent, long-running)
 
-Export Il2Cpp dummy-DLL metadata for native analysis: IDA Python and Ghidra scripts that create, name (Ns.Type$$Method) and comment every function (by RVA, any image base), a C header of struct layouts, and an Il2CppDumper-style script.json.
+Export Il2Cpp dummy-DLL metadata for native analysis: IDA Python and Ghidra scripts that create, name (Ns.Type$$Method) and comment every function (by RVA), a C header of struct layouts, and an Il2CppDumper-style script.json.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -957,7 +957,7 @@ Structured output: `functions`, `structs`, `files`.
 
 **Generate C++ binding** (read-only, idempotent)
 
-C++ binding code for a managed type of a Mono or Il2Cpp app: a struct resolving the class, field offsets, static fields and methods once, with typed accessors, property getters and invoke wrappers. style: mono (embedding API), il2cpp (runtime exports) or hostapi (a host function table); omitted: detected, else mono.
+C++ binding code for a managed type of a Mono or Il2Cpp app: a struct resolving the class, field offsets, static fields and methods once, with typed accessors, property getters and invoke wrappers. style: mono (embedding API), il2cpp (runtime exports) or hostapi (a host function table); default: detected, else mono.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -2348,7 +2348,7 @@ Android packages: manifest, resources, DEX code, Java decompilation, Java / .NET
 
 **Android manifest** (read-only, idempotent)
 
-AndroidManifest.xml decoded. view=summary: package, versions, SDKs, permissions, application flags, component counts, exported components and why, queries, features, libraries, highlights. components: each component with intent filters, deep links, meta-data.
+AndroidManifest.xml decoded. view=summary: package, versions, SDKs, permissions, application flags, component counts, exported components and why, queries, features, libraries, highlights. components: each with intent filters, deep links, meta-data.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -2416,7 +2416,7 @@ Structured output: `items`, `offset`, `total`, `notes`, `packages`, `limit`, `to
 
 **DEX class** (read-only, idempotent)
 
-One DEX class: superclass, interfaces, generic signature, enclosing and inner classes, Kotlin @Metadata, annotations; then its members, paged: fields (type, static value), methods (id, Java signature, code size, registers, parameter names).
+One DEX class: superclass, interfaces, generic signature, enclosing and inner classes, Kotlin @Metadata, annotations; then its members, paged: fields (type, static value), methods (id, Java signature, code size, registers, parameters).
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -2451,7 +2451,7 @@ Structured output: `code`, `offset`, `nextOffset`, `totalChars`.
 
 **Decompile Java** (read-only, idempotent, open-world, long-running)
 
-Java source of a class or method of an Android package or jar via JADX (CORVUS_JAVA_DECOMPILER, JDK 17+), or of a jar or .class via Vineflower (engine=vineflower, CORVUS_JAVA_DECOMPILER2). A member, anonymous or lambda class comes from the code it is written in. Without them: disassemble_dex.
+Java source of a class or method of an Android package or jar via JADX (CORVUS_JAVA_DECOMPILER, JDK 17+), or of a jar or .class via Vineflower (engine=vineflower, CORVUS_JAVA_DECOMPILER2). Members, anonymous and lambda classes come from the code they are written in. Without them: disassemble_dex.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -2469,7 +2469,7 @@ Structured output: `code`, `offset`, `nextOffset`, `totalChars`.
 
 **Search DEX code** (read-only, idempotent, long-running)
 
-Search DEX code. kind=string: literals with method and offset of each use; type: defined classes and type uses; method / field: defined and referenced members with use counts; const: numeric constants; opcode: instructions by mnemonic.
+Search DEX code. kind=string: literals with method and offset per use; type: defined classes and type uses; method / field: defined and referenced members with use counts; const: numeric constants; opcode: instructions by mnemonic.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -2487,7 +2487,7 @@ Structured output: `items`, `offset`, `total`, `notes`, `limit`, `totalExact`, `
 
 **Find DEX references** (read-only, idempotent, long-running)
 
-Cross-references in DEX code, with method and code offset of each instruction. direction=to: callers of a method, readers and writers of a field, uses of a class or string. from: what a method (or each method of a class) calls, reads, writes and loads. Methods match by exact id.
+Cross-references in DEX code, with method and code offset per instruction. direction=to: callers of a method, readers and writers of a field, uses of a class or string. from: what a method (or each method of a class) calls, reads, writes and loads. Methods match by exact id.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -2505,7 +2505,7 @@ Structured output: `target`, `targetKind`, `direction`, `items`, `offset`, `tota
 
 **Map Java and .NET** (read-only, idempotent)
 
-Pairs across a Java / .NET bridge. .NET for Android (Xamarin, MAUI): Java wrapper classes and methods to .NET types and methods and back ([Register], crc64 names). Unity Mono: C# reaching Java via AndroidJavaClass / Object / Proxy / AndroidJNI, and back, with a confidence. A * / ? pattern lists matching pairs.
+Pairs across a Java / .NET bridge. .NET for Android (Xamarin, MAUI): Java wrapper classes and methods to .NET types and methods and back ([Register], crc64 names). Unity Mono: C# reaching Java via AndroidJavaClass / Object / Proxy / AndroidJNI, and back, with a confidence. A * / ? pattern lists pairs.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -2521,7 +2521,7 @@ Structured output: `query`, `direction`, `items`, `offset`, `total`, `notes`, `l
 
 **List JNI bindings** (read-only, idempotent, long-running)
 
-Java native methods of an Android package paired with their code in lib/<abi>/*.so: Java_ exports by JNI name mangling and RegisterNatives tables in library data; also unbound methods and stray Java_ exports.
+Java native methods of an Android package paired with their code in lib/<abi>/*.so: Java_ exports by JNI name mangling and RegisterNatives tables; also unbound methods and stray Java_ exports.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -2549,7 +2549,7 @@ Structured output: `items`, `unparsed`.
 
 **Android device info** (edit, open-world, long-running)
 
-Device properties (getprop) with a summary: SDK, release, model, ABIs, fingerprint, patch level, build type, ro.debuggable, ro.secure, emulator; view=: processes, features, services, settings, files, screen (PNG), window (focused activity, DEX class), display, bugreport (zip). Read-only.
+Device properties (getprop) with a summary: SDK, release, model, ABIs, fingerprint, patch level, build type, ro.debuggable, ro.secure, emulator; view=: processes, features, services, settings, files, screen (PNG), window (focused activity), display, bugreport (zip). Read-only.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -2596,7 +2596,7 @@ Structured output: `serial`, `package`, `versionName`, `versionCode`, `minSdk`, 
 
 **Pull installed package** (edit, idempotent, open-world, long-running)
 
-Copies every APK of an installed package (base and splits) into a new or empty directory, with size and SHA-256 each, and summarizes the base APK. A failed pull leaves no files.
+Copy every APK of an installed package (base and splits) into a new or empty directory, with size and SHA-256 each, and summarize the base APK. A failed pull leaves no files.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|

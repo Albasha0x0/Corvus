@@ -13,7 +13,7 @@ public sealed class BindingTools(AssemblyWorkspace workspace, CppBindingGenerato
     [McpServerTool(Name = "generate_cpp_binding", Title = "Generate C++ binding", UseStructuredContent = true, OutputSchemaType = typeof(TextPageRecord))]
     [Description("C++ binding code for a managed type of a Mono or Il2Cpp app: a struct resolving the class, field offsets, static fields and methods " +
                  "once, with typed accessors, property getters and invoke wrappers. style: mono (embedding API), il2cpp (runtime exports) or hostapi " +
-                 "(a host function table); omitted: detected, else mono.")]
+                 "(a host function table); default: detected, else mono.")]
     public Task<string> GenerateCppBinding(
         [Description(SymbolDescription)] string type,
         [Description(AssemblyFilterDescription)] string? assembly = null,
