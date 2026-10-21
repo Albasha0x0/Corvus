@@ -88,27 +88,25 @@ public sealed class WorkspaceTools(AssemblyWorkspace workspace, Il2CppService il
             : null;
 
     [McpServerTool(Name = "load_assembly", Title = "Load assembly", UseStructuredContent = true, OutputSchemaType = typeof(ImageChange))]
-    [Description("Load a .NET assembly or every assembly in a folder (app folder, Unity *_Data/Managed, DummyDll). " +
-                 "A PE, ELF, Mach-O or wasm file loads as a native image (universal Mach-O: one slice, name[slice]); format=raw maps headerless code; " +
-                 "folder loads skip native files. An Il2Cpp game (folder, global-metadata.dat, .apk/.xapk/.aab/.ipa/.app, " +
-                 "memory dump) is read by the built-in reader (v24-39): dummy assemblies with addresses and offsets, " +
-                 "plus the binary as a native image. A .gzf or a .gpr's program (copied) opens in Ghidra. " +
-                 "Files are read into memory; a repeat load is a no-op.")]
+    [Description("Load a .NET assembly or every assembly in a folder (app folder, Unity *_Data/Managed, DummyDll). PE, ELF, Mach-O or wasm files load " +
+                 "as native images (universal Mach-O: one slice, name[slice]); format=raw maps headerless code; folder loads skip native files. An " +
+                 "Il2Cpp game (folder, global-metadata.dat, .apk/.xapk/.aab/.ipa/.app, memory dump) loads as dummy assemblies with addresses " +
+                 "(metadata v24-39) plus the binary as a native image. A .gzf or .gpr program (copied) opens in Ghidra. A repeat load is a no-op.")]
     public Task<string> LoadAssembly(
-        [Description("Absolute path to an assembly file or a directory.")] string path,
-        [Description("When path is a directory, also load assemblies in subdirectories.")] bool recursive = false,
-        [Description("Also load the DLLs a file's imports bind to (one level, at most 16), for the call tools.")] bool loadProviders = false,
-        [Description("Mach-O slice (name or index; default arm64e, arm64, x86_64) or an Il2Cpp APK's ABI (default arm64-v8a).")] string? slice = null,
+        [Description("Absolute path to an assembly file or a folder.")] string path,
+        [Description("Also load assemblies in subdirectories.")] bool recursive = false,
+        [Description("Also load the DLLs the imports bind to (one level, at most 16).")] bool loadProviders = false,
+        [Description("Mach-O slice (or index; default arm64e, arm64, x86_64) or Il2Cpp APK ABI (default arm64-v8a).")] string? slice = null,
         [Description("auto, or raw (headerless code).")] string format = "auto",
         [Description("raw: x86, x64, arm, thumb, arm64; mips, ppc, riscv64, 6502 etc. via IDA or Ghidra.")] string? arch = null,
         [Description("raw: load address (default 0).")] string? @base = null,
         [Description("raw: entry address or file offset (default start).")] string? entry = null,
-        [Description("IDA processor (-p), e.g. metapc, arm, mipsl.")] string? processor = null,
-        [Description("Ghidra language id, e.g. x86:LE:32:default.")] string? language = null,
-        [Description("Ghidra compiler spec (also IDA's compiler): windows, gcc, borlandcpp, borlanddelphi ...")] string? compilerSpec = null,
+        [Description("IDA processor (-p): metapc, arm, mipsl...")] string? processor = null,
+        [Description("Ghidra language id: x86:LE:32:default...")] string? language = null,
+        [Description("Ghidra compiler spec (also the IDA compiler): windows, gcc, borlandcpp, borlanddelphi...")] string? compilerSpec = null,
         [Description("Starts before analysis: [function|code|label:]address[=name].")] string[]? seeds = null,
-        [Description("Analyzers off at import (AF_FLIRT, 'Decompiler Switch Analysis').")] string[]? disableAnalyzers = null,
-        [Description("A .gpr's program path, e.g. /app.exe (default: its only one).")] string? program = null,
+        [Description("Analyzers off at import (AF_FLIRT, \"Decompiler Switch Analysis\").")] string[]? disableAnalyzers = null,
+        [Description("Program path in a .gpr, e.g. /app.exe (default: its only one).")] string? program = null,
         RequestContext<CallToolRequestParams> context = null!, // bound by the SDK
         CancellationToken cancellationToken = default) => OrderedProgress.Run(context, progress => Task.Run(() =>
     {

@@ -14,18 +14,18 @@ namespace Corvus.Tools;
 public sealed partial class NoteTools(AssemblyWorkspace workspace, NotesService notes, NativeCodeService code, MinidumpService dumps, ResultStore? results = null)
 {
     public const string AnchorDescription =
-        "'<image>@<address>', '<assembly>:<symbol or token>', image or assembly id, 'dump:<id or path>', or empty (session-wide).";
+        "<image>@<address>, <assembly>:<symbol or token>, image or assembly id, dump:<id or path>, or empty (session-wide).";
 
     public sealed record NoteList(
         [property: Description("Notes, newest first.")] IReadOnlyList<Note> Items,
         int Offset, int Total,
         [property: Description("How the filters were applied (e.g. the function an address was widened to).")] IReadOnlyList<string> Notes);
 
-    private const string EvidenceDescription = "At most 10: {result: r-… or last:N, expect: supports|refutes}, {tool, args} of a call made here, or {text}.";
+    private const string EvidenceDescription = "At most 10: {result: r-... or last:N, expect: supports|refutes}, {tool, args} of a call made here, or {text}.";
 
     [McpServerTool(Name = "record_note", Title = "Record a note", UseStructuredContent = true)]
-    [Description("Record a finding, question, hypothesis or todo anchored to a native address, a .NET member, a file or a dump; notes persist per user, " +
-                 "keyed by SHA-256 / MVID so they follow the binary, and decompile_member / decompile_native count a target's open ones.")]
+    [Description("Record a finding, question, hypothesis or todo anchored to a native address, a .NET member, a file or a dump; notes persist per " +
+                 "user, keyed by SHA-256 or MVID so they follow the binary; decompile_member and decompile_native count the open notes of a target.")]
     public Task<Note> RecordNote(
         [Description("At most 4,000 characters.")] string text,
         [Description("Default finding.")] string? kind = null,
@@ -41,8 +41,9 @@ public sealed partial class NoteTools(AssemblyWorkspace workspace, NotesService 
     }, cancellationToken);
 
     [McpServerTool(Name = "update_note", Title = "Update a note", UseStructuredContent = true)]
-    [Description("Change a note in part: status, kind, text, tags, evidence; verify=true re-checks linked records and sets a hypothesis confirmed or refuted " +
-                 "when they verify and name its anchor, else open. A stale expectedRevision is a conflict carrying the note (details.current).")]
+    [Description("Change part of a note: status, kind, text, tags, evidence; verify=true re-checks linked records and sets a hypothesis confirmed or " +
+                 "refuted when they verify and name its anchor, else open. A stale expectedRevision is a conflict carrying the note " +
+                 "(details.current).")]
     public Task<Note> UpdateNote(
         [Description("Note id.")] string id,
         [Description("The revision last read.")] int expectedRevision,
@@ -74,8 +75,8 @@ public sealed partial class NoteTools(AssemblyWorkspace workspace, NotesService 
     }
 
     [McpServerTool(Name = "list_notes", Title = "List notes", UseStructuredContent = true, OutputSchemaType = typeof(NoteList))]
-    [Description("Notes, newest first, by status, kind, anchor, tag and text. A file anchor lists all its notes, '<image>@<address>' those in the containing function, " +
-                 "'<assembly>:<type>' those on its members too.")]
+    [Description("Notes, newest first, by status, kind, anchor, tag and text. A file anchor lists all its notes, <image>@<address> those in the " +
+                 "containing function, <assembly>:<type> those on its members too.")]
     public Task<string> ListNotes(
         [Description("Default open; all for every status.")] string? status = null,
         [Description("Only this kind.")] string? kind = null,
@@ -83,7 +84,7 @@ public sealed partial class NoteTools(AssemblyWorkspace workspace, NotesService 
         [Description("Only notes with this tag.")] string? tag = null,
         [Description("Text substring (case-insensitive).")] string? text = null,
         [Description(ToolSupport.RowOffsetDescription)] int offset = 0,
-        [Description("Notes per page (default 50).")] int limit = 50,
+        [Description("Notes per page.")] int limit = 50,
         [Description(ToolSupport.MaxTokensDescription)] int? maxTokens = null,
         CancellationToken cancellationToken = default) => Task.Run(() =>
     {

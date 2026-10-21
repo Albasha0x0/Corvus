@@ -83,7 +83,7 @@ public sealed class SessionTools(AssemblyWorkspace workspace, IndexingService in
                  "expectedExecutable checks the registered copy.")]
     public ServerStatus GetServerStatus(
         [Description("Catalog digest to compare (t92-0123456789ab.p5-01234567).")] string? expectedCatalogDigest = null,
-        [Description("Registered server program path, compared with the running one.")] string? expectedExecutable = null,
+        [Description("Registered server path, compared with the running one.")] string? expectedExecutable = null,
         RequestContext<CallToolRequestParams> context = null!)
     {
         var server = context?.Server?.ServerOptions;
@@ -204,15 +204,15 @@ public sealed class SessionTools(AssemblyWorkspace workspace, IndexingService in
 
     [McpServerTool(Name = "read_result", Title = "Read a kept result", UseStructuredContent = true, OutputSchemaType = typeof(ReadResultRecord))]
     [Description("Read a kept result (resultId; kept on disk 7 days): page it, search it with query, or write it whole to outputPath. " +
-                 "format=evidence: results (id: r-… or last:N calls) and their calls to outputPath; format=verify re-runs a bundle, " +
-                 "entry (file.json#r-…) or result, or compares it with against.")]
+                 "format=evidence: results (r-... or last:N) and their calls to outputPath; verify re-runs a bundle, entry (file.json#r-...) or " +
+                 "result, or compares it with against.")]
     public async Task<string> ReadResult(
         [Description("Result id, e.g. r-0123456789ab.")] string id,
         [Description("Character offset (nextOffset).")] int offset = 0,
         [Description("Page size in tokens (default 6000).")] int? maxTokens = null,
-        [Description("Only lines containing this text (/regex/ for a pattern), with their offsets.")] string? query = null,
+        [Description("Only lines containing this text (/regex/ for a pattern), with offsets.")] string? query = null,
         [Description("text; json: the structured record; jsonl: its items, one per line.")] string format = "text",
-        [Description("Write the whole result to this file; returns path, bytes and SHA-256.")] string? outputPath = null,
+        [Description("Write the whole result to this file; returns path, bytes, SHA-256.")] string? outputPath = null,
         [Description("Replace outputPath if it exists.")] bool overwrite = false,
         [Description("format=verify: compare with this, not a re-run: " + EvidenceInput.ReferenceDescription + ".")] string? against = null,
         RequestContext<CallToolRequestParams> context = null!,

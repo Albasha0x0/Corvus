@@ -35,7 +35,7 @@ public sealed class SessionFileTools(AssemblyWorkspace workspace, SessionService
         int Offset, int Total, IReadOnlyList<SessionItem> Items, IReadOnlyList<string> Notes);
 
     [McpServerTool(Name = "save_session", Title = "Save the session", UseStructuredContent = true, OutputSchemaType = typeof(SessionSaved))]
-    [Description("Write this session's work to one JSON file: loaded files (path, relative path, SHA-256), .NET edits, native patches, names, " +
+    [Description("Write the session's work to one JSON file: loaded files (path, relative path, SHA-256), .NET edits, native patches, names, " +
                  "comments, notes, Il2Cpp games, open minidumps; load_session restores it on any machine.")]
     public Task<string> SaveSession(
         [Description("Output file path (.json).")] string outputPath,
@@ -56,14 +56,14 @@ public sealed class SessionFileTools(AssemblyWorkspace workspace, SessionService
     }, cancellationToken);
 
     [McpServerTool(Name = "load_session", Title = "Load a session", UseStructuredContent = true, OutputSchemaType = typeof(SessionLoadReport))]
-    [Description("Restore a save_session file: find each file (recorded path, relative path, else SHA-256 under searchRoots), load it, apply " +
-                 "names, comments (never over a user's name), patches, edits and notes; one outcome per item. A changed file is refused unless " +
-                 "targetBuild=other (work moves to the new build; native work needs the old build under searchRoots).")]
+    [Description("Restore a save_session file: find each file (recorded path, relative path, else SHA-256 under searchRoots), load it, apply names, " +
+                 "comments (never over a user name), patches, edits and notes; one outcome per item. A changed file is refused unless " +
+                 "targetBuild=other (native work then needs the old build under searchRoots).")]
     public Task<string> LoadSession(
         [Description("The session file.")] string path,
         [Description("Report only.")] bool dryRun = true,
-        [Description("same (default) or other.")] string? targetBuild = null,
-        [Description("';'-separated folders searched recursively for moved files, by SHA-256.")] string? searchRoots = null,
+        [Description("Default same.")] string? targetBuild = null,
+        [Description(";-separated folders searched recursively for moved files, by SHA-256.")] string? searchRoots = null,
         [Description("Comma-separated: edits, patches, annotations, notes or all (default).")] string? include = null,
         [Description(ToolSupport.RowOffsetDescription)] int offset = 0,
         [Description("Items to return (max 2000).")] int limit = 200,

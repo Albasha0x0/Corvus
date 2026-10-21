@@ -31,24 +31,24 @@ Workspace and server state.
 
 **Load assembly** (edit, idempotent, long-running)
 
-Load a .NET assembly or every assembly in a folder (app folder, Unity *_Data/Managed, DummyDll). A PE, ELF, Mach-O or wasm file loads as a native image (universal Mach-O: one slice, name[slice]); format=raw maps headerless code; folder loads skip native files. An Il2Cpp game (folder, global-metadata.dat, .apk/.xapk/.aab/.ipa/.app, memory dump) is read by the built-in reader (v24-39): dummy assemblies with addresses and offsets, plus the binary as a native image. A .gzf or a .gpr's program (copied) opens in Ghidra. Files are read into memory; a repeat load is a no-op.
+Load a .NET assembly or every assembly in a folder (app folder, Unity *_Data/Managed, DummyDll). PE, ELF, Mach-O or wasm files load as native images (universal Mach-O: one slice, name[slice]); format=raw maps headerless code; folder loads skip native files. An Il2Cpp game (folder, global-metadata.dat, .apk/.xapk/.aab/.ipa/.app, memory dump) loads as dummy assemblies with addresses (metadata v24-39) plus the binary as a native image. A .gzf or .gpr program (copied) opens in Ghidra. A repeat load is a no-op.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `path` | string | yes |  | Absolute path to an assembly file or a directory. |
-| `recursive` | boolean |  |  | When path is a directory, also load assemblies in subdirectories. |
-| `loadProviders` | boolean |  |  | Also load the DLLs a file's imports bind to (one level, at most 16), for the call tools. |
-| `slice` | string |  |  | Mach-O slice (name or index; default arm64e, arm64, x86_64) or an Il2Cpp APK's ABI (default arm64-v8a). Values: arm64e, arm64, x86_64, x86_64h, arm64_32, armv7, armv7s, armv7k, i386, arm64-v8a, armeabi-v7a, x86. |
+| `path` | string | yes |  | Absolute path to an assembly file or a folder. |
+| `recursive` | boolean |  |  | Also load assemblies in subdirectories. |
+| `loadProviders` | boolean |  |  | Also load the DLLs the imports bind to (one level, at most 16). |
+| `slice` | string |  |  | Mach-O slice (or index; default arm64e, arm64, x86_64) or Il2Cpp APK ABI (default arm64-v8a). Values: arm64e, arm64, x86_64, x86_64h, arm64_32, armv7, armv7s, armv7k, i386, arm64-v8a, armeabi-v7a, x86. |
 | `format` | string |  | `auto` | auto, or raw (headerless code). |
 | `arch` | string |  |  | raw: x86, x64, arm, thumb, arm64; mips, ppc, riscv64, 6502 etc. via IDA or Ghidra. |
 | `base` | string |  |  | raw: load address (default 0). |
 | `entry` | string |  |  | raw: entry address or file offset (default start). |
-| `processor` | string |  |  | IDA processor (-p), e.g. metapc, arm, mipsl. |
-| `language` | string |  |  | Ghidra language id, e.g. x86:LE:32:default. |
-| `compilerSpec` | string |  |  | Ghidra compiler spec (also IDA's compiler): windows, gcc, borlandcpp, borlanddelphi ... |
+| `processor` | string |  |  | IDA processor (-p): metapc, arm, mipsl... |
+| `language` | string |  |  | Ghidra language id: x86:LE:32:default... |
+| `compilerSpec` | string |  |  | Ghidra compiler spec (also the IDA compiler): windows, gcc, borlandcpp, borlanddelphi... |
 | `seeds` | string[] |  |  | Starts before analysis: [function\|code\|label:]address[=name]. |
-| `disableAnalyzers` | string[] |  |  | Analyzers off at import (AF_FLIRT, 'Decompiler Switch Analysis'). |
-| `program` | string |  |  | A .gpr's program path, e.g. /app.exe (default: its only one). |
+| `disableAnalyzers` | string[] |  |  | Analyzers off at import (AF_FLIRT, "Decompiler Switch Analysis"). |
+| `program` | string |  |  | Program path in a .gpr, e.g. /app.exe (default: its only one). |
 
 Structured output: `ids`, `entries`, `skipped`, `discardedEdits`.
 
@@ -113,7 +113,7 @@ Which server runs (version, program, install kind, client), catalog digest, what
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `expectedCatalogDigest` | string |  |  | Catalog digest to compare (t92-0123456789ab.p5-01234567). |
-| `expectedExecutable` | string |  |  | Registered server program path, compared with the running one. |
+| `expectedExecutable` | string |  |  | Registered server path, compared with the running one. |
 
 Structured output: `server`, `version`, `informationalVersion`, `executable`, `executableMatches`, `installKind`, `startedAt`, `uptimeSeconds`, `protocolVersion`, `client`, `catalogDigest`, `catalogMatches`, `catalogDifference`, `tools`, `loadedAssemblies`, `backgroundIndexing`, `workingSetMB`, `capabilities`, `longRunningTools`, `toolsets`, `unavailableTools`, `notes`, `engineTimeLimits`, `engineSessions`, `toolsFileAndTrace`, `sections`.
 
@@ -121,16 +121,16 @@ Structured output: `server`, `version`, `informationalVersion`, `executable`, `e
 
 **Read a kept result** (destructive, idempotent)
 
-Read a kept result (resultId; kept on disk 7 days): page it, search it with query, or write it whole to outputPath. format=evidence: results (id: r-… or last:N calls) and their calls to outputPath; format=verify re-runs a bundle, entry (file.json#r-…) or result, or compares it with against.
+Read a kept result (resultId; kept on disk 7 days): page it, search it with query, or write it whole to outputPath. format=evidence: results (r-... or last:N) and their calls to outputPath; verify re-runs a bundle, entry (file.json#r-...) or result, or compares it with against.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `id` | string | yes |  | Result id, e.g. r-0123456789ab. |
 | `offset` | integer |  |  | Character offset (nextOffset). |
 | `maxTokens` | integer |  |  | Page size in tokens (default 6000). |
-| `query` | string |  |  | Only lines containing this text (/regex/ for a pattern), with their offsets. |
+| `query` | string |  |  | Only lines containing this text (/regex/ for a pattern), with offsets. |
 | `format` | string |  | `text` | text; json: the structured record; jsonl: its items, one per line. Values: text, json, jsonl, evidence, verify. |
-| `outputPath` | string |  |  | Write the whole result to this file; returns path, bytes and SHA-256. |
+| `outputPath` | string |  |  | Write the whole result to this file; returns path, bytes, SHA-256. |
 | `overwrite` | boolean |  |  | Replace outputPath if it exists. |
 | `against` | string |  |  | format=verify: compare with this, not a re-run: a kept result (r-...), last:N (recent call) or bundle entry (file.json#r-...). |
 
@@ -140,7 +140,7 @@ Structured output: `id`, `tool`, `totalChars`, `offset`, `nextOffset`, `code`, `
 
 **Save the session** (destructive, idempotent)
 
-Write this session's work to one JSON file: loaded files (path, relative path, SHA-256), .NET edits, native patches, names, comments, notes, Il2Cpp games, open minidumps; load_session restores it on any machine.
+Write the session's work to one JSON file: loaded files (path, relative path, SHA-256), .NET edits, native patches, names, comments, notes, Il2Cpp games, open minidumps; load_session restores it on any machine.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -154,14 +154,14 @@ Structured output: `outputPath`, `files`, `editedAssemblies`, `edits`, `patchedI
 
 **Load a session** (destructive, long-running)
 
-Restore a save_session file: find each file (recorded path, relative path, else SHA-256 under searchRoots), load it, apply names, comments (never over a user's name), patches, edits and notes; one outcome per item. A changed file is refused unless targetBuild=other (work moves to the new build; native work needs the old build under searchRoots).
+Restore a save_session file: find each file (recorded path, relative path, else SHA-256 under searchRoots), load it, apply names, comments (never over a user name), patches, edits and notes; one outcome per item. A changed file is refused unless targetBuild=other (native work then needs the old build under searchRoots).
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `path` | string | yes |  | The session file. |
 | `dryRun` | boolean |  | `true` | Report only. |
-| `targetBuild` | string |  |  | same (default) or other. Values: same, other. |
-| `searchRoots` | string |  |  | ';'-separated folders searched recursively for moved files, by SHA-256. |
+| `targetBuild` | string |  |  | Default same. Values: same, other. |
+| `searchRoots` | string |  |  | ;-separated folders searched recursively for moved files, by SHA-256. |
 | `include` | string |  |  | Comma-separated: edits, patches, annotations, notes or all (default). |
 | `offset` | integer |  |  |  |
 | `limit` | integer |  | `200` | Items to return (max 2000). |
@@ -2034,16 +2034,16 @@ Analyst notes kept per binary across sessions.
 
 **Record a note** (edit)
 
-Record a finding, question, hypothesis or todo anchored to a native address, a .NET member, a file or a dump; notes persist per user, keyed by SHA-256 / MVID so they follow the binary, and decompile_member / decompile_native count a target's open ones.
+Record a finding, question, hypothesis or todo anchored to a native address, a .NET member, a file or a dump; notes persist per user, keyed by SHA-256 or MVID so they follow the binary; decompile_member and decompile_native count the open notes of a target.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `text` | string | yes |  | At most 4,000 characters. |
 | `kind` | string |  |  | Default finding. Values: finding, question, hypothesis, todo. |
 | `status` | string |  |  | Default open. Values: open, confirmed, refuted, answered, dropped. |
-| `anchor` | string |  |  | '<image>@<address>', '<assembly>:<symbol or token>', image or assembly id, 'dump:<id or path>', or empty (session-wide). |
+| `anchor` | string |  |  | <image>@<address>, <assembly>:<symbol or token>, image or assembly id, dump:<id or path>, or empty (session-wide). |
 | `tags` | string[] |  |  | At most 10. |
-| `evidence` | object[] |  |  | At most 10: {result: r-… or last:N, expect: supports\|refutes}, {tool, args} of a call made here, or {text}. |
+| `evidence` | object[] |  |  | At most 10: {result: r-... or last:N, expect: supports\|refutes}, {tool, args} of a call made here, or {text}. |
 
 Structured output: `id`, `kind`, `status`, `text`, `tags`, `evidence`, `anchor`, `revision`, `created`, `updated`, `author`.
 
@@ -2051,7 +2051,7 @@ Structured output: `id`, `kind`, `status`, `text`, `tags`, `evidence`, `anchor`,
 
 **Update a note** (destructive, idempotent)
 
-Change a note in part: status, kind, text, tags, evidence; verify=true re-checks linked records and sets a hypothesis confirmed or refuted when they verify and name its anchor, else open. A stale expectedRevision is a conflict carrying the note (details.current).
+Change part of a note: status, kind, text, tags, evidence; verify=true re-checks linked records and sets a hypothesis confirmed or refuted when they verify and name its anchor, else open. A stale expectedRevision is a conflict carrying the note (details.current).
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -2063,7 +2063,7 @@ Change a note in part: status, kind, text, tags, evidence; verify=true re-checks
 | `appendText` | string |  |  | Text appended on a new line. |
 | `addTags` | string[] |  |  | Tags to add. |
 | `removeTags` | string[] |  |  | Tags to remove. |
-| `addEvidence` | object[] |  |  | At most 10: {result: r-… or last:N, expect: supports\|refutes}, {tool, args} of a call made here, or {text}. |
+| `addEvidence` | object[] |  |  | At most 10: {result: r-... or last:N, expect: supports\|refutes}, {tool, args} of a call made here, or {text}. |
 | `verify` | boolean |  |  | Re-check linked records after the other changes. |
 
 Structured output: `id`, `kind`, `status`, `text`, `tags`, `evidence`, `anchor`, `revision`, `created`, `updated`, `author`.
@@ -2072,17 +2072,17 @@ Structured output: `id`, `kind`, `status`, `text`, `tags`, `evidence`, `anchor`,
 
 **List notes** (read-only, idempotent)
 
-Notes, newest first, by status, kind, anchor, tag and text. A file anchor lists all its notes, '<image>@<address>' those in the containing function, '<assembly>:<type>' those on its members too.
+Notes, newest first, by status, kind, anchor, tag and text. A file anchor lists all its notes, <image>@<address> those in the containing function, <assembly>:<type> those on its members too.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `status` | string |  |  | Default open; all for every status. Values: open, confirmed, refuted, answered, dropped, all. |
 | `kind` | string |  |  | Only this kind. Values: finding, question, hypothesis, todo. |
-| `anchor` | string |  |  | '<image>@<address>', '<assembly>:<symbol or token>', image or assembly id, 'dump:<id or path>', or empty (session-wide). |
+| `anchor` | string |  |  | <image>@<address>, <assembly>:<symbol or token>, image or assembly id, dump:<id or path>, or empty (session-wide). |
 | `tag` | string |  |  | Only notes with this tag. |
 | `text` | string |  |  | Text substring (case-insensitive). |
 | `offset` | integer |  |  |  |
-| `limit` | integer |  | `50` | Notes per page (default 50). |
+| `limit` | integer |  | `50` | Notes per page. |
 | `maxTokens` | integer |  |  |  |
 
 Structured output: `items`, `offset`, `total`, `notes`, `limit`, `totalExact`, `hasMore`, `nextOffset`.
