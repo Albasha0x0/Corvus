@@ -25,8 +25,8 @@ internal static partial class PyRepr
             case bool b: sb.Append(b ? "True" : "False"); break;
             case long l: sb.Append(l.ToString(CultureInfo.InvariantCulture)); break;
             case BigInteger big: sb.Append(big.ToString(CultureInfo.InvariantCulture)).Append(py2 ? "L" : ""); break;
-            case double d: sb.Append(Float(d, dot0: true)); break;
-            case PyComplex c: Complex(sb, c); break;
+            case double d: sb.Append(v == (3, 0) ? Float17(d, dot0: true) : Float(d, dot0: true)); break;
+            case PyComplex c: Complex(sb, c, v == (3, 0) ? Float17 : Float); break;
             case string s: Text(sb, s, v); break;
             case PyBytes b: Bytes(sb, b.Value, prefix: !py2); break;
             case PySequence { Kind: '(' } t:
@@ -106,8 +106,11 @@ internal static partial class PyRepr
         or UnicodeCategory.Format or UnicodeCategory.Surrogate or UnicodeCategory.PrivateUse or UnicodeCategory.OtherNotAssigned or UnicodeCategory.LineSeparator
         or UnicodeCategory.ParagraphSeparator or UnicodeCategory.SpaceSeparator) && Age(c) <= UnicodeOf(v);
 
-    /// <summary>The Unicode version of each Python's character database (major * 10 + minor); 3.7 and before share 12.1's cut.</summary>
-    private static int UnicodeOf((int Major, int Minor) v) => v.Minor switch { >= 13 => 151, 12 => 150, 11 => 140, 9 or 10 => 130, _ => 121 };
+    /// <summary>The Unicode version of each Python 3's character database (major * 10 + minor).</summary>
+    private static int UnicodeOf((int Major, int Minor) v) => v.Minor switch
+    {
+        >= 14 => 160, 13 => 151, 12 => 150, 11 => 140, 9 or 10 => 130, 8 => 121, 7 => 110, 6 => 90, 5 => 80, 4 => 63, 3 => 61, 2 => 60, _ => 51,
+    };
 
     private static readonly Lazy<(int First, int Last, int Age)[]> Recent = new(() => [.. RecentCharacters.Split(' ').Select(t =>
     {
@@ -116,7 +119,7 @@ internal static partial class PyRepr
         return (int.Parse(ends[0], NumberStyles.HexNumber, CultureInfo.InvariantCulture), int.Parse(ends[^1], NumberStyles.HexNumber, CultureInfo.InvariantCulture), age);
     })]);
 
-    /// <summary>The Unicode version that assigned <paramref name="c"/>, for characters from 13.0 on; 0 for older ones.</summary>
+    /// <summary>The Unicode version that assigned <paramref name="c"/>, for characters after 5.1; 0 for older ones.</summary>
     private static int Age(int c)
     {
         var ranges = Recent.Value;
@@ -149,16 +152,25 @@ internal static partial class PyRepr
         sb.Append(quote);
     }
 
-    private static void Complex(StringBuilder sb, PyComplex c)
+    private static void Complex(StringBuilder sb, PyComplex c, Func<double, bool, string> format)
     {
         // a +0.0 real part prints the imaginary part alone, without parentheses
         if (c.Real == 0 && !double.IsNegative(c.Real))
         {
-            sb.Append(Float(c.Imaginary, dot0: false)).Append('j');
+            sb.Append(format(c.Imaginary, false)).Append('j');
             return;
         }
-        var im = Float(c.Imaginary, dot0: false);
-        sb.Append('(').Append(Float(c.Real, dot0: false)).Append(im[0] == '-' ? "" : "+").Append(im).Append("j)");
+        var im = format(c.Imaginary, false);
+        sb.Append('(').Append(format(c.Real, false)).Append(im[0] == '-' ? "" : "+").Append(im).Append("j)");
+    }
+
+    /// <summary>repr() of a float in Python 3.0: 17 significant digits (%.17g); <paramref name="dot0"/> adds ".0" to whole numbers.</summary>
+    private static string Float17(double d, bool dot0)
+    {
+        if (double.IsNaN(d)) return "nan";
+        if (double.IsInfinity(d)) return d > 0 ? "inf" : "-inf";
+        var r = d.ToString("G17", CultureInfo.InvariantCulture).Replace('E', 'e');
+        return dot0 && r.IndexOfAny(['.', 'e']) < 0 ? r + ".0" : r;
     }
 
     /// <summary>repr() of a float: the shortest digits that read back, in exponent form below 1e-4 and from 1e16; <paramref name="dot0"/> adds ".0" to whole numbers.</summary>

@@ -29,7 +29,7 @@ internal sealed partial class PyOpcodes
     public string[] Intrinsic1 { get; private init; } = [];
     public string[] Intrinsic2 { get; private init; } = [];
 
-    /// <summary>The table of <paramref name="version"/>; null outside 2.7 and 3.0 to 3.13.</summary>
+    /// <summary>The table of <paramref name="version"/>; null outside 2.7 and 3.0 to 3.14.</summary>
     public static PyOpcodes? For((int Major, int Minor) version) => Tables.Value.GetValueOrDefault(version);
 
     /// <summary>The opcode named <paramref name="name"/>, or -1 when this release has none.</summary>

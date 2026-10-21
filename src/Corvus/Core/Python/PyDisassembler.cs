@@ -4,7 +4,7 @@ using System.Text;
 namespace Corvus.Core.Python;
 
 /// <summary>
-/// Python bytecode as the dis module of its own version prints it (dis.dis on the code object): 2.7 and 3.0 to 3.13, with
+/// Python bytecode as the dis module of its own version prints it (dis.dis on the code object): 2.7 and 3.0 to 3.14, with
 /// the line numbers, jump targets, argument details and exception table of that version and nested code objects after
 /// their parent. Nothing is run; indexes past a table print as such instead of failing.
 /// </summary>
@@ -21,7 +21,7 @@ public static class PyDisassembler
     /// <summary>The disassembly of <paramref name="code"/> and the code objects in its constants, up to about <paramref name="maxChars"/> characters.</summary>
     public static string Disassemble(PyCode code, (int Major, int Minor) version, int maxChars, CancellationToken ct, out bool complete)
     {
-        var table = PyOpcodes.For(version) ?? throw new ToolError(ErrorCode.Unsupported, $"Python {PyVersion.Label(version)} bytecode is not disassembled (2.7 and 3.0 to 3.13 are).");
+        var table = PyOpcodes.For(version) ?? throw new ToolError(ErrorCode.Unsupported, $"Python {PyVersion.Label(version)} bytecode is not disassembled (2.7 and 3.0 to 3.14 are).");
         var sb = new StringBuilder();
         complete = Recursive(sb, code, table, maxChars, ct);
         return sb.ToString();
@@ -48,7 +48,7 @@ public static class PyDisassembler
     private static bool Recursive(StringBuilder sb, PyCode code, PyOpcodes table, int maxChars, CancellationToken ct)
     {
         ct.ThrowIfCancellationRequested();
-        if (table.Version.Major == 2) Python2(sb, code, table);
+        if (!PyVersion.AtLeast(table.Version, 3, 4)) Python2(sb, code, table);
         else if (PyVersion.AtLeast(table.Version, 3, 13)) Python313(sb, code, table);
         else Python3(sb, code, table);
         foreach (var nested in code.Consts.OfType<PyCode>())
@@ -277,9 +277,13 @@ public static class PyDisassembler
     private static string Name(object[] items, long index) => Item(items, index, PyMarshal.Str);
 
     private static readonly string[] Conversions = ["", "str", "repr", "ascii"];
-    private static readonly string[] FunctionFlags = ["defaults", "kwdefaults", "annotations", "closure"];
+    private static readonly string[] FunctionFlags = ["defaults", "kwdefaults", "annotations", "closure", "annotate"];
+    private static readonly string[] CommonConstants = ["AssertionError", "NotImplementedError", "tuple", "<built-in function all>", "<built-in function any>"];
+    private static readonly string[] SpecialMethods = ["__enter__", "__exit__", "__aenter__", "__aexit__"];
 
-    private static string Flags(long arg) => string.Join(", ", FunctionFlags.Where((_, k) => (arg & 1 << k) != 0));
+    /// <summary>The function attributes set by <paramref name="arg"/>; "annotate" is new in 3.14.</summary>
+    private static string Flags(long arg, (int, int) v) =>
+        string.Join(", ", FunctionFlags.Take(PyVersion.AtLeast(v, 3, 14) ? 5 : 4).Where((_, k) => (arg & 1 << k) != 0));
 
     /// <summary>The argument detail dis prints in parentheses (3.0 to 3.12).</summary>
     private static string ArgRepr(PyOpcodes t, PyCode c, Instruction i)
@@ -309,7 +313,8 @@ public static class PyDisassembler
             var conversion = Conversions[arg & 3];
             return (arg & 4) != 0 ? conversion + (conversion.Length > 0 ? ", " : "") + "with format" : conversion;
         }
-        if (name == "MAKE_FUNCTION" && PyVersion.AtLeast(v, 3, 8)) return Flags(arg);
+        if (name == "MAKE_FUNCTION" && PyVersion.AtLeast(v, 3, 8)) return Flags(arg, v);
+        if (CountsArguments(t, op)) return Arguments(arg);
         if (name == "BINARY_OP" && v311) return Item([.. t.BinaryOps], arg, o => (string)o);
         if (name == "CALL_INTRINSIC_1") return Item([.. t.Intrinsic1], arg, o => (string)o);
         if (name == "CALL_INTRINSIC_2") return Item([.. t.Intrinsic2], arg, o => (string)o);
@@ -320,7 +325,7 @@ public static class PyDisassembler
 
     private static string Int(long n) => n.ToString(CultureInfo.InvariantCulture);
 
-    /// <summary>Python 2.7: print statements joined by single spaces, the padded opcode name kept at the end of the line.</summary>
+    /// <summary>Python 2.7 to 3.3: print statements joined by single spaces, the padded opcode name kept; 3.x ends the line with a space too.</summary>
     private static void Python2(StringBuilder sb, PyCode c, PyOpcodes t)
     {
         var code = Unpack(c.Code, t);
@@ -350,12 +355,19 @@ public static class PyDisassembler
                 else if (t.Is(i.Op, PyOpcodes.Kinds.Local)) fields.Add("(" + Name(c.VarNames, arg) + ")");
                 else if (t.Is(i.Op, PyOpcodes.Kinds.Compare)) fields.Add("(" + Item([.. t.CompareOps], arg, o => (string)o) + ")");
                 else if (t.Is(i.Op, PyOpcodes.Kinds.Free)) fields.Add("(" + Name(free, arg) + ")");
+                else if (CountsArguments(t, i.Op)) fields.Add("(" + Arguments(arg) + ")");
             }
-            sb.Append(string.Join(' ', fields)).Append('\n');
+            sb.Append(string.Join(' ', fields)).Append(t.Version.Major == 3 ? " \n" : "\n");
         }
     }
 
-    /// <summary>Python 3.0 to 3.12: line, marker, jump target, offset, opcode, argument and detail; 3.11+ adds the exception table.</summary>
+    /// <summary>3.3 to 3.5 describe a call's two argument bytes (hasnargs).</summary>
+    private static bool CountsArguments(PyOpcodes t, int op) =>
+        PyVersion.AtLeast(t.Version, 3, 3) && !PyVersion.AtLeast(t.Version, 3, 6) && t.Name(op).StartsWith("CALL_FUNCTION", StringComparison.Ordinal);
+
+    private static string Arguments(long arg) => $"{arg & 0xFF} positional, {arg >> 8 & 0xFF} keyword pair";
+
+    /// <summary>Python 3.4 to 3.12: line, marker, jump target, offset, opcode, argument and detail; 3.11+ adds the exception table.</summary>
     private static void Python3(StringBuilder sb, PyCode c, PyOpcodes t)
     {
         var v = t.Version;
@@ -367,14 +379,16 @@ public static class PyDisassembler
         foreach (var (offset, line) in LineStarts(c, t)) starts[offset] = line!.Value;
         bool showLines = PyVersion.AtLeast(v, 3, 10) ? starts.Count > 0 : true;
         int linesWidth = 0;
-        if (showLines && starts.Count > 0)
+        // Before 3.7 the line and offset columns have a fixed width.
+        bool v37 = PyVersion.AtLeast(v, 3, 7);
+        if (showLines && starts.Count > 0 && v37)
         {
             int max = starts.Values.Max();
             linesWidth = max >= 1000 ? Int(max).Length : 3;
         }
         else if (showLines) linesWidth = 3;
         int maxOffset = c.Code.Length - 2;
-        int offsetWidth = maxOffset >= 10000 ? Int(maxOffset).Length : 4;
+        int offsetWidth = maxOffset >= 10000 && v37 ? Int(maxOffset).Length : 4;
         foreach (var i in code)
         {
             bool startsLine = starts.TryGetValue(i.Offset, out int line);
@@ -401,7 +415,7 @@ public static class PyDisassembler
         }
     }
 
-    /// <summary>Python 3.13: jump targets and exception ranges as labels L1, L2, ..., no offsets, lines without a source line as "--".</summary>
+    /// <summary>Python 3.13 and 3.14: jump targets and exception ranges as labels L1, L2, ..., no offsets, lines without a source line as "--".</summary>
     private static void Python313(StringBuilder sb, PyCode c, PyOpcodes t)
     {
         var code = Unpack(c.Code, t);
@@ -460,8 +474,11 @@ public static class PyDisassembler
                 _ => Name(c.Names, arg),
             };
         if (t.Is(op, PyOpcodes.Kinds.JumpRelative | PyOpcodes.Kinds.JumpAbsolute))
-            return Target(t, i) is { } target && labels.TryGetValue(target, out int label) ? "to L" + Int(label) : "to " + Target(t, i);
-        if (name is "LOAD_FAST_LOAD_FAST" or "STORE_FAST_LOAD_FAST" or "STORE_FAST_STORE_FAST")
+        {
+            var preposition = name == "END_ASYNC_FOR" ? "from " : "to ";
+            return Target(t, i) is { } target && labels.TryGetValue(target, out int label) ? preposition + "L" + Int(label) : preposition + Target(t, i);
+        }
+        if (name is "LOAD_FAST_LOAD_FAST" or "LOAD_FAST_BORROW_LOAD_FAST_BORROW" or "STORE_FAST_LOAD_FAST" or "STORE_FAST_STORE_FAST")
             return Name(c.LocalsPlusNames, arg >> 4) + ", " + Name(c.LocalsPlusNames, arg & 15);
         if (t.Is(op, PyOpcodes.Kinds.Local | PyOpcodes.Kinds.Free)) return Name(c.LocalsPlusNames, arg);
         if (t.Is(op, PyOpcodes.Kinds.Compare))
@@ -472,10 +489,14 @@ public static class PyDisassembler
         return name switch
         {
             "CONVERT_VALUE" => Item([.. Conversions], arg, o => (string)o),
-            "SET_FUNCTION_ATTRIBUTE" => Flags(arg),
+            "SET_FUNCTION_ATTRIBUTE" => Flags(arg, t.Version),
             "BINARY_OP" => Item([.. t.BinaryOps], arg, o => (string)o),
             "CALL_INTRINSIC_1" => Item([.. t.Intrinsic1], arg, o => (string)o),
             "CALL_INTRINSIC_2" => Item([.. t.Intrinsic2], arg, o => (string)o),
+            "LOAD_COMMON_CONSTANT" => Item([.. CommonConstants], arg, o => (string)o),
+            "LOAD_SPECIAL" => Item([.. SpecialMethods], arg, o => (string)o),
+            "IS_OP" when PyVersion.AtLeast(t.Version, 3, 14) => arg != 0 ? "is not" : "is",
+            "CONTAINS_OP" when PyVersion.AtLeast(t.Version, 3, 14) => arg != 0 ? "not in" : "in",
             _ => "",
         };
     }

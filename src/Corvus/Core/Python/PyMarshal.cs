@@ -62,8 +62,8 @@ public sealed class PyCode
 public sealed class PyMarshal
 {
     private const int MaxDepth = 400;
-    /// <summary>15-bit digits of one integer constant (about 18,000 decimal digits).</summary>
-    private const int MaxLongDigits = 4096;
+    /// <summary>15-bit digits of one integer constant (about 74,000 decimal digits; the 3.3 standard library has 24,000).</summary>
+    private const int MaxLongDigits = 16384;
     private readonly byte[] _data;
     private int _pos, _depth;
     private readonly List<object?> _refs = [];
@@ -224,14 +224,19 @@ public sealed class PyMarshal
         int n = Int32();
         int count = n == int.MinValue ? -1 : Math.Abs(n);
         if (count < 0 || count > MaxLongDigits || count > (_data.Length - _pos) / 2) throw Bad($"long of {n} digits");
-        BigInteger v = BigInteger.Zero;
         var digits = Take(count * 2);
-        for (int i = count - 1; i >= 0; i--)
+        // Packed into little-endian bytes: building by shifts is quadratic in the
+        // digit count.
+        var bits = new byte[(count * 15 + 7) / 8 + 1];
+        for (int i = 0; i < count; i++)
         {
             int d = BinaryPrimitives.ReadUInt16LittleEndian(digits[(i * 2)..]);
             if (d > 0x7FFF) throw Bad("long digit out of range");
-            v = (v << 15) | d;
+            int at = i * 15;
+            int word = d << (at & 7);
+            for (int k = at >> 3; word != 0; k++, word >>= 8) bits[k] |= (byte)word;
         }
+        var v = new BigInteger(bits, isUnsigned: true);
         if (n < 0) v = -v;
         // a Python 2 long stays a BigInteger: its repr carries an L
         return _version.Major >= 3 && v >= long.MinValue && v <= long.MaxValue ? (long)v : v;

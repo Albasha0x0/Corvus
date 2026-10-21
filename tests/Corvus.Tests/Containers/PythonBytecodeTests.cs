@@ -4,12 +4,12 @@ using Corvus.Services.Analysis;
 
 namespace Corvus.Tests;
 
-/// <summary>.pyc files compiled from PythonFixtures/constructs*.py by CPython 2.7 and 3.8 to 3.13 (build.ps1), with the dis output of each.</summary>
+/// <summary>.pyc files compiled from PythonFixtures/constructs*.py by CPython 2.7 and 3.0 to 3.14 (build.ps1), with the dis output of each.</summary>
 public sealed class PythonBytecodeTests
 {
     private static string Fixture(string name) => Path.Combine(AppContext.BaseDirectory, "Containers", "PythonFixtures", name);
 
-    private static readonly string[] Built = ["2.7", "3.8", "3.9", "3.10", "3.11", "3.12", "3.13"];
+    private static readonly string[] Built = ["2.7", .. Enumerable.Range(0, 15).Select(m => $"3.{m}")];
 
     public static TheoryData<string> Versions => [.. Built];
 
@@ -60,6 +60,7 @@ public sealed class PythonBytecodeTests
         Assert.Equal("\"it's\"", PyRepr.Of("it's", (3, 12)));
         // U+1C89 was assigned in Unicode 16.0: Python 3.13 (15.1) escapes it
         Assert.Equal("'\\u1c89'", PyRepr.Of("Ᲊ", (3, 13)));
+        Assert.Equal("'Ᲊ'", PyRepr.Of("Ᲊ", (3, 14)));
         Assert.Equal("(1+0j)", PyRepr.Of(new PyComplex(1, 0), (3, 12)));
         Assert.Equal("2L", PyRepr.Of(new System.Numerics.BigInteger(2), (2, 7)));
     }
