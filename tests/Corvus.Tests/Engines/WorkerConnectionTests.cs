@@ -2,6 +2,8 @@
 using System.Text.Json.Nodes;
 using Corvus.Core;
 using Corvus.Native.Providers;
+using Corvus.Native.Providers.Ghidra;
+using Corvus.Native.Providers.Ida;
 
 namespace Corvus.Tests;
 
@@ -156,5 +158,17 @@ public class WorkerConnectionTests
         using var c = worker.Connect(Concurrent);
         var e = await Assert.ThrowsAsync<ToolError>(() => c.RequestAsync("missing", null, NoLimit, default));
         Assert.Equal(ErrorCode.NotFound, e.Code);
+    }
+
+    [Fact]
+    public void An_open_out_of_time_names_the_open_limit_and_a_request_its_own()
+    {
+        foreach (var next in new[] { IdaProvider.Remediation(ErrorCode.Timeout, "open"), GhidraProvider.Remediation(ErrorCode.Timeout, "open") })
+            Assert.Contains(ServerOptions.EngineOpenTimeoutVariable, next);
+        foreach (var next in new[] { IdaProvider.Remediation(ErrorCode.Timeout, "decompile"), GhidraProvider.Remediation(ErrorCode.Timeout, "decompile") })
+        {
+            Assert.Contains(ServerOptions.EngineRequestTimeoutVariable, next);
+            Assert.DoesNotContain("keeps running", next); // the worker may have been stopped
+        }
     }
 }

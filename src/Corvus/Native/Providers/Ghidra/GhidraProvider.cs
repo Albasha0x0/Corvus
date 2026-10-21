@@ -353,7 +353,7 @@ public sealed class GhidraProvider(GhidraProviderOptions? options = null) : INat
         ? $"Raise {EngineMemoryLimit.Variable} (MB; 0 turns the limit off) or lower {GhidraOptions.MaxMemoryVariable}, and retry."
         : code switch
     {
-        ErrorCode.Timeout => "The request was stopped and Ghidra keeps running; retry with a larger time limit (timeoutSeconds where the tool takes it, or CORVUS_ENGINE_REQUEST_TIMEOUT).",
+        ErrorCode.Timeout => WorkerConnection.TimeoutNext(message),
         ErrorCode.ProviderUnavailable => "Retry once (the session restarts Ghidra from the saved project); if it persists, run the provider probe and check the Ghidra install and the JDK.",
         ErrorCode.Unsupported => "Use the built-in disassembly, or build Ghidra's native decompiler for this platform.",
         ErrorCode.NotFound => "List the functions to find a valid address.",

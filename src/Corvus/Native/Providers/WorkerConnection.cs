@@ -120,6 +120,11 @@ public sealed class WorkerConnection : IDisposable
             _remediation(ErrorCode.Timeout, "start"));
     }
 
+    /// <summary>The next step after an engine request of <paramref name="op"/> ran out of time: the open's limit for opens, else the request's.</summary>
+    internal static string TimeoutNext(string op) => op is "start" or "open" or "load_pdb" or "export_gzf"
+        ? $"Raise {ServerOptions.EngineOpenTimeoutVariable} (seconds for an engine's start and analysis) and call again."
+        : $"Retry with a larger time limit (timeoutSeconds where the tool takes it, or {ServerOptions.EngineRequestTimeoutVariable}).";
+
     /// <summary>Sends one request and waits for its response; throws <see cref="ToolError"/> for worker errors.</summary>
     public async Task<JsonElement> RequestAsync(string op, JsonObject? args, TimeSpan timeout, CancellationToken cancellationToken)
     {

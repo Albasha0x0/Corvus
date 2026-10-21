@@ -280,7 +280,7 @@ public sealed class IdaProvider(IdaProviderOptions? options = null) : INativeDec
             return $"IDA could not open the file: check that the input is a PE, ELF or Mach-O image and that both paths are readable and at most {MaxWindowsPath} characters on Windows (CORVUS_DATA_DIR moves them).";
         return code switch
         {
-            ErrorCode.Timeout => "The request was stopped and IDA keeps running; retry with a larger time limit (timeoutSeconds where the tool takes it, or CORVUS_ENGINE_REQUEST_TIMEOUT).",
+            ErrorCode.Timeout => WorkerConnection.TimeoutNext(message),
             ErrorCode.ProviderUnavailable => "Retry once (the session restarts IDA from the saved database); if it persists, run the provider probe and check the IDA install, its license and the Python it uses.",
             ErrorCode.Unsupported => "Use the built-in disassembly for this architecture.",
             ErrorCode.NotFound => "List the functions to find a valid address.",
