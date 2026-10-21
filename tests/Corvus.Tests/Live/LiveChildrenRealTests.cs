@@ -60,6 +60,7 @@ public sealed class LiveChildrenRealTests(ITestOutputHelper output) : LiveToolCa
 
     [LiveTargetFact("win-x64")] public Task Child_attached_on_win_x64() => ChildAttached(LiveTarget.WinX64);
     [LiveTargetFact("win-x86")] public Task Child_attached_on_win_x86() => ChildAttached(LiveTarget.WinX86);
+    [LiveTargetFact("win-arm64")] public Task Child_attached_on_win_arm64() => ChildAttached(LiveTarget.WinArm64);
     [LiveTargetFact("linux-x64")] public Task Child_attached_on_linux_x64() => ChildAttached(LiveTarget.LinuxX64);
     [LiveTargetFact("linux-x86")] public Task Child_attached_on_linux_x86() => ChildAttached(LiveTarget.LinuxX86);
 
@@ -174,6 +175,7 @@ public sealed class LiveChildrenRealTests(ITestOutputHelper output) : LiveToolCa
 
     [LiveTargetFact("win-x64")] public Task Held_child_runs_on_after_close_on_win_x64() => HeldChildRunsOn(LiveTarget.WinX64);
     [LiveTargetFact("win-x86")] public Task Held_child_runs_on_after_close_on_win_x86() => HeldChildRunsOn(LiveTarget.WinX86);
+    [LiveTargetFact("win-arm64")] public Task Held_child_runs_on_after_close_on_win_arm64() => HeldChildRunsOn(LiveTarget.WinArm64);
     [LiveTargetFact("linux-x64")] public Task Held_child_runs_on_after_close_on_linux_x64() => HeldChildRunsOn(LiveTarget.LinuxX64);
     [LiveTargetFact("linux-x86")] public Task Held_child_runs_on_after_close_on_linux_x86() => HeldChildRunsOn(LiveTarget.LinuxX86);
 
@@ -192,6 +194,7 @@ public sealed class LiveChildrenRealTests(ITestOutputHelper output) : LiveToolCa
 
     [LiveTargetFact("win-x64")] public Task Not_followed_on_win_x64() => NotFollowed(LiveTarget.WinX64);
     [LiveTargetFact("win-x86")] public Task Not_followed_on_win_x86() => NotFollowed(LiveTarget.WinX86);
+    [LiveTargetFact("win-arm64")] public Task Not_followed_on_win_arm64() => NotFollowed(LiveTarget.WinArm64);
     [LiveTargetFact("linux-x64")] public Task Not_followed_on_linux_x64() => NotFollowed(LiveTarget.LinuxX64);
     [LiveTargetFact("linux-x86")] public Task Not_followed_on_linux_x86() => NotFollowed(LiveTarget.LinuxX86);
 

@@ -4,7 +4,7 @@ using Corvus.Native.Providers.Live;
 
 namespace Corvus.Tests;
 
-/// <summary>A target the session tests build programs for: Windows with MSVC or Linux with gcc, x64, x86 or arm64.</summary>
+/// <summary>A target the session tests build programs for: Windows with MSVC, Linux with gcc or macOS with clang; x64, x86 or arm64.</summary>
 internal sealed class LiveTarget
 {
     public static readonly LiveTarget WinX64 = new("win-x64", windows: true, is64: true);
@@ -12,19 +12,23 @@ internal sealed class LiveTarget
     public static readonly LiveTarget LinuxX64 = new("linux-x64", windows: false, is64: true);
     public static readonly LiveTarget LinuxX86 = new("linux-x86", windows: false, is64: false);
     public static readonly LiveTarget LinuxArm64 = new("linux-arm64", windows: false, is64: true, arm64: true);
+    public static readonly LiveTarget WinArm64 = new("win-arm64", windows: true, is64: true, arm64: true);
+    public static readonly LiveTarget MacArm64 = new("osx-arm64", windows: false, is64: true, arm64: true, mac: true);
 
     public string Name { get; }
     public bool Windows { get; }
     public bool Is64 { get; }
     public bool Arm64 { get; }
+    public bool Mac { get; }
     private readonly Lazy<string?> _missing;
 
-    private LiveTarget(string name, bool windows, bool is64, bool arm64 = false)
+    private LiveTarget(string name, bool windows, bool is64, bool arm64 = false, bool mac = false)
     {
         Name = name;
         Windows = windows;
         Is64 = is64;
         Arm64 = arm64;
+        Mac = mac;
         _missing = new(FindMissing);
     }
 
@@ -33,7 +37,7 @@ internal sealed class LiveTarget
 
     public const string MuslStart = "Frida does not start programs on musl libc (ProcessNotRespondingError); sessions attach to running programs there.";
 
-    public static LiveTarget Of(string name) => new[] { WinX64, WinX86, LinuxX64, LinuxX86, LinuxArm64 }.Single(t => t.Name == name);
+    public static LiveTarget Of(string name) => new[] { WinX64, WinX86, WinArm64, LinuxX64, LinuxX86, LinuxArm64, MacArm64 }.Single(t => t.Name == name);
 
     /// <summary>Why this target's programs cannot be built and observed here; null when they can.</summary>
     public string? Missing => _missing.Value;
@@ -41,22 +45,33 @@ internal sealed class LiveTarget
     public string Exe(string name) => Windows ? name + ".exe" : name;
 
     /// <summary>The register holding the first integer argument at a function's entry; null where it is on the stack (x86).</summary>
-    public string? FirstArgument => !Is64 ? null : Arm64 ? "x0" : Windows ? "rcx" : "rdi";
+    public string? FirstArgument => ArgumentRegisters?[0];
+
+    /// <summary>The registers holding the first three integer arguments at a function's entry; null where they are on the stack (x86).</summary>
+    public string[]? ArgumentRegisters => !Is64 ? null : Arm64 ? ["x0", "x1", "x2"] : Windows ? ["rcx", "rdx", "r8"] : ["rdi", "rsi", "rdx"];
+
+    /// <summary>The architecture as Frida names it (Process.arch).</summary>
+    public string FridaArch => Arm64 ? "arm64" : Is64 ? "x64" : "ia32";
+
+    /// <summary>An x64 or x86 Windows program on an arm64 machine, which runs it under emulation.</summary>
+    public bool Emulated => Windows && !Arm64 && RuntimeInformation.OSArchitecture == Architecture.Arm64;
 
     /// <summary>The module that exports the C library's file open: <c>module!name</c> for a watch.</summary>
-    public string FileOpen => Windows ? "kernelbase!CreateFileA" : "libc.so.6!open";
+    public string FileOpen => Windows ? "kernelbase!CreateFileA" : Mac ? "libsystem_kernel.dylib!open" : "libc.so.6!open";
 
     private string? FindMissing()
     {
-        if (Windows != OperatingSystem.IsWindows()) return $"{Name} programs run on {(Windows ? "Windows" : "Linux")}.";
-        if (!Windows && !OperatingSystem.IsLinux()) return $"{Name} programs run on Linux.";
-        if (!Windows && Arm64 != (RuntimeInformation.OSArchitecture == Architecture.Arm64)) return $"{Name} programs run on {(Arm64 ? "an arm64" : "an x64")} machine.";
+        var system = Windows ? "Windows" : Mac ? "macOS" : "Linux";
+        if (Windows != OperatingSystem.IsWindows() || Mac != OperatingSystem.IsMacOS() || (!Windows && !Mac && !OperatingSystem.IsLinux())) return $"{Name} programs run on {system}.";
+        // x64 and x86 Windows programs also run on an arm64 machine, under
+        // emulation.
+        if ((Arm64 || !Windows) && Arm64 != (RuntimeInformation.OSArchitecture == Architecture.Arm64)) return $"{Name} programs run on {(Arm64 ? "an arm64" : "an x64")} machine.";
         if (new FridaBackend().Unavailable() is { } frida) return frida.Reason;
         if (Windows) return VisualStudio.VcVarsAll() == null ? "No Visual Studio C++ toolset." : null;
         using var dir = new TempDir();
         File.WriteAllText(dir.File("probe.c"), "#include <pthread.h>\nint main(void){return 0;}\n");
         var (code, log) = Tools.Run(Gcc(dir, "probe"));
-        return code == 0 ? null : $"gcc cannot build {Name} programs here ({(Is64 ? "" : "gcc-multilib, ")}{log.Trim().Split('\n')[^1]}).";
+        return code == 0 ? null : $"{(Mac ? "clang" : "gcc")} cannot build {Name} programs here ({(Is64 ? "" : "gcc-multilib, ")}{log.Trim().Split('\n')[^1]}).";
     }
 
     /// <summary>
@@ -68,11 +83,12 @@ internal sealed class LiveTarget
         File.WriteAllText(dir.File(name + ".c"), source);
         var (code, log) = Tools.Run(Windows ? Msvc(dir, name) : Gcc(dir, name, linkStatic: linkStatic), 300_000);
         Assert.True(code == 0 && File.Exists(dir.File(Exe(name))), log);
+        if (Mac) Debuggable(dir, dir.File(Exe(name)));
         return dir.File(Exe(name));
     }
 
     /// <summary>The file a shared library <c>name</c> builds to: name.dll, or libname.so.</summary>
-    public string Library(string name) => Windows ? name + ".dll" : "lib" + name + ".so";
+    public string Library(string name) => Windows ? name + ".dll" : "lib" + name + (Mac ? ".dylib" : ".so");
 
     /// <summary>Compiles <paramref name="source"/> into the shared library <see cref="Library"/> in <paramref name="dir"/>, unoptimized, with full debug information or none.</summary>
     public string BuildLibrary(TempDir dir, string name, string source, bool debugInfo = true)
@@ -83,11 +99,31 @@ internal sealed class LiveTarget
         return dir.File(Library(name));
     }
 
+    /// <summary>
+    /// Signs a macOS program ad hoc with the get-task-allow entitlement, as Xcode signs a debug build: without it the
+    /// system lets no other process (Frida included) read the program's task.
+    /// </summary>
+    private static void Debuggable(TempDir dir, string exe)
+    {
+        File.WriteAllText(dir.File("debuggable.plist"), """
+            <?xml version="1.0" encoding="UTF-8"?>
+            <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+            <plist version="1.0"><dict><key>com.apple.security.get-task-allow</key><true/></dict></plist>
+            """);
+        var psi = new ProcessStartInfo("codesign") { WorkingDirectory = dir.Path };
+        foreach (var a in new[] { "--force", "--sign", "-", "--entitlements", "debuggable.plist", exe }) psi.ArgumentList.Add(a);
+        var (code, log) = Tools.Run(psi);
+        Assert.True(code == 0, log);
+    }
+
     private ProcessStartInfo Msvc(TempDir dir, string name, bool library = false, bool debugInfo = true) => new("cmd.exe")
     {
         WorkingDirectory = dir.Path,
-        Arguments = $"/s /c \"\"{VisualStudio.VcVarsAll()}\" {(Is64 ? "x64" : "x86")} >nul && cl /nologo /Od {(debugInfo ? "/Zi " : "")}{(library ? "/LD " : "")}{name}.c /link {(debugInfo ? "/DEBUG:FULL" : "/DEBUG:NONE")} /INCREMENTAL:NO /OUT:{(library ? Library(name) : name + ".exe")}\"",
+        Arguments = $"/s /c \"\"{VisualStudio.VcVarsAll()}\" {VcVarsTarget} >nul && cl /nologo /Od {(debugInfo ? "/Zi " : "")}{(library ? "/LD " : "")}{name}.c /link {(debugInfo ? "/DEBUG:FULL" : "/DEBUG:NONE")} /INCREMENTAL:NO /OUT:{(library ? Library(name) : name + ".exe")}\"",
     };
+
+    /// <summary>vcvarsall's argument: the host's own tools for its architecture, the x64-hosted ones (under emulation on arm64) otherwise.</summary>
+    private string VcVarsTarget => !Arm64 ? (Is64 ? "x64" : "x86") : RuntimeInformation.OSArchitecture == Architecture.Arm64 ? "arm64" : "x64_arm64";
 
     private ProcessStartInfo Gcc(TempDir dir, string name, bool library = false, bool debugInfo = true, bool linkStatic = false)
     {

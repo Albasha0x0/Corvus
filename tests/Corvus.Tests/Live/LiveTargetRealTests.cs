@@ -34,6 +34,7 @@ public sealed class LiveTargetRealTests(ITestOutputHelper output) : LiveToolCall
 
     [LiveTargetFact("win-x64")] public Task Sessions_on_win_x64() => Sessions(LiveTarget.WinX64);
     [LiveTargetFact("win-x86")] public Task Sessions_on_win_x86() => Sessions(LiveTarget.WinX86);
+    [LiveTargetFact("win-arm64")] public Task Sessions_on_win_arm64() => Sessions(LiveTarget.WinArm64);
     [LiveTargetFact("linux-x64")] public Task Sessions_on_linux_x64() => Sessions(LiveTarget.LinuxX64);
     [LiveTargetFact("linux-x86")] public Task Sessions_on_linux_x86() => Sessions(LiveTarget.LinuxX86);
 
@@ -107,6 +108,7 @@ public sealed class LiveTargetRealTests(ITestOutputHelper output) : LiveToolCall
     // ---- the smoke set, for targets observed under emulation: start, a stop point by name, the named stack, a memory read, close
 
     [LiveTargetFact("linux-arm64")] public Task Smoke_on_linux_arm64() => Smoke(LiveTarget.LinuxArm64);
+    [LiveTargetFact("osx-arm64")] public Task Smoke_on_osx_arm64() => Smoke(LiveTarget.MacArm64);
 
     private async Task Smoke(LiveTarget target)
     {
@@ -132,6 +134,7 @@ public sealed class LiveTargetRealTests(ITestOutputHelper output) : LiveToolCall
 
     [LiveTargetFact("win-x64")] public Task Attach_on_win_x64() => Attach(LiveTarget.WinX64);
     [LiveTargetFact("win-x86")] public Task Attach_on_win_x86() => Attach(LiveTarget.WinX86);
+    [LiveTargetFact("win-arm64")] public Task Attach_on_win_arm64() => Attach(LiveTarget.WinArm64);
     [LiveTargetFact("linux-x64", attaches: true)] public Task Attach_on_linux_x64() => Attach(LiveTarget.LinuxX64);
     [LiveTargetFact("linux-x86", attaches: true)] public Task Attach_on_linux_x86() => Attach(LiveTarget.LinuxX86);
 
@@ -190,6 +193,7 @@ public sealed class LiveTargetRealTests(ITestOutputHelper output) : LiveToolCall
     [LiveTargetFact("win-x86")] public Task A_snapshot_at_a_stop_walks_from_the_stop_on_win_x86() => SnapshotAtStop(LiveTarget.WinX86);
     [LiveTargetFact("linux-x64")] public Task A_snapshot_at_a_stop_walks_from_the_stop_on_linux_x64() => SnapshotAtStop(LiveTarget.LinuxX64);
     [LiveTargetFact("linux-x86")] public Task A_snapshot_at_a_stop_walks_from_the_stop_on_linux_x86() => SnapshotAtStop(LiveTarget.LinuxX86);
+    [LiveTargetFact("win-arm64")] public Task A_snapshot_at_a_stop_walks_from_the_stop_on_win_arm64() => SnapshotAtStop(LiveTarget.WinArm64);
 
     private async Task SnapshotAtStop(LiveTarget target)
     {
@@ -264,6 +268,7 @@ public sealed class LiveTargetRealTests(ITestOutputHelper output) : LiveToolCall
 
     [LiveTargetFact("win-x64")] public Task Scripts_on_win_x64() => Scripts(LiveTarget.WinX64);
     [LiveTargetFact("win-x86")] public Task Scripts_on_win_x86() => Scripts(LiveTarget.WinX86);
+    [LiveTargetFact("win-arm64")] public Task Scripts_on_win_arm64() => Scripts(LiveTarget.WinArm64);
     [LiveTargetFact("linux-x64")] public Task Scripts_on_linux_x64() => Scripts(LiveTarget.LinuxX64);
     [LiveTargetFact("linux-x86")] public Task Scripts_on_linux_x86() => Scripts(LiveTarget.LinuxX86);
 
@@ -285,7 +290,7 @@ public sealed class LiveTargetRealTests(ITestOutputHelper output) : LiveToolCall
             events = await Events(server, "live-1", kind: "script");
             await Task.Delay(100);
         }
-        Assert.Contains($"script: u1: {{\"pid\":{pid},\"arch\":\"{(target.Is64 ? "x64" : "ia32")}\",\"bits\":{(target.Is64 ? 64 : 32)}}}", events);
+        Assert.Contains($"script: u1: {{\"pid\":{pid},\"arch\":\"{target.FridaArch}\",\"bits\":{(target.Is64 ? 64 : 32)}}}", events);
         Assert.Contains("u1 unloaded", await Ok(server, "live_script", new() { ["session"] = "live-1", ["action"] = "unload", ["script"] = "u1" }));
         Assert.Contains(", 0 script(s)", await Ok(server, "live_script", new() { ["session"] = "live-1" }));
 
@@ -304,7 +309,7 @@ public sealed class LiveTargetRealTests(ITestOutputHelper output) : LiveToolCall
             (late, fromFile) = (await Events(server, "live-1", from: "u3"), await Events(server, "live-1", from: "u4"));
         Assert.Contains("u3: {\"late\":1} (+3 bytes of data)", late);
         Assert.Contains("u3: error: Error: later", late);
-        Assert.Contains($"u4: {{\"file\":\"{(target.Is64 ? "x64" : "ia32")}\"}}", fromFile);
+        Assert.Contains($"u4: {{\"file\":\"{target.FridaArch}\"}}", fromFile);
         Assert.DoesNotContain("u4", late);
         await Ok(server, "live_session", new() { ["action"] = "close", ["session"] = "live-1" });
         Ended(pid);
@@ -314,6 +319,7 @@ public sealed class LiveTargetRealTests(ITestOutputHelper output) : LiveToolCall
 
     [LiveTargetFact("win-x64")] public Task Coverage_on_win_x64() => Coverage(LiveTarget.WinX64);
     [LiveTargetFact("win-x86")] public Task Coverage_on_win_x86() => Coverage(LiveTarget.WinX86);
+    [LiveTargetFact("win-arm64")] public Task Coverage_on_win_arm64() => Coverage(LiveTarget.WinArm64);
     [LiveTargetFact("linux-x64")] public Task Coverage_on_linux_x64() => Coverage(LiveTarget.LinuxX64);
     [LiveTargetFact("linux-x86")] public Task Coverage_on_linux_x86() => Coverage(LiveTarget.LinuxX86);
 
@@ -343,6 +349,7 @@ public sealed class LiveTargetRealTests(ITestOutputHelper output) : LiveToolCall
 
     [LiveTargetFact("win-x64")] public Task Threads_on_win_x64() => Threads(LiveTarget.WinX64);
     [LiveTargetFact("win-x86")] public Task Threads_on_win_x86() => Threads(LiveTarget.WinX86);
+    [LiveTargetFact("win-arm64")] public Task Threads_on_win_arm64() => Threads(LiveTarget.WinArm64);
     [LiveTargetFact("linux-x64")] public Task Threads_on_linux_x64() => Threads(LiveTarget.LinuxX64);
     [LiveTargetFact("linux-x86")] public Task Threads_on_linux_x86() => Threads(LiveTarget.LinuxX86);
 

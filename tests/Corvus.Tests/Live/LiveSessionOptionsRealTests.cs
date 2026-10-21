@@ -20,6 +20,7 @@ public sealed class LiveSessionOptionsRealTests(ITestOutputHelper output) : Live
 
     [LiveTargetFact("win-x64")] public Task Options_on_win_x64() => Options(LiveTarget.WinX64);
     [LiveTargetFact("win-x86")] public Task Options_on_win_x86() => Options(LiveTarget.WinX86);
+    [LiveTargetFact("win-arm64")] public Task Options_on_win_arm64() => Options(LiveTarget.WinArm64);
     [LiveTargetFact("linux-x64")] public Task Options_on_linux_x64() => Options(LiveTarget.LinuxX64);
     [LiveTargetFact("linux-x86")] public Task Options_on_linux_x86() => Options(LiveTarget.LinuxX86);
 

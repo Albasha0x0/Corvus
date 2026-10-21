@@ -26,6 +26,7 @@ public sealed class LiveStopPointRealTests(ITestOutputHelper output) : LiveToolC
 
     [LiveTargetFact("win-x64")] public Task Locations_on_win_x64() => Locations(LiveTarget.WinX64);
     [LiveTargetFact("win-x86")] public Task Locations_on_win_x86() => Locations(LiveTarget.WinX86);
+    [LiveTargetFact("win-arm64")] public Task Locations_on_win_arm64() => Locations(LiveTarget.WinArm64);
     [LiveTargetFact("linux-x64")] public Task Locations_on_linux_x64() => Locations(LiveTarget.LinuxX64);
     [LiveTargetFact("linux-x86")] public Task Locations_on_linux_x86() => Locations(LiveTarget.LinuxX86);
 
@@ -82,6 +83,7 @@ public sealed class LiveStopPointRealTests(ITestOutputHelper output) : LiveToolC
 
     [LiveTargetFact("win-x64")] public Task One_thread_on_win_x64() => OneThread(LiveTarget.WinX64);
     [LiveTargetFact("win-x86")] public Task One_thread_on_win_x86() => OneThread(LiveTarget.WinX86);
+    [LiveTargetFact("win-arm64")] public Task One_thread_on_win_arm64() => OneThread(LiveTarget.WinArm64);
     [LiveTargetFact("linux-x64")] public Task One_thread_on_linux_x64() => OneThread(LiveTarget.LinuxX64);
     [LiveTargetFact("linux-x86")] public Task One_thread_on_linux_x86() => OneThread(LiveTarget.LinuxX86);
 
@@ -119,6 +121,7 @@ public sealed class LiveStopPointRealTests(ITestOutputHelper output) : LiveToolC
 
     [LiveTargetFact("win-x64")] public Task Deferred_on_win_x64() => Deferred(LiveTarget.WinX64);
     [LiveTargetFact("win-x86")] public Task Deferred_on_win_x86() => Deferred(LiveTarget.WinX86);
+    [LiveTargetFact("win-arm64")] public Task Deferred_on_win_arm64() => Deferred(LiveTarget.WinArm64);
     [LiveTargetFact("linux-x64")] public Task Deferred_on_linux_x64() => Deferred(LiveTarget.LinuxX64);
     [LiveTargetFact("linux-x86")] public Task Deferred_on_linux_x86() => Deferred(LiveTarget.LinuxX86);
 
@@ -191,6 +194,7 @@ public sealed class LiveStopPointRealTests(ITestOutputHelper output) : LiveToolC
 
     [LiveTargetFact("win-x64")] public Task A_delay_loaded_dll_is_listed_at_the_stop_on_win_x64() => DelayLoadListed(LiveTarget.WinX64);
     [LiveTargetFact("win-x86")] public Task A_delay_loaded_dll_is_listed_at_the_stop_on_win_x86() => DelayLoadListed(LiveTarget.WinX86);
+    [LiveTargetFact("win-arm64")] public Task A_delay_loaded_dll_is_listed_at_the_stop_on_win_arm64() => DelayLoadListed(LiveTarget.WinArm64);
 
     private async Task DelayLoadListed(LiveTarget target)
     {
@@ -272,6 +276,7 @@ public sealed class LiveStopPointRealTests(ITestOutputHelper output) : LiveToolC
 
     [LiveTargetFact("win-x64")] public Task Raw_values_on_win_x64() => RawValues(LiveTarget.WinX64);
     [LiveTargetFact("win-x86")] public Task Raw_values_on_win_x86() => RawValues(LiveTarget.WinX86);
+    [LiveTargetFact("win-arm64")] public Task Raw_values_on_win_arm64() => RawValues(LiveTarget.WinArm64);
     [LiveTargetFact("linux-x64")] public Task Raw_values_on_linux_x64() => RawValues(LiveTarget.LinuxX64);
     [LiveTargetFact("linux-x86")] public Task Raw_values_on_linux_x86() => RawValues(LiveTarget.LinuxX86);
 

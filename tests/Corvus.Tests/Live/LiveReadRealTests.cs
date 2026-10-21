@@ -20,6 +20,7 @@ public sealed class LiveReadRealTests(ITestOutputHelper output) : LiveToolCalls(
 
     [LiveTargetFact("win-x64")] public Task Reads_on_win_x64() => Reads(LiveTarget.WinX64);
     [LiveTargetFact("win-x86")] public Task Reads_on_win_x86() => Reads(LiveTarget.WinX86);
+    [LiveTargetFact("win-arm64")] public Task Reads_on_win_arm64() => Reads(LiveTarget.WinArm64);
     [LiveTargetFact("linux-x64")] public Task Reads_on_linux_x64() => Reads(LiveTarget.LinuxX64);
     [LiveTargetFact("linux-x86")] public Task Reads_on_linux_x86() => Reads(LiveTarget.LinuxX86);
 
@@ -51,10 +52,12 @@ public sealed class LiveReadRealTests(ITestOutputHelper output) : LiveToolCalls(
         // a module name is its base: the image header
         Assert.Contains(target.Windows ? "  23117\n" : "  1179403647\n", await Read(server, target.Exe("values"), target.Windows ? "uint16" : "uint32"));
 
-        // at the function's entry the stack pointer holds the return address, the stop's frame #1
+        // At the function's entry the stack pointer holds the return address
+        // (ARM64: the link register), the stop's frame #1.
         var caller = Regex.Match(stop, @"#1 (0x[0-9A-F]+) ").Groups[1].Value;
         Assert.False(string.IsNullOrEmpty(caller), stop);
-        Assert.Contains($"  {caller}\n", await Read(server, "sp", "pointer"));
+        if (target.Arm64) Assert.Matches($@"(?i)\blr +{caller}\b", await Ok(server, "live_read", new() { ["session"] = "live-1", ["registers"] = "lr" }));
+        else Assert.Contains($"  {caller}\n", await Read(server, "sp", "pointer"));
 
         // below 64 KiB nothing is mapped; past the image's size, so not taken as an image address (a PIE's start at 0)
         var (unreadable, e1) = await Call(server, "live_read", new() { ["session"] = "live-1", ["memory"] = "0xF000", ["type"] = "uint32" });
@@ -85,9 +88,9 @@ public sealed class LiveReadRealTests(ITestOutputHelper output) : LiveToolCalls(
     /// <summary>The held thread's integer argument <paramref name="index"/> at a function's entry, as an address.</summary>
     private async Task<string> Argument(InProcessServer server, LiveTarget target, int index)
     {
-        if (target.Is64)
+        if (target.ArgumentRegisters is { } registers)
         {
-            var register = (target.Windows ? new[] { "rcx", "rdx", "r8" } : ["rdi", "rsi", "rdx"])[index];
+            var register = registers[index];
             var regs = await Ok(server, "live_read", new() { ["session"] = "live-1", ["registers"] = register });
             return Regex.Match(regs, $@"{register} +(0x[0-9a-fA-F]+)").Groups[1].Value;
         }

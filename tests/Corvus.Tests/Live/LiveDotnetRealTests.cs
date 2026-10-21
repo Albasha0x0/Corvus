@@ -43,6 +43,9 @@ internal sealed class DotnetTarget
     private string? FindMissing()
     {
         if (Windows ? !OperatingSystem.IsWindows() : !OperatingSystem.IsLinux()) return $"{Name} programs run on {(Windows ? "Windows" : "Linux")}.";
+        // The x64 builds take the SDK's own architecture, which on an arm64
+        // machine is arm64.
+        if (Is64 && System.Runtime.InteropServices.RuntimeInformation.OSArchitecture != System.Runtime.InteropServices.Architecture.X64) return $"{Name} programs are built on an x64 machine.";
         if (new FridaBackend().Unavailable() is { } frida) return frida.Reason;
         if (!Windows && LiveTarget.Musl) return LiveTarget.MuslStart;
         var (code, sdks) = Tools.Dotnet(null, "--list-sdks");
@@ -123,7 +126,7 @@ public sealed class FrameworkNativeImageFactAttribute : FactAttribute
 {
     public FrameworkNativeImageFactAttribute()
     {
-        if (!OperatingSystem.IsWindows() || !Environment.Is64BitOperatingSystem) Skip = "Windows x64 only.";
+        if (!OperatingSystem.IsWindows() || System.Runtime.InteropServices.RuntimeInformation.OSArchitecture != System.Runtime.InteropServices.Architecture.X64) Skip = "Windows x64 only.";
         else if (new FridaBackend().Unavailable() is { } frida) Skip = frida.Reason;
         else if (!Directory.Exists(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Windows), "assembly", "NativeImages_v4.0.30319_64", "System")))
             Skip = "No native image of System.dll.";

@@ -49,6 +49,7 @@ public sealed class LiveLifecycleRealTests(ITestOutputHelper output) : LiveToolC
 
     [LiveTargetFact("win-x64")] public Task Exit_with_calls_queued_on_win_x64() => ExitWithCallsQueued(LiveTarget.WinX64);
     [LiveTargetFact("win-x86")] public Task Exit_with_calls_queued_on_win_x86() => ExitWithCallsQueued(LiveTarget.WinX86);
+    [LiveTargetFact("win-arm64")] public Task Exit_with_calls_queued_on_win_arm64() => ExitWithCallsQueued(LiveTarget.WinArm64);
     [LiveTargetFact("linux-x64")] public Task Exit_with_calls_queued_on_linux_x64() => ExitWithCallsQueued(LiveTarget.LinuxX64);
 
     private async Task ExitWithCallsQueued(LiveTarget target)
@@ -92,6 +93,7 @@ public sealed class LiveLifecycleRealTests(ITestOutputHelper output) : LiveToolC
 
     [LiveTargetFact("win-x64")] public Task Fast_exit_on_win_x64() => FastExit(LiveTarget.WinX64, Runs);
     [LiveTargetFact("win-x86")] public Task Fast_exit_on_win_x86() => FastExit(LiveTarget.WinX86, Runs);
+    [LiveTargetFact("win-arm64")] public Task Fast_exit_on_win_arm64() => FastExit(LiveTarget.WinArm64, Runs);
     [LiveTargetFact("linux-x64")] public Task Fast_exit_on_linux_x64() => FastExit(LiveTarget.LinuxX64, 40);
 
     private async Task FastExit(LiveTarget target, int runs)
@@ -119,6 +121,7 @@ public sealed class LiveLifecycleRealTests(ITestOutputHelper output) : LiveToolC
 
     [LiveTargetFact("win-x64")] public Task Fault_on_win_x64() => Fault(LiveTarget.WinX64);
     [LiveTargetFact("win-x86")] public Task Fault_on_win_x86() => Fault(LiveTarget.WinX86);
+    [LiveTargetFact("win-arm64")] public Task Fault_on_win_arm64() => Fault(LiveTarget.WinArm64);
     [LiveTargetFact("linux-x64")] public Task Fault_on_linux_x64() => Fault(LiveTarget.LinuxX64);
 
     private async Task Fault(LiveTarget target)
@@ -149,6 +152,7 @@ public sealed class LiveLifecycleRealTests(ITestOutputHelper output) : LiveToolC
 
     [LiveTargetFact("win-x64")] public Task Terminated_on_win_x64() => Terminated(LiveTarget.WinX64);
     [LiveTargetFact("win-x86")] public Task Terminated_on_win_x86() => Terminated(LiveTarget.WinX86);
+    [LiveTargetFact("win-arm64")] public Task Terminated_on_win_arm64() => Terminated(LiveTarget.WinArm64);
     [LiveTargetFact("linux-x64")] public Task Terminated_on_linux_x64() => Terminated(LiveTarget.LinuxX64);
 
     private async Task Terminated(LiveTarget target)
@@ -181,6 +185,7 @@ public sealed class LiveLifecycleRealTests(ITestOutputHelper output) : LiveToolC
 
     [LiveTargetFact("win-x64")] public Task Close_during_exit_on_win_x64() => CloseDuringExit(LiveTarget.WinX64);
     [LiveTargetFact("win-x86")] public Task Close_during_exit_on_win_x86() => CloseDuringExit(LiveTarget.WinX86);
+    [LiveTargetFact("win-arm64")] public Task Close_during_exit_on_win_arm64() => CloseDuringExit(LiveTarget.WinArm64);
     [LiveTargetFact("linux-x64")] public Task Close_during_exit_on_linux_x64() => CloseDuringExit(LiveTarget.LinuxX64);
 
     private async Task CloseDuringExit(LiveTarget target)
@@ -227,8 +232,10 @@ public sealed class LiveLifecycleRealTests(ITestOutputHelper output) : LiveToolC
 
     [LiveTargetFact("win-x64")] public Task Stuck_exit_of_a_started_program_on_win_x64() => StuckExit(LiveTarget.WinX64, attach: false);
     [LiveTargetFact("win-x86")] public Task Stuck_exit_of_a_started_program_on_win_x86() => StuckExit(LiveTarget.WinX86, attach: false);
+    [LiveTargetFact("win-arm64")] public Task Stuck_exit_of_a_started_program_on_win_arm64() => StuckExit(LiveTarget.WinArm64, attach: false);
     [LiveTargetFact("win-x64")] public Task Stuck_exit_of_an_attached_program_on_win_x64() => StuckExit(LiveTarget.WinX64, attach: true);
     [LiveTargetFact("win-x86")] public Task Stuck_exit_of_an_attached_program_on_win_x86() => StuckExit(LiveTarget.WinX86, attach: true);
+    [LiveTargetFact("win-arm64")] public Task Stuck_exit_of_an_attached_program_on_win_arm64() => StuckExit(LiveTarget.WinArm64, attach: true);
 
     private async Task StuckExit(LiveTarget target, bool attach)
     {
