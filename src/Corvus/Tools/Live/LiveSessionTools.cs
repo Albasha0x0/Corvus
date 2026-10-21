@@ -234,6 +234,7 @@ public sealed partial class LiveSessionTools(ServerOptions options, LiveSessionS
         var rows = modules.Select(m => new LiveModule(m.Name, Hex(m.Base), m.Image?.Id ?? m.Assembly?.Id, m.Image?.OriginalSha256 ?? m.Assembly?.OriginalSha256)).ToList();
         var text = new StringBuilder($"{s.Id} ({s.Backend}): {s.Program} pid {s.ProcessId}, {s.State}");
         if (s.Ended != null) text.Append($" ({s.Ended})");
+        else if (s.Closed) text.Append($" (session closed ({s.CloseReason}))"); // the close is still ending the worker
         if (s.State == "suspended") text.Append("; set stop points, then live_break action=continue starts it");
         if (s.HeldBy != null && s.State == "suspended") text.Append($" (held by {s.HeldBy.Id})");
         text.AppendLine();

@@ -39,6 +39,8 @@ internal sealed class ScriptedLiveBackend(string mainPath, ulong mainBase, uint 
     public string Arch { get; init; } = "x64";
     /// <summary>Runs before the reply to a resume, as when a resumed thread stops again before the worker answers.</summary>
     public Action? BeforeResumeReply { get; set; }
+    /// <summary>Runs before the reply to a close, as while the worker still ends its session.</summary>
+    public Action? BeforeCloseReply { get; set; }
     /// <summary>Child processes the program started: an attach by one of these ids reports that id.</summary>
     public readonly HashSet<int> ChildPids = [];
     /// <summary>The child process ids resume_child let run, in order (negative: let go stopped).</summary>
@@ -155,6 +157,9 @@ internal sealed class ScriptedLiveBackend(string mainPath, ulong mainBase, uint 
                     }) { IsBackground = true }.Start();
                 return new JsonObject { ["loaded"] = (string)args["id"]! };
             case "unload_script": return new JsonObject { ["unloaded"] = true };
+            case "close":
+                BeforeCloseReply?.Invoke();
+                return null;
             case "resume_child":
                 lock (ChildResumes) ChildResumes.Add(args["stopped"] is { } let && (bool)let ? -(int)args["pid"]! : (int)args["pid"]!);
                 return new JsonObject { ["resumed"] = true };
@@ -516,6 +521,21 @@ public sealed class LiveSessionTests : IDisposable
         var text = await wait.WaitAsync(TimeSpan.FromSeconds(10));
         Assert.Contains("the program ended before a stop (exited: process-terminated", text);
         Assert.DoesNotContain("no stop within", text);
+    }
+
+    [Fact]
+    public async Task Status_while_a_close_runs_names_why_the_session_closes()
+    {
+        await _tools.LiveSession("spawn", program: Sqlite);
+        using var closing = new ManualResetEventSlim();
+        using var release = new ManualResetEventSlim();
+        _backend.BeforeCloseReply = () => { closing.Set(); release.Wait(10_000); };
+        var close = _service.CloseAsync(_service.Get("live-1"), "deadline");
+        Assert.True(closing.Wait(10_000), "the close never reached the worker");
+        var status = await _tools.LiveSession("status", session: "live-1");
+        release.Set();
+        await close;
+        Assert.Contains("closed (session closed (deadline))", status);
     }
 
     [Fact]
