@@ -5,6 +5,11 @@ on:
     branches: [master, main]
   pull_request:
   workflow_dispatch:
+    inputs:
+      live:
+        description: Also run the Live test family (Frida sessions) on macOS, Windows ARM64, Linux and Windows
+        type: boolean
+        default: false
 
 concurrency:
   group: ci-${{ github.ref }}
@@ -193,3 +198,67 @@ jobs:
           sh -s -- --uninstall --purge-data < install.sh
           test ! -e ~/.local/share/Corvus
           test ! -e "$data"
+
+  # Manual only (workflow_dispatch with live=true): the Live family, slow tests
+  # included, on macOS and Windows ARM64, which no local run covers;
+  # ubuntu-latest and windows-latest are the controls.
+  live:
+    name: live (${{ matrix.os }})
+    if: github.event_name == 'workflow_dispatch' && inputs.live
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-11-arm, ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-dotnet@v6
+        with:
+          global-json-file: global.json
+
+      # A 64-bit Python of the machine's own architecture, with the Frida
+      # release the live tests are written against.
+      - uses: actions/setup-python@v6
+        id: python
+        with:
+          python-version: '3.13'
+
+      - name: Frida
+        shell: bash
+        run: |
+          "$PYTHON" -m pip install --disable-pip-version-check frida==17.24.3
+          "$PYTHON" -c "import frida, platform, struct; print('frida', frida.__version__, platform.machine(), struct.calcsize('P') * 8, 'bit')"
+        env:
+          PYTHON: ${{ steps.python.outputs.python-path }}
+
+      # Snapshots on Linux are written by gcore (GDB); attaching to a program
+      # the session did not start needs ptrace_scope 0 (the runner's is 1).
+      - name: GDB and ptrace scope (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get install -y --no-install-recommends gdb
+          sudo sysctl -w kernel.yama.ptrace_scope=0
+
+      - name: Build
+        run: dotnet build -c Release
+
+      # The family is every top-level test class under tests/Corvus.Tests/Live,
+      # as test.ps1 finds it.
+      - name: Test (Live family)
+        shell: bash
+        env:
+          CORVUS_ALL_TESTS: "1"
+          CORVUS_FRIDA_PYTHON: ${{ steps.python.outputs.python-path }}
+        run: |
+          filter=$(grep -ohE '^public (sealed |abstract |partial )*class [A-Za-z0-9_]+' tests/Corvus.Tests/Live/*.cs | awk '{print "FullyQualifiedName~." $NF}' | sort -u | paste -sd '|' -)
+          dotnet test tests/Corvus.Tests --no-build -c Release --filter "$filter" --blame-hang-timeout 15m --logger "trx;LogFileName=live.trx" --logger "console;verbosity=normal"
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: live-results-${{ matrix.os }}
+          path: "**/TestResults/*.trx"
+          if-no-files-found: ignore

@@ -47,7 +47,10 @@
   that measure or check a cold open keep an empty cache.
 
 CI (`.github/workflows/ci.yml`) runs the quick set as a smoke lane; the release workflow builds the release archives.
-The full set and the real-application runs are done locally.
+The full set and the real-application runs are done locally. To run the Live family (slow tests included) on macOS
+and Windows ARM64, start ci.yml by hand with its `live` input: `gh workflow run ci.yml --ref <branch> -f live=true`.
+The manual job installs 64-bit Python and the tested Frida release on macos-latest, windows-11-arm, ubuntu-latest and
+windows-latest, and uploads one TRX per machine (`live-results-<os>`).
 
 ## Layout
 
