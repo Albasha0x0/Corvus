@@ -101,8 +101,8 @@ internal sealed class CramfsReader : IContainerReader
                     switch (mode & 0xF000)
                     {
                         case 0x4000: Directory(child, dataAt, length, depth + 1); break;
-                        case 0x8000: _tree.File(child, length, n => Data(dataAt, length, (int)n)); break;
-                        case 0xA000: _tree.Link(child, Encoding.UTF8.GetString(Data(dataAt, length, Math.Min(length, 4096)))); break;
+                        case 0x8000: _tree.File(child, length, n => Data(dataAt, length, (int)n), mode: mode); break;
+                        case 0xA000: _tree.Link(child, Encoding.UTF8.GetString(Data(dataAt, length, Math.Min(length, 4096))), mode); break;
                     }
                 }
                 catch (Exception ex) when (FsTree.Damaged(ex)) { _tree.Unreadable(child, ex); }

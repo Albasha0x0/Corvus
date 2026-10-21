@@ -65,10 +65,10 @@ internal sealed class FsTree(string kind, bool allFiles, AnalysisLimits limits, 
     private const int Head = 1 << 20;
 
     /// <summary>A regular file; <paramref name="read"/> gives its first n bytes (n at most <paramref name="size"/>).</summary>
-    public void File(string path, long size, Func<long, byte[]> read, string? detail = null)
+    public void File(string path, long size, Func<long, byte[]> read, string? detail = null, long? mode = null)
     {
         ct.ThrowIfCancellationRequested();
-        _entries.Add(new ContainerEntry(path, size, detail));
+        _entries.Add(new ContainerEntry(path, size, detail) { Mode = Octal(mode) });
         if (_items.Count >= limits.MaxItems) return;
         if (size < 0 || size > limits.MaxItemBytes) { Notes.Add($"{path}: {size:N0} bytes, over the item limit; listed, not extracted"); return; }
         byte[] bytes;
@@ -104,7 +104,9 @@ internal sealed class FsTree(string kind, bool allFiles, AnalysisLimits limits, 
         catch (Exception ex) when (ex is InvalidDataException or EndOfStreamException) { throw src.Malformed(ex.Message); }
     }
 
-    public void Link(string path, string target) => _entries.Add(new ContainerEntry(path, target.Length, $"symbolic link to {target}"));
+    public void Link(string path, string target, long? mode = null) => _entries.Add(new ContainerEntry(path, target.Length, $"symbolic link to {target}") { Mode = Octal(mode) });
+
+    private static string? Octal(long? mode) => mode is { } m ? Convert.ToString(m & 0xFFF, 8) : null;
 
     public ContainerContents Done()
     {

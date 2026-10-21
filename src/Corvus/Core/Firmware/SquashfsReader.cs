@@ -63,7 +63,7 @@ internal sealed class SquashfsReader : IContainerReader
 
         public ContainerContents Walk()
         {
-            var (type, inode) = Inode(_root);
+            var (type, _, inode) = Inode(_root);
             if (type is not (1 or 8)) throw _src.Malformed("the squashfs root inode is not a directory");
             Directory("", inode, type, 0);
             return _tree.Done();
@@ -114,13 +114,13 @@ internal sealed class SquashfsReader : IContainerReader
         }
 
         /// <summary>The inode a reference names (block offset in the inode table, offset in the block): its type and reader position.</summary>
-        private (int Type, (long Block, int Offset) At) Inode(ulong reference)
+        private (int Type, int Mode, (long Block, int Offset) At) Inode(ulong reference)
         {
             long block = _inodeTable + (long)(reference >> 16);
             int offset = (int)(reference & 0xFFFF);
             var start = (block, offset);
             var h = Meta(ref block, ref offset, 16);
-            return (BinaryPrimitives.ReadUInt16LittleEndian(h), start);
+            return (BinaryPrimitives.ReadUInt16LittleEndian(h), BinaryPrimitives.ReadUInt16LittleEndian(h.AsSpan(2)), start);
         }
 
         private void Directory(string path, (long Block, int Offset) at, int type, int depth)
@@ -174,13 +174,13 @@ internal sealed class SquashfsReader : IContainerReader
                 var child = path.Length == 0 ? name : path + "/" + name;
                 try
                 {
-                    var (childType, childAt) = Inode(reference);
+                    var (childType, mode, childAt) = Inode(reference);
                     switch (childType)
                     {
                         // a directory reached twice is a loop in damaged tables
                         case 1 or 8: if (_visited.Add(reference)) Directory(child, childAt, childType, depth + 1); break;
-                        case 2 or 9: File(child, childAt, childType); break;
-                        case 3 or 10: Symlink(child, childAt); break;
+                        case 2 or 9: File(child, childAt, childType, mode); break;
+                        case 3 or 10: Symlink(child, childAt, mode); break;
                     }
                 }
                 catch (Exception ex) when (FsTree.Damaged(ex)) { _tree.Unreadable(child, ex); }
@@ -195,15 +195,15 @@ internal sealed class SquashfsReader : IContainerReader
             return (block, offset);
         }
 
-        private void Symlink(string path, (long Block, int Offset) at)
+        private void Symlink(string path, (long Block, int Offset) at, int mode)
         {
             var (block, offset) = AfterHeader(at);
             var d = Meta(ref block, ref offset, 8);
             int size = (int)Math.Min(BinaryPrimitives.ReadUInt32LittleEndian(d.AsSpan(4)), 4096);
-            _tree.Link(path, Encoding.UTF8.GetString(Meta(ref block, ref offset, size)));
+            _tree.Link(path, Encoding.UTF8.GetString(Meta(ref block, ref offset, size)), mode);
         }
 
-        private void File(string path, (long Block, int Offset) at, int type)
+        private void File(string path, (long Block, int Offset) at, int type, int mode)
         {
             var (block, offset) = AfterHeader(at);
             long blocksStart, size;
@@ -259,7 +259,7 @@ internal sealed class SquashfsReader : IContainerReader
                     frag.AsSpan((int)fragOffset, (int)Math.Min(tail, count - tailAt)).CopyTo(bytes.AsSpan((int)tailAt));
                 }
                 return bytes;
-            });
+            }, mode: mode);
         }
 
         private int _cachedFragment = -1;

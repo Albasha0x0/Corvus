@@ -10,7 +10,11 @@ namespace Corvus.Core;
 public sealed record ExtractedItem(string Name, byte[] Bytes, string Origin);
 
 /// <summary>An entry of an archive container (ASAR, UnityWebData, HAR, flows), listed without extracting it.</summary>
-public sealed record ContainerEntry(string Path, long Size, string? Detail = null);
+public sealed record ContainerEntry(string Path, long Size, string? Detail = null)
+{
+    /// <summary>Unix permission bits in octal (setuid, setgid, sticky, rwx), when the format stores them.</summary>
+    public string? Mode { get; init; }
+}
 
 /// <summary>Container kind, its items (one level deep), and notes on skipped or unusual entries.</summary>
 public sealed record ContainerContents(string Kind, List<ExtractedItem> Items, List<string> Notes)

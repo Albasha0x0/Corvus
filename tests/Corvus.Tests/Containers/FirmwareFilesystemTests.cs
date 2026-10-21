@@ -66,6 +66,11 @@ public sealed class FirmwareFilesystemTests
             .Select(f => $"{f[5]["squashfs-root/".Length..]} {(f[0][0] == 'l' ? "-> " + f[7] : f[2])}").Order(StringComparer.Ordinal);
         var ours = c.Entries!.Select(e => $"{e.Path} {(e.Detail is { } d ? "-> " + d["symbolic link to ".Length..] : e.Size.ToString())}").Order(StringComparer.Ordinal);
         Assert.Equal(reference, ours);
+        // the permission bits unsquashfs prints (rwx triplets)
+        var modes = File.ReadAllLines(Path.Combine(FixtureDir, $"squashfs-{compressor}.img.list")).Where(l => l[0] is '-' or 'l')
+            .Select(l => l.Split(' ', StringSplitOptions.RemoveEmptyEntries))
+            .ToDictionary(f => f[5]["squashfs-root/".Length..], f => Convert.ToString(f[0][1..10].Select((ch, i) => ch == '-' ? 0 : 1 << (8 - i)).Sum(), 8));
+        Assert.All(c.Entries!, e => Assert.Equal(modes[e.Path], e.Mode));
         // read from a stream, the same listing and bytes
         var streamed = new SquashfsReader().Open(new MemoryStream(image), "rootfs.squashfs", true, AnalysisLimits.Default, default)!;
         Assert.Equal(c.Entries!.Select(e => e.Path), streamed.Entries!.Select(e => e.Path));
