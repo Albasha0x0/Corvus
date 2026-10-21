@@ -6,12 +6,13 @@
 # Uninstall (keeps your data; add -PurgeData to delete it too):
 #   & ([scriptblock]::Create((irm https://raw.githubusercontent.com/Albasha0x0/Corvus/main/install.ps1))) -Uninstall
 # -Version installs that release (pinning or rolling back), -DryRun shows what would be installed and registered and
-# changes nothing, -Yes registers new clients without asking, -Client registers only the named clients.
+# changes nothing, -Yes registers new clients without asking, -Client registers only the named clients, -WithLive installs
+# the tested Frida into a private Python environment for the session tools and turns that on.
 # Environment: CORVUS_VERSION (as -Version), CORVUS_YES=1 (as -Yes), CORVUS_REPO (owner/name), CORVUS_ARCHIVE (local release
 # archive), CORVUS_SHA256SUMS (manifest to verify CORVUS_ARCHIVE against; without it a local archive is trusted as is),
 # GITHUB_TOKEN (optional: a higher GitHub API rate limit).
 # Downloads are verified against the release's SHA256SUMS; a missing manifest or a mismatch stops the install.
-param([switch]$Uninstall, [switch]$PurgeData, [string]$Version, [switch]$DryRun, [switch]$Yes, [string[]]$Client)
+param([switch]$Uninstall, [switch]$PurgeData, [string]$Version, [switch]$DryRun, [switch]$Yes, [string[]]$Client, [switch]$WithLive)
 
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
@@ -31,6 +32,7 @@ if ($Version -and [version](($Version -split '[+-]')[0]) -lt [version]'1.2.0') {
 $setupArgs = @()
 if ($DryRun) { $setupArgs += '--dry-run' }
 if ($Yes) { $setupArgs += '--yes' }
+if ($WithLive) { $setupArgs += '--with-live' }
 if ($Client) { $setupArgs += @('--client', ($Client -join ',')) }
 
 if ($Uninstall) {

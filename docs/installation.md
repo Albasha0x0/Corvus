@@ -35,6 +35,7 @@ Then restart your MCP client. The script:
 | `-DryRun` / `--dry-run` | | Show the release, the checksum source, the install folder and every client file it would change; change nothing. |
 | `-Yes` / `--yes` | `CORVUS_YES=1` | Register new clients without asking (needed when there is no terminal). |
 | `-Client a,b` / `--client a,b` | | Register only these clients (ids from the table below). |
+| `-WithLive` / `--with-live` | | Install the tested Frida for the session tools into a private Python environment and turn on `--live-install-frida` ([live-inspection.md](live-inspection.md#frida)). |
 | `-Uninstall` / `--uninstall` | | Run `corvus uninstall`; add `-PurgeData` / `--purge-data` to delete your data too. |
 | | `CORVUS_REPO` | Download from another repository (`owner/name`). |
 | | `GITHUB_TOKEN` | Optional token for GitHub API requests (a higher rate limit). |
@@ -127,6 +128,7 @@ MCP Registry entry (`.mcp/server.json`).
 | `--skill` | Also write the agent skill for clients that read skills (below). |
 | `--enable` | Turn on an entry the client has turned off. |
 | `--set S`, `--unset S` | Add or remove a [security switch](configuration.md#security-switches) on every entry (repeatable or comma-separated). |
+| `--with-live` | Install the tested Frida into a private Python environment now and add `--live-install-frida` to every entry. |
 | `--project DIR` | With `--set` / `--unset`: only this folder's Claude Code local entry, made from the global one when missing ([examples](configuration.md#claude-code)). |
 | `--command PATH` | Register this program instead of the running one. |
 | `--dev-reload DIR` | Development: register the reload relay ([Development reload](#development-reload)). |

@@ -296,7 +296,7 @@ public sealed class LiveSession
 /// the static model: modules to loaded images by path, addresses to function names, offsets and source lines; stop
 /// points accept names, module!export, file:line and addresses.
 /// </summary>
-public sealed partial class LiveSessionService(AssemblyWorkspace workspace, NativeCodeService code) : IDisposable
+public sealed partial class LiveSessionService(AssemblyWorkspace workspace, NativeCodeService code, ServerOptions? options = null) : IDisposable
 {
     public const string MaxMinutesVariable = "CORVUS_LIVE_MAX_MINUTES";
     public const int MaxSessions = 8;
@@ -307,7 +307,7 @@ public sealed partial class LiveSessionService(AssemblyWorkspace workspace, Nati
     private int _next;
 
     /// <summary>The backend new sessions start on.</summary>
-    public ILiveBackend Backend { get; set; } = new FridaBackend();
+    public ILiveBackend Backend { get; set; } = new FridaBackend { InstallPinned = options?.LiveInstallFrida == true };
 
     public IReadOnlyList<LiveSession> Sessions => _sessions.Values.OrderBy(s => int.Parse(s.Id[5..], CultureInfo.InvariantCulture)).ToList();
 

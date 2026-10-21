@@ -7,7 +7,8 @@
 # Uninstall (keeps your data; add --purge-data to delete it too):
 #   curl -fsSL https://raw.githubusercontent.com/Albasha0x0/Corvus/main/install.sh | sh -s -- --uninstall
 # Options: --version X installs that release (pinning or rolling back), --dry-run shows what would be installed and
-# registered and changes nothing, --yes registers new clients without asking, --client a,b registers only those.
+# registered and changes nothing, --yes registers new clients without asking, --client a,b registers only those,
+# --with-live installs the tested Frida into a private Python environment for the session tools and turns that on.
 # The confirmation is read from the terminal (/dev/tty) even when the script itself arrives on stdin.
 # Environment: CORVUS_VERSION (as --version), CORVUS_YES=1 (as --yes), CORVUS_REPO (owner/name), CORVUS_HOME (install folder),
 # CORVUS_ARCHIVE (local release archive), CORVUS_SHA256SUMS (manifest to verify CORVUS_ARCHIVE against; without it a local
@@ -42,9 +43,10 @@ while [ $# -gt 0 ]; do
         --version=*) version="${1#--version=}" ;;
         --dry-run) dry_run=1; setup_args="$setup_args --dry-run" ;;
         --yes|-y) setup_args="$setup_args --yes" ;;
+        --with-live) setup_args="$setup_args --with-live" ;;
         --client) [ $# -ge 2 ] || fail "--client needs a value"; setup_args="$setup_args --client $2"; shift ;;
         --client=*) setup_args="$setup_args --client ${1#--client=}" ;;
-        *) fail "unknown option $1 (options: --version X, --dry-run, --yes, --client a,b, --uninstall)" ;;
+        *) fail "unknown option $1 (options: --version X, --dry-run, --yes, --client a,b, --with-live, --uninstall)" ;;
     esac
     shift
 done

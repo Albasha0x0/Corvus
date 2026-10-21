@@ -166,10 +166,14 @@ public sealed class SessionTools(AssemblyWorkspace workspace, IndexingService in
     internal static Capability LiveBackendCapability(Native.Providers.Live.ILiveBackend backend)
     {
         var name = $"live sessions ({backend.Name})";
+        // the private environment is made by the first session, not by a status call
+        if (backend is Native.Providers.Live.FridaBackend { PrivatePending: true, PrivateEnvironment.Offline: false } pending)
+            return new(name, true, $"Frida {Native.Providers.Live.FridaVersions.Pinned} is installed into {pending.PrivateEnvironment.Folder} by the first session", null);
         if (backend.Unavailable() is { } missing) return new(name, false, missing.Reason, missing.Remediation);
         if (backend is not Native.Providers.Live.FridaBackend { FridaVersion: var version, Python: var python }) return new(name, true, "ready", null);
         var untested = Native.Providers.Live.FridaVersions.Warning(version);
-        return new(name, true, $"Frida {version} in {python?.Executable}: " + (untested ?? $"in the tested range {Native.Providers.Live.FridaVersions.TestedRange}"),
+        var from = python?.Source == Native.Providers.Live.FridaEnvironment.Source ? "private environment" : $"user Python, from {python?.Source}";
+        return new(name, true, $"Frida {version} in {python?.Executable} ({from}): " + (untested ?? $"in the tested range {Native.Providers.Live.FridaVersions.TestedRange}"),
             untested == null ? null : Native.Providers.Live.FridaBackend.Upgrade);
     }
 

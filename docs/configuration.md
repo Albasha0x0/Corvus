@@ -32,6 +32,7 @@ Turn one on with `corvus install --set <switch>` ([examples](#claude-code)), or 
 | `--allow-live` | `CORVUS_ALLOW_LIVE` | The session tools (`live_session`, `live_break`, `live_watch`, `live_coverage`, `live_timeline`, `live_read`, `live_events`, `live_console`) without opening a program: lists processes. Implied by the two above and `--live-scripting`. |
 | `--live-allow <path>` | `CORVUS_LIVE_ALLOW` | Limits attach and start to this program or folder (repeatable; the variable takes a path list). Links are resolved first. List only folders that only you can write to. |
 | `--live-scripting` | `CORVUS_LIVE_SCRIPTING` | The session tools, and `live_script` loads a user-supplied script into the program, with the program's rights. |
+| `--live-install-frida` | `CORVUS_LIVE_INSTALL_FRIDA` | When no tested Frida is found, the first session downloads Frida 17.24.3 (hash-checked wheels) into a private Python environment under the data folder and uses it ([live-inspection.md](live-inspection.md#frida)). Refused with `CORVUS_OFFLINE=1`. |
 | `--ida-scripting` | `CORVUS_IDA_SCRIPTING` | `ida_python`: any Python in the IDA worker, with the server's rights. |
 | `--ghidra-scripting` | `CORVUS_GHIDRA_SCRIPTING` | `ghidra_script`: any Java or Python in the Ghidra worker, with the server's rights. |
 | `--allow-replace-original` | `CORVUS_ALLOW_REPLACE_ORIGINAL` | `save_assembly` and `save_native` with `replaceOriginal=true` replace the loaded file. Without it they only write new files. |
@@ -204,7 +205,7 @@ The server goes online only when a call or command asks for it: [SECURITY.md](..
 
 | Variable | Effect |
 |---|---|
-| `CORVUS_OFFLINE` | `1`: never download reference packs, symbols or a runtime DAC. |
+| `CORVUS_OFFLINE` | `1`: never download reference packs, symbols, a runtime DAC or the private Frida environment. |
 | `CORVUS_DEBUGINFOD_URLS` | debuginfod servers for `load_pdb download=true` on ELF (else `DEBUGINFOD_URLS`; none by default). |
 | `GITHUB_TOKEN` | Optional token for `corvus update` and the install scripts (a higher GitHub API rate limit); sent to GitHub hosts over HTTPS only. |
 

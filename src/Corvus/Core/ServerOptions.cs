@@ -119,6 +119,12 @@ public sealed class ServerOptions
     public const string LiveScriptingOption = "--live-scripting";
     public const string LiveScriptingVariable = "CORVUS_LIVE_SCRIPTING";
 
+    /// <summary>Install the tested Frida into a private Python environment when no tested Frida is found (downloads it); default off.</summary>
+    public bool LiveInstallFrida { get; set; }
+
+    public const string LiveInstallFridaOption = "--live-install-frida";
+    public const string LiveInstallFridaVariable = "CORVUS_LIVE_INSTALL_FRIDA";
+
     /// <summary>The security switches (value-less options, off by default) and their variables; corvus install --set and --unset take these.</summary>
     public static readonly IReadOnlyDictionary<string, string> Switches = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
     {
@@ -126,6 +132,7 @@ public sealed class ServerOptions
         [AllowLiveAttachOption] = AllowLiveAttachVariable,
         [AllowLiveSpawnOption] = AllowLiveSpawnVariable,
         [LiveScriptingOption] = LiveScriptingVariable,
+        [LiveInstallFridaOption] = LiveInstallFridaVariable,
         ["--ida-scripting"] = IdaScriptingVariable,
         [GhidraScriptingOption] = GhidraScriptingVariable,
         [AllowDeviceChangesOption] = AllowDeviceChangesVariable,
@@ -216,6 +223,7 @@ public sealed class ServerOptions
                 case AllowLiveAttachOption: o.AllowLiveAttach = true; break;
                 case LiveAllowOption: o.LiveAllow.Add(Path.GetFullPath(Next())); break;
                 case LiveScriptingOption: o.LiveScripting = true; break;
+                case LiveInstallFridaOption: o.LiveInstallFrida = true; break;
                 case "--engine": engine = Next(); break;
                 case "--index-cache": cacheRoot = Next(); break;
                 case "--index-cache-mb": cacheMb = long.TryParse(Next(), out var mb) && mb > 0 ? mb : throw new ArgumentException("--index-cache-mb must be a positive number"); break;
@@ -261,6 +269,7 @@ public sealed class ServerOptions
         if (Environment.GetEnvironmentVariable(LiveAllowVariable) is { Length: > 0 } allowFromEnv)
             o.LiveAllow.AddRange(allowFromEnv.Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).Select(Path.GetFullPath));
         if (Environment.GetEnvironmentVariable(LiveScriptingVariable)?.Trim() is "1" or "true" or "on") o.LiveScripting = true;
+        if (Environment.GetEnvironmentVariable(LiveInstallFridaVariable)?.Trim() is "1" or "true" or "on") o.LiveInstallFrida = true;
         o.EngineRequestTimeoutSeconds = Seconds(EngineRequestTimeoutVariable, o.EngineRequestTimeoutSeconds);
         o.EngineOpenTimeoutSeconds = Seconds(EngineOpenTimeoutVariable, o.EngineOpenTimeoutSeconds);
         o.EngineAnalysis = Environment.GetEnvironmentVariable(EngineAnalysisVariable)?.Trim().ToLowerInvariant() switch

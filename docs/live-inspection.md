@@ -82,11 +82,23 @@ counts as inside it. `server_status` shows the list. These are server start-up s
 apply to the whole server process, which for a stdio client means its client configuration. The model cannot turn them on.
 
 Run programs you do not trust only in a disposable virtual machine: a session observes the program, it does not contain
-it. A session runs a worker on Frida's Python bindings
-(`pip install frida`; `CORVUS_FRIDA_PYTHON` names the interpreter when the first one found lacks them).
-Sessions are tested on Frida 17.24.3 to 17.x: `server_status` shows the Frida version and whether it is in that range, a
-session on a Frida outside it opens with an `error` event naming the version and the range, and a Frida older than 17.0
-is refused with `provider_unavailable` (the session script needs the 17.x API).
+it.
+
+### Frida
+
+A session runs a worker on Frida's Python bindings. Install them yourself (`pip install frida`), or let the server keep
+a pinned copy of its own with `--live-install-frida` (`CORVUS_LIVE_INSTALL_FRIDA=1`, or `install.ps1 -WithLive` /
+`install.sh --with-live` / `corvus install --with-live`, which also create it right away): when no tested Frida is
+found, the first session creates a private Python environment under the data folder (`<data>/frida/python-17.24.3`)
+with Python's own `venv` module from a 64-bit Python 3.9+, and pip installs Frida 17.24.3 there from wheels whose
+SHA-256 the server pins per platform (`--require-hashes`, about 60 MB to download). `CORVUS_OFFLINE=1` refuses the download.
+
+The interpreter, in order: `CORVUS_FRIDA_PYTHON`; the private environment, once created; the first Python found (the
+`py` launcher, then `PATH`) with a tested Frida; a new private environment (with `--live-install-frida`); the first
+Python with any Frida. `server_status` shows the interpreter, where it came from (user Python or private environment)
+and its Frida version. Sessions are tested on Frida 17.24.3 to 17.x: a session on a Frida outside that range opens with
+an `error` event naming the version and the range, and a Frida older than 17.0 is refused with `provider_unavailable`
+(the session script needs the 17.x API).
 
 | Step | Call |
 |---|---|

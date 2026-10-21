@@ -11,7 +11,7 @@ internal static class SetupCli
     /// <summary>Flags each command accepts; anything else is a usage error, so a mistyped --dry-run never writes.</summary>
     private static readonly Dictionary<string, string[]> Accepted = new()
     {
-        ["install"] = ["--no-check", "--check", "--dry-run", "--json", "--yes", "-y", "--all-detected", "--strict", "--client", "--refresh-only", "--command", "--dev-reload", "--skill", "--enable", "--set", "--unset", "--project"],
+        ["install"] = ["--no-check", "--check", "--dry-run", "--json", "--yes", "-y", "--all-detected", "--strict", "--client", "--refresh-only", "--command", "--dev-reload", "--skill", "--enable", "--set", "--unset", "--project", "--with-live"],
         ["uninstall"] = ["--keep-files", "--purge-data", "--dry-run", "--json", "--client"],
         ["status"] = ["--json", "--client", "--engine", "--target", "--deep"],
         ["config"] = ["--client", "--dev-reload"],
@@ -81,6 +81,8 @@ internal static class SetupCli
                                 --unset S       remove it (docs/configuration.md lists the switches)
                                 --project DIR   with --set/--unset: only this folder's Claude Code entry,
                                                 made from the global one when the folder has none
+                                --with-live     install the tested Frida into a private Python environment now
+                                                and --set live-install-frida (sessions use it)
           uninstall [client...] Remove the registration from every client (or the named ones). With no names it
                                 also deletes an installed copy's program files; --keep-files keeps them. Your data
                                 (annotations, caches, symbols) is kept; --purge-data deletes it as well.
@@ -306,6 +308,22 @@ internal static class SetupCli
         return result;
     }
 
+    /// <summary>--with-live: makes the private Frida environment now, so the first session does not wait for the download.</summary>
+    private static bool WithLive(TextWriter text, bool dryRun)
+    {
+        var environment = Native.Providers.Live.FridaEnvironment.Default;
+        if (dryRun || environment.Complete)
+        {
+            text.WriteLine($"Frida {Native.Providers.Live.FridaVersions.Pinned}: {environment.Folder} {(environment.Complete ? "(present)" : "(would be created)")}");
+            return true;
+        }
+        text.WriteLine($"Frida {Native.Providers.Live.FridaVersions.Pinned}: creating {environment.Folder}...");
+        var watch = System.Diagnostics.Stopwatch.StartNew();
+        var made = environment.Create(Native.Providers.PythonLocator.Find([], []), out var problem);
+        text.WriteLine(made != null ? $"Frida {Native.Providers.Live.FridaVersions.Pinned}: created in {watch.Elapsed.TotalSeconds:0} s" : $"Frida environment FAILED: {problem}");
+        return made != null;
+    }
+
     private static int Install(TextWriter output, SetupEnvironment env, ServerLaunch launch, SetupArgs a)
     {
         bool json = a.Has("--json"), dryRun = a.Has("--dry-run"), refreshOnly = a.Has("--refresh-only");
@@ -317,6 +335,7 @@ internal static class SetupCli
         var program = launch;
         if (DevReload(output, env, launch, a, dryRun) is not { } relayed) return 2;
         if (Switches(output, a, "--set") is not { } setSwitches || Switches(output, a, "--unset") is not { } unset) return 2;
+        if (a.Has("--with-live") && !setSwitches.Contains(Core.ServerOptions.LiveInstallFridaOption)) setSwitches.Add(Core.ServerOptions.LiveInstallFridaOption);
         launch = relayed with { Set = setSwitches, Unset = unset };
         if (a.Value("--project") is { } project) return ProjectSwitches(output, env, launch, a, project, dryRun);
         var text = json ? TextWriter.Null : output;
@@ -339,6 +358,12 @@ internal static class SetupCli
                 report.Healthy = false;
                 return Finish(1);
             }
+        }
+
+        if (a.Has("--with-live") && !WithLive(text, dryRun))
+        {
+            report.Healthy = false;
+            return Finish(1);
         }
 
         // Named clients replace detection: only they are touched.
