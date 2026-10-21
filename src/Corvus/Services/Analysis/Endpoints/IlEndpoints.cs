@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Text;
+using System.Text.RegularExpressions;
 using Corvus.Core;
 using Corvus.Core.Protobuf;
 using dnlib.DotNet;
@@ -14,7 +15,7 @@ namespace Corvus.Services.Analysis.Endpoints;
 /// String values are followed through one method body in IL order: ldstr, locals, string.Concat / Format and interpolated
 /// string handlers fold to templates; arguments and fields become {name}, anything else {}.
 /// </summary>
-internal static class IlEndpoints
+internal static partial class IlEndpoints
 {
     /// <summary>A stack or local value: a string template, an int, an HTTP method, an array or a local's address.</summary>
     private sealed class Val
@@ -219,9 +220,8 @@ internal static class IlEndpoints
                     Consume(parts[first]);
                     foreach (var x in values) Consume(x);
                     var format = parts[first].Text ?? "{}";
-                    var text = System.Text.RegularExpressions.Regex.Replace(format, @"\{(\d+)(,[^}]*)?(:[^}]*)?\}", mm =>
-                        int.TryParse(mm.Groups[1].Value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var n) && n < values.Length ? values[n].Text ?? "{}" : "{}",
-                        System.Text.RegularExpressions.RegexOptions.None, TimeSpan.FromMilliseconds(100));
+                    var text = FormatItem().Replace(format, mm =>
+                        int.TryParse(mm.Groups[1].Value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var n) && n < values.Length ? values[n].Text ?? "{}" : "{}");
                     stack.Add(Val.Of(text, parts[first].Literal));
                     return true;
                 }
@@ -334,4 +334,8 @@ internal static class IlEndpoints
         ClientVerbs.GetValueOrDefault(name)
         ?? (name.EndsWith("TaskAsync", StringComparison.Ordinal) ? ClientVerbs.GetValueOrDefault(name[..^9])
             : name.EndsWith("Async", StringComparison.Ordinal) ? ClientVerbs.GetValueOrDefault(name[..^5]) : null);
+
+    // A composite format item, {0} or {0,-8:x}: a fixed linear pattern, so no match timeout.
+    [GeneratedRegex(@"\{(\d+)(,[^}]*)?(:[^}]*)?\}")]
+    private static partial Regex FormatItem();
 }

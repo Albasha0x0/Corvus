@@ -97,20 +97,29 @@ public static partial class EndpointTemplates
             var c = code.Segments[i];
             if (c.Contains('{', StringComparison.Ordinal))
             {
-                if (!SegmentPattern(c).IsMatch(seen.Segments[i])) return false;
+                if (!SegmentMatches(c, seen.Segments[i])) return false;
             }
             else if (!c.Equals(seen.Segments[i], StringComparison.Ordinal)) return false;
         }
         return true;
     }
 
-    /// <summary>A segment with placeholders ("v{n}.json") as a pattern: literal parts kept, each {…} any text.</summary>
-    private static Regex SegmentPattern(string segment)
+    /// <summary>Whether <paramref name="text"/> fits a segment with placeholders ("v{n}.json"): its literal parts in order, each {…} any text.</summary>
+    internal static bool SegmentMatches(string segment, string text)
     {
-        var sb = new StringBuilder("^");
-        foreach (var part in Placeholder().Split(segment)) sb.Append(Regex.Escape(part)).Append(".*?");
-        sb.Length -= 3;
-        return new Regex(sb.Append('$').ToString(), RegexOptions.CultureInvariant, TimeSpan.FromMilliseconds(100));
+        var parts = Placeholder().Split(segment);
+        if (parts.Length == 1) return segment.Equals(text, StringComparison.Ordinal);
+        // Each literal part taken at its first place after the previous one: a
+        // linear match, where a regex of lazy wildcards backtracks polynomially.
+        if (!text.StartsWith(parts[0], StringComparison.Ordinal)) return false;
+        int at = parts[0].Length;
+        for (int i = 1; i < parts.Length - 1; i++)
+        {
+            int found = text.IndexOf(parts[i], at, StringComparison.Ordinal);
+            if (found < 0) return false;
+            at = found + parts[i].Length;
+        }
+        return text.Length - at >= parts[^1].Length && text.EndsWith(parts[^1], StringComparison.Ordinal);
     }
 
     [GeneratedRegex(@"^(https?|wss?)://[A-Za-z0-9{][^\s""'<>]*$", RegexOptions.IgnoreCase)]

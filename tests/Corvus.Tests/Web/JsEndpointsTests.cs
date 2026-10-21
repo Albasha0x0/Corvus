@@ -81,6 +81,17 @@ public sealed class JsEndpointsTests : IDisposable
     }
 
     [Fact]
+    public void A_template_segment_matches_its_literal_parts_in_order()
+    {
+        Assert.True(EndpointTemplates.SegmentMatches("v{major}.{minor}.json", "v1.2.json"));
+        Assert.True(EndpointTemplates.SegmentMatches("item{id}", "item"));
+        Assert.False(EndpointTemplates.SegmentMatches("v{n}.json", "v1.txt"));
+        Assert.False(EndpointTemplates.SegmentMatches("{a}ab{b}ba", "aba"));
+        // Many placeholders over a long segment backtracked a regex past its timeout.
+        Assert.False(EndpointTemplates.SegmentMatches("{a}x{b}x{c}x{d}x{e}y", new string('x', 50_000)));
+    }
+
+    [Fact]
     public void Secrets_by_provider_config_and_name_are_masked()
     {
         var found = JsSecrets.Find(Program("""
