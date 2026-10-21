@@ -663,6 +663,30 @@ public sealed class NativeIdaProviderTests(ITestOutputHelper output, IdaCacheFix
         }
     }
 
+    [IdaFact]
+    public async Task A_patch_sync_with_nothing_to_change_answers_at_once_on_a_partial_database()
+    {
+        const int count = 12_000;
+        byte[] function = [0x55, 0x48, 0x89, 0xE5, 0xE8, 0x02, 0, 0, 0, 0x5D, 0xC3];
+        var b = new PeBuilder();
+        var text = b.Add(".text", [.. Enumerable.Repeat(function, count).SelectMany(f => f), 0xC3], 0x60000020);
+        b.EntryPoint = text.Rva;
+        using var tmp = new TempDir();
+        var path = tmp.File("many-functions.exe");
+        File.WriteAllBytes(path, b.Build());
+        await using var s = (IdaSession)await Isolated().OpenAsync(path, null, Offline with { AnalysisBudget = TimeSpan.FromMilliseconds(100) });
+        Assert.False(s.AnalysisComplete);
+        async Task<string?> State() =>
+            (await s.CallAsync("python", IdaProvider.Args(("code", "(ida_auto.auto_is_ok(), ida_funcs.get_func_qty())"), ("reset", false)), default)).GetProperty("result").GetString();
+        var before = await State();
+        var r = await s.CallAsync("sync_patches", IdaProvider.Args(("items", new JsonArray())), default, timeout: TimeSpan.FromSeconds(10));
+        Assert.Equal((0, 0), (r.GetProperty("patched").GetInt32(), r.GetProperty("reverted").GetInt32()));
+        Assert.True(r.GetProperty("seconds").GetDouble() < 1, r.ToString());
+        // the sync ran none of the analysis left
+        Assert.Equal(before, await State());
+        Assert.StartsWith("(False,", before);
+    }
+
     /// <summary>IDA types an ELF's imported symbols as functions in its extern segment, past the image's end: they are imports, not functions.</summary>
     [IdaFact]
     public async Task An_elf_s_imports_are_not_listed_as_functions()

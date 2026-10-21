@@ -787,6 +787,10 @@ def op_sync_patches(args):
             patched += 1
         touched.add(ea)
     mismatches = [ea - base for ea, b in desired.items() if m.ida_bytes.is_loaded(ea) and m.ida_bytes.get_byte(ea) != b]
+    if not touched:
+        # no auto_wait: on a partial database it would run the rest of the analysis until the request's deadline
+        return {"patched": 0, "reverted": 0, "ranges": 0, "functions": 0, "missing": missing[:20], "missing_count": len(missing),
+                "mismatches": mismatches[:20], "mismatch_count": len(mismatches), "seconds": round(time.time() - start, 3)}
     # coalesce touched bytes into ranges, then decode the code in them again
     ranges = []
     for ea in sorted(touched):
