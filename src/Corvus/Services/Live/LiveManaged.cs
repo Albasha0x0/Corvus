@@ -57,12 +57,15 @@ public sealed partial class LiveSessionService
     /// The 32-bit decoder stopped mid-session: managed code is named from the JIT's compiles from then on, and the session's
     /// managed coverage runs count first compiles; said once, in the session's events.
     /// </summary>
-    private void DecoderStopped(LiveSession session, string why)
+    private void DecoderStopped(LiveSession session, string why) => _ = DecoderStoppedAsync(session, why);
+
+    private async Task DecoderStoppedAsync(LiveSession session, string why)
     {
         var runs = _coverage.Values.Where(r => r.Session == session.Id && r.AssemblyPath != null && r.JitBodies == null && r.State == "recording").ToList();
+        // Arm the counting first, so the event marks where "from now on" starts.
+        await Task.WhenAll(runs.Select(run => CountCompilesAsync(session, run))).ConfigureAwait(false);
         session.Add("error", null, null, $"the 32-bit .NET decoder stopped ({why}); managed frames are named from the JIT's compiles only"
                                          + (runs.Count > 0 ? $", and {string.Join(", ", runs.Select(r => r.Id))} count{(runs.Count == 1 ? "s" : "")} first compiles from now on" : ""));
-        foreach (var run in runs) _ = CountCompilesAsync(session, run);
     }
 
     /// <summary>Whether the program has loaded a .NET runtime: its library, or a single-file host's runtime export.</summary>

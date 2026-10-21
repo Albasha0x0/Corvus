@@ -567,7 +567,8 @@ public sealed class LiveDotnetRealTests(ITestOutputHelper output) : LiveToolCall
     }
 
     /// <summary>Builds a 32-bit .NET Framework program: Main calls Add <paramref name="rounds"/> times, 20 ms apart, then Late; Unused never runs.</summary>
-    private string Calc32(int rounds = 10) => Framework32("Calc", $$"""
+    /// <summary>Calc: rounds calls of Add, then Late; with <paramref name="gate"/>, Late waits until that file exists.</summary>
+    private string Calc32(int rounds = 10, string? gate = null) => Framework32("Calc", $$"""
             static class Calc
             {
                 [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
@@ -577,6 +578,7 @@ public sealed class LiveDotnetRealTests(ITestOutputHelper output) : LiveToolCall
                 {
                     int t = 0;
                     for (int i = 0; i < {{rounds}}; i++) { t = Add(t, i); System.Threading.Thread.Sleep(20); }
+                    {{(gate != null ? $"while (!System.IO.File.Exists(@\"{gate}\")) System.Threading.Thread.Sleep(20);" : "")}}
                     System.Console.WriteLine(t + Late());
                 }
                 [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
@@ -683,7 +685,8 @@ public sealed class LiveDotnetRealTests(ITestOutputHelper output) : LiveToolCall
     [DotnetTargetFact("win-x64")]
     public async Task A_32_bit_session_goes_on_when_its_decoder_stops()
     {
-        var exe = Calc32(rounds: 250);
+        var gate = _dir.File("late.gate");
+        var exe = Calc32(gate: gate);
         Directory.CreateDirectory(_dir.File("silent"));
         File.WriteAllText(_dir.File(Path.Combine("silent", "silent.csproj")), """
             <Project Sdk="Microsoft.NET.Sdk">
@@ -710,6 +713,14 @@ public sealed class LiveDotnetRealTests(ITestOutputHelper output) : LiveToolCall
             Assert.True(run.Success, start);
             await Ok(server, "live_break", new() { ["session"] = "live-1", ["action"] = "set", ["at"] = "Calc::Late" });
             await Ok(server, "live_break", new() { ["session"] = "live-1", ["action"] = "continue" });
+            // Late runs only once the run counts first compiles, however long the decoder takes to stop.
+            string errors = "";
+            for (int i = 0; i < 600 && !errors.Contains("first compiles from now on", StringComparison.Ordinal); i++)
+            {
+                errors = await Events(server, "live-1", kind: "error", log: false);
+                await Task.Delay(100);
+            }
+            File.WriteAllText(gate, "");
             var stop = await Ok(server, "live_break", new() { ["session"] = "live-1", ["action"] = "list", ["wait"] = true, ["waitSeconds"] = 60 });
             Assert.Matches(@"thread \d+ stopped at s1", stop);
             await Ok(server, "live_break", new() { ["session"] = "live-1", ["action"] = "clear", ["stopPoint"] = "s1" });
