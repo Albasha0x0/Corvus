@@ -115,7 +115,7 @@ public sealed partial class MinidumpService
         string? FunctionAddress,
         [property: Description("native, managed (JIT or ReadyToRun code), unloaded_module or unknown.")] string Kind,
         [property: Description("How the frame was found: context, unwind_info, epilog, leaf, machine_frame, frame_pointer, call_target (x86: the return address whose call targets this function), scan (heuristic), or clr (the runtime's own stack walk).")] string Method,
-        [property: Description("derived (frame pointer chain, x86 call target) or inferred (a stack scan, may be stale; or a nearest-export name); absent when unwind data or the runtime observed it.")] string? Basis,
+        [property: Description("derived (frame pointer chain, x86 call target) or inferred (a stack scan or a frame chained from one, may be stale; or a nearest-export name); absent when unwind data or the runtime observed it.")] string? Basis,
         string? Note,
         [property: Description("Managed frames: the method token, for decompile_member with assembly.")] string? Token = null,
         [property: Description("Managed frames: IL offset of the instruction, when the dump holds the JIT's IL map.")] int? IlOffset = null,
@@ -129,7 +129,7 @@ public sealed partial class MinidumpService
         string Architecture, string? Registers,
         IReadOnlyList<StackFrame> Items, int Offset, int Total,
         [property: Description("Why the walk ended: end_of_stack, max_frames, stack_not_captured, no_unwind_data, left_the_stack, ...")] string Stop,
-        [property: Description("Frames found by scanning the stack (basis inferred).")] int ScannedFrames,
+        [property: Description("Frames found by scanning the stack, or chained from a frame pointer a scan guessed (basis inferred).")] int ScannedFrames,
         [property: Description("Managed frames: decoded (through the runtime's DAC), off, or the DAC status that kept them identified only (not_found, bitness_mismatch, ...); null without a managed runtime.")] string? Managed,
         [property: Description("Where the names and unwind data of each module came from, and what was not covered.")] IReadOnlyList<string> Notes);
 

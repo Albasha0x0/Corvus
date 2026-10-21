@@ -63,7 +63,7 @@
             "type": "string"
           },
           "basis": {
-            "description": "derived (frame pointer chain, x86 call target) or inferred (a stack scan, may be stale; or a nearest-export name); absent when unwind data or the runtime observed it.",
+            "description": "derived (frame pointer chain, x86 call target) or inferred (a stack scan or a frame chained from one, may be stale; or a nearest-export name); absent when unwind data or the runtime observed it.",
             "type": "string"
           },
           "note": {
@@ -110,7 +110,7 @@
       "type": "string"
     },
     "scannedFrames": {
-      "description": "Frames found by scanning the stack (basis inferred).",
+      "description": "Frames found by scanning the stack, or chained from a frame pointer a scan guessed (basis inferred).",
       "type": "integer"
     },
     "managed": {

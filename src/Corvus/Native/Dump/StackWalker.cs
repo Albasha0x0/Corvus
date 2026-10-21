@@ -117,6 +117,8 @@ public sealed class StackWalker
                 notes.Add($"the next frame's stack pointer 0x{next.Sp:X} is outside the thread's stack 0x{stackLow:X}-0x{stackHigh:X}");
                 break;
             }
+            if (method == FrameMethod.FramePointer && guessedFp && !heuristic)
+                (heuristic, note) = (true, note ?? "chained from the frame pointer a scan guessed");
             frames.Add(new WalkFrame(next.Ip, next.Sp, method, heuristic, method != FrameMethod.MachineFrame, note));
             guessedFp = method == FrameMethod.Scan || method == FrameMethod.FramePointer && guessedFp;
             ctx = next;

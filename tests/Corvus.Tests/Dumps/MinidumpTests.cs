@@ -437,7 +437,7 @@ public sealed class MinidumpTests
         Assert.DoesNotContain(walk.Items, f => f.Symbol == "synth32!Top+0x8");
     }
 
-    /// <summary>A frame chained from the scan's guessed frame pointer is a guess too: the zero return address after it does not end the walk.</summary>
+    /// <summary>A frame chained from the scan's guessed frame pointer is a guess too, marked inferred: the zero return address after it does not end the walk.</summary>
     [Fact]
     public async Task X86FramesChainedFromAGuessDoNotEndTheWalk()
     {
@@ -465,6 +465,8 @@ public sealed class MinidumpTests
         var walk = await service.Stack(path, "105", true, 64, 0, 64, null, default);
         Assert.Equal(["synth32!Mid+0x6", "synth32!Outer+0x8", "synth32!Top+0x8"], walk.Items.Skip(1).Select(f => f.Symbol));
         Assert.Equal(["scan", "frame_pointer", "scan"], walk.Items.Skip(1).Select(f => f.Method));
+        Assert.Equal(["inferred", "inferred", "inferred"], walk.Items.Skip(1).Select(f => f.Basis));
+        Assert.Equal(3, walk.ScannedFrames);
     }
 
     /// <summary>Caller searches that find nothing over many frames without a frame pointer leave the scan its own budget (fails without 7fba2d2e).</summary>
