@@ -455,6 +455,23 @@ public sealed class ElfCoreTests
     }
 
     [Fact]
+    public void Arm64_without_cfi_returns_through_the_link_register_at_a_function_start_then_the_frame_chain()
+    {
+        // the frame record at fp is still the caller's: it holds the caller's own return address
+        var stack = new byte[0x40];
+        BitConverter.GetBytes(SyntheticCore.Stack + 0x30).CopyTo(stack, 0x10);
+        BitConverter.GetBytes(SyntheticCore.Base + 0x200).CopyTo(stack, 0x18);
+        var memory = new HeldThreadMemory(new byte[0x400], stack, 0);
+        var regs = new CoreRegisters(CoreArch.Arm64) { Pc = SyntheticCore.Base + 0x40, Sp = SyntheticCore.Stack };
+        regs.Set(CoreArch.Arm64.Fp, SyntheticCore.Stack + 0x10);
+        regs.Set((int)CoreArch.Arm64.Link!, SyntheticCore.Base + 0x100);
+        ulong[] Walk(Func<ulong, bool>? atStart) => [.. new CoreUnwinder(memory, CoreArch.Arm64, _ => null, atStart)
+            .Walk(regs, SyntheticCore.Stack, SyntheticCore.Stack + (ulong)stack.Length, 3).Frames.Select(f => f.Ip)];
+        Assert.Equal([SyntheticCore.Base + 0x40, SyntheticCore.Base + 0x100, SyntheticCore.Base + 0x200], Walk(a => a == SyntheticCore.Base + 0x40));
+        Assert.Equal(SyntheticCore.Base + 0x200, Walk(null)[1]);
+    }
+
+    [Fact]
     public void A_frame_in_generated_code_finds_its_caller_by_a_stack_scan()
     {
         const ulong Code = 0x7E00_0000_0000;

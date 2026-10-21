@@ -480,7 +480,7 @@ public sealed partial class LiveSessionService(AssemblyWorkspace workspace, Nati
             session.Arch = info.GetProperty("arch").GetString() ?? "";
             session.Platform = info.TryGetProperty("platform", out var platform) ? platform.GetString() ?? "" : "";
             session.Suspended = info.TryGetProperty("suspended", out var s) && s.GetBoolean();
-            session.Stacks = LiveStackWalk.For(session);
+            session.Stacks = LiveStackWalk.For(session, address => Name(session, address) is { Function: not null, Offset: 0 });
             lock (session.Modules)
             {
                 foreach (var m in info.GetProperty("modules").EnumerateArray().Select(Module))

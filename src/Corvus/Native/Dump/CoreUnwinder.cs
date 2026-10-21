@@ -10,7 +10,8 @@ namespace Corvus.Native.Dump;
 /// at the frame pointer on x64, x86 and AArch64, below it on RISC-V, the back chain on PowerPC), else for the top frame
 /// the link register. Frames are bounded by <c>maxFrames</c>, the thread's stack mapping and stack pointer progress.
 /// </summary>
-public sealed class CoreUnwinder(IProcessMemory memory, CoreArch arch, Func<ulong, CoreImage?> imageAt)
+/// <param name="atFunctionStart">Whether an address is a function's first instruction, where an AArch64 frame has not written its record yet.</param>
+public sealed class CoreUnwinder(IProcessMemory memory, CoreArch arch, Func<ulong, CoreImage?> imageAt, Func<ulong, bool>? atFunctionStart = null)
 {
     private const ulong PacMask = 0x0000_FFFF_FFFF_FFFF;
     /// <summary>The ELF ABI's link register save slot above the back chain word (PowerPC64, ELFv1 and ELFv2).</summary>
@@ -79,13 +80,15 @@ public sealed class CoreUnwinder(IProcessMemory memory, CoreArch arch, Func<ulon
             return Scan(regs) is { } scanned
                 ? (scanned, FrameMethod.Scan, $"0x{regs.Pc:X} is not in a module (generated code); scanned the stack for a return address", null)
                 : (null, "", $"walk ended at 0x{regs.Pc:X}: generated code, and no return address on the stack above it", "no_unwind_data");
-        if (FrameChain(regs) is { } chained) return (chained, FrameMethod.FramePointer, $"no CFI ({why}); followed the {ChainName}", null);
+        bool entry = top && arch.Arch == NativeArch.Arm64 && atFunctionStart?.Invoke(regs.Pc) == true;
+        if (!entry && FrameChain(regs) is { } chained) return (chained, FrameMethod.FramePointer, $"no CFI ({why}); followed the {ChainName}", null);
         if (top && arch.Link is int lr && regs.TryGet(lr, out ulong ra) && Strip(ra) is var target && target != 0 && target != regs.Pc && IsCode(target))
         {
             var leaf = regs.Clone();
             leaf.Pc = target;
             return (leaf, FrameMethod.Leaf, $"no CFI ({why}); the return address is the link register", null);
         }
+        if (entry && FrameChain(regs) is { } fromEntry) return (fromEntry, FrameMethod.FramePointer, $"no CFI ({why}); followed the {ChainName}", null);
         return (null, "", $"walk ended at 0x{regs.Pc:X}: {why}, and no usable {ChainName}", "no_unwind_data");
     }
 

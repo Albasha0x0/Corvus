@@ -9,8 +9,9 @@ namespace Corvus.Services;
 
 /// <summary>
 /// A stop's stack outside Windows, unwound from the bytes the session script sends with it: each ELF module's .eh_frame
-/// CFI read from its file, else the frame pointer chain (<see cref="CoreUnwinder"/>, as dump_stack walks a core).
-/// Only the captured stack is memory; the walk stops where it leaves it.
+/// CFI read from its file, else the frame pointer chain (<see cref="CoreUnwinder"/>, as dump_stack walks a core; on
+/// ARM64 a stop at a function's first instruction returns through the link register first). Only the captured stack is
+/// memory; the walk stops where it leaves it.
 /// </summary>
 internal sealed class LiveStackWalk : IProcessMemory
 {
@@ -19,25 +20,27 @@ internal sealed class LiveStackWalk : IProcessMemory
     private static readonly ConcurrentDictionary<string, ElfFile?> Files = new(StringComparer.Ordinal);
     private readonly LiveSession _session;
     private readonly CoreArch _arch;
+    private readonly Func<ulong, bool>? _atFunctionStart;
     private readonly ConcurrentDictionary<(ulong, string), CoreImage?> _images = new();
     private readonly object _gate = new();
     private ulong _sp;
     private byte[] _stack = [];
     private DumpModule[] _modules = [];
 
-    private LiveStackWalk(LiveSession session, CoreArch arch)
+    private LiveStackWalk(LiveSession session, CoreArch arch, Func<ulong, bool>? atFunctionStart)
     {
         _session = session;
         _arch = arch;
+        _atFunctionStart = atFunctionStart;
     }
 
     /// <summary>The walker for a session's architecture (Frida's names), or null when it has no register file here.</summary>
-    public static LiveStackWalk? For(LiveSession session) => session.Arch switch
+    public static LiveStackWalk? For(LiveSession session, Func<ulong, bool>? atFunctionStart = null) => session.Arch switch
     {
-        "x64" => new(session, CoreArch.X64),
-        "ia32" => new(session, CoreArch.X86),
-        "arm64" => new(session, CoreArch.Arm64),
-        "arm" => new(session, CoreArch.Arm),
+        "x64" => new(session, CoreArch.X64, atFunctionStart),
+        "ia32" => new(session, CoreArch.X86, atFunctionStart),
+        "arm64" => new(session, CoreArch.Arm64, atFunctionStart),
+        "arm" => new(session, CoreArch.Arm, atFunctionStart),
         _ => null,
     };
 
@@ -57,7 +60,7 @@ internal sealed class LiveStackWalk : IProcessMemory
             _stack = stack;
             lock (_session.Modules)
                 _modules = [.. _session.Modules.Select(m => new DumpModule(m.Base, (uint)Math.Min(m.Size, uint.MaxValue), 0, 0, m.Path, null, null, null)).OrderBy(m => m.Base)];
-            return new CoreUnwinder(this, _arch, ImageAt).Walk(regs, _sp, _sp + (ulong)stack.Length, MaxFrames);
+            return new CoreUnwinder(this, _arch, ImageAt, _atFunctionStart).Walk(regs, _sp, _sp + (ulong)stack.Length, MaxFrames);
         }
     }
 
