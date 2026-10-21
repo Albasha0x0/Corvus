@@ -89,6 +89,8 @@ These fail when a change misses one of its follow-up steps (CONTRIBUTING.md list
 - format fuzzing: every format reader (found by reflection) has a quick fuzz test marked `[FuzzEntry]`, or a reviewed
   entry in `Ratchets/format-fuzz.txt`;
 - protocol matrix: every MCP protocol version the SDK speaks is negotiated and answered;
+- real-data speed: a test that reads real-world data (a real-data attribute, or a `CORVUS_*` data variable in its code)
+  carries `Speed=Slow` on the method or class, so setting the variable never slows the quick set (`RealDataSpeedTests`);
 - leaks: once every test has run, child processes of the test process still running, or files left in the run's own
   temporary folder (TMP, TEMP and TMPDIR point there for the tests and the servers they start), fail the run with
   their names. A folder a test class keeps for the whole run is registered with `LeakGuard.DeleteAtEnd`.

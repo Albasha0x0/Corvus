@@ -520,6 +520,7 @@ public sealed class ElfCoreTests
         Assert.Empty(failures);
     }
 
+    [Trait("Speed", "Slow")]
     [RequiresRealDataFact(RealData.ElfCores)]
     public async Task Real_cores_open_and_walk()
     {

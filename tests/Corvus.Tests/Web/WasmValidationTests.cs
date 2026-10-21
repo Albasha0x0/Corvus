@@ -11,11 +11,17 @@ public sealed class WasmValidationTests(ITestOutputHelper output) : IDisposable
     public void Dispose() => _dir.Dispose();
 
     [Fact]
-    public void Valid_fixtures_and_real_builds_validate()
+    public void Valid_fixtures_validate() => Validates(WasmTextTests.Fixtures());
+
+    [Trait("Speed", "Slow")]
+    [RequiresRealDataFact("CORVUS_WASM_DIR")]
+    public void Real_builds_validate() => Validates(WasmTextTests.RealBuilds());
+
+    private void Validates(IEnumerable<(string Name, byte[] Bytes)> corpus)
     {
         var empty = new List<string>();
         int fromComponents = 0;
-        foreach (var (name, bytes) in WasmTextTests.Corpus())
+        foreach (var (name, bytes) in corpus)
         {
             var modules = WasmTextTests.CoreModules(name, bytes);
             if (WasmComponent.Looks(bytes) && modules.Count == 0) empty.Add(name);

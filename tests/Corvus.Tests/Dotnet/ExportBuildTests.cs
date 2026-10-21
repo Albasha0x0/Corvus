@@ -253,6 +253,7 @@ public class ExportBuildTests
     }
 
     /// <summary>Each assembly listed in CORVUS_EXPORT_LIST builds after export; errors go to "&lt;list&gt;.report.txt".</summary>
+    [Trait("Speed", "Slow")]
     [Fact]
     public void ExportList_Builds()
     {

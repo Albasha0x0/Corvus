@@ -16,10 +16,18 @@ public sealed partial class WasmTextTests(ITestOutputHelper output) : IDisposabl
     internal static readonly string[] RuntimeVersions = ["8.0.22", "9.0.11", "10.0.11"];
 
     /// <summary>The fixtures, the three runtime builds and, with CORVUS_WASM_DIR, every .wasm below that folder.</summary>
-    internal static IEnumerable<(string Name, byte[] Bytes)> Corpus()
+    internal static IEnumerable<(string Name, byte[] Bytes)> Corpus() => Fixtures().Concat(RealBuilds());
+
+    /// <summary>The fixtures and the three runtime builds.</summary>
+    internal static IEnumerable<(string Name, byte[] Bytes)> Fixtures()
     {
         foreach (var f in WasmFixtures.Valid()) yield return f;
         foreach (var v in RuntimeVersions) yield return ($"dotnet.native {v}", File.ReadAllBytes(DotnetNative(v)));
+    }
+
+    /// <summary>Every .wasm below CORVUS_WASM_DIR; none when it is unset.</summary>
+    internal static IEnumerable<(string Name, byte[] Bytes)> RealBuilds()
+    {
         if (RealData.Get("CORVUS_WASM_DIR") is { } dir && Directory.Exists(dir))
             foreach (var file in Directory.EnumerateFiles(dir, "*.wasm", SearchOption.AllDirectories).Order(StringComparer.Ordinal))
                 yield return (Path.GetRelativePath(dir, file), File.ReadAllBytes(file));

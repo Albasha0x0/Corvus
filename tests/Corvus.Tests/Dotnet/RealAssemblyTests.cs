@@ -101,6 +101,7 @@ public class RealAssemblyTests(ITestOutputHelper output)
     }
 
     /// <summary>A real app's assemblies (CORVUS_ASSEMBLY_DIR): decompile, search, cross-reference and patch its own code.</summary>
+    [Trait("Speed", "Slow")]
     [RequiresRealDataFact(RealData.AssemblyDir)]
     public void RealAssembliesEndToEnd()
     {
@@ -158,6 +159,7 @@ public class RealAssemblyTests(ITestOutputHelper output)
     }
 
     /// <summary>A real Il2CppDumper / Cpp2IL DummyDll folder (CORVUS_IL2CPP_DUMMY_DIR).</summary>
+    [Trait("Speed", "Slow")]
     [RequiresRealDataFact(RealData.Il2CppDummyDir)]
     public void Il2CppDummyDllFolder()
     {
@@ -188,6 +190,7 @@ public class RealAssemblyTests(ITestOutputHelper output)
     }
 
     /// <summary>With a dummy-DLL mscorlib also loaded, app code compiles without CS0433 and binds to the real mscorlib.</summary>
+    [Trait("Speed", "Slow")]
     [RequiresRealDataFact(RealData.AssemblyDir, RealData.Il2CppDummyDir)]
     public void AppAndIl2CppDummySetLoadedTogether()
     {
@@ -209,6 +212,7 @@ public class RealAssemblyTests(ITestOutputHelper output)
     }
 
     /// <summary>Real assemblies with encrypted method bodies are flagged and decompile with a warning.</summary>
+    [Trait("Speed", "Slow")]
     [RequiresRealDataFact(RealData.AssemblyDir)]
     public void EncryptedBodiesInARealFolderAreFlagged()
     {
@@ -226,6 +230,7 @@ public class RealAssemblyTests(ITestOutputHelper output)
     }
 
     /// <summary>Two builds loaded together (CORVUS_COMPARE_OLD_DIR / NEW_DIR): each binds its references within its own folder.</summary>
+    [Trait("Speed", "Slow")]
     [RequiresRealDataFact(RealData.CompareOldDir, RealData.CompareNewDir)]
     public void TwoRealBuildsBindToTheirOwnFolders()
     {

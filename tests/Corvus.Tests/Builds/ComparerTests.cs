@@ -49,6 +49,7 @@ public class ComparerTests(ITestOutputHelper output)
     }
 
     /// <summary>Compares CORVUS_COMPARE_ASSEMBLY (default: largest shared app assembly) between two real builds.</summary>
+    [Trait("Speed", "Slow")]
     [RequiresRealDataFact(RealData.CompareOldDir, RealData.CompareNewDir)]
     public void RealBuildUpdate()
     {

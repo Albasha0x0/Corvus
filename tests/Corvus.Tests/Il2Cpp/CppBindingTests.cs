@@ -150,6 +150,7 @@ public class CppBindingTests : IDisposable
     }
 
     /// <summary>Detects a real host-table project and compiles the output against its headers.</summary>
+    [Trait("Speed", "Slow")]
     [RequiresRealDataFact(RealData.HostApiProjectDir)]
     public void HostApiBindingsCompileAgainstRealHeaders()
     {
@@ -170,6 +171,7 @@ public class CppBindingTests : IDisposable
     }
 
     /// <summary>Real singletons with Instance on a generic base bind by name and compile against real host headers.</summary>
+    [Trait("Speed", "Slow")]
     [RequiresRealDataFact(RealData.HostApiProjectDir, RealData.AssemblyDir)]
     public void RealInheritedSingletonsBindAndCompile()
     {
