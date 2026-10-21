@@ -230,7 +230,10 @@ public sealed partial class LiveSessionService
         foreach (var p in points)
             if (idx.FunctionAt(p.Rva) is { } f && f.Size < 64 && idx.GetGraph(f, ct).Blocks.FirstOrDefault(b => b.Start == f.Start) is { } first)
             {
-                if (first.End - first.Start < minBlock) refused[p.Rva] = "too short to count with stop-based coverage";
+                var lines = idx.Disassemble(first.Start, 8, first.End);
+                var room = first.End - first.Start - LandingPad(lines);
+                if (room < minBlock)
+                    refused[p.Rva] = $"too short to count with stop-based coverage: {Listing(lines)} leaves {room} byte(s) for the {minBlock}-byte jump a hook writes";
                 // the stop point lands where the jump leads: through a CFG dispatch pointer, every indirect call of the process
                 else if (first.InstructionCount == 1 && first.EndKind is BlockEnd.Jump or BlockEnd.IndirectJump or BlockEnd.TailCall)
                     refused[p.Rva] = "a single jump: its runs are counted at the function it leads to";
@@ -333,6 +336,7 @@ public sealed partial class LiveSessionService
                 run.Arm(id, points[i].Rva);
                 session.CoveragePoints[id] = run;
                 try { await session.Worker.RequestAsync("set", new JsonObject { ["id"] = id, ["address"] = $"0x{moduleBase + points[i].Rva:X}", ["bare"] = true }, RequestTimeout, ct).ConfigureAwait(false); }
+                catch (ToolError e) when (Unhookable(e)) { run.Refused(id, points[i].Rva, "the stop point was refused: " + HookReason(session, moduleBase + points[i].Rva, ct)); }
                 catch (ToolError e) when (e.Code is ErrorCode.Failed or ErrorCode.InvalidArgument or ErrorCode.Unsupported or ErrorCode.NotFound) { run.Refused(id, points[i].Rva, "the stop point was refused: " + e.Message); }
             }
         }

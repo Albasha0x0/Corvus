@@ -1244,19 +1244,36 @@ public sealed partial class LiveSessionService(AssemblyWorkspace workspace, Nati
             $"whose first {WatchPatchBytes} bytes a watch rewrites: the watch would record nothing.", next);
     }
 
-    private static bool Unhookable(ToolError e) => e.Message.Contains("unable to intercept function", StringComparison.OrdinalIgnoreCase);
+    /// <summary>Whether the backend refused to hook an address (Frida: "unable to intercept function" or "instruction").</summary>
+    internal static bool Unhookable(ToolError e) => e.Message.Contains("unable to intercept ", StringComparison.OrdinalIgnoreCase);
 
     /// <summary>The backend's refusal to hook, explained: a function shorter than the jump a hook writes over its start.</summary>
-    private ToolError HookRefused(LiveSession session, ulong address, string what, CancellationToken ct)
+    private ToolError HookRefused(LiveSession session, ulong address, string what, CancellationToken ct) =>
+        new(ErrorCode.Unsupported, $"A {what} cannot be placed at {Name(session, address, ct: ct).Display}: {HookReason(session, address, ct)}",
+            "set it at a caller (find_xrefs lists the call sites) or inside a longer function");
+
+    /// <summary>Why a hook cannot be written at <paramref name="address"/>, naming the instructions it would have to move.</summary>
+    internal string HookReason(LiveSession session, ulong address, CancellationToken ct)
     {
         var at = Name(session, address, ct: ct);
-        var size = at.Image != null && code.Ready(at.Image)?.FunctionAt(at.Rva) is { } f && f.Start == at.Rva ? f.Size : 0;
-        return new ToolError(ErrorCode.Unsupported,
-            $"A {what} cannot be placed at {at.Display}: " + (size is > 0 and < WatchPatchBytes
-                ? $"the function is {size} bytes long, too short for the jump a hook writes over its start."
-                : "the instructions there cannot be moved aside for the hook's jump."),
-            "set it at a caller (find_xrefs lists the call sites) or inside a longer function");
+        var index = at.Image != null ? code.Ready(at.Image) : null;
+        var f = index?.FunctionAt(at.Rva) is { Size: > 0 } found && found.Start == at.Rva ? found : null;
+        var lines = index?.Disassemble(at.Rva, 6, f != null ? f.Start + (uint)f.Size : uint.MaxValue) ?? [];
+        var pad = LandingPad(lines);
+        var listing = lines.Count > 0 ? $" ({Listing(lines)})" : "";
+        return f != null && f.Size - pad < WatchPatchBytes
+            ? $"the function is {f.Size} bytes long{listing}, too short for the jump a hook writes over its start{(pad > 0 ? $" after its {Listing(lines[..1])}" : "")}."
+            : $"the instructions there{listing} cannot be moved aside for the hook's jump.";
     }
+
+    /// <summary>
+    /// Bytes of a leading endbr64 or endbr32: Frida keeps that landing pad in place
+    /// and writes a hook's jump after it, so they do not count toward the jump.
+    /// </summary>
+    internal static uint LandingPad(IReadOnlyList<DisasmLine> lines) => lines.Count > 0 && lines[0].Bytes is "F30F1EFA" or "F30F1EFB" ? 4u : 0;
+
+    /// <summary>Instructions as one line: "endbr64; xor eax, eax; ret".</summary>
+    internal static string Listing(IEnumerable<DisasmLine> lines) => string.Join("; ", lines.Select(l => Regex.Replace(l.Text.Trim(), @"\s+", " ")));
 
     /// <summary>
     /// Defers a module!name whose module the program has not loaded (a plug-in loaded later): the point or watch is set

@@ -220,7 +220,9 @@ counted and resumed at once, the point cleared after `hitLimit` stops (default 1
 `load_assembly`: the run waits for the module's load, as a deferred stop point does. A run counts at most 5,000 functions;
 a match over that is refused with the number matched and narrower matches drawn from the image's names (name prefixes
 and namespaces, `sub_` address prefixes), each with its count. Functions reached from TLS callbacks or a DLL's entry point are left out, since they also run at process exit;
-a function whose first block is too short is refused with the reason "too short to count with stop-based coverage".
+a function whose first block is too short for a hook's jump is refused with the reason "too short to count with stop-based
+coverage" and its instructions (a leading `endbr64` stays in place, so its 4 bytes do not count); a point the backend
+cannot hook is left out with the instructions at its start.
 `action=report` lists the functions that ran (`show=missed` or `all`), busiest first, and `format=dot` draws them on
 the static call graph in Graphviz DOT, functions that never ran dashed. `action=diff` compares two runs of the same
 build: the functions that ran only in each, in both and in neither. Counting covers function entries; blocks inside a

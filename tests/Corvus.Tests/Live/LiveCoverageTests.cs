@@ -239,6 +239,42 @@ public sealed class LiveCoverageTests : IDisposable
         Assert.Contains("/nowhere/system.dll", missing.Message);
     }
 
+    /// <summary>
+    /// A leading endbr64 stays in place under a hook, so a function whose first block leaves under 5 bytes after it is
+    /// left out before any point is set; a point the backend refuses is left out with the instructions at its start.
+    /// </summary>
+    [Fact]
+    public async Task Points_too_short_after_their_landing_pad_or_refused_name_their_instructions()
+    {
+        byte[] zero = [0xF3, 0x0F, 0x1E, 0xFA, 0x31, 0xC0, 0xC3];
+        byte[] frame = [0xF3, 0x0F, 0x1E, 0xFA, 0x55, 0x48, 0x89, 0xE5, 0xB8, 0x01, 0x00, 0x00, 0x00, 0x5D, 0xC3];
+        var text = Enumerable.Repeat((byte)0xCC, 0x30).ToArray();
+        zero.CopyTo(text, 0);
+        frame.CopyTo(text, 0x10);
+        frame.CopyTo(text, 0x20);
+        using var dir = new TempDir();
+        var lib = dir.File("libplug.so");
+        const uint T = NativeFormats.ElfWriter.TextRva;
+        File.WriteAllBytes(lib, new NativeFormats.ElfWriter
+        {
+            Machine = NativeFormats.ElfWriter.EmX64, Text = text,
+            Symbols = [new("fn_zero", T, (uint)zero.Length), new("fn_frame", T + 0x10, (uint)frame.Length), new("fn_refused", T + 0x20, (uint)frame.Length)],
+        }.Build());
+        const ulong LibBase = 0x7ff8_0000_0000;
+        await _tools.LiveSession("attach", program: "4242");
+        _backend.Load("libplug.so", lib, LibBase, 0x30000);
+        await Until(() => _service.Get("live-1").Modules.Any(m => m.Name == "libplug.so"));
+        _backend.Unhookable.Add(LibBase + T + 0x20);
+
+        var start = await _tools.LiveCoverage("live-1", "start", match: "libplug.so!fn_");
+        Assert.Contains("cov-1 counting 1 function of libplug.so", start);
+        var unplaced = _service.GetCoverage("cov-1").Unplaced;
+        Assert.Equal("too short to count with stop-based coverage: endbr64; xor eax, eax; ret leaves 3 byte(s) for the 5-byte jump a hook writes", unplaced[T]);
+        Assert.False(unplaced.ContainsKey(T + 0x10));
+        Assert.Equal("the stop point was refused: the function is 15 bytes long (endbr64; push rbp; mov rbp, rsp; mov eax, 1; pop rbp; ret), " +
+            "too short for the jump a hook writes over its start after its endbr64.", unplaced[T + 0x20]);
+    }
+
     /// <summary>A match over the cap names how many functions matched and narrower matches drawn from the image's names.</summary>
     [Fact]
     public async Task A_match_over_the_cap_suggests_narrower_matches_with_their_counts()

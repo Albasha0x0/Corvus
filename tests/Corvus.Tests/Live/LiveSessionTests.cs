@@ -136,7 +136,8 @@ internal sealed class ScriptedLiveBackend(string mainPath, ulong mainBase, uint 
                     ["modules"] = MainListedLast ? new JsonArray(system, program) : new JsonArray(program, system),
                 };
             case "set" or "watch" when Unhookable.Contains(Convert.ToUInt64(((string)args["address"]!)[2..], 16)):
-                throw new InvalidOperationException($"Error: unable to intercept function at {args["address"]}; please file a bug");
+                // Frida words a refused probe (a bare point) by instruction, a refused listener by function.
+                throw new InvalidOperationException($"Error: unable to intercept {(args["bare"] is { } refusedBare && (bool)refusedBare ? "instruction" : "function")} at {args["address"]}; please file a bug");
             case "set":
                 _points[(string)args["id"]!] = Convert.ToUInt64(((string)args["address"]!)[2..], 16);
                 if (args["bare"] is { } bare && (bool)bare) lock (Bare) Bare.Add((string)args["id"]!);
@@ -639,7 +640,8 @@ public sealed class LiveSessionTests : IDisposable
         _backend.Unhookable.Add(Base + shortest.Start);
         var refused = await Assert.ThrowsAsync<ToolError>(() => _tools.LiveBreak("live-1", "set", at: $"0x{Base + shortest.Start:X}"));
         Assert.Equal(ErrorCode.Unsupported, refused.Code);
-        Assert.Contains($"the function is {shortest.Size} bytes long, too short", refused.Message);
+        Assert.Contains($"the function is {shortest.Size} bytes long (", refused.Message);
+        Assert.Contains("), too short for the jump", refused.Message);
         Assert.Contains("find_xrefs", refused.Remediation);
         Assert.Equal(ErrorCode.Unsupported, (await Assert.ThrowsAsync<ToolError>(() => _tools.LiveWatchCalls("live-1", "set", at: $"0x{Base + shortest.Start:X}"))).Code);
     }
