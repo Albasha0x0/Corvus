@@ -233,6 +233,24 @@ public sealed class RequiresRealDataFactAttribute : FactAttribute
     }
 }
 
+/// <summary>A fact that runs only when <paramref name="variable"/> is 1 (network downloads, long builds).</summary>
+public sealed class OptInFactAttribute : FactAttribute
+{
+    public OptInFactAttribute(string variable)
+    {
+        if (Environment.GetEnvironmentVariable(variable) != "1") Skip = $"Set {variable}=1 to run this test.";
+    }
+}
+
+/// <summary>A theory that runs only when <paramref name="variable"/> is 1.</summary>
+public sealed class OptInTheoryAttribute : TheoryAttribute
+{
+    public OptInTheoryAttribute(string variable)
+    {
+        if (Environment.GetEnvironmentVariable(variable) != "1") Skip = $"Set {variable}=1 to run this test.";
+    }
+}
+
 /// <summary>Runs external tools (dotnet, clang, python) with a timeout, collecting stdout and stderr.</summary>
 internal static class Tools
 {

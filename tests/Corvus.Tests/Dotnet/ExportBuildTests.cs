@@ -175,7 +175,7 @@ public class ExportBuildTests
     }
 
     /// <summary>Real libraries export to projects that build (opt-in: CORVUS_EXPORT_REAL=1; slow).</summary>
-    [Theory]
+    [OptInTheory("CORVUS_EXPORT_REAL")]
     [InlineData("Newtonsoft.Json", "13.0.4", "net6.0", "Newtonsoft.Json.dll")]
     [InlineData("NLog", "6.1.4", "netstandard2.1", "NLog.dll")]
     [InlineData("System.Text.Json", "10.0.1", "net8.0", "System.Text.Json.dll")]
@@ -186,7 +186,6 @@ public class ExportBuildTests
     [InlineData("ZstdSharp.Port", "0.8.8", "net8.0", "ZstdSharp.dll")]
     public void RealExport_Builds(string package, string version, string framework, string file)
     {
-        if (Environment.GetEnvironmentVariable("CORVUS_EXPORT_REAL") != "1") return;
         var path = RealPackages.Lib(package, version, framework, file);
         using var dir = new TempDir();
         using var env = new Env(path);

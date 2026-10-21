@@ -122,11 +122,10 @@ public class PdbOracleTests(ITestOutputHelper output)
     }
 
     /// <summary>Downloads the PDB of a system DLL from Microsoft's symbol server; runs only with CORVUS_NETWORK_TESTS=1.</summary>
-    [Fact]
+    [OptInFact("CORVUS_NETWORK_TESTS")]
     [Trait("Speed", "Slow")]
     public async Task DownloadsASystemPdbWhenNetworkTestsAreOn()
     {
-        if (Environment.GetEnvironmentVariable("CORVUS_NETWORK_TESTS") != "1") return;
         var dll = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System), "kernel32.dll");
         if (!File.Exists(dll)) return;
         var image = PeFile.Open(dll);
