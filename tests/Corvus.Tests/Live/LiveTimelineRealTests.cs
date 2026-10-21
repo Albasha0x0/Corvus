@@ -45,14 +45,9 @@ public sealed class LiveTimelineRealTests(ITestOutputHelper output) : IDisposabl
         return text;
     }
 
-    [FridaFact]
+    [FridaFact(elevated: true)]
     public async Task The_trace_names_the_file_written_and_the_registry_value_read()
     {
-        if (!Environment.IsPrivilegedProcess)
-        {
-            output.WriteLine("skipped: an event tracing session needs an elevated test run");
-            return;
-        }
         var exe = LiveFridaRealTests.Build(_dir, "settings", Source);
         var written = _dir.File("timeline-out.txt");
         await using var server = await InProcessServer.StartAsync(options: new ServerOptions
@@ -82,14 +77,9 @@ public sealed class LiveTimelineRealTests(ITestOutputHelper output) : IDisposabl
     }
 
     /// <summary>A stop's stack is named without the program looking up symbol files: no PDB probes in the trace.</summary>
-    [FridaFact]
+    [FridaFact(elevated: true)]
     public async Task A_stop_leaves_no_symbol_file_lookups_in_the_trace()
     {
-        if (!Environment.IsPrivilegedProcess)
-        {
-            output.WriteLine("skipped: an event tracing session needs an elevated test run");
-            return;
-        }
         var exe = LiveFridaRealTests.Build(_dir, "settings", Source);
         await using var server = await InProcessServer.StartAsync(options: new ServerOptions
         {

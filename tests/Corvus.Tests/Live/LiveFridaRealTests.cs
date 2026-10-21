@@ -7,7 +7,7 @@ using Xunit.Abstractions;
 
 namespace Corvus.Tests;
 
-/// <summary>Runs on Windows when Frida's Python bindings and the MSVC toolset are found.</summary>
+/// <summary>Runs on Windows when Frida's Python bindings and the MSVC toolset are found, and the run is elevated when <paramref name="elevated"/>.</summary>
 public sealed class FridaFactAttribute : FactAttribute
 {
     private static readonly Lazy<string?> Missing = new(() =>
@@ -15,9 +15,10 @@ public sealed class FridaFactAttribute : FactAttribute
         : new FridaBackend().Unavailable() is { } f ? f.Reason
         : VisualStudio.VcVarsAll() == null ? "No Visual Studio C++ toolset." : null);
 
-    public FridaFactAttribute()
+    public FridaFactAttribute(bool elevated = false)
     {
         if (Missing.Value is { } reason) Skip = reason;
+        else if (elevated && !Environment.IsPrivilegedProcess) Skip = "An event tracing session needs an elevated test run.";
     }
 }
 
