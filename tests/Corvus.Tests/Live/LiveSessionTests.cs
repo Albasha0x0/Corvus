@@ -853,4 +853,12 @@ public sealed class LiveSessionTests : IDisposable
         Assert.Null(FridaBackend.PlatformProblem(macOS: false));
         if (OperatingSystem.IsMacOS()) Assert.Contains("macOS", new FridaBackend().Unavailable()!.Value.Reason);
     }
+
+    [Fact]
+    public void An_open_that_timed_out_points_at_the_program()
+    {
+        Assert.Contains("did not load the session's agent in time", FridaBackend.Remediation(ErrorCode.Timeout, "open"));
+        Assert.Null(FridaBackend.Remediation(ErrorCode.Timeout, "set"));
+        Assert.Null(FridaBackend.Remediation(ErrorCode.Failed, "open"));
+    }
 }

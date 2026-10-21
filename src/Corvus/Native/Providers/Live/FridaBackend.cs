@@ -103,7 +103,7 @@ public sealed class FridaBackend : ILiveBackend
         };
         try
         {
-            var connection = WorkerConnection.Start("session worker", start);
+            var connection = WorkerConnection.Start("session worker", start, Remediation);
             _ = connection.Closed.ContinueWith(_ => RemoveLater(temp), TaskScheduler.Default);
             return connection;
         }
@@ -114,6 +114,11 @@ public sealed class FridaBackend : ILiveBackend
                 $"Check the Python install or set {PythonVariable}.");
         }
     }
+
+    /// <summary>The next step for a worker failure the default wording does not fit: an open that timed out waits on the program, not on its size.</summary>
+    internal static string? Remediation(ErrorCode code, string op) => code == ErrorCode.Timeout && op == "open"
+        ? "the program did not load the session's agent in time (starting up, exiting, or blocked): try again once it runs"
+        : null;
 
     /// <summary>
     /// Grants read and execute on <paramref name="folder"/> to RESTRICTED and ALL APPLICATION PACKAGES: a child that
