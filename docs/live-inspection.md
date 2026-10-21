@@ -119,7 +119,9 @@ an `error` event naming the version and the range, and a Frida older than 17.0 i
 Addresses are joined to the static model: the program's own image is loaded and indexed when the session opens, so a
 stack reads `orders.exe!AddLine+0x1B  orders.c:9`, not a bare address (names from the PDB, the exports, and the COFF
 symbol table a MinGW-style link keeps in the image); other modules join once loaded with
-`load_assembly`. Source lines and `file:line` stop points come from the PDB line tables on Windows and the DWARF line
+`load_assembly`. Managed code compiled ahead of time reads by its method, and stop points take the same names: a NativeAOT
+program from its own metadata (`app.exe!Ns_Type__Method`), an Il2Cpp game's binary once `apply_il2cpp_names` has named it
+(`GameAssembly.dll!Ns_Type__Update`). Source lines and `file:line` stop points come from the PDB line tables on Windows and the DWARF line
 tables on Linux; on Linux a stop's frames are unwound from its stack with each module's `.eh_frame` CFI, as `dump_stack`
 walks a core. Stop points hold only the thread that hits them; other threads run on. While a thread is held, `live_session status` also lists a DLL the loader mapped through a delay-load import before its `module` event arrives, and the stop's frames in that DLL are named by it. Memory is read, never written: a `cstring` or
 `utf16` read stops at the string's terminator, at most `length` bytes (default 4096), and says where a string without
