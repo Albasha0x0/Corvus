@@ -43,7 +43,11 @@ public sealed partial class LiveSessionService
             session.ClrTriedAt = modules;
             try { session.Clr = await LiveClr.OpenAsync(session.ProcessId, new Native.Dump.Managed.DacRequest(Download: session.DownloadDac), ct).ConfigureAwait(false); }
             catch (ToolError) { session.Clr = null; } // the process exited meanwhile
-            if (session.Clr != null) session.Clr.Stopped = why => DecoderStopped(session, why);
+            if (session.Clr != null)
+            {
+                session.Clr.Stopped = why => DecoderStopped(session, why);
+                session.Clr.Failed = why => session.Add("error", null, null, $"a read of the program's runtime failed ({why}); reads that fail give no managed names, and the decoder keeps running");
+            }
             return session.Clr;
         }
         finally { session.ClrOpen.Release(); }

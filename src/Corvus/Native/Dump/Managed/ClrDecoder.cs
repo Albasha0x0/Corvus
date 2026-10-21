@@ -65,6 +65,9 @@ public sealed class ClrDecoder : IDisposable
         _backend = backend;
     }
 
+    /// <summary>A runtime decoded by <paramref name="backend"/> (tests script the 32-bit decoder).</summary>
+    internal static ClrDecoder Of(string runtimeName, IClrBackend backend) => new(runtimeName, null, new DacState("loaded", null, ""), backend);
+
     /// <summary>
     /// The module that hosts the CLR: coreclr.dll or clr.dll, else a single-file app's executable, which links the runtime
     /// in and exports DotNetRuntimeInfo; null for none.

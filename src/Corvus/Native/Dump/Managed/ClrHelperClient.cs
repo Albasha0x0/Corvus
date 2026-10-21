@@ -73,6 +73,12 @@ internal sealed class ClrHelperClient : IClrBackend, ILiveClrReads
             DeleteTemp(temp);
             throw;
         }
+        return Attach(process, temp);
+    }
+
+    /// <summary>The decoder running as <paramref name="process"/> (tests script one), once it answers its start.</summary>
+    internal static ClrHelperClient Attach(ChildProcess process, string temp)
+    {
         var client = new ClrHelperClient(process, temp);
         try
         {

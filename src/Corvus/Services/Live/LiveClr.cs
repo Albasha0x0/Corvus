@@ -14,7 +14,7 @@ public sealed class LiveClr : IDisposable
 {
     private readonly ClrDecoder _decoder;
 
-    private LiveClr(ClrDecoder decoder) => _decoder = decoder;
+    internal LiveClr(ClrDecoder decoder) => _decoder = decoder;
 
     /// <summary>Runtime name and version, e.g. ".NET 10.0.11 (CoreCLR)".</summary>
     public string RuntimeName => _decoder.RuntimeName;
@@ -27,6 +27,11 @@ public sealed class LiveClr : IDisposable
 
     /// <summary>Called once, outside every read, when the decoder stops.</summary>
     public Action<string>? Stopped { get; set; }
+
+    /// <summary>Called once, outside every read, when the running decoder answers a read with an error; that read gives nothing.</summary>
+    public Action<string>? Failed { get; set; }
+
+    private bool _failed;
 
     /// <summary>The runtime of process <paramref name="pid"/>; null when it hosts none (yet).</summary>
     public static async Task<LiveClr?> OpenAsync(int pid, DacRequest request, CancellationToken ct)
@@ -48,14 +53,19 @@ public sealed class LiveClr : IDisposable
 
     private T? Read<T>(Func<ILiveClrReads, T> read)
     {
-        string? stopped = null;
+        string? stopped = null, failed = null;
         lock (_decoder.Gate)
         {
             if (Lost != null || _decoder.Live is not { } live) return default;
             try { return read(live); }
-            catch (ToolError e) { Lost = stopped = e.Message; } // the 32-bit decoder failed or ran past its budget, and was ended
+            // The 32-bit decoder failed or ran past its budget, and was ended.
+            catch (ToolError e) when (_decoder.Ended) { Lost = stopped = e.Message; }
+            // A running decoder's error answer fails this read only; the first is noted.
+            catch (ToolError e) when (!_failed) { _failed = true; failed = e.Message; }
+            catch (ToolError) { }
         }
-        Stopped?.Invoke(stopped);
+        if (stopped != null) Stopped?.Invoke(stopped);
+        else if (failed != null) Failed?.Invoke(failed);
         return default;
     }
 
