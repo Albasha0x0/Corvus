@@ -335,6 +335,7 @@ public sealed class GhidraProvider(GhidraProviderOptions? options = null) : INat
             Environment = new Dictionary<string, string?> { ["JAVA_TOOL_OPTIONS"] = null, ["_JAVA_OPTIONS"] = null, ["JDK_JAVA_OPTIONS"] = null },
             MemoryLimitBytes = EngineMemoryLimit.Resolve(_options.MemoryLimitBytes),
         };
+        Interlocked.Increment(ref _workersStarted);
         try
         {
             return WorkerConnection.Start("Ghidra worker", start, Remediation,
@@ -346,6 +347,11 @@ public sealed class GhidraProvider(GhidraProviderOptions? options = null) : INat
                 $"Check the JDK or set {GhidraOptions.JavaVariable}.");
         }
     }
+
+    /// <summary>Worker processes this provider has started.</summary>
+    internal int WorkersStarted => Volatile.Read(ref _workersStarted);
+
+    private int _workersStarted;
 
     private static readonly object ExtensionInstall = new();
 

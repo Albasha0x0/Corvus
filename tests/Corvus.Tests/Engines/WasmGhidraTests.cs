@@ -26,12 +26,11 @@ public sealed class WasmGhidraTests : IDisposable
         var native = workspace.LoadAny(path).Native!;
         var wasm = (Corvus.Native.WasmImage)native.Image;
         var function = wasm.FunctionNames[wasm.Module.ImportedFunctions];
-        var watch = System.Diagnostics.Stopwatch.StartNew();
         var error = await Assert.ThrowsAsync<ToolError>(() => analysis.DecompileNative(native.Id, function, engine: "ghidra"));
         Assert.Equal(ErrorCode.Unsupported, error.Code);
         Assert.Contains("has no WebAssembly language", error.Message);
         Assert.Contains("omit engine for the built-in WebAssembly lift", error.Remediation);
-        Assert.True(watch.Elapsed < TimeSpan.FromSeconds(10), $"{watch.Elapsed}: no worker should start");
+        Assert.Equal(0, engines.Ghidra!.WorkersStarted);
         // without engine the built-in lift answers
         Assert.Contains(function, await analysis.DecompileNative(native.Id, function));
     }
