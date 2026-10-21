@@ -276,6 +276,8 @@ public sealed class IdaProvider(IdaProviderOptions? options = null) : INativeDec
             return $"Raise {EngineMemoryLimit.Variable} (MB; 0 turns the limit off) and retry.";
         if (message.Contains("MAX_FUNCSIZE", StringComparison.Ordinal))
             return "Decompile it with engine=ghidra, read it with disassemble, or raise MAX_FUNCSIZE in IDA's cfg/hexrays.cfg.";
+        if (message.StartsWith("decompilation failed:", StringComparison.Ordinal))
+            return "Decompile it with engine=ghidra or read it with disassemble.";
         if (message.Contains("open_database returned", StringComparison.Ordinal))
             return $"IDA could not open the file: check that the input is a PE, ELF or Mach-O image and that both paths are readable and at most {MaxWindowsPath} characters on Windows (CORVUS_DATA_DIR moves them).";
         return code switch

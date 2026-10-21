@@ -180,6 +180,10 @@ public class NativeProviderTests
     }
 
     [Fact]
+    public void A_function_Hex_Rays_cannot_decompile_names_Ghidra_and_the_disassembly() =>
+        Assert.Contains("engine=ghidra", Corvus.Native.Providers.Ida.IdaProvider.Remediation(ErrorCode.Failed, "decompilation failed: function frame is wrong"));
+
+    [Fact]
     public void IDA_before_9_is_refused_by_the_version_its_worker_reports()
     {
         using var provider = new Corvus.Native.Providers.Ida.IdaProvider();
