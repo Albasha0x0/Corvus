@@ -228,7 +228,7 @@ public sealed partial class LiveSessionTools(ServerOptions options, LiveSessionS
     {
         List<LiveModuleState> modules;
         lock (s.Modules) modules = s.Modules.ToList();
-        var rows = modules.Select(m => new LiveModule(m.Name, Hex(m.Base), m.Image?.Id, m.Image?.OriginalSha256)).ToList();
+        var rows = modules.Select(m => new LiveModule(m.Name, Hex(m.Base), m.Image?.Id ?? m.Assembly?.Id, m.Image?.OriginalSha256 ?? m.Assembly?.OriginalSha256)).ToList();
         var text = new StringBuilder($"{s.Id} ({s.Backend}): {s.Program} pid {s.ProcessId}, {s.State}");
         if (s.Ended != null) text.Append($" ({s.Ended})");
         if (s.State == "suspended") text.Append("; set stop points, then live_break action=continue starts it");
@@ -251,7 +251,8 @@ public sealed partial class LiveSessionTools(ServerOptions options, LiveSessionS
         if (action != "children")
         {
             text.AppendLine($"{rows.Count} modules, {rows.Count(r => r.Image != null)} matched to loaded images:");
-            foreach (var m in rows) text.AppendLine($"  {m.Base} {m.Name}{(m.Image != null ? "  = " + m.Image : "")}");
+            foreach (var (m, state) in rows.Zip(modules))
+                text.AppendLine($"  {m.Base} {m.Name}{(m.Image != null ? "  = " + m.Image + (state.Image == null ? " (assembly)" : "") : "")}");
         }
         else if (children == null) text.AppendLine("does not follow child processes: open the session with childNames=[\"*\"]");
         return ToolOutput.With(text.ToString(), new LiveSessionReport(action, s.Id, s.Backend, s.Program, s.ProcessId, s.State, action == "children" ? [] : rows, []) { Processes = children });

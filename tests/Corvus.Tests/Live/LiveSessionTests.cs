@@ -237,6 +237,32 @@ public sealed class LiveSessionTests : IDisposable
     }
 
     [Fact]
+    public async Task A_module_loaded_as_an_assembly_is_matched_by_its_file_or_a_copy_of_it()
+    {
+        using var dir = new TempDir();
+        var original = RealPackages.Lib("Newtonsoft.Json", "13.0.1", "netstandard2.0", "Newtonsoft.Json.dll");
+        var copy = dir.File("Newtonsoft.Json.dll");
+        File.Copy(original, copy);
+        var asm = _workspace.Load(original);
+        await _tools.LiveSession("spawn", program: Sqlite);
+        uint size = BitConverter.ToUInt32(asm.OriginalBytes, BitConverter.ToInt32(asm.OriginalBytes, 0x3C) + 24 + 56);
+        _backend.Load("Newtonsoft.Json.dll", copy, 0x7ff7_0000_0000, size);
+        string status = "";
+        for (int i = 0; i < 50 && !status.Contains("(assembly)", StringComparison.Ordinal); i++)
+        {
+            await Task.Delay(100);
+            status = await _tools.LiveSession("status", session: "live-1");
+        }
+        Assert.Contains($"3 modules, 2 matched to loaded images", status);
+        Assert.Contains($"0x7FF700000000 Newtonsoft.Json.dll  = {asm.Id} (assembly)", status);
+        // another build under the same name is not that assembly
+        File.WriteAllBytes(copy, [.. File.ReadAllBytes(original).Take(0x400), .. new byte[16]]);
+        _backend.Load("Newtonsoft.Json.dll", copy, 0x7ff7_1000_0000, size);
+        await Task.Delay(300);
+        Assert.Contains("0x7FF710000000 Newtonsoft.Json.dll\n", (await _tools.LiveSession("status", session: "live-1")).ReplaceLineEndings("\n"));
+    }
+
+    [Fact]
     public async Task Continue_of_one_thread_leaves_a_suspended_program_suspended_and_says_so()
     {
         await _tools.LiveSession("spawn", program: Sqlite);

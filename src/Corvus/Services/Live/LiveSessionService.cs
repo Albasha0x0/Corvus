@@ -14,10 +14,11 @@ using Corvus.Native.Providers.Live;
 
 namespace Corvus.Services;
 
-/// <summary>A module of the observed program; <see cref="Image"/> is the loaded image it matched by path.</summary>
+/// <summary>A module of the observed program; <see cref="Image"/> is the loaded image it matched by path, <see cref="Assembly"/> the loaded assembly it is.</summary>
 public sealed record LiveModuleState(string Name, ulong Base, ulong Size, string Path)
 {
     public LoadedNative? Image { get; set; }
+    public LoadedAssembly? Assembly { get; set; }
     public bool Contains(ulong address) => address >= Base && address - Base < Size;
 }
 
@@ -488,7 +489,28 @@ public sealed partial class LiveSessionService(AssemblyWorkspace workspace, Nati
     {
         if (m.Image is { } image && workspace.Natives.Contains(image)) return image;
         m.Image = workspace.Natives.FirstOrDefault(n => n.SliceName == null && InputFiles.SamePath(n.FilePath, m.Path));
+        if (m.Image == null && (m.Assembly == null || !workspace.Assemblies.Contains(m.Assembly))) m.Assembly = AssemblyOf(m);
         return m.Image;
+    }
+
+    /// <summary>The loaded assembly a module is: its own file, or a copy of it (same name, image size and SHA-256).</summary>
+    private LoadedAssembly? AssemblyOf(LiveModuleState m)
+    {
+        var assemblies = workspace.Assemblies;
+        if (assemblies.FirstOrDefault(a => InputFiles.SamePath(a.FilePath, m.Path)) is { } own) return own;
+        var copies = assemblies.Where(a => Path.GetFileName(a.FilePath).Equals(m.Name, StringComparison.OrdinalIgnoreCase) && SizeOfImage(a.OriginalBytes) == m.Size).ToList();
+        if (copies.Count == 0) return null;
+        string sha;
+        try { sha = Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(File.ReadAllBytes(m.Path))); }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException) { return null; }
+        return copies.FirstOrDefault(a => a.OriginalSha256 == sha);
+
+        static ulong SizeOfImage(byte[] pe)
+        {
+            if (pe.Length < 0x40) return 0;
+            int optional = BitConverter.ToInt32(pe, 0x3C) + 24;
+            return optional > 0 && optional + 60 <= pe.Length ? BitConverter.ToUInt32(pe, optional + 56) : 0;
+        }
     }
 
     /// <summary>The module's loaded image, else its file loaded now; null when the file is missing or holds no native image.</summary>
@@ -598,6 +620,7 @@ public sealed partial class LiveSessionService(AssemblyWorkspace workspace, Nati
                     session.Modules.RemoveAll(x => x.Base == m.Base);
                     if (loaded) session.Modules.Add(m);
                 }
+                if (loaded) Match(m);
                 session.Add("module", null, m.Base, $"{(loaded ? "loaded" : "unloaded")} {m.Name} ({m.Path})");
                 long? holder = loaded && body.TryGetProperty("held", out var held) && held.ValueKind == JsonValueKind.True ? Thread() : null;
                 if (loaded) _ = SetDeferredAsync(session, m, holder);

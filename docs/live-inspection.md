@@ -123,7 +123,8 @@ symbol table a MinGW-style link keeps in the image); other modules join once loa
 program from its own metadata (`app.exe!Ns_Type__Method`), an Il2Cpp game's binary once `apply_il2cpp_names` has named it
 (`GameAssembly.dll!Ns_Type__Update`). Source lines and `file:line` stop points come from the PDB line tables on Windows and the DWARF line
 tables on Linux; on Linux a stop's frames are unwound from its stack with each module's `.eh_frame` CFI, as `dump_stack`
-walks a core. Stop points hold only the thread that hits them; other threads run on. While a thread is held, `live_session status` also lists a DLL the loader mapped through a delay-load import before its `module` event arrives, and the stop's frames in that DLL are named by it. Memory is read, never written: a `cstring` or
+walks a core. The session's module list names the loaded image or assembly each module is (`= id`): a native image by its
+path, an assembly by its path or as a copy of the same bytes. Stop points hold only the thread that hits them; other threads run on. While a thread is held, `live_session status` also lists a DLL the loader mapped through a delay-load import before its `module` event arrives, and the stop's frames in that DLL are named by it. Memory is read, never written: a `cstring` or
 `utf16` read stops at the string's terminator, at most `length` bytes (default 4096), and says where a string without
 one stops short; a `pointer` is as wide as the program's pointers.
 A session ends on `close`, after `CORVUS_LIVE_MAX_MINUTES` (default 30) and with the server; each releases every held
