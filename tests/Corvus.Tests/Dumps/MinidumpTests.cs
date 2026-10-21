@@ -400,6 +400,31 @@ public sealed class MinidumpTests
         Assert.Equal(["scan", "frame_pointer", "scan"], walk.Items.Skip(1).Select(f => f.Method));
     }
 
+    /// <summary>Caller searches that find nothing over many frames without a frame pointer leave the scan its own budget (fails without 7fba2d2e).</summary>
+    [Fact]
+    public async Task X86CallerSearchesDoNotSpendTheScanBudget()
+    {
+        const uint Stack2 = 0x00E2_0000;
+        const int Frames = 10;
+        using var dir = new TempDir();
+        var image = SyntheticCrashX86.Mapped(SyntheticCrashX86.FileImage());
+        // each search for Mid's caller (Top+8) reads 0x4000 slots of the stack and finds none
+        var stack = new byte[0x11000];
+        for (int i = 0; i < Frames; i++) BinaryPrimitives.WriteUInt32LittleEndian(stack.AsSpan(4 * i), SyntheticCrashX86.Base + SyntheticCrashX86.MidRva + 6);
+        var d = new MinidumpBuilder { FullMemory = true, ProcessorArchitecture = 0 };
+        d.Modules.Add(new MinidumpBuilder.Module(SyntheticCrashX86.Base, (uint)image.Length, 0, @"Z:\nowhere\synth32.dll"));
+        d.Memory.Add((SyntheticCrashX86.Base, image));
+        d.Memory.Add((Stack2, stack));
+        d.Regions.Add(new MinidumpBuilder.Region(SyntheticCrashX86.Base, (ulong)image.Length, 0x20));
+        d.Regions.Add(new MinidumpBuilder.Region(Stack2, (ulong)stack.Length, 0x04));
+        d.Threads.Add(new MinidumpBuilder.Thread(107, Stack2, MinidumpBuilder.ContextX86(SyntheticCrashX86.Base + SyntheticCrashX86.MidRva + 6, Stack2, ebp: 0)));
+        var path = dir.File("budget32.dmp");
+        File.WriteAllBytes(path, d.Build());
+        using var service = new MinidumpService();
+        var walk = await service.Stack(path, "107", true, 64, 0, 64, null, default);
+        Assert.Equal(Frames, walk.Items.Skip(1).Count(f => f.Symbol == "synth32!Mid+0x6"));
+    }
+
     /// <summary>An unwind that reads something other than code as the return address (a stale slot) scans on instead of reporting it.</summary>
     [Fact]
     public async Task AnUnwoundReturnAddressThatIsNotCodeScansOn()
