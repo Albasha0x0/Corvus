@@ -22,9 +22,11 @@ namespace Corvus.Tests;
 /// configuration is the pipeline tool's command-line executable). The samples are every PipelineSamples/*.cs (one
 /// program each, named after the file; a new file is a new sample) and, with CORVUS_PIPELINE_SAMPLES, a folder of sample
 /// projects (one Program.cs each, as the tool's UnitTest/Samples). Optional: CORVUS_PIPELINE_PROFILES, a folder of bundled
-/// .crproj profiles (default: Build/Profiles next to the tool); CORVUS_PIPELINE_SEEDS (default 3); CORVUS_PIPELINE_ONLY and
+/// .crproj profiles (default: Build/Profiles next to the tool); CORVUS_PIPELINE_SEEDS (default 3 in an exhaustive run, else one seed of the three, rotating by day);
+/// CORVUS_PIPELINE_SEED, one seed to run; CORVUS_PIPELINE_ONLY and
 /// CORVUS_PIPELINE_SAMPLE, substrings of the option and sample names to run; CORVUS_PIPELINE_PARALLEL, round trips run at once
-/// (default 1); CORVUS_PIPELINE_REPORT, a file for the report; CORVUS_PIPELINE_KEEP, keep the work files.
+/// (default 1); CORVUS_PIPELINE_BUDGET_MINUTES, the run's total time (default 90 exhaustive, else 45); CORVUS_PIPELINE_REPORT, a file for the report;
+/// CORVUS_PIPELINE_KEEP, keep the work files.
 /// </remarks>
 [Trait("Speed", "Slow")]
 [Collection(SweepCollection.Name)]
@@ -175,6 +177,8 @@ public sealed class PipelineRoundTripTests(ITestOutputHelper output) : IDisposab
     private sealed record Row(string Sample, string Option, int Seed, string Outcome, Metrics Original, Metrics? Processed, Metrics? Simplified,
         int Changed, string Fallbacks, double? Floor)
     {
+        public double Seconds { get; init; }
+
         /// <summary>What simplifying took back of the instructions the pipeline added, in percent.</summary>
         public double? Removed => Processed is { } p && Simplified is { } s && p.Instructions > Original.Instructions
             ? 100.0 * (p.Instructions - s.Instructions) / (p.Instructions - Original.Instructions)
@@ -190,7 +194,8 @@ public sealed class PipelineRoundTripTests(ITestOutputHelper output) : IDisposab
     public void ProcessedProgramsSimplifyAndBehaveTheSame()
     {
         var tool = RealData.Path(ToolVariable);
-        int seeds = int.TryParse(Environment.GetEnvironmentVariable("CORVUS_PIPELINE_SEEDS"), out int n) ? n : 3;
+        var seeds = Seeds();
+        output.WriteLine($"seeds: {string.Join(", ", seeds)} (CORVUS_PIPELINE_SEED=<n> runs one)");
         int parallel = int.TryParse(Environment.GetEnvironmentVariable("CORVUS_PIPELINE_PARALLEL"), out int p) ? Math.Max(p, 1) : 1;
         var only = Environment.GetEnvironmentVariable("CORVUS_PIPELINE_ONLY");
         var onlySample = Environment.GetEnvironmentVariable("CORVUS_PIPELINE_SAMPLE");
@@ -211,20 +216,35 @@ public sealed class PipelineRoundTripTests(ITestOutputHelper output) : IDisposab
             built.Add(new Built(sample.Name, original, expected.Output, Measure(File.ReadAllBytes(original))));
         }
 
-        var runs = (from b in built from o in options from seed in Enumerable.Range(1, seeds) select (Built: b, Option: o, Seed: seed)).ToList();
-        var rows = new Row[runs.Count];
+        var runs = (from b in built from o in options from seed in seeds select (Built: b, Option: o, Seed: seed)).ToList();
+        var slots = new Row?[runs.Count];
         var failures = new System.Collections.Concurrent.ConcurrentQueue<string>();
         SigningKey();
-        Parallel.For(0, runs.Count, new ParallelOptions { MaxDegreeOfParallelism = parallel },
-            i => rows[i] = RoundTrip(tool, runs[i].Built, runs[i].Option, runs[i].Option.Floor?.For(runs[i].Built.Name), runs[i].Seed, failures));
+        // Round trips are not started once the budget is spent; the test then
+        // fails naming the slowest.
+        var budget = TimeSpan.FromMinutes(double.TryParse(Environment.GetEnvironmentVariable("CORVUS_PIPELINE_BUDGET_MINUTES"), out var minutes) ? minutes : SweepScope.Exhaustive ? 90 : 45);
+        var clock = Stopwatch.StartNew();
+        Parallel.For(0, runs.Count, new ParallelOptions { MaxDegreeOfParallelism = parallel }, i =>
+        {
+            if (clock.Elapsed > budget) return;
+            var started = clock.Elapsed;
+            var row = RoundTrip(tool, runs[i].Built, runs[i].Option, runs[i].Option.Floor?.For(runs[i].Built.Name), runs[i].Seed, failures);
+            slots[i] = row with { Seconds = (clock.Elapsed - started).TotalSeconds };
+        });
+        var rows = slots.OfType<Row>().ToArray();
         foreach (var row in rows) output.WriteLine(Line(row));
+        output.WriteLine($"{rows.Length} round trips in {clock.Elapsed.TotalMinutes:0.0} min, median {Median(rows.Select(r => r.Seconds)):0.0} s");
+        if (rows.Length < runs.Count)
+            failures.Enqueue($"{runs.Count - rows.Length} of {runs.Count} round trips not run within the {budget.TotalMinutes:0} min budget " +
+                             $"(CORVUS_PIPELINE_BUDGET_MINUTES; CORVUS_PIPELINE_SEEDS, _ONLY and _SAMPLE narrow the run); slowest: " +
+                             string.Join(", ", rows.OrderByDescending(r => r.Seconds).Take(5).Select(r => $"{r.Sample} / {r.Option} seed {r.Seed} {r.Seconds:0} s")));
 
         // The floors: the least any seed achieved, per sample and option.
         foreach (var group in rows.Where(r => r.Floor != null && r.Outcome == "same").GroupBy(r => (r.Sample, r.Option)))
         {
             var worst = group.Where(r => r.Removed != null).Select(r => r.Removed!.Value).DefaultIfEmpty(100).Min();
             if (worst < group.First().Floor)
-                failures.Enqueue($"{group.Key.Sample} / {group.Key.Option}: simplifying took back {worst:0.0}% of the added instructions, below the floor of {group.First().Floor}%");
+                failures.Enqueue($"{group.Key.Sample} / {group.Key.Option} seeds {string.Join(",", group.Select(r => r.Seed))}: simplifying took back {worst:0.0}% of the added instructions, below the floor of {group.First().Floor}%");
         }
 
         var report = Report(rows, built.Select(b => b.Name).ToList(), options.Select(o => o.Name).ToList());
@@ -254,7 +274,7 @@ public sealed class PipelineRoundTripTests(ITestOutputHelper output) : IDisposab
         // the tool leaves a copy of the module in a folder of its own under TEMP: kept inside work, it goes with it
         var temp = Directory.CreateDirectory(Path.Combine(work, "temp")).FullName;
         psi.Environment["TEMP"] = psi.Environment["TMP"] = temp;
-        var (code, log) = Tools.Run(psi);
+        var (code, log) = Tools.Run(psi, 300_000);
         var processedPath = Path.Combine(outDir, file);
         if (code != 0 || !File.Exists(processedPath))
         {
@@ -413,11 +433,28 @@ public sealed class PipelineRoundTripTests(ITestOutputHelper output) : IDisposab
         return new Metrics(instructions, switches, moduleCalls, invokes);
     }
 
+    /// <summary>
+    /// The seeds to run: CORVUS_PIPELINE_SEED alone, else 1 to CORVUS_PIPELINE_SEEDS, else all three when exhaustive,
+    /// else one of the three by day, so consecutive routine runs cover them all.
+    /// </summary>
+    private static List<int> Seeds()
+    {
+        if (int.TryParse(Environment.GetEnvironmentVariable("CORVUS_PIPELINE_SEED"), out int one)) return [one];
+        if (int.TryParse(Environment.GetEnvironmentVariable("CORVUS_PIPELINE_SEEDS"), out int n)) return [.. Enumerable.Range(1, n)];
+        return SweepScope.Exhaustive ? [1, 2, 3] : [DateOnly.FromDateTime(DateTime.UtcNow).DayNumber % 3 + 1];
+    }
+
+    private static double Median(IEnumerable<double> values)
+    {
+        var v = values.Order().ToList();
+        return v.Count == 0 ? 0 : v[v.Count / 2];
+    }
+
     private static string Line(Row r)
     {
         string M(Metrics? m) => m == null ? "-" : $"{m.Instructions,6} ({100.0 * m.Instructions / r.Original.Instructions,4:0}%) {m.Switches,3} sw {m.ModuleTypeCalls,4} mod {m.DelegateInvokes,3} inv";
         var removed = r.Removed is { } x ? $"{x,5:0.0}% back" : "      -   ";
-        return $"{r.Sample,-13} {r.Option,-44} s{r.Seed} {r.Outcome,-9} processed {M(r.Processed)} | simplified {M(r.Simplified)} | {removed} | {r.Changed,3} changed | {r.Fallbacks}";
+        return $"{r.Sample,-13} {r.Option,-44} s{r.Seed} {r.Seconds,5:0.0}s {r.Outcome,-9} processed {M(r.Processed)} | simplified {M(r.Simplified)} | {removed} | {r.Changed,3} changed | {r.Fallbacks}";
     }
 
     private static string Report(IReadOnlyList<Row> rows, List<string> samples, List<string> options)
