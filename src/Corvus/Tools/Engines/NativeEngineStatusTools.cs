@@ -63,7 +63,7 @@ public sealed class NativeEngineStatusTools(AssemblyWorkspace workspace, NativeE
 
     [McpServerTool(Name = "get_engine_status", Title = "Engine status of a native image", UseStructuredContent = true, OutputSchemaType = typeof(EngineStatusReport))]
     [Description("IDA and Ghidra sessions of a native image: opening (stage, seconds), failed, not started, or open with the engine view (language, " +
-                 "compiler, analysis state, warnings, counts, entry points, hashes, blocks, database, worker, unsaved edits). Starts no engine.")]
+                 "compiler, analysis state, warnings, counts, entry points, hashes, database, worker, unsaved edits). Starts no engine.")]
     public async Task<string> GetEngineStatus(
         [Description(NativeTools.ImageDescription)] string image,
         [Description("Default auto: both.")] string? engine = null,

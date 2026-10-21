@@ -1097,7 +1097,7 @@ Structured output: `image`, `address`, `length`, `code`, `nextOffset`, `nextAddr
 
 **Convert a number** (read-only, idempotent)
 
-Exact number conversions: signed and unsigned decimal, hex, binary and octal at a width, LE and BE bytes and their ASCII, the bits as float or double. Input: decimal, 0x or h-suffixed hex, 0b, 0o, negative, _ separators, C suffixes, 'ABCD' (C multi-character constant) or "text" (bytes in memory order).
+Exact number conversions: signed and unsigned decimal, hex, binary, octal at a width, LE and BE bytes and their ASCII, the bits as float or double. Input: decimal, 0x or h-suffixed hex, 0b, 0o, negative, _ separators, C suffixes, 'ABCD' (C multi-character constant) or "text" (bytes in memory order).
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -1110,7 +1110,7 @@ Structured output: `items`.
 
 **List native functions** (read-only, idempotent, open-world, long-running)
 
-Functions of a native image (x86, x64, ARM): address, size, name (user, PDB, Il2Cpp, export, module!import thunk or sub_<rva>), flags (thunk, arm (A32), noreturn, unresolved jumps, invalid code, funclets, exception chunks), how found, caller count; an exact name filter adds the open engine's function record.
+Functions of a native image (x86, x64, ARM): address, size, name (user, PDB, Il2Cpp, export, module!import thunk or sub_<rva>), flags (thunk, arm (A32), noreturn, unresolved jumps, invalid code, funclets, exception chunks), how found, caller count; an exact name filter adds the engine's function record.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -1135,7 +1135,7 @@ Structured output: `image`, `functions`, `items`, `offset`, `total`, `engine`, `
 
 **List native globals** (read-only, idempotent, open-world, long-running)
 
-Named data of a native image outside code, from every name source (PDB with type and size, user names and types, Il2Cpp, NativeAOT, exports, symbol tables); an engine adds its defined data with type and value. get_native_type read=true reads their fields.
+Named data of a native image outside code, from every name source (PDB with type and size, user names and types, Il2Cpp, NativeAOT, exports, symbol tables); an engine adds its defined data with type and value. get_native_type read=true reads fields.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -1188,7 +1188,7 @@ Structured output: `image`, `engine`, `engineNote`, `items`, `notes`, `offset`, 
 
 **Search native instructions** (read-only, idempotent, open-world, long-running)
 
-Find instructions by mnemonic, operand or whole-line regex (case-insensitive) and an operand value (immediate, displacement or target) in every function, one function or an address range; a page stopped by the scan budget goes on at nextOffset.
+Find instructions by mnemonic, operand or whole-line regex (case-insensitive) and an operand value (immediate, displacement or target) in every function, one function or an address range; a page the scan budget stopped goes on at nextOffset.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -1291,7 +1291,7 @@ Structured output: `image`, `sites`, `exact`, `possible`, `unresolved`, `edges`,
 
 **Search native strings** (read-only, idempotent, open-world, long-running)
 
-Strings (ASCII, UTF-16) referenced by the code or data of a native image, with address, reference count and first referencing function. Also Il2Cpp literals (after apply_il2cpp_names) and NativeAOT frozen strings, by the slot or object code loads; an engine adds unreferenced strings in other encodings.
+Strings (ASCII, UTF-16) referenced by the code or data of a native image, with address, reference count and first referencing function. Also Il2Cpp literals (after apply_il2cpp_names) and NativeAOT frozen strings; an engine adds unreferenced strings in other encodings.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -1310,7 +1310,7 @@ Structured output: `image`, `items`, `offset`, `total`, `notEvaluated`, `limit`,
 
 **Native call arguments** (read-only, idempotent, long-running)
 
-Call sites (x86, x64, ARM) with argument values, by constant propagation under the calling convention: immediates, strings, named addresses, earlier call results, globals (differing merges are unknown). Known Win32, CRT and libc APIs give parameter names and decoded constants. Pass address and/or callee.
+Call sites (x86, x64, ARM) with argument values, by constant propagation under the calling convention: immediates, strings, named addresses, earlier call results, globals (differing merges are unknown). Known Win32, CRT and libc APIs name parameters and decode constants. Pass address and/or callee.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -1493,7 +1493,7 @@ Structured output: `image`, `query`, `type`, `candidates`, `totalCandidates`, `o
 
 **Decompile native function** (read-only, idempotent, open-world, long-running)
 
-C pseudocode of a native function via IDA (Hex-Rays) or Ghidra. The first call runs auto-analysis (seconds to minutes); database and answers are kept per file. Names, comments and types in effect are pushed first; user types win. functions=: several per request, a failure affects only its item.
+C pseudocode of a native function via IDA (Hex-Rays) or Ghidra. The first call runs auto-analysis (seconds to minutes); database and answers are kept per file. Names, comments and types in effect are pushed first; user types win. functions=: several per request, failures per item.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -1517,7 +1517,7 @@ Structured output: `image`, `engine`, `items`, `inputs`, `succeeded`, `failed`, 
 
 **Search native pseudocode** (read-only, idempotent, open-world, long-running)
 
-Regex (case-insensitive; (?-i) for exact case) per line of the IDA or Ghidra pseudocode of every function (or filtered ones), in address order; parallel where the engine allows, cached. Stops at maxFunctions, timeoutSeconds or limit hits; offset continues.
+Regex (case-insensitive; (?-i) for exact case) per line of the IDA or Ghidra pseudocode of every function (or filtered ones), in address order; parallel where the engine allows, cached. Stops at maxFunctions, timeoutSeconds or limit hits.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -1691,7 +1691,7 @@ Structured output: `outputPath`, `format`, `names`, `comments`, `pseudoComments`
 
 **Patch native bytes** (destructive, long-running)
 
-Replace bytes at a native address in memory, as an undoable edit every read path sees. A partly overwritten instruction is padded with NOPs; mid-instruction, past the function end, header bytes or ELF/Mach-O loader-rewritten bytes need allowUnsafe; encrypted bytes are refused; signatures become invalid.
+Replace bytes at a native address in memory, as an undoable edit every read path sees. A partly overwritten instruction is padded with NOPs; mid-instruction, past the function end, header or ELF/Mach-O loader-rewritten bytes need allowUnsafe; encrypted bytes are refused; signatures become invalid.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -1733,7 +1733,7 @@ Structured output: `applied`, `dryRun`, `changes`, `editIds`, `failed`, `items`,
 
 **List native edits** (read-only, idempotent, long-running)
 
-Native edits of an image in the order made, each with the editId undo_native_edit takes: byte patches, names, comments, engine type edits. Then the name layers (user, pdb, il2cpp, ida, ...) with counts and origin. search: the names and comments that match instead.
+Native edits of an image in order, each with the editId undo_native_edit takes: byte patches, names, comments, engine type edits. Then the name layers (user, pdb, il2cpp, ida...) with counts and origin. search: matching names and comments instead.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -1762,7 +1762,7 @@ Structured output: `applied`, `dryRun`, `changes`, `editIds`, `failed`, `items`,
 
 **Save patched native image** (destructive, idempotent, long-running)
 
-Write the patched native image to a new file: unpatched bytes identical, PE checksum recomputed, a signature invalidated (stripSignature removes it). Atomic and verified before it replaces the target; replaceOriginal=true keeps a .bak and refuses a file changed on disk.
+Write the patched native image to a new file: unpatched bytes identical, PE checksum recomputed, a signature invalidated (stripSignature removes it). Atomic and verified; replaceOriginal=true keeps a .bak and refuses a file changed on disk.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -2095,7 +2095,7 @@ Edits inside the decompiler engine's database: types, locals, frames, declaratio
 
 **Engine status of a native image** (read-only, idempotent, open-world)
 
-IDA and Ghidra sessions of a native image: opening (stage, seconds), failed, not started, or open with the engine view (language, compiler, analysis state, warnings, counts, entry points, hashes, blocks, database, worker, unsaved edits). Starts no engine.
+IDA and Ghidra sessions of a native image: opening (stage, seconds), failed, not started, or open with the engine view (language, compiler, analysis state, warnings, counts, entry points, hashes, database, worker, unsaved edits). Starts no engine.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -2329,7 +2329,7 @@ Structured output: `image`, `engine`, `result`, `stdout`, `stderr`, `error`, `sa
 
 **Export the engine database** (destructive, idempotent, open-world, long-running)
 
-Write the engine database of a native image (analysis plus names, comments and types pushed from here) for the engine GUI: IDA a compressed .i64, Ghidra a packed .gzf; Ghidra types also as .h or .gdt. Written whole or not at all.
+Write the engine database of a native image (analysis plus names, comments and types pushed from here) for the engine GUI: IDA .i64, Ghidra .gzf; Ghidra types also as .h or .gdt. Written whole or not at all.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|

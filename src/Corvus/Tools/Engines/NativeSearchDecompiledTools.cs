@@ -50,7 +50,7 @@ public sealed class NativeSearchDecompiledTools(AssemblyWorkspace workspace, Nat
 
     [McpServerTool(Name = "search_decompiled", Title = "Search native pseudocode", UseStructuredContent = true, OutputSchemaType = typeof(SearchDecompiledReport))]
     [Description("Regex (case-insensitive; (?-i) for exact case) per line of the IDA or Ghidra pseudocode of every function (or filtered ones), in " +
-                 "address order; parallel where the engine allows, cached. Stops at maxFunctions, timeoutSeconds or limit hits; offset continues.")]
+                 "address order; parallel where the engine allows, cached. Stops at maxFunctions, timeoutSeconds or limit hits.")]
     public Task<string> SearchDecompiled(
         [Description(NativeTools.ImageDescription)] string image,
         [Description("Regex.")] string pattern,

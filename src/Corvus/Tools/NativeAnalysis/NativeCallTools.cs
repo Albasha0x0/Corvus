@@ -60,8 +60,8 @@ public sealed class NativeCallTools(AssemblyWorkspace workspace, NativeCodeServi
 
     [McpServerTool(Name = "get_call_arguments", Title = "Native call arguments", UseStructuredContent = true, OutputSchemaType = typeof(CallArgumentsReport))]
     [Description("Call sites (x86, x64, ARM) with argument values, by constant propagation under the calling convention: immediates, strings, named " +
-                 "addresses, earlier call results, globals (differing merges are unknown). Known Win32, CRT and libc APIs give parameter names and " +
-                 "decoded constants. Pass address and/or callee.")]
+                 "addresses, earlier call results, globals (differing merges are unknown). Known Win32, CRT and libc APIs name parameters and decode " +
+                 "constants. Pass address and/or callee.")]
     public Task<string> GetCallArguments(
         [Description(NativeTools.ImageDescription)] string image,
         [Description("A call, or an address in a function (all its calls): " + NativeTools.AddressDescription)] string? address = null,

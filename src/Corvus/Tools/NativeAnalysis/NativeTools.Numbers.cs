@@ -29,8 +29,8 @@ public sealed partial class NativeTools
     public sealed record NumberConversions(IReadOnlyList<ConvertedNumber> Items);
 
     [McpServerTool(Name = "convert_number", Title = "Convert a number", UseStructuredContent = true, OutputSchemaType = typeof(NumberConversions))]
-    [Description("Exact number conversions: signed and unsigned decimal, hex, binary and octal at a width, LE and BE bytes and their ASCII, the bits " +
-                 "as float or double. Input: decimal, 0x or h-suffixed hex, 0b, 0o, negative, _ separators, C suffixes, 'ABCD' (C multi-character " +
+    [Description("Exact number conversions: signed and unsigned decimal, hex, binary, octal at a width, LE and BE bytes and their ASCII, the bits as " +
+                 "float or double. Input: decimal, 0x or h-suffixed hex, 0b, 0o, negative, _ separators, C suffixes, 'ABCD' (C multi-character " +
                  "constant) or \"text\" (bytes in memory order).")]
     public Task<string> ConvertNumber(
         [Description("Numbers to convert.")] string[] numbers,

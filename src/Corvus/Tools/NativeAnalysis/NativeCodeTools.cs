@@ -108,7 +108,7 @@ public sealed partial class NativeCodeTools(AssemblyWorkspace workspace, NativeC
     [McpServerTool(Name = "list_functions", Title = "List native functions", UseStructuredContent = true, OutputSchemaType = typeof(FunctionList))]
     [Description("Functions of a native image (x86, x64, ARM): address, size, name (user, PDB, Il2Cpp, export, module!import thunk or sub_<rva>), " +
                  "flags (thunk, arm (A32), noreturn, unresolved jumps, invalid code, funclets, exception chunks), how found, caller count; an exact " +
-                 "name filter adds the open engine's function record.")]
+                 "name filter adds the engine's function record.")]
     public Task<string> ListFunctions(
         [Description(NativeTools.ImageDescription)] string image,
         [Description("Name filter: " + NameFilter.Description + ".")] string? filter = null,
@@ -447,8 +447,8 @@ public sealed partial class NativeCodeTools(AssemblyWorkspace workspace, NativeC
 
     [McpServerTool(Name = "search_native_strings", Title = "Search native strings", UseStructuredContent = true, OutputSchemaType = typeof(NativeStringList))]
     [Description("Strings (ASCII, UTF-16) referenced by the code or data of a native image, with address, reference count and first referencing " +
-                 "function. Also Il2Cpp literals (after apply_il2cpp_names) and NativeAOT frozen strings, by the slot or object code loads; an engine " +
-                 "adds unreferenced strings in other encodings.")]
+                 "function. Also Il2Cpp literals (after apply_il2cpp_names) and NativeAOT frozen strings; an engine adds unreferenced strings in " +
+                 "other encodings.")]
     public Task<string> SearchNativeStrings(
         [Description(NativeTools.ImageDescription)] string image,
         [Description("Case-insensitive substring, or regex with regex=true; omit for all.")] string? query = null,

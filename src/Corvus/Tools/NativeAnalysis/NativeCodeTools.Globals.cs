@@ -38,7 +38,7 @@ public sealed partial class NativeCodeTools
 
     [McpServerTool(Name = "list_globals", Title = "List native globals", UseStructuredContent = true, OutputSchemaType = typeof(GlobalList))]
     [Description("Named data of a native image outside code, from every name source (PDB with type and size, user names and types, Il2Cpp, NativeAOT, " +
-                 "exports, symbol tables); an engine adds its defined data with type and value. get_native_type read=true reads their fields.")]
+                 "exports, symbol tables); an engine adds its defined data with type and value. get_native_type read=true reads fields.")]
     public Task<string> ListGlobals(
         [Description(NativeTools.ImageDescription)] string image,
         [Description("Name substring (case-insensitive).")] string? filter = null,
