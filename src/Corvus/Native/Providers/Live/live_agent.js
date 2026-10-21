@@ -106,6 +106,8 @@ function isDeferred(m) {
 // Managed methods with stop points or watches, by the address of their IL body: the thread that compiles one is held when
 // the JIT returns its code, before that code first runs, until the worker posts load-<tid> once the point is set there.
 const jitWatched = new Set();
+// IL bodies a coverage run counts, by run: each method's first compile is reported (not held) as its first run
+const jitCounted = new Map();
 let jitHooked = false;
 
 function hookJit(m, running) {
@@ -117,8 +119,13 @@ function hookJit(m, running) {
     // ICorJitCompiler slot 0: compileMethod(this, ICorJitInfo*, CORINFO_METHOD_INFO* {ftn, scope, ILCode, ...}, flags, uint8_t** entry, uint32_t* size)
     onEnter(a) {
       this.il = null;
-      if (jitWatched.size === 0) return;
+      if (jitWatched.size === 0 && jitCounted.size === 0) return;
       const il = a[2].add(2 * Process.pointerSize).readPointer().toString();
+      const run = jitCounted.get(il);
+      if (run !== undefined) {
+        jitCounted.delete(il);
+        send({ type: 'jit_ran', run, il });
+      }
       if (!jitWatched.has(il)) return;
       this.il = il;
       this.entry = a[4];
@@ -453,6 +460,10 @@ rpc.exports = {
   },
   watchJit(il) {
     jitWatched.add(ptr(il).toString());
+    return true;
+  },
+  countJit(run, ils) {
+    for (const il of ils) jitCounted.set(ptr(il).toString(), run);
     return true;
   },
   unwatch(id) {

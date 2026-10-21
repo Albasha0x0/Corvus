@@ -548,6 +548,51 @@ public sealed class LiveDotnetRealTests(ITestOutputHelper output) : LiveToolCall
         await Refused(server, "live_coverage", new() { ["action"] = "report", ["run"] = runs[0], ["format"] = "dot" }, "unsupported");
     }
 
+    /// <summary>
+    /// Managed coverage of a 32-bit .NET Framework program, whose runtime this 64-bit server cannot read: the methods are
+    /// counted from the JIT's compiles, also when the program file was loaded with load_assembly first.
+    /// </summary>
+    [DotnetTargetFact("win-x64")]
+    public async Task Managed_coverage_of_a_32_bit_framework_program()
+    {
+        File.WriteAllText(_dir.File("Directory.Build.props"), "<Project />");
+        File.WriteAllText(_dir.File("Directory.Build.targets"), "<Project />");
+        File.WriteAllText(_dir.File("calc.csproj"), """
+            <Project Sdk="Microsoft.NET.Sdk">
+              <PropertyGroup><OutputType>Exe</OutputType><TargetFramework>net48</TargetFramework><PlatformTarget>x86</PlatformTarget><AssemblyName>Calc</AssemblyName></PropertyGroup>
+            </Project>
+            """);
+        File.WriteAllText(_dir.File("Program.cs"), """
+            static class Calc
+            {
+                [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+                static int Add(int a, int b) { return a + b; }
+                static int Unused() { return 1; }
+                static void Main()
+                {
+                    int t = 0;
+                    for (int i = 0; i < 10; i++) { t = Add(t, i); System.Threading.Thread.Sleep(20); }
+                    System.Console.WriteLine(t);
+                }
+            }
+            """);
+        var (code, log) = Tools.Dotnet(_dir.Path, "build", "-c", "Release", "-o", "out", "-nologo");
+        var exe = _dir.File(Path.Combine("out", "Calc.exe"));
+        Assert.True(code == 0 && File.Exists(exe), log);
+        await using var server = await Server();
+        await Ok(server, "load_assembly", new() { ["path"] = exe });
+        await Spawn(server, exe, "live-1");
+        var start = await Ok(server, "live_coverage", new() { ["session"] = "live-1", ["action"] = "start", ["match"] = "Calc.exe!" });
+        var run = Regex.Match(start, @"^(cov-\d+) recording which of \d+ methods of Calc\.exe run in live-1, from the JIT's compiles");
+        Assert.True(run.Success, start);
+        await Ok(server, "live_break", new() { ["session"] = "live-1", ["action"] = "continue" });
+        await UntilExited(server, "live-1");
+        var report = await Ok(server, "live_coverage", new() { ["action"] = "report", ["run"] = run.Groups[1].Value });
+        Assert.Matches(@"ran  0x06000001  Calc::Add\(int, int\)", report);
+        Assert.Matches(@"ran  0x06000003  Calc::Main\(\)", report);
+        Assert.DoesNotMatch(@"ran  0x06000002", report);
+    }
+
     /// <summary>Saves a snapshot of the running program and reads its stacks.</summary>
     private async Task Snapshot(InProcessServer server, DotnetTarget target, string thread)
     {

@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using System.Globalization;
+using System.Runtime.InteropServices;
 using System.Text.Json.Nodes;
 using Corvus.Core;
 using Corvus.Native;
@@ -101,6 +102,9 @@ public sealed class LiveCoverageRun
     internal void ArmExit(string pointId) => _exits[pointId] = 0;
 
     internal bool IsExit(string pointId) => _exits.ContainsKey(pointId);
+
+    /// <summary>A managed run counted from the JIT's compiles (the runtime cannot be read): the methods' IL bodies, by address, and their tokens.</summary>
+    internal IReadOnlyDictionary<ulong, uint>? JitBodies { get; init; }
 
     /// <summary>A managed run: records the methods that have run so far; with wait, after a read in progress ends (a last read before the run is complete).</summary>
     internal Func<bool, Task>? Sample { get; set; }
@@ -398,8 +402,15 @@ public sealed partial class LiveSessionService
             .Where(p => filter == null || p.Name.Contains(filter, StringComparison.OrdinalIgnoreCase)).OrderBy(p => p.Rva).ToList());
         if (points.Count == 0)
             throw new ToolError(ErrorCode.NotFound, $"No method of {file}{(filter != null ? $" has a name containing '{filter}'" : " has a body")}.", "search_symbols shows the assembly's methods");
+        // this server reads a runtime of its own architecture only, also once one loads
+        var other = session.Arch switch
+        {
+            "ia32" => Architecture.X86, "x64" => Architecture.X64,
+            "arm64" => Architecture.Arm64, _ => RuntimeInformation.ProcessArchitecture,
+        } != RuntimeInformation.ProcessArchitecture;
+        if (other) return await StartJitCoverageAsync(session, asm, points, $"a {session.Arch} process", ct).ConfigureAwait(false);
         if (await ClrAsync(session, ct).ConfigureAwait(false) is { Unavailable: { } reason } && !reason.StartsWith("load_failed", StringComparison.Ordinal))
-            throw new ToolError(ErrorCode.Unsupported, $"The program's runtime cannot be read: {reason}.", "count a native module with match=module!part");
+            return await StartJitCoverageAsync(session, asm, points, reason, ct).ConfigureAwait(false);
         if (BeforeCoverageRun is { } before) await before().ConfigureAwait(false);
         var run = new LiveCoverageRun("cov-" + Interlocked.Increment(ref _nextCoverage), session, file, asm.OriginalSha256, points);
         var tokens = points.Select(p => p.Rva).ToHashSet();
@@ -429,6 +440,45 @@ public sealed partial class LiveSessionService
         run.Sampler = new Timer(_ => _ = run.Sample(false), null, ManagedSamplePeriod, ManagedSamplePeriod);
         EndedMeanwhile(session, run);
         return run;
+    }
+
+    /// <summary>
+    /// A managed run on a runtime that cannot be read (another architecture than the server's, no DAC): the session script
+    /// reports the first compile of each method, which precedes its first run. Methods compiled before the run are not seen.
+    /// </summary>
+    private async Task<LiveCoverageRun> StartJitCoverageAsync(LiveSession session, LoadedAssembly asm, List<LiveCoveragePoint> points, string reason, CancellationToken ct)
+    {
+        var file = Path.GetFileName(asm.FilePath);
+        var bodies = new Dictionary<ulong, uint>();
+        foreach (var p in points)
+            foreach (var il in IlBodies(session, new LiveManagedTarget(asm.FilePath, 0, (int)p.Rva, p.Name, p.Name)))
+                bodies[il] = p.Rva;
+        if (bodies.Count == 0)
+            throw new ToolError(ErrorCode.Unsupported, $"The program's runtime cannot be read ({reason}), and {file} is not loaded yet, so its methods' compiles cannot be watched.",
+                "start the run once the assembly has loaded, or count a native module with match=module!part");
+        if (BeforeCoverageRun is { } before) await before().ConfigureAwait(false);
+        var run = new LiveCoverageRun("cov-" + Interlocked.Increment(ref _nextCoverage), session, file, asm.OriginalSha256, points) { JitBodies = bodies };
+        _coverage[run.Id] = run;
+        try
+        {
+            await session.Worker.RequestAsync("count_jit", new JsonObject
+            {
+                ["run"] = run.Id, ["ils"] = new JsonArray([.. bodies.Keys.Select(il => (JsonNode)$"0x{il:X}")]),
+            }, RequestTimeout, ct).ConfigureAwait(false);
+        }
+        catch
+        {
+            _coverage.TryRemove(run.Id, out _);
+            throw;
+        }
+        EndedMeanwhile(session, run);
+        return run;
+    }
+
+    /// <summary>The session script saw the first compile of a method a JIT-counted run watches.</summary>
+    private void JitRan(string runId, ulong il)
+    {
+        if (_coverage.TryGetValue(runId, out var run) && run.JitBodies?.GetValueOrDefault(il) is { } token and > 0) run.MarkRan(token);
     }
 
     /// <summary>

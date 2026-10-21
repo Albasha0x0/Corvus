@@ -400,6 +400,8 @@ def handle(state, op, args):
         return state.require().undefer_module(args["name"])
     if op == "watch_jit":
         return state.require().watch_jit(args["il"])
+    if op == "count_jit":
+        return state.require().count_jit(args["run"], args["ils"])
     if op == "release_load":
         return state.release_load(args)
     if op == "load_script":

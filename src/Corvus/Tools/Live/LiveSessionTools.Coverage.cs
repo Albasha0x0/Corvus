@@ -69,7 +69,7 @@ public sealed partial class LiveSessionTools
                     var s = live.Get(RequireSession(session));
                     var r = await live.StartCoverageAsync(s, match, Math.Clamp(hitLimit, 1, 100_000), cancellationToken).ConfigureAwait(false);
                     var text = (r.Image == null
-                                   ? $"{r.Id} recording which of {ToolSupport.Plural(r.Placed.Count, "method")} of {r.ImageId} run in {s.Id}, from the runtime's record of the methods it prepared code for (calls are not counted)\n"
+                                   ? $"{r.Id} recording which of {ToolSupport.Plural(r.Placed.Count, "method")} of {r.ImageId} run in {s.Id}, from {(r.JitBodies != null ? "the JIT's compiles from now on" : "the runtime's record of the methods it prepared code for")} (calls are not counted)\n"
                                : r.PendingModule is { } pending
                                    ? $"{r.Id} waits for {pending} to load, then counts {ToolSupport.Plural(r.Placed.Count, "function")} of {r.ImageId} in {s.Id} from its first call; each point is cleared after {r.HitLimit:N0} stop(s)\n"
                                    : $"{r.Id} counting {ToolSupport.Plural(r.Placed.Count, "function")} of {r.ImageId} in {s.Id}; each point is cleared after {r.HitLimit:N0} stop(s)\n") +

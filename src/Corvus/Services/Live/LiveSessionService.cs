@@ -601,6 +601,9 @@ public sealed partial class LiveSessionService(AssemblyWorkspace workspace, Nati
                 if (loaded) _ = SetDeferredAsync(session, m, holder);
                 break;
             }
+            case "jit_ran":
+                JitRan(body.GetProperty("run").GetString() ?? "", Hex(body.GetProperty("il").GetString()));
+                break;
             case "compiled":
                 _ = SetCompiledAsync(session, Hex(body.GetProperty("il").GetString()), Hex(body.GetProperty("code").GetString()),
                     body.TryGetProperty("frames", out var callers) ? [.. callers.EnumerateArray().Select(f => Hex(f.GetString()))] : [], Thread());
