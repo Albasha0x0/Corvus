@@ -15,6 +15,17 @@ public partial class UnpackTests
         var ex = Assert.Throws<ToolError>(() => Unpack(data));
         Assert.Equal(ErrorCode.Unsupported, ex.Code);
         Assert.StartsWith($"summarize_file path={data}", ex.Remediation);
+        // the hint names no format as unread: tar and gzip unpack
+        Assert.DoesNotContain("not read", ex.Remediation);
+        using (var tar = new MemoryStream())
+        {
+            using (var w = new System.Formats.Tar.TarWriter(tar, System.Formats.Tar.TarEntryFormat.Ustar, leaveOpen: true))
+                w.WriteEntry(new System.Formats.Tar.UstarTarEntry(System.Formats.Tar.TarEntryType.RegularFile, "lib/app.dll") { DataStream = File.OpenRead(Env.FixturePath) });
+            Assert.NotEmpty(Unpack(Save("app.tar", tar.ToArray())).Files);
+            var gz = new MemoryStream();
+            using (var z = new System.IO.Compression.GZipStream(gz, System.IO.Compression.CompressionLevel.Fastest, leaveOpen: true)) z.Write(tar.ToArray());
+            Assert.NotEmpty(Unpack(Save("app.tar.gz", gz.ToArray())).Files);
+        }
 
         // a plain assembly and a native image: nothing bundled, the next call is load_assembly
         var plain = Unpack(Env.FixturePath);
