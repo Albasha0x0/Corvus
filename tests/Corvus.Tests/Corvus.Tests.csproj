@@ -48,7 +48,7 @@
     <None Include="Dumps\CfiFixtures\*.so" CopyToOutputDirectory="PreserveNewest" />
     <None Include="Web\HermesFixtures\*.hbc" CopyToOutputDirectory="PreserveNewest" />
     <None Include="Web\ScriptFixtures\**" CopyToOutputDirectory="PreserveNewest" />
-    <None Include="Containers\FirmwareFixtures\*.gz;Containers\FirmwareFixtures\*.list" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="Containers\FirmwareFixtures\*.gz;Containers\FirmwareFixtures\*.list;Containers\FirmwareFixtures\reference.sh" CopyToOutputDirectory="PreserveNewest" />
     <None Include="Containers\DiskFixtures\*.gz;Containers\InstallerFixtures\*.gz" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
