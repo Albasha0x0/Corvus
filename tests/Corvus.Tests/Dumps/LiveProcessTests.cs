@@ -76,13 +76,14 @@ public sealed class LiveProcessTests(ITestOutputHelper output)
         try
         {
             await Send(child, "x-before");
-            // findstr settles after its first line (its output buffer is first touched then): wait until its writable data is stable
+            // findstr settles after its first line (its output buffer is first touched then): wait until its writable data is
+            // stable; empty until the loader lists its image (a loaded machine started it later), and two empty reads are not stable
             var before = Snapshot(child.Id);
-            for (int i = 0; i < 50; i++)
+            for (var settle = Stopwatch.StartNew(); settle.Elapsed < TimeSpan.FromSeconds(30);)
             {
                 await Task.Delay(100);
                 var again = Snapshot(child.Id);
-                if (again.Writable.SequenceEqual(before.Writable)) break;
+                if (again.Writable.Count > 0 && again.Writable.SequenceEqual(before.Writable)) break;
                 before = again;
             }
             Assert.NotEmpty(before.Writable);
