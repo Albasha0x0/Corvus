@@ -40,7 +40,7 @@
       "type": "string"
     },
     "dropped": {
-      "description": "Events the ring dropped before this page (oldest first).",
+      "description": "Events dropped from the cursor to this page's end, calls included.",
       "type": "integer"
     },
     "namedAddresses": {

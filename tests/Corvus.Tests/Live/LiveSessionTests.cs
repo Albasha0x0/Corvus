@@ -935,8 +935,28 @@ public sealed class LiveSessionTests : IDisposable
         for (int i = 1; i <= Services.LiveSession.RingCapacity + 50; i++) _backend.ScriptMessage("u1", new JsonObject { ["n"] = i });
         for (int i = 0; i < 100 && _service.Get("live-1").Dropped < 50; i++) await Task.Delay(20);
         var page = await _tools.LiveEvents("live-1", cursor: "1", limit: 1);
-        Assert.Contains($"50 event(s) before this page were dropped (the ring keeps {Services.LiveSession.RingCapacity:N0})", page);
+        Assert.Contains($"50 events dropped (ring capacity {Services.LiveSession.RingCapacity:N0})", page);
         Assert.Contains("#51 script", page);
+    }
+
+    [Fact]
+    public async Task A_call_flood_keeps_the_output_and_marks_the_calls_it_dropped()
+    {
+        await _tools.LiveSession("attach", program: "4242");
+        var s = _service.Get("live-1");
+        long Call() => s.Add("call", 5, Base, "f()", source: "w1");
+        var head = s.Sequence;
+        for (int i = 0; i < 100; i++) Call();
+        var output = s.Add("output", null, null, "stdout: total 42");
+        for (int i = 0; i < Services.LiveSession.CallRingCapacity + 50; i++) Call();
+        var exit = s.Add("exit", null, null, "exited");
+        Assert.Equal(150, s.CallsDropped);
+
+        var page = await _tools.LiveEvents("live-1", cursor: $"{head + 1}", limit: 3);
+        Assert.Contains($"150 call events dropped (ring capacity {Services.LiveSession.CallRingCapacity:N0})", page);
+        Assert.Contains($"#{output} output: stdout: total 42", page);
+        Assert.Contains($"#{exit} exit", await _tools.LiveEvents("live-1", kind: "exit"));
+        Assert.DoesNotContain("dropped", await _tools.LiveEvents("live-1", cursor: $"{output + 51}", limit: 3));
     }
 
     [Fact]

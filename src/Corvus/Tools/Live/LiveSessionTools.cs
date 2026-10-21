@@ -106,7 +106,7 @@ public sealed partial class LiveSessionTools(ServerOptions options, LiveSessionS
 
     public sealed record LiveEventPage(string Session, IReadOnlyList<LiveEvent> Items,
         [property: Description("Cursor for the next page; null at the end of the ring.")] string? Cursor,
-        [property: Description("Events the ring dropped before this page (oldest first).")] int Dropped)
+        [property: Description("Events dropped from the cursor to this page's end, calls included.")] int Dropped)
     {
         public IReadOnlyList<LiveNamedAddress>? NamedAddresses { get; init; }
     }
@@ -666,11 +666,8 @@ public sealed partial class LiveSessionTools(ServerOptions options, LiveSessionS
             var source = string.IsNullOrWhiteSpace(from) ? null : from.Trim();
             if (source != null && !s.Issued(source))
                 throw new ToolError(ErrorCode.NotFound, $"Session {s.Id} has no watch or script '{from}'.", "live_watch and live_script action=list show their ids");
-            var (events, firstKept, last, more) = s.Page(start, k, ThreadId(thread), ToolSupport.ClampLimit(limit, 1_000), source);
+            var (events, gaps, last, more) = s.Page(start, k, ThreadId(thread), ToolSupport.ClampLimit(limit, 1_000), source);
             var named = new List<EvidenceName>();
-            var text = new StringBuilder();
-            int dropped = start > 0 && start < firstKept ? (int)Math.Min(int.MaxValue, firstKept - start) : 0;
-            if (dropped > 0) text.AppendLine($"{dropped} event(s) before this page were dropped (the ring keeps {Services.LiveSession.RingCapacity:N0})");
             var rows = new List<LiveEvent>();
             var lines = new List<string>();
             foreach (var e in events)
@@ -685,17 +682,21 @@ public sealed partial class LiveSessionTools(ServerOptions options, LiveSessionS
                 rows.Add(new LiveEvent(e.Sequence, e.Kind, e.Thread?.ToString(CultureInfo.InvariantCulture), e.Address is { } x ? Hex(x) : null, name, e.Text));
                 lines.Add($"#{e.Sequence} {e.Kind}{(e.Thread != null ? " thread " + e.Thread : "")}{(e.Address is { } y ? " " + Hex(y) : "")}{(name != null ? " " + name : "")}: {e.Text}");
             }
-            var head = text.ToString();
             (string, object) Render(int count)
             {
-                var page = new StringBuilder(head);
-                foreach (var l in lines.Take(count)) page.AppendLine(l);
                 var kept = rows.Take(count).ToList();
                 // past the last matching event the whole ring was scanned: the next poll starts after its end
                 var cut = kept.Count > 0 && (count < rows.Count || more);
                 var next = cut ? kept[^1].Sequence + 1 : Math.Max(start, last + 1);
                 string? nextCursor = cut ? next.ToString(CultureInfo.InvariantCulture) : null;
+                // One marker per ring counts the events evicted between the cursor and the end of this page.
+                long calls = Services.LiveRingGaps.Count(gaps.Calls, start, next - 1), others = Services.LiveRingGaps.Count(gaps.Others, start, next - 1);
+                var page = new StringBuilder();
+                if (calls > 0) page.AppendLine($"{(calls == 1 ? "1 call event" : $"{calls:N0} call events")} dropped (ring capacity {Services.LiveSession.CallRingCapacity:N0})");
+                if (others > 0) page.AppendLine($"{(others == 1 ? "1 event" : $"{others:N0} events")} dropped (ring capacity {Services.LiveSession.RingCapacity:N0})");
+                foreach (var l in lines.Take(count)) page.AppendLine(l);
                 page.AppendLine(kept.Count == 0 ? "No events." : nextCursor != null ? $"more: cursor={nextCursor}" : $"end of the ring; poll again with cursor={next}");
+                var dropped = (int)Math.Min(int.MaxValue, calls + others);
                 return (page.ToString(), new LiveEventPage(s.Id, kept, nextCursor, dropped) { NamedAddresses = Named(named) });
             }
             return FitPage(rows.Count, Render);

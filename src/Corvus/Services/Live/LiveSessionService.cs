@@ -84,9 +84,11 @@ public sealed record EvidenceName(string Image, string Sha256, uint Rva, string 
 /// </summary>
 public sealed class LiveSession
 {
+    /// <summary>Events other than calls kept; calls have a ring of their own, so a call flood never evicts an output line, a stop or the exit.</summary>
     public const int RingCapacity = 10_000;
+    public const int CallRingCapacity = 10_000;
     private readonly object _gate = new();
-    private readonly Queue<LiveRingEvent> _ring = new();
+    private readonly EventRing _calls = new(CallRingCapacity), _others = new(RingCapacity);
     private readonly Dictionary<long, LiveHeldStop> _held = [];
     private TaskCompletionSource _changed = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private long _sequence;
@@ -173,8 +175,16 @@ public sealed class LiveSession
     public bool Closed { get; internal set; }
     /// <summary>Why the session closed (closed by request, deadline, server exit); null while open.</summary>
     public string? CloseReason { get; internal set; }
-    /// <summary>Events the ring dropped, oldest first.</summary>
-    public long Dropped { get; private set; }
+    /// <summary>Events both rings dropped, oldest first.</summary>
+    public long Dropped
+    {
+        get { lock (_gate) return _calls.Dropped + _others.Dropped; }
+    }
+    /// <summary>Call events the call ring dropped.</summary>
+    public long CallsDropped
+    {
+        get { lock (_gate) return _calls.Dropped; }
+    }
     /// <summary>Exception events recorded, dropped ones included.</summary>
     public long Exceptions { get; private set; }
     /// <summary>Image names a followed child must have to be held (empty: every child); null when children are not followed.</summary>
@@ -218,12 +228,7 @@ public sealed class LiveSession
         {
             var seq = ++_sequence;
             if (kind == "exception") Exceptions++;
-            _ring.Enqueue(new LiveRingEvent(seq, kind, thread, address, text, source));
-            if (_ring.Count > RingCapacity)
-            {
-                _ring.Dequeue();
-                Dropped++;
-            }
+            (kind == "call" ? _calls : _others).Add(new LiveRingEvent(seq, kind, thread, address, text, source));
             if (held != null && thread is { } t) _held[t] = held(seq);
             Signal();
             return seq;
@@ -284,21 +289,84 @@ public sealed class LiveSession
     }
 
     /// <summary>
-    /// Events from <paramref name="from"/> (a sequence) on, filtered; the first sequence kept tells what was dropped, More
-    /// whether events past the limit match too.
+    /// Events from <paramref name="from"/> (a sequence) on, filtered, in sequence order; Gaps names the evicted events from
+    /// <paramref name="from"/> to Last, More whether events past the limit match too.
     /// </summary>
-    internal (IReadOnlyList<LiveRingEvent> Events, long FirstKept, long Last, bool More) Page(long from, string? kind, long? thread, int limit, string? source = null)
+    internal (IReadOnlyList<LiveRingEvent> Events, LiveRingGaps Gaps, long Last, bool More) Page(long from, string? kind, long? thread, int limit, string? source = null)
     {
         lock (_gate)
         {
-            var first = _ring.Count > 0 ? _ring.Peek().Sequence : _sequence + 1;
-            var rows = _ring.Where(e => e.Sequence >= from && (kind == null || e.Kind == kind) && (thread == null || e.Thread == thread)
-                                        && (source == null || e.Source == source))
+            var events = kind == "call" ? _calls.Events : kind != null ? _others.Events : Merged(_calls.Events, _others.Events);
+            var rows = events.Where(e => e.Sequence >= from && (kind == null || e.Kind == kind) && (thread == null || e.Thread == thread)
+                                         && (source == null || e.Source == source))
                 .Take(limit + 1).ToList();
             var more = rows.Count > limit;
             if (more) rows.RemoveAt(limit);
-            return (rows, first, _sequence, more);
+            return (rows, new LiveRingGaps(_calls.EvictedFrom(from), _others.EvictedFrom(from)), _sequence, more);
         }
+    }
+
+    private static IEnumerable<LiveRingEvent> Merged(IEnumerable<LiveRingEvent> a, IEnumerable<LiveRingEvent> b)
+    {
+        using var x = a.GetEnumerator();
+        using var y = b.GetEnumerator();
+        bool hx = x.MoveNext(), hy = y.MoveNext();
+        while (hx || hy)
+        {
+            if (hx && (!hy || x.Current.Sequence < y.Current.Sequence)) { yield return x.Current; hx = x.MoveNext(); }
+            else { yield return y.Current; hy = y.MoveNext(); }
+        }
+    }
+
+    /// <summary>A bounded queue of events; the evicted ones are kept as sequence ranges, split where the other ring has an event between.</summary>
+    private sealed class EventRing(int capacity)
+    {
+        // Past this the two oldest ranges merge, and a count inside them becomes an estimate.
+        private const int MaxRanges = 4_096;
+        private readonly List<LiveRingRange> _evicted = [];
+        public Queue<LiveRingEvent> Events { get; } = new();
+        public long Dropped { get; private set; }
+
+        public void Add(LiveRingEvent e)
+        {
+            Events.Enqueue(e);
+            if (Events.Count <= capacity) return;
+            var gone = Events.Dequeue().Sequence;
+            Dropped++;
+            if (_evicted.Count > 0 && _evicted[^1].To == gone - 1) _evicted[^1] = _evicted[^1] with { To = gone, Count = _evicted[^1].Count + 1 };
+            else _evicted.Add(new(gone, gone, 1));
+            if (_evicted.Count > MaxRanges)
+            {
+                _evicted[1] = new(_evicted[0].From, _evicted[1].To, _evicted[0].Count + _evicted[1].Count);
+                _evicted.RemoveAt(0);
+            }
+        }
+
+        public LiveRingRange[] EvictedFrom(long from)
+        {
+            int i = _evicted.FindIndex(r => r.To >= from);
+            return i < 0 ? [] : [.. _evicted.Skip(i)];
+        }
+    }
+}
+
+/// <summary>Sequences From to To, of which Count events were evicted (all of them, unless ranges were merged).</summary>
+public readonly record struct LiveRingRange(long From, long To, long Count);
+
+/// <summary>The evicted event ranges of a page: calls (the call ring) and the other events; empty lists when nothing was evicted.</summary>
+public sealed record LiveRingGaps(IReadOnlyList<LiveRingRange> Calls, IReadOnlyList<LiveRingRange> Others)
+{
+    /// <summary>The events of <paramref name="ranges"/> evicted from sequences <paramref name="from"/> to <paramref name="to"/>; 0 when to is before from.</summary>
+    public static long Count(IReadOnlyList<LiveRingRange> ranges, long from, long to)
+    {
+        long n = 0;
+        foreach (var r in ranges)
+        {
+            if (r.From > to) break;
+            if (r.To < from) continue;
+            n += Math.Min(r.Count, Math.Min(r.To, to) - Math.Max(r.From, from) + 1);
+        }
+        return n;
     }
 }
 

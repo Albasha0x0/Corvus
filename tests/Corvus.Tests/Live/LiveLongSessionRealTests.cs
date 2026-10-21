@@ -59,19 +59,19 @@ public sealed class LiveLongSessionRealTests(ITestOutputHelper output) : LiveToo
             Assert.True(sw.ElapsedMilliseconds < 2_000, $"status took {sw.ElapsedMilliseconds} ms at {clock.Elapsed}");
             Assert.Contains($"pid {pid}, running", status);
 
-            // every page continues where the last one ended; a gap is only where the ring says it dropped events
+            // Every page continues where the last one ended; its gaps add up to what its drop markers count.
             for (int page = 0; page < 1_000; page++)
             {
                 var args = new Dictionary<string, object?> { ["session"] = "live-1", ["limit"] = 1_000 };
                 if (cursor != null) args["cursor"] = $"{cursor}";
                 var text = await Ok(server, "live_events", args, log: false);
-                var gap = Regex.Match(text, @"^(\d+) event\(s\) before this page were dropped");
-                long lost = gap.Success ? Number(gap.Groups[1].Value) : 0;
-                dropped += lost;
+                long lost = Regex.Matches(text, @"(?m)^([\d,]+) (?:call )?events? dropped \(ring capacity").Sum(g => Number(g.Groups[1].Value));
                 var rows = Regex.Matches(text, @"(?m)^#(\d+) (\w+)").Select(r => (Seq: Number(r.Groups[1].Value), Kind: r.Groups[2].Value)).ToList();
                 if (rows.Count == 0) break; // "No events.": the cursor stays
-                Assert.True(rows[0].Seq == (cursor ?? 1) + lost, $"page after cursor {cursor} starts at #{rows[0].Seq}, {lost} dropped:\n{text[..Math.Min(text.Length, 2_000)]}");
-                for (int i = 1; i < rows.Count; i++) Assert.True(rows[i].Seq == rows[i - 1].Seq + 1, $"#{rows[i - 1].Seq} is followed by #{rows[i].Seq}");
+                long gaps = rows[0].Seq - (cursor ?? 1);
+                for (int i = 1; i < rows.Count; i++) gaps += rows[i].Seq - rows[i - 1].Seq - 1;
+                Assert.True(gaps == lost, $"page after cursor {cursor} misses {gaps} events, its drop markers count {lost}:\n{text[..Math.Min(text.Length, 2_000)]}");
+                dropped += lost;
                 events += rows.Count;
                 calls += rows.Count(r => r.Kind == "call");
                 var next = Regex.Match(text, @"(more: |poll again with )cursor=(\d+)");
