@@ -2769,15 +2769,15 @@ Structured output: `dump`, `address`, `requested`, `length`, `source`, `location
 
 **Symbolize crash text** (read-only, idempotent, long-running)
 
-Resolves crash text against the loaded build: Unity Player.log / error.log, Mono and Il2Cpp lines, .NET exception text, Report.wer, Event Log 1000/1026, debugger stacks, Android tombstones. Each frame gets our name, a buildCheck (time stamp, MVID, BuildId or the text's name; mismatch: another build) and C# statement at an IL offset.
+Resolve crash text against the loaded build: Unity Player.log, Mono and Il2Cpp lines, .NET exception text, Report.wer, Event Log 1000/1026, debugger stacks, Android tombstones. Each frame gets our name, a buildCheck (time stamp, MVID, BuildId or the text name; mismatch: another build) and the C# statement at an IL offset.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `text` | string |  |  | The crash text (up to 1 MiB). This or path. |
+| `text` | string |  |  | Crash text (up to 1 MiB); this or path. |
 | `path` | string |  |  | A log or report file; its last 8 MiB are read. |
 | `format` | string |  | `auto` | Text format (auto detects it). Values: auto, unity, dotnet, wer, eventlog, windbg, android. |
-| `images` | string |  |  | Native image ids or paths (';'-separated); default all loaded. |
-| `moduleBases` | string |  |  | Module load addresses, 'name=0xBASE;...', when the text has no module list. |
+| `images` | string |  |  | Image ids or paths, ;-separated; default all loaded. |
+| `moduleBases` | string |  |  | Module load addresses (name=0xBASE;...) when the text has no module list. |
 | `offset` | integer |  |  |  |
 | `limit` | integer |  | `50` |  |
 | `allFrames` | boolean |  |  | One row per frame; default folds 3+ matching native frames of an image. |
@@ -2789,19 +2789,19 @@ Structured output: `format`, `exception`, `frames`, `items`, `offset`, `total`, 
 
 **Group crash dumps** (read-only, idempotent, long-running)
 
-Groups a folder of minidumps by signature: code | faulting module!function | next frames (raising frames skipped); .NET: clr | exception type | top managed frames; no exception: hang | top frames. Names, not offsets, so rebases do not split a bucket. Each bucket names its dumps and newest representative. Cached per file.
+Group a folder of minidumps by signature: code | faulting module!function | next frames (raising frames skipped); .NET: clr | exception type | top managed frames; no exception: hang | top frames. Names, not offsets, so rebases do not split a bucket. Each bucket lists its dumps and newest one. Cached per file.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `folder` | string | yes |  | Folder of .dmp or core files. |
 | `recursive` | boolean |  |  | Also search subfolders. |
-| `pattern` | string |  |  | File patterns, ';'-separated (default *.dmp;*.mdmp;*.core;core.*). |
+| `pattern` | string |  |  | File patterns, ;-separated (default *.dmp;*.mdmp;*.core;core.*). |
 | `topFrames` | integer |  | `3` | Frames after the faulting one in the signature. |
-| `skipModules` | string |  |  | More frames to skip, ';'-separated: module or module!function, '*' wildcards. |
-| `splitByVersion` | boolean |  |  | Put the faulting module's version in the signature. |
+| `skipModules` | string |  |  | More frames to skip, ;-separated: module or module!function, * wildcards. |
+| `splitByVersion` | boolean |  |  | Add the faulting module version to the signature. |
 | `managed` | string |  | `auto` | auto: managed signatures through a local DAC; off: native only. Values: auto, off. |
 | `maxDumps` | integer |  | `1000` | Most dumps bucketed, newest first. |
-| `imageDirectories` | string |  |  | Folders (';'-separated) with the program's binaries. |
+| `imageDirectories` | string |  |  | Program binary folders, ;-separated. |
 | `offset` | integer |  |  |  |
 | `limit` | integer |  | `50` |  |
 | `maxTokens` | integer |  |  |  |

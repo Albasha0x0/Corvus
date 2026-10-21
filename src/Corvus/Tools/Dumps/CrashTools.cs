@@ -12,15 +12,15 @@ namespace Corvus.Tools;
 public sealed class CrashTools(StackTextService stacks, MinidumpService dumps)
 {
     [McpServerTool(Name = "symbolize_stack_text", Title = "Symbolize crash text", UseStructuredContent = true, OutputSchemaType = typeof(StackTextService.SymbolizedStack))]
-    [Description("Resolves crash text against the loaded build: Unity Player.log / error.log, Mono and Il2Cpp lines, .NET exception text, " +
-                 "Report.wer, Event Log 1000/1026, debugger stacks, Android tombstones. Each frame gets our name, a buildCheck (time stamp, MVID, " +
-                 "BuildId or the text's name; mismatch: another build) and C# statement at an IL offset.")]
+    [Description("Resolve crash text against the loaded build: Unity Player.log, Mono and Il2Cpp lines, .NET exception text, Report.wer, Event Log " +
+                 "1000/1026, debugger stacks, Android tombstones. Each frame gets our name, a buildCheck (time stamp, MVID, BuildId or the text name; " +
+                 "mismatch: another build) and the C# statement at an IL offset.")]
     public Task<string> SymbolizeStackText(
-        [Description("The crash text (up to 1 MiB). This or path.")] string? text = null,
+        [Description("Crash text (up to 1 MiB); this or path.")] string? text = null,
         [Description("A log or report file; its last 8 MiB are read.")] string? path = null,
         [Description("Text format (auto detects it).")] string? format = "auto",
-        [Description("Native image ids or paths (';'-separated); default all loaded.")] string? images = null,
-        [Description("Module load addresses, 'name=0xBASE;...', when the text has no module list.")] string? moduleBases = null,
+        [Description("Image ids or paths, ;-separated; default all loaded.")] string? images = null,
+        [Description("Module load addresses (name=0xBASE;...) when the text has no module list.")] string? moduleBases = null,
         [Description(ToolSupport.RowOffsetDescription)] int offset = 0,
         [Description(ToolSupport.LimitDescription)] int limit = StackTextService.DefaultLimit,
         [Description("One row per frame; default folds 3+ matching native frames of an image.")] bool allFrames = false,
@@ -39,19 +39,19 @@ public sealed class CrashTools(StackTextService stacks, MinidumpService dumps)
     }, cancellationToken);
 
     [McpServerTool(Name = "bucket_minidumps", Title = "Group crash dumps", UseStructuredContent = true, OutputSchemaType = typeof(MinidumpService.DumpBuckets))]
-    [Description("Groups a folder of minidumps by signature: code | faulting module!function | next frames (raising frames skipped); .NET: " +
-                 "clr | exception type | top managed frames; no exception: hang | top frames. Names, not offsets, so rebases do not split a bucket. " +
-                 "Each bucket names its dumps and newest representative. Cached per file.")]
+    [Description("Group a folder of minidumps by signature: code | faulting module!function | next frames (raising frames skipped); .NET: clr | " +
+                 "exception type | top managed frames; no exception: hang | top frames. Names, not offsets, so rebases do not split a bucket. Each " +
+                 "bucket lists its dumps and newest one. Cached per file.")]
     public Task<string> BucketMinidumps(
         [Description("Folder of .dmp or core files.")] string folder,
         [Description("Also search subfolders.")] bool recursive = false,
-        [Description("File patterns, ';'-separated (default *.dmp;*.mdmp;*.core;core.*).")] string? pattern = null,
+        [Description("File patterns, ;-separated (default *.dmp;*.mdmp;*.core;core.*).")] string? pattern = null,
         [Description("Frames after the faulting one in the signature.")] int topFrames = 3,
-        [Description("More frames to skip, ';'-separated: module or module!function, '*' wildcards.")] string? skipModules = null,
-        [Description("Put the faulting module's version in the signature.")] bool splitByVersion = false,
+        [Description("More frames to skip, ;-separated: module or module!function, * wildcards.")] string? skipModules = null,
+        [Description("Add the faulting module version to the signature.")] bool splitByVersion = false,
         [Description("auto: managed signatures through a local DAC; off: native only.")] string? managed = "auto",
         [Description("Most dumps bucketed, newest first.")] int maxDumps = MinidumpService.DefaultMaxDumps,
-        [Description("Folders (';'-separated) with the program's binaries.")] string? imageDirectories = null,
+        [Description("Program binary folders, ;-separated.")] string? imageDirectories = null,
         [Description(ToolSupport.RowOffsetDescription)] int offset = 0,
         [Description(ToolSupport.LimitDescription)] int limit = MinidumpService.DefaultListLimit,
         [Description(ToolSupport.MaxTokensDescription)] int? maxTokens = null,
