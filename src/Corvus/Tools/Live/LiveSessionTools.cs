@@ -309,6 +309,7 @@ public sealed partial class LiveSessionTools(ServerOptions options, LiveSessionS
                         : $"no stop within {Math.Clamp(waitSeconds, 1, 300)} s; the session is {s.State}");
                 else
                 {
+                    await live.FrameModulesAsync(s, held, cancellationToken).ConfigureAwait(false);
                     await live.IndexedAsync(s, TimeSpan.FromSeconds(15), cancellationToken).ConfigureAwait(false);
                     await live.ClrAsync(s, cancellationToken).ConfigureAwait(false);
                     stop = Stop(s, held, head, named, cancellationToken);

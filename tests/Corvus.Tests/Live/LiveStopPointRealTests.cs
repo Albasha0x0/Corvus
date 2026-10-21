@@ -189,6 +189,34 @@ public sealed class LiveStopPointRealTests(ITestOutputHelper output) : LiveToolC
         Ended(pid);
     }
 
+    // ---- a stop called from that DLL names its frames there, though no load event has named the DLL yet
+
+    [LiveTargetFact("win-x64")] public Task Frames_in_a_delay_loaded_dll_are_named_on_win_x64() => DelayLoadFrames(LiveTarget.WinX64);
+    [LiveTargetFact("win-x86")] public Task Frames_in_a_delay_loaded_dll_are_named_on_win_x86() => DelayLoadFrames(LiveTarget.WinX86);
+
+    private async Task DelayLoadFrames(LiveTarget target)
+    {
+        var exe = target.Build(_dir, "delayload", LivePrograms.DelayLoad);
+        await using var server = await Server();
+        var pid = await Spawn(server, exe, "live-1");
+        await Set(server, "kernelbase!RegGetValueW");
+        string? named = null;
+        for (int i = 0; i < 20 && named == null; i++)
+        {
+            var stop = await Ok(server, "live_break", new() { ["session"] = "live-1", ["action"] = "continue", ["wait"] = true, ["waitSeconds"] = 60 });
+            if (!stop.Contains("stopped at s1", StringComparison.Ordinal)) break;
+            if (Regex.Match(stop, @"^\s+#1 0x[0-9A-F]+ (\S+)", RegexOptions.Multiline) is { Success: true } caller && caller.Groups[1].Value.StartsWith("windows.storage.dll", StringComparison.OrdinalIgnoreCase))
+                named = stop;
+        }
+        Assert.NotNull(named);
+        Output.WriteLine(named);
+        await Ok(server, "live_break", new() { ["session"] = "live-1", ["action"] = "clear", ["stopPoint"] = "s1" });
+        await Ok(server, "live_break", new() { ["session"] = "live-1", ["action"] = "continue" });
+        Assert.Matches(@"exit code 0(?![0-9xX])", await UntilExited(server, "live-1"));
+        await Ok(server, "live_session", new() { ["action"] = "close", ["session"] = "live-1" });
+        Ended(pid);
+    }
+
     // ---- a function with no prototype: its calls are recorded as raw values
 
     [LiveTargetFact("win-x64")] public Task Raw_values_on_win_x64() => RawValues(LiveTarget.WinX64);

@@ -518,6 +518,14 @@ public sealed partial class LiveSessionService(AssemblyWorkspace workspace, Nati
                 }
     }
 
+    /// <summary>Reads the module list again when a frame of <paramref name="held"/> lies outside every module the session knows, so the stop names it.</summary>
+    public async Task FrameModulesAsync(LiveSession session, LiveHeldStop held, CancellationToken ct)
+    {
+        bool unknown;
+        lock (session.Modules) unknown = held.Frames.Any(f => !session.Modules.Any(m => m.Contains(f)));
+        if (unknown) await RefreshModulesAsync(session, ct).ConfigureAwait(false);
+    }
+
     private void OnEvent(LiveSession session, Native.Providers.WorkerMessage.Event e)
     {
         var body = e.Body;
