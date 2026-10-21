@@ -99,7 +99,7 @@ public sealed class LiveTimelineRealTests(ITestOutputHelper output) : IDisposabl
             list = await Call(server, "live_timeline", new() { ["action"] = "list" });
         }
         Assert.Contains("complete", list);
-        Assert.Contains("stop-out.txt", await Call(server, "live_timeline", new() { ["action"] = "report", ["run"] = "tl-1", ["category"] = "file" }));
+        Assert.Contains("stop-out.txt", await Call(server, "live_timeline", new() { ["action"] = "report", ["run"] = "tl-1", ["category"] = "file", ["match"] = "stop-out" }));
         Assert.Contains(": 0 entries, 0 names", await Call(server, "live_timeline", new() { ["action"] = "report", ["run"] = "tl-1", ["match"] = ".pdb" }));
     }
 }
