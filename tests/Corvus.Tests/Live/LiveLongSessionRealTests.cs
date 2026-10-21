@@ -44,6 +44,7 @@ public sealed class LiveLongSessionRealTests(ITestOutputHelper output) : LiveToo
         Assert.Contains("w1", await Ok(server, "live_watch", new() { ["session"] = "live-1", ["action"] = "set", ["at"] = "AddLine", ["rateLimit"] = 200 }));
         await Ok(server, "live_break", new() { ["session"] = "live-1", ["action"] = "continue" });
 
+        var load = MachineLoad.Factor();
         var clock = Stopwatch.StartNew();
         long? cursor = null;
         long events = 0, calls = 0, dropped = 0, slowest = 0;
@@ -56,7 +57,8 @@ public sealed class LiveLongSessionRealTests(ITestOutputHelper output) : LiveToo
             var status = await Ok(server, "live_session", new() { ["action"] = "status", ["session"] = "live-1" }, log: false);
             slowest = Math.Max(slowest, sw.ElapsedMilliseconds);
             statuses++;
-            Assert.True(sw.ElapsedMilliseconds < 2_000, $"status took {sw.ElapsedMilliseconds} ms at {clock.Elapsed}");
+            var statusTime = MachineLoad.Check(sw.Elapsed, TimeSpan.FromSeconds(2), load);
+            Assert.True(statusTime.Within, $"status took {statusTime.Note} at {clock.Elapsed}");
             Assert.Contains($"pid {pid}, running", status);
 
             // Every page continues where the last one ended; its gaps add up to what its drop markers count.

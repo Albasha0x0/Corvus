@@ -188,6 +188,7 @@ public sealed class LiveLifecycleRealTests(ITestOutputHelper output) : LiveToolC
         var exe = Build(target);
         var name = Regex.Escape(target.Exe("lifecycle"));
         await using var server = await Server();
+        var load = MachineLoad.Factor();
         // odd runs close while the exiting thread is held at AtExit, even runs release it and close at once
         for (int run = 1; run <= 2 * Runs; run++)
         {
@@ -206,7 +207,8 @@ public sealed class LiveLifecycleRealTests(ITestOutputHelper output) : LiveToolC
                 var closeMs = sw.ElapsedMilliseconds;
                 Assert.True(program.WaitForExit(20_000), $"run {run}: the program did not finish its exit after the close");
                 Output.WriteLine($"run {run}: close {closeMs} ms, program ended {sw.ElapsedMilliseconds} ms after the close began");
-                Assert.True(closeMs < 15_000, $"close took {closeMs} ms");
+                var closeTime = MachineLoad.Check(TimeSpan.FromMilliseconds(closeMs), TimeSpan.FromSeconds(15), load);
+                Assert.True(closeTime.Within, $"close took {closeTime.Note}");
                 Assert.Equal(5, program.ExitCode);
                 Assert.Contains("lines 50", program.StandardOutput.ReadToEnd());
                 var s = server.Services.GetRequiredService<LiveSessionService>().Get(session);

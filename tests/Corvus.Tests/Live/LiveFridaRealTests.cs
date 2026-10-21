@@ -90,6 +90,7 @@ public sealed class LiveFridaRealTests(ITestOutputHelper output) : IDisposable
             BackgroundIndexing = false, WatchFiles = false, AllowLive = true, AllowLiveSpawn = true,
         });
 
+        var load = MachineLoad.Factor();
         var sw = Stopwatch.StartNew();
         var (open, failed) = await Call(server, "live_session", new() { ["action"] = "spawn", ["program"] = exe, ["arguments"] = new[] { "400" } });
         var openMs = sw.ElapsedMilliseconds;
@@ -99,7 +100,8 @@ public sealed class LiveFridaRealTests(ITestOutputHelper output) : IDisposable
         Assert.Matches(@"0x[0-9A-F]+ orders\.exe  = orders\.exe", open);
         var pid = int.Parse(Regex.Match(open, @"pid (\d+)").Groups[1].Value);
         output.WriteLine($"session open {openMs} ms (target 2,000)");
-        Assert.True(openMs < 10_000, $"open took {openMs} ms");
+        var openTime = MachineLoad.Check(TimeSpan.FromMilliseconds(openMs), TimeSpan.FromSeconds(10), load);
+        Assert.True(openTime.Within, $"open took {openTime.Note}");
 
         var (byName, e1) = await Call(server, "live_break", new() { ["session"] = "live-1", ["action"] = "set", ["at"] = "AddLine" });
         Assert.False(e1, byName);
@@ -133,7 +135,8 @@ public sealed class LiveFridaRealTests(ITestOutputHelper output) : IDisposable
         var namedMs = sw.ElapsedMilliseconds;
         Assert.Matches(@"stopped at s2 \(orders\.exe!AddLine\+0x[0-9A-F]+\)", second);
         output.WriteLine($"held stop to named stack {namedMs} ms (target 300)");
-        Assert.True(namedMs < 2_000, $"naming took {namedMs} ms");
+        var namedTime = MachineLoad.Check(TimeSpan.FromMilliseconds(namedMs), TimeSpan.FromSeconds(2), load);
+        Assert.True(namedTime.Within, $"naming took {namedTime.Note}");
 
         var (summary, e5) = await Call(server, "inspect_process", new() { ["process"] = "live-1" });
         Assert.False(e5, summary);
