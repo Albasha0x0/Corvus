@@ -351,6 +351,16 @@ public sealed class ElfCoreTests
     }
 
     [Fact]
+    public void Heap_hint_of_a_core_names_the_runtime_dump_tools()
+    {
+        var core = MinidumpService.HeapHint(core: true);
+        Assert.Contains("createdump --withheap", core);
+        Assert.Contains("dotnet-dump collect --type Heap", core);
+        Assert.DoesNotContain("procdump", core);
+        Assert.Contains("procdump -ma", MinidumpService.HeapHint(core: false));
+    }
+
+    [Fact]
     public async Task Bucket_minidumps_groups_cores_by_signal_and_frames()
     {
         using var dir = new TempDir();

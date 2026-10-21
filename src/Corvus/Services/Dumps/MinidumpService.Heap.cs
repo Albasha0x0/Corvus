@@ -8,7 +8,11 @@ namespace Corvus.Services;
 public sealed partial class MinidumpService
 {
     public const long DefaultMaxHeapObjects = 5_000_000;
-    private const string FullMemoryHint = "write the dump with full memory (procdump -ma, DOTNET_DbgMiniDumpType=4, MiniDumpWithFullMemory) to inspect the heap";
+
+    /// <summary>How to write a dump that holds the GC heap: a Linux core is written by the runtime's own dump tools.</summary>
+    internal static string HeapHint(bool core) => core
+        ? "write the core with the heap (createdump --withheap, dotnet-dump collect --type Heap, DOTNET_DbgMiniDumpType=2) to inspect the heap"
+        : "write the dump with full memory (procdump -ma, DOTNET_DbgMiniDumpType=4, MiniDumpWithFullMemory) to inspect the heap";
 
     /// <summary>mode=stats: a type with its object count and total size; mode=objects: one object.</summary>
     /// <summary>A TypeDef token, or null when there is none: arrays and generic instances carry 0 or a nil row (0x02000000).</summary>
@@ -67,7 +71,7 @@ public sealed partial class MinidumpService
             ManagedHeapState state;
             using (AssemblyWorkspace.Lock(decoder.Gate)) state = decoder.Facts().Heap;
             if (!state.Walkable)
-                throw new ToolError(ErrorCode.Unsupported, $"{state.Reason}.", FullMemoryHint);
+                throw new ToolError(ErrorCode.Unsupported, $"{state.Reason}.", HeapHint(s.Core != null));
         }
         return decoder;
     }
@@ -91,7 +95,7 @@ public sealed partial class MinidumpService
         {
             var (rows, objects, matched, walked, stopped) = decoder.Walk(pattern, minSize, maxObjects, stats ? 0 : offset, stats ? 0 : limit, ct);
             if (walked == 0)
-                throw new ToolError(ErrorCode.Unsupported, "heap_not_captured: no object of the GC heap is readable in this dump.", FullMemoryHint);
+                throw new ToolError(ErrorCode.Unsupported, "heap_not_captured: no object of the GC heap is readable in this dump.", HeapHint(s.Core != null));
             if (stopped) notes.Add($"The walk stopped after {walked} objects (maxObjects): counts cover only that part of the heap.");
             ulong bytes = 0;
             foreach (var r in rows) bytes += r.TotalSize;
