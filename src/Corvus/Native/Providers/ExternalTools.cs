@@ -52,6 +52,10 @@ public static partial class ExternalTools
         ["vineflower*.jar"], [], 0, "decompile_java engine=vineflower", false,
         Ops(("decompile", ["-log=WARN", "{input}", "{output}"]), ("library", ["-e={jar}"])));
 
+    public static readonly ExternalTool PythonDecompiler = new("python-decompiler", "Python decompiler (pycdc, or a program that prints the source of the .pyc it is given)",
+        "CORVUS_PY_DECOMPILER", ExternalToolKind.Executable, ["pycdc" + Exe], [], 0, "Python source in summarize_file view=python", false,
+        Ops(("decompile", ["{input}"])));
+
     public static readonly ExternalTool Adb = new("adb", "Android Debug Bridge (adb)", "CORVUS_ADB", ExternalToolKind.Executable, ["adb" + Exe], ["version"], 0,
         "the Android device tools", false,
         Ops(("devices", ["devices", "-l"]),
@@ -129,7 +133,7 @@ public static partial class ExternalTools
         Ops(("objdump", ["-objdump-disassemble", "-c", "disassemble;quit", "{file}"])));
 
     /// <summary>Every external program, in display order.</summary>
-    public static readonly IReadOnlyList<ExternalTool> Table = [Java, JavaDecompiler, JavaDecompiler2, Adb, TShark, Aapt2, ApkSigner, DexDisassembler, ProtoCompiler, WasmText, WasmValidator, HbcDisassembler];
+    public static readonly IReadOnlyList<ExternalTool> Table = [Java, JavaDecompiler, JavaDecompiler2, PythonDecompiler, Adb, TShark, Aapt2, ApkSigner, DexDisassembler, ProtoCompiler, WasmText, WasmValidator, HbcDisassembler];
 
     private static IEnumerable<(string, string)> WiresharkDirectories()
     {

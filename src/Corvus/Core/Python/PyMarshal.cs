@@ -13,7 +13,7 @@ public sealed class PySingleton
     public override string ToString() => Name;
 }
 
-/// <summary>A Python bytes object (a str in Python 2).</summary>
+/// <summary>A Python bytes object (a str in Python 2, interned or not; a Python 2 unicode reads as a string).</summary>
 public sealed record PyBytes(byte[] Value);
 
 /// <summary>A tuple, list, set or frozenset.</summary>
@@ -67,7 +67,7 @@ public sealed class PyMarshal
     private readonly byte[] _data;
     private int _pos, _depth;
     private readonly List<object?> _refs = [];
-    private readonly List<string> _interned = []; // Python 2 'R' references
+    private readonly List<PyBytes> _interned = []; // Python 2 'R' references
     private readonly (int Major, int Minor) _version;
 
     private PyMarshal(byte[] data, int start, (int, int) version)
@@ -152,9 +152,10 @@ public sealed class PyMarshal
             'x' => new PyComplex(ParseFloat(Encoding.ASCII.GetString(Take(Byte()))), ParseFloat(Encoding.ASCII.GetString(Take(Byte())))),
             'y' => new PyComplex(BinaryPrimitives.ReadDoubleLittleEndian(Take(8)), BinaryPrimitives.ReadDoubleLittleEndian(Take(8))),
             's' => new PyBytes(Take(Count()).ToArray()),
-            't' => Interned(Encoding.Latin1.GetString(Take(Count()))),
+            't' when _version.Major == 2 => Interned(new PyBytes(Take(Count()).ToArray())),
+            't' => Utf8(Take(Count())),
             'R' => InternedRef(),
-            'u' => Encoding.UTF8.GetString(Take(Count())),
+            'u' => Utf8(Take(Count())),
             'a' or 'A' => Encoding.Latin1.GetString(Take(Count())),
             'z' or 'Z' => Encoding.Latin1.GetString(Take(Byte())),
             '(' or '[' or '<' or '>' => Sequence(type == '(' ? '(' : type, Count()),
@@ -169,6 +170,28 @@ public sealed class PyMarshal
         return o;
     }
 
+    /// <summary>UTF-8 as marshal writes it, with surrogatepass: an encoded lone surrogate (ED A0..BF xx) stays a lone surrogate.</summary>
+    private static string Utf8(ReadOnlySpan<byte> b)
+    {
+        if (b.IndexOf((byte)0xED) < 0) return Encoding.UTF8.GetString(b);
+        var sb = new StringBuilder(b.Length);
+        int i = 0;
+        while (i < b.Length)
+        {
+            if (b[i] == 0xED && i + 2 < b.Length && b[i + 1] is >= 0xA0 and <= 0xBF && (b[i + 2] & 0xC0) == 0x80)
+            {
+                sb.Append((char)(0xD000 | (b[i + 1] & 0x3F) << 6 | b[i + 2] & 0x3F));
+                i += 3;
+                continue;
+            }
+            int next = b[(i + 1)..].IndexOf((byte)0xED);
+            int end = next < 0 ? b.Length : i + 1 + next;
+            sb.Append(Encoding.UTF8.GetString(b[i..end]));
+            i = end;
+        }
+        return sb.ToString();
+    }
+
     private static double ParseFloat(string s) => s switch
     {
         "inf" => double.PositiveInfinity,
@@ -177,13 +200,13 @@ public sealed class PyMarshal
         _ => double.TryParse(s, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var d) ? d : double.NaN,
     };
 
-    private string Interned(string s)
+    private PyBytes Interned(PyBytes s)
     {
         _interned.Add(s);
         return s;
     }
 
-    private string InternedRef()
+    private PyBytes InternedRef()
     {
         int i = Int32();
         return i >= 0 && i < _interned.Count ? _interned[i] : throw Bad($"string reference {i} not yet read");
@@ -210,7 +233,8 @@ public sealed class PyMarshal
             v = (v << 15) | d;
         }
         if (n < 0) v = -v;
-        return v >= long.MinValue && v <= long.MaxValue ? (long)v : v;
+        // a Python 2 long stays a BigInteger: its repr carries an L
+        return _version.Major >= 3 && v >= long.MinValue && v <= long.MaxValue ? (long)v : v;
     }
 
     private PySequence Sequence(char kind, int n)

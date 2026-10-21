@@ -293,7 +293,7 @@ public sealed class FrozenPythonTests : IDisposable
         Assert.Equal(("<module>", "app.py"), (module.Name, module.Filename));
         var f = Assert.Single(module.Consts.OfType<PyCode>());
         Assert.Equal(("f", 2), (f.Name, f.ArgCount));
-        Assert.Equal(["a", "b"], (major, minor) is (3, >= 11) ? f.LocalsPlusNames : f.VarNames);
+        Assert.Equal(["a", "b"], ((major, minor) is (3, >= 11) ? f.LocalsPlusNames : f.VarNames).Select(PyMarshal.Str));
         // written without back references, read again: the same objects
         var again = Assert.IsType<PyCode>(PyMarshal.Read(PyMarshalWriter.Write(module, (major, minor)), (major, minor)));
         Assert.Equal(PyMarshalWriter.Write(module, (major, minor)), PyMarshalWriter.Write(again, (major, minor)));

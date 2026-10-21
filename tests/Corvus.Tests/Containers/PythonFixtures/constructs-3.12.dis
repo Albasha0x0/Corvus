@@ -1,0 +1,449 @@
+  0           0 RESUME                   0
+
+  1           2 LOAD_CONST               0 (0)
+              4 LOAD_CONST               1 (None)
+              6 IMPORT_NAME              0 (os.path)
+              8 STORE_NAME               1 (os)
+
+  2          10 LOAD_CONST               0 (0)
+             12 LOAD_CONST               2 (('OrderedDict',))
+             14 IMPORT_NAME              2 (collections)
+             16 IMPORT_FROM              3 (OrderedDict)
+             18 STORE_NAME               4 (OD)
+             20 POP_TOP
+
+  4          22 LOAD_CONST               3 (100000000000000000000)
+             24 STORE_NAME               5 (LIMIT)
+
+  5          26 LOAD_CONST               4 (1.5e-05)
+             28 STORE_NAME               6 (RATE)
+
+  6          30 LOAD_CONST               5 ((2-3j))
+             32 STORE_NAME               7 (WAVE)
+
+  7          34 LOAD_CONST               6 (b"it's \x00\xff")
+             36 STORE_NAME               8 (RAW)
+
+  8          38 LOAD_CONST               7 ('tab\t"quote" \u200b 😀')
+             40 STORE_NAME               9 (TEXT)
+
+ 11          42 LOAD_CONST              14 ((2,))
+             44 LOAD_CONST               1 (None)
+             46 LOAD_CONST               8 (('key',))
+             48 BUILD_CONST_KEY_MAP      1
+             50 LOAD_CONST               9 (<code object scale, file "constructs.py", line 11>)
+             52 MAKE_FUNCTION            3 (defaults, kwdefaults)
+             54 STORE_NAME              10 (scale)
+
+ 22          56 LOAD_CONST              10 (<code object counter, file "constructs.py", line 22>)
+             58 MAKE_FUNCTION            0
+             60 STORE_NAME              11 (counter)
+
+ 32          62 PUSH_NULL
+             64 LOAD_BUILD_CLASS
+             66 LOAD_CONST              11 (<code object Store, file "constructs.py", line 32>)
+             68 MAKE_FUNCTION            0
+             70 LOAD_CONST              12 ('Store')
+             72 LOAD_NAME                4 (OD)
+             74 CALL                     3
+             82 STORE_NAME              12 (Store)
+
+ 49          84 LOAD_CONST              13 (<code object main, file "constructs.py", line 49>)
+             86 MAKE_FUNCTION            0
+             88 STORE_NAME              13 (main)
+             90 RETURN_CONST             1 (None)
+
+Disassembly of <code object scale, file "constructs.py", line 11>:
+ 11           0 RESUME                   0
+
+ 12           2 LOAD_CONST               1 (0)
+              4 STORE_FAST               5 (total)
+
+ 13           6 LOAD_FAST                0 (values)
+              8 GET_ITER
+        >>   10 FOR_ITER                17 (to 48)
+             14 STORE_FAST               6 (v)
+
+ 14          16 LOAD_FAST                6 (v)
+             18 LOAD_CONST               2 (frozenset({1, 2, 3}))
+             20 CONTAINS_OP              0
+             22 POP_JUMP_IF_TRUE         2 (to 28)
+             24 LOAD_FAST                6 (v)
+             26 POP_JUMP_IF_NOT_NONE     1 (to 30)
+
+ 15     >>   28 JUMP_BACKWARD           10 (to 10)
+
+ 16     >>   30 LOAD_FAST                5 (total)
+             32 LOAD_FAST                6 (v)
+             34 LOAD_FAST                1 (factor)
+             36 BINARY_OP                5 (*)
+             40 BINARY_OP               13 (+=)
+             44 STORE_FAST               5 (total)
+             46 JUMP_BACKWARD           19 (to 10)
+
+ 13     >>   48 END_FOR
+
+ 17          50 LOAD_FAST                5 (total)
+             52 LOAD_GLOBAL              0 (LIMIT)
+             62 COMPARE_OP              68 (>)
+             66 POP_JUMP_IF_FALSE       15 (to 98)
+
+ 18     >>   68 LOAD_FAST                5 (total)
+             70 LOAD_CONST               3 (2)
+             72 BINARY_OP               15 (//=)
+             76 STORE_FAST               5 (total)
+
+ 17          78 LOAD_FAST                5 (total)
+             80 LOAD_GLOBAL              0 (LIMIT)
+             90 COMPARE_OP              68 (>)
+             94 POP_JUMP_IF_FALSE        1 (to 98)
+             96 JUMP_BACKWARD           15 (to 68)
+
+ 19     >>   98 LOAD_FAST                5 (total)
+            100 LOAD_CONST               4 ('>10')
+            102 FORMAT_VALUE             6 (repr, with format)
+            104 LOAD_CONST               5 (' ')
+            106 LOAD_FAST                2 (key)
+            108 FORMAT_VALUE             0
+            110 BUILD_STRING             3
+            112 RETURN_VALUE
+
+Disassembly of <code object counter, file "constructs.py", line 22>:
+              0 MAKE_CELL                1 (count)
+
+ 22           2 RESUME                   0
+
+ 23           4 LOAD_CONST               1 (0)
+              6 STORE_DEREF              1 (count)
+
+ 25           8 LOAD_CONST               3 ((1,))
+             10 LOAD_CLOSURE             1 (count)
+             12 BUILD_TUPLE              1
+             14 LOAD_CONST               2 (<code object bump, file "constructs.py", line 25>)
+             16 MAKE_FUNCTION            9 (defaults, closure)
+             18 STORE_FAST               0 (bump)
+
+ 29          20 LOAD_FAST                0 (bump)
+             22 RETURN_VALUE
+
+Disassembly of <code object bump, file "constructs.py", line 25>:
+              0 COPY_FREE_VARS           1
+
+ 25           2 RESUME                   0
+
+ 27           4 LOAD_DEREF               1 (count)
+              6 LOAD_FAST                0 (step)
+              8 BINARY_OP               13 (+=)
+             12 STORE_DEREF              1 (count)
+
+ 28          14 LOAD_DEREF               1 (count)
+             16 RETURN_VALUE
+
+Disassembly of <code object Store, file "constructs.py", line 32>:
+ 32           0 RESUME                   0
+              2 LOAD_NAME                0 (__name__)
+              4 STORE_NAME               1 (__module__)
+              6 LOAD_CONST               0 ('Store')
+              8 STORE_NAME               2 (__qualname__)
+             10 SETUP_ANNOTATIONS
+
+ 33          12 LOAD_CONST               1 ('A store.')
+             14 STORE_NAME               3 (__doc__)
+
+ 34          16 LOAD_CONST               2 (0)
+             18 STORE_NAME               4 (size)
+             20 LOAD_NAME                5 (int)
+             22 LOAD_NAME                6 (__annotations__)
+             24 LOAD_CONST               3 ('size')
+             26 STORE_SUBSCR
+
+ 36          30 LOAD_CONST               7 ((None,))
+             32 LOAD_CONST               5 (<code object get, file "constructs.py", line 36>)
+             34 MAKE_FUNCTION            1 (defaults)
+             36 STORE_NAME               7 (get)
+
+ 44          38 LOAD_CONST               6 (<code object fetch, file "constructs.py", line 44>)
+             40 MAKE_FUNCTION            0
+             42 STORE_NAME               8 (fetch)
+             44 RETURN_CONST             4 (None)
+
+Disassembly of <code object get, file "constructs.py", line 36>:
+ 36           0 RESUME                   0
+
+ 37           2 NOP
+
+ 38           4 LOAD_FAST                0 (self)
+              6 LOAD_FAST                1 (name)
+              8 BINARY_SUBSCR
+
+ 42          12 LOAD_FAST                0 (self)
+             14 COPY                     1
+             16 LOAD_ATTR                0 (size)
+             36 LOAD_CONST               1 (1)
+             38 BINARY_OP               23 (-=)
+             42 SWAP                     2
+             44 STORE_ATTR               0 (size)
+             54 RETURN_VALUE
+        >>   56 PUSH_EXC_INFO
+
+ 39          58 LOAD_GLOBAL              2 (KeyError)
+             68 CHECK_EXC_MATCH
+             70 POP_JUMP_IF_FALSE       17 (to 106)
+             72 STORE_FAST               3 (e)
+
+ 40          74 LOAD_GLOBAL              5 (NULL + LookupError)
+             84 LOAD_FAST                1 (name)
+             86 CALL                     1
+             94 LOAD_FAST                3 (e)
+             96 RAISE_VARARGS            2
+        >>   98 LOAD_CONST               0 (None)
+            100 STORE_FAST               3 (e)
+            102 DELETE_FAST              3 (e)
+            104 RERAISE                  1
+
+ 39     >>  106 RERAISE                  0
+        >>  108 COPY                     3
+            110 POP_EXCEPT
+            112 RERAISE                  1
+        >>  114 PUSH_EXC_INFO
+
+ 42         116 LOAD_FAST                0 (self)
+            118 COPY                     1
+            120 LOAD_ATTR                0 (size)
+            140 LOAD_CONST               1 (1)
+            142 BINARY_OP               23 (-=)
+            146 SWAP                     2
+            148 STORE_ATTR               0 (size)
+            158 RERAISE                  0
+        >>  160 COPY                     3
+            162 POP_EXCEPT
+            164 RERAISE                  1
+ExceptionTable:
+  4 to 10 -> 56 [0]
+  56 to 72 -> 108 [1] lasti
+  74 to 96 -> 98 [1] lasti
+  98 to 106 -> 108 [1] lasti
+  108 to 112 -> 114 [0]
+  114 to 158 -> 160 [1] lasti
+
+Disassembly of <code object fetch, file "constructs.py", line 44>:
+ 44           0 RETURN_GENERATOR
+              2 POP_TOP
+              4 RESUME                   0
+
+ 45           6 LOAD_FAST                0 (self)
+              8 LOAD_ATTR                0 (lock)
+             28 BEFORE_ASYNC_WITH
+             30 GET_AWAITABLE            1
+             32 LOAD_CONST               0 (None)
+        >>   34 SEND                     3 (to 44)
+             38 YIELD_VALUE              2
+             40 RESUME                   3
+             42 JUMP_BACKWARD_NO_INTERRUPT     5 (to 34)
+        >>   44 END_SEND
+             46 POP_TOP
+
+ 46          48 LOAD_FAST                0 (self)
+             50 LOAD_ATTR                3 (NULL|self + rows)
+             70 LOAD_FAST                1 (name)
+             72 CALL                     1
+             80 GET_AITER
+             82 LOAD_FAST_AND_CLEAR      2 (x)
+             84 SWAP                     2
+             86 BUILD_LIST               0
+             88 SWAP                     2
+        >>   90 GET_ANEXT
+             92 LOAD_CONST               0 (None)
+        >>   94 SEND                     3 (to 104)
+             98 YIELD_VALUE              5
+            100 RESUME                   3
+            102 JUMP_BACKWARD_NO_INTERRUPT     5 (to 94)
+        >>  104 END_SEND
+            106 STORE_FAST               2 (x)
+            108 LOAD_FAST                2 (x)
+            110 POP_JUMP_IF_TRUE         1 (to 114)
+            112 JUMP_BACKWARD           12 (to 90)
+        >>  114 LOAD_FAST                2 (x)
+            116 LIST_APPEND              2
+            118 JUMP_BACKWARD           15 (to 90)
+
+ 45     >>  120 CLEANUP_THROW
+            122 JUMP_BACKWARD           40 (to 44)
+
+ 46     >>  124 CLEANUP_THROW
+            126 JUMP_BACKWARD           12 (to 104)
+        >>  128 END_ASYNC_FOR
+            130 JUMP_FORWARD             5 (to 142)
+        >>  132 SWAP                     2
+            134 POP_TOP
+            136 SWAP                     2
+            138 STORE_FAST               2 (x)
+            140 RERAISE                  0
+        >>  142 SWAP                     2
+            144 STORE_FAST               2 (x)
+
+ 45         146 SWAP                     2
+            148 LOAD_CONST               0 (None)
+            150 LOAD_CONST               0 (None)
+            152 LOAD_CONST               0 (None)
+            154 CALL                     2
+            162 GET_AWAITABLE            2
+            164 LOAD_CONST               0 (None)
+        >>  166 SEND                     4 (to 178)
+            170 YIELD_VALUE              2
+            172 RESUME                   3
+            174 JUMP_BACKWARD_NO_INTERRUPT     5 (to 166)
+        >>  176 CLEANUP_THROW
+        >>  178 END_SEND
+            180 POP_TOP
+            182 RETURN_VALUE
+        >>  184 PUSH_EXC_INFO
+            186 WITH_EXCEPT_START
+            188 GET_AWAITABLE            2
+            190 LOAD_CONST               0 (None)
+        >>  192 SEND                     4 (to 204)
+            196 YIELD_VALUE              3
+            198 RESUME                   3
+            200 JUMP_BACKWARD_NO_INTERRUPT     5 (to 192)
+        >>  202 CLEANUP_THROW
+        >>  204 END_SEND
+            206 POP_JUMP_IF_TRUE         1 (to 210)
+            208 RERAISE                  2
+        >>  210 POP_TOP
+            212 POP_EXCEPT
+            214 POP_TOP
+            216 POP_TOP
+            218 RETURN_CONST             0 (None)
+        >>  220 COPY                     3
+            222 POP_EXCEPT
+            224 RERAISE                  1
+        >>  226 CALL_INTRINSIC_1         3 (INTRINSIC_STOPITERATION_ERROR)
+            228 RERAISE                  1
+ExceptionTable:
+  4 to 36 -> 226 [0] lasti
+  38 to 38 -> 120 [3]
+  40 to 44 -> 226 [0] lasti
+  46 to 84 -> 184 [1] lasti
+  86 to 88 -> 132 [3]
+  90 to 96 -> 128 [4]
+  98 to 98 -> 124 [6]
+  100 to 104 -> 128 [4]
+  106 to 110 -> 132 [3]
+  114 to 118 -> 132 [3]
+  120 to 120 -> 226 [0] lasti
+  124 to 124 -> 128 [4]
+  128 to 128 -> 132 [3]
+  130 to 144 -> 184 [1] lasti
+  146 to 168 -> 226 [0] lasti
+  170 to 170 -> 176 [3]
+  172 to 182 -> 226 [0] lasti
+  184 to 194 -> 220 [3] lasti
+  196 to 196 -> 202 [6]
+  198 to 210 -> 220 [3] lasti
+  212 to 224 -> 226 [0] lasti
+
+Disassembly of <code object main, file "constructs.py", line 49>:
+ 49           0 RESUME                   0
+
+ 50           2 LOAD_GLOBAL              1 (NULL + open)
+             12 LOAD_GLOBAL              2 (os)
+             22 LOAD_ATTR                4 (path)
+             42 LOAD_ATTR                7 (NULL|self + join)
+             62 LOAD_CONST               1 ('a')
+             64 LOAD_CONST               2 ('b')
+             66 CALL                     2
+             74 CALL                     1
+             82 BEFORE_WITH
+             84 STORE_FAST               0 (f)
+
+ 51          86 LOAD_GLOBAL              9 (NULL + enumerate)
+             96 LOAD_FAST                0 (f)
+             98 CALL                     1
+            106 GET_ITER
+            108 LOAD_FAST_AND_CLEAR      1 (k)
+            110 LOAD_FAST_AND_CLEAR      2 (v)
+            112 SWAP                     3
+            114 BUILD_MAP                0
+            116 SWAP                     2
+        >>  118 FOR_ITER                25 (to 172)
+            122 UNPACK_SEQUENCE          2
+            126 STORE_FAST               1 (k)
+            128 STORE_FAST               2 (v)
+            130 LOAD_GLOBAL             11 (NULL + len)
+            140 LOAD_FAST                2 (v)
+            142 CALL                     1
+            150 COPY                     1
+            152 STORE_FAST               3 (n)
+            154 LOAD_CONST               3 (2)
+            156 COMPARE_OP              68 (>)
+            160 POP_JUMP_IF_TRUE         1 (to 164)
+            162 JUMP_BACKWARD           23 (to 118)
+        >>  164 LOAD_FAST                1 (k)
+            166 LOAD_FAST                2 (v)
+            168 MAP_ADD                  2
+            170 JUMP_BACKWARD           27 (to 118)
+        >>  172 END_FOR
+            174 STORE_FAST               4 (data)
+            176 STORE_FAST               1 (k)
+            178 STORE_FAST               2 (v)
+
+ 50         180 LOAD_CONST               0 (None)
+            182 LOAD_CONST               0 (None)
+            184 LOAD_CONST               0 (None)
+            186 CALL                     2
+            194 POP_TOP
+
+ 52     >>  196 LOAD_GLOBAL             13 (NULL + print)
+            206 LOAD_FAST_CHECK          4 (data)
+            208 LOAD_CONST               4 ('sep')
+            210 LOAD_CONST               5 (', ')
+            212 BUILD_MAP                1
+            214 CALL_FUNCTION_EX         1
+            216 POP_TOP
+
+ 53         218 LOAD_GLOBAL             15 (NULL + scale)
+            228 LOAD_FAST                4 (data)
+            230 LOAD_ATTR               17 (NULL|self + values)
+            250 CALL                     0
+            258 LOAD_CONST               6 (3)
+            260 LOAD_CONST               7 (<code object <lambda>, file "constructs.py", line 53>)
+            262 MAKE_FUNCTION            0
+            264 KW_NAMES                 8 (('key',))
+            266 CALL                     3
+            274 LOAD_CONST               9 (1)
+            276 LOAD_CONST              10 (-1)
+            278 BINARY_SLICE
+            280 RETURN_VALUE
+        >>  282 SWAP                     2
+            284 POP_TOP
+
+ 51         286 SWAP                     3
+            288 STORE_FAST               2 (v)
+            290 STORE_FAST               1 (k)
+            292 RERAISE                  0
+
+ 50     >>  294 PUSH_EXC_INFO
+            296 WITH_EXCEPT_START
+            298 POP_JUMP_IF_TRUE         1 (to 302)
+            300 RERAISE                  2
+        >>  302 POP_TOP
+            304 POP_EXCEPT
+            306 POP_TOP
+            308 POP_TOP
+            310 JUMP_BACKWARD           58 (to 196)
+        >>  312 COPY                     3
+            314 POP_EXCEPT
+            316 RERAISE                  1
+ExceptionTable:
+  84 to 112 -> 294 [1] lasti
+  114 to 160 -> 282 [4]
+  164 to 172 -> 282 [4]
+  174 to 178 -> 294 [1] lasti
+  282 to 292 -> 294 [1] lasti
+  294 to 302 -> 312 [3] lasti
+
+Disassembly of <code object <lambda>, file "constructs.py", line 53>:
+ 53           0 RESUME                   0
+              2 LOAD_FAST                0 (x)
+              4 UNARY_NEGATIVE
+              6 RETURN_VALUE

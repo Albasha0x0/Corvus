@@ -51,12 +51,6 @@ public static class PyMarshalWriter
                 w.Write(bytes.Value.Length);
                 w.Write(bytes.Value);
                 break;
-            case string s when v.Major == 2:
-                var latin = Encoding.Latin1.GetBytes(s);
-                w.Write((byte)'t');
-                w.Write(latin.Length);
-                w.Write(latin);
-                break;
             case string s:
                 var utf8 = Encoding.UTF8.GetBytes(s);
                 w.Write((byte)'u');

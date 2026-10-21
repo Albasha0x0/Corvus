@@ -193,6 +193,7 @@ Optional. `server_status` shows where each was found, its version, or the fix.
 | `CORVUS_JAVA` | JDK 17+ (`JAVA_HOME`, `PATH`) | The Java decompilers. |
 | `CORVUS_JAVA_DECOMPILER` | [jadx-headless-mcp](https://github.com/1013503897/jadx-headless-mcp) jar | `decompile_java`: Java and Kotlin source. |
 | `CORVUS_JAVA_DECOMPILER2` | [Vineflower](https://github.com/Vineflower/vineflower) jar | `decompile_java engine=vineflower`. |
+| `CORVUS_PY_DECOMPILER` | [pycdc](https://github.com/zrax/pycdc), or a program that prints the source of the `.pyc` it is given | Python source beside the disassembly in `summarize_file view=python`; used only when set. |
 | `CORVUS_ADB` | `adb` (`PATH`, Android SDK) | The Android device tools. |
 | `CORVUS_TSHARK` | `tshark` 3+ (`PATH`, Wireshark folder) | Packet filters on fields not decoded in-process. |
 | `CORVUS_DIE` | Detect It Easy `diec` | `unity_overview detectItEasy=true`. |
