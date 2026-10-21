@@ -23,7 +23,7 @@ public sealed class WasmImage : INativeImage
     public NativeArch Arch => NativeArch.Wasm;
     public bool Is64Bit => Module.Memories.Any(m => m.Is64) || Module.Imports.Any(i => i.Memory is { Is64: true });
     public string MachineName => "WebAssembly";
-    public long FileSize => _data.Length;
+    public long FileSize { get; }
     public bool IsDll => true;
     public ulong ImageBase => 0;
     public uint EntryPointRva { get; }
@@ -58,13 +58,28 @@ public sealed class WasmImage : INativeImage
     public WasmImage(byte[] bytes, string path)
     {
         if (!WasmBinary.Looks(bytes)) throw new ToolError(ErrorCode.MalformedInput, $"{path} is not a WebAssembly module.");
-        _data = bytes;
         Path = path;
         Sha256 = Convert.ToHexStringLower(SHA256.HashData(bytes));
+        FileSize = bytes.Length;
+        ParseIssue? component = null;
+        if (WasmComponent.Looks(bytes))
+        {
+            // a component holds no code of its own: its largest core module (the program; the others are adapters and shims) is the view
+            var modules = WasmComponent.CoreModules(bytes);
+            if (modules.Count > 0)
+            {
+                var main = modules.MaxBy(x => x.Length);
+                bytes = bytes.AsSpan(main.Offset, main.Length).ToArray();
+                component = new ParseIssue("wasm", $"a WebAssembly component of {modules.Count} core modules: this view is {main.Name} (file offset 0x{main.Offset:X}), " +
+                                                   "addresses are offsets in it; unpack_container extracts each core module");
+            }
+        }
+        _data = bytes;
         Module = WasmBinary.Read(bytes);
         var m = Module;
         SizeOfImage = (uint)bytes.Length;
-        Issues = [.. m.Issues.Select(i => new ParseIssue("wasm", i)), .. m.Unsupported != null ? [new ParseIssue("wasm", $"not modelled: {m.Unsupported}")] : Array.Empty<ParseIssue>()];
+        Issues = [.. component != null ? [component] : Array.Empty<ParseIssue>(), .. m.Issues.Select(i => new ParseIssue("wasm", i)),
+            .. m.Unsupported != null ? [new ParseIssue("wasm", $"not modelled: {m.Unsupported}")] : Array.Empty<ParseIssue>()];
         Sections = [.. m.Sections.Select(s => new NativeSection(WasmBinary.Name(s.Id), (uint)s.Start, (uint)(s.End - s.Start), (uint)s.Start, (uint)(s.End - s.Start),
             s.Id == 10 ? SectionAccess.Read | SectionAccess.Execute | SectionAccess.Code : SectionAccess.Read, s.Id))];
         Imports = [.. m.Imports.Where(i => i.Kind == WasmExternal.Func).Select(i => new NativeImport(i.Module, i.Name, null, 0, (uint)i.Offset, false))];

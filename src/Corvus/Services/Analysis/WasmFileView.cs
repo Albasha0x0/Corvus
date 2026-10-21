@@ -22,8 +22,11 @@ internal sealed class WasmFileView : IFileSummaryView
     public FileView? Inspect(FileInput file, CancellationToken ct)
     {
         if (!WasmModule.IsWasm(file.Head)) return null;
-        var compact = file.Wasm;
-        var bytes = compact?.Bytes ?? file.Bytes;
+        // a component's facts are its largest core module's: the program, beside adapters and shims
+        var cores = Core.WebAssembly.WasmComponent.Looks(file.Head) ? Core.WebAssembly.WasmComponent.CoreModules(file.Bytes) : null;
+        var main = cores is { Count: > 0 } ? cores.MaxBy(c => c.Length) : default;
+        var compact = cores == null ? file.Wasm : null;
+        var bytes = main.Name != null ? file.Bytes.AsSpan(main.Offset, main.Length).ToArray() : compact?.Bytes ?? file.Bytes;
         var m = WasmModule.Read(bytes);
         var binary = Core.WebAssembly.WasmBinary.Read(bytes, ct);
         if (compact != null)
@@ -48,11 +51,12 @@ internal sealed class WasmFileView : IFileSummaryView
                 Imports = [.. glue.Imports.Where(b => b.Value == null).Take(50), .. glue.Imports.Where(b => b.Value != null).Take(100 - Math.Min(50, glue.Total - glue.Matched))],
             },
         };
-        var highlights = new List<string>
-        {
-            $"WebAssembly module: {m.DefinedFunctions:N0} functions, {m.Imports.Count} imports from {facts.ImportsByModule.Count} module(s), {m.Exports.Count} exports" +
-            (toolchain != null ? $"; built by {toolchain}" : "") + ".",
-        };
+        var highlights = new List<string>();
+        if (cores != null)
+            highlights.Add($"WebAssembly component of {cores.Count} core modules ({string.Join(", ", cores.Select(c => $"{c.Name} {c.Length:N0} bytes"))})" +
+                           (main.Name != null ? $"; the module facts are {main.Name}'s, the largest; unpack_container extracts each." : "."));
+        highlights.Add($"WebAssembly module: {m.DefinedFunctions:N0} functions, {m.Imports.Count} imports from {facts.ImportsByModule.Count} module(s), {m.Exports.Count} exports" +
+                       (toolchain != null ? $"; built by {toolchain}" : "") + ".");
         if (compact is { Omitted: > 0 })
             highlights.Add($"Read as a stream: {compact.Omitted:N0} bytes of data segment contents and large custom sections not held" +
                            (compact.OmittedBeforeCode > 0 ? $"; code offsets are {compact.OmittedBeforeCode:N0} lower than the file's." : "."));

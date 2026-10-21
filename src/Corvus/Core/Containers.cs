@@ -75,6 +75,13 @@ public static class Containers
         if (kind is "text" or "data" && Captures.LooksLikeFlows(data)) return Captures.Open(data, flows: true, allFiles, limits, ct)!;
         if (kind == "zip") return OpenZip(data, name, limits, ct, allFiles);
         if (kind == "jmod") return OpenZip(data[4..], name, limits, ct) with { Kind = "JMOD (Java module)" };
+        if (kind == "wasm" && WebAssembly.WasmComponent.Looks(data))
+        {
+            var notes = new List<string>();
+            var modules = WebAssembly.WasmComponent.CoreModules(data, notes);
+            notes.Insert(0, $"a WebAssembly component of {modules.Count} core modules" + (modules.Count > 0 ? ": " + string.Join(", ", modules.Select(m => $"{m.Name} ({m.Length:N0} bytes at 0x{m.Offset:X})")) : ""));
+            return new ContainerContents("wasm component", [.. modules.Take(limits.MaxItems).Select(m => new ExtractedItem(m.Name, data.AsSpan(m.Offset, m.Length).ToArray(), "wasm component core module"))], notes);
+        }
         if (kind is "wasm" or "webcil")
         {
             // Named by the assembly, not the fingerprinted file (App.3tcu7b1rf6.wasm), so references to it resolve in the output folder.
