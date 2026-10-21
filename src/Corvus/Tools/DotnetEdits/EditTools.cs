@@ -176,8 +176,8 @@ public sealed class EditTools(AssemblyWorkspace workspace, EditService edits, Ed
         }, cancellationToken);
 
     [McpServerTool(Name = "apply_edits", Title = "Apply an edit script", UseStructuredContent = true, OutputSchemaType = typeof(EditOutcome))]
-    [Description("Replay an export_edits script, each edit with its outcome. Another build needs targetBuild=other: symbols by name, renames followed when " +
-                 "the source build is loaded.")]
+    [Description("Replay an export_edits script, each edit with its outcome. Another build needs targetBuild=other: symbols by name, renames followed " +
+                 "when the source build is loaded.")]
     public Task<string> ApplyEdits(
         [Description("The .json edit script.")] string path,
         [Description("Target assembly; omit for the one named in the script.")] string? assembly = null,

@@ -18,7 +18,7 @@ public sealed class ReadyToRunTools(AssemblyWorkspace workspace, ReadyToRunServi
 
     [McpServerTool(Name = "get_r2r_code", Title = "ReadyToRun native code of a method", UseStructuredContent = true, OutputSchemaType = typeof(CodePage))]
     [Description("Precompiled native code of a method in a ReadyToRun assembly (shared framework too): entry, code ranges, fixup cells and x86 / x64 " +
-                 "disassembly with cells named by what they resolve to; generics per compiled instantiation, composite images included.")]
+                 "disassembly with cells named by their targets; generics per compiled instantiation, composite images included.")]
     public Task<string> GetR2RCode(
         [Description(SymbolDescription)] string method,
         [Description(AssemblyFilterDescription)] string? assembly = null,

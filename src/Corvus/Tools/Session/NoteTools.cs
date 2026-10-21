@@ -24,8 +24,8 @@ public sealed partial class NoteTools(AssemblyWorkspace workspace, NotesService 
     private const string EvidenceDescription = "At most 10: {result: r-... or last:N, expect: supports|refutes}, {tool, args} of a call made here, or {text}.";
 
     [McpServerTool(Name = "record_note", Title = "Record a note", UseStructuredContent = true)]
-    [Description("Record a finding, question, hypothesis or todo anchored to a native address, a .NET member, a file or a dump; notes persist per " +
-                 "user, keyed by SHA-256 or MVID so they follow the binary; decompile_member and decompile_native count the open notes of a target.")]
+    [Description("Record a finding, question, hypothesis or todo anchored to a native address, .NET member, file or dump; notes persist per user, " +
+                 "keyed by SHA-256 or MVID so they follow the binary; decompile_member and decompile_native count open notes of a target.")]
     public Task<Note> RecordNote(
         [Description("At most 4,000 characters.")] string text,
         [Description("Default finding.")] string? kind = null,
@@ -42,8 +42,7 @@ public sealed partial class NoteTools(AssemblyWorkspace workspace, NotesService 
 
     [McpServerTool(Name = "update_note", Title = "Update a note", UseStructuredContent = true)]
     [Description("Change part of a note: status, kind, text, tags, evidence; verify=true re-checks linked records and sets a hypothesis confirmed or " +
-                 "refuted when they verify and name its anchor, else open. A stale expectedRevision is a conflict carrying the note " +
-                 "(details.current).")]
+                 "refuted when they verify and name its anchor, else open. A stale expectedRevision is a conflict carrying the note.")]
     public Task<Note> UpdateNote(
         [Description("Note id.")] string id,
         [Description("The revision last read.")] int expectedRevision,

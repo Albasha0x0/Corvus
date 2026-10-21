@@ -82,7 +82,7 @@ public sealed class BrowseTools(AssemblyWorkspace workspace, ReferenceService re
     [McpServerTool(Name = "get_type_info", Title = "Type outline", UseStructuredContent = true, OutputSchemaType = typeof(TypeOutline))]
     [Description("Outline of a type without decompiling: declaration, attributes, member counts, the first members of each kind; section= pages one " +
                  "kind (constants, enum values, signatures, tokens, IL sizes, Il2Cpp RVAs). A field: its value or FieldRVA data (file offset, " +
-                 "SHA-256, readers, typed elements, hex rows).")]
+                 "SHA-256, readers, typed elements).")]
     public Task<string> GetTypeInfo(
         [Description(SymbolDescription)] string type,
         [Description(AssemblyFilterDescription)] string? assembly = null,

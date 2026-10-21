@@ -12,7 +12,7 @@ public sealed class AssemblyInfoTools(AssemblyWorkspace workspace, AssemblyRepor
 {
     [McpServerTool(Name = "get_assembly_info", Title = "Assembly overview", UseStructuredContent = true, OutputSchemaType = typeof(AssemblyReport.Summary))]
     [Description("Assembly overview: identity (MVID, SHA-256), framework, entry point, counts, Il2Cpp, invalid IL, protection product, edits; " +
-                 "view=references: where references resolve; metadata: PE headers, streams, tables, heaps, metadata problems, attributes.")]
+                 "view=references: where references resolve; metadata: PE headers, streams, tables, heaps, metadata problems.")]
     public Task<string> GetAssemblyInfo(
         [Description(AssemblyDescription)] string assembly,
         [Description("What to show.")] string view = "summary",

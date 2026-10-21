@@ -13,7 +13,7 @@ public sealed class SearchTools(AssemblyWorkspace workspace, SearchService searc
 {
     [McpServerTool(Name = "search_symbols", Title = "Search symbols by name", UseStructuredContent = true, OutputSchemaType = typeof(SymbolList))]
     [Description("Find types and members by name across loaded assemblies: case-insensitive substring, wildcard (Get*Value?) or regex; queries with . " +
-                 "or :: also match full names. Exact matches first, then by name length; ties by assembly and token.")]
+                 "or :: match full names. Exact matches first, then by name length, assembly and token.")]
     public Task<string> SearchSymbols(
         [Description("Name, substring, wildcard or regex.")] string query,
         [Description("Restrict to this kind.")] string? kind = null,

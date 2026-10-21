@@ -15,7 +15,7 @@ public sealed partial class ResourceTools(AssemblyWorkspace workspace, ResourceS
 {
     [McpServerTool(Name = "list_resources", Title = "List manifest resources", UseStructuredContent = true, OutputSchemaType = typeof(ResourceList))]
     [Description("Manifest resources (embedded, .resources with entry counts, linked) with SHA-256 and file offsets; for a native image its Win32 " +
-                 "resources as TYPE/NAME/LANGUAGE with file ranges (icon groups paired with their icons, image headers decoded).")]
+                 "resources as TYPE/NAME/LANGUAGE with file ranges (icon groups paired with icons, image headers decoded).")]
     public Task<string> ListResources(
         [Description(AssemblyDescription)] string assembly,
         [Description(RowOffsetDescription)] int offset = 0,

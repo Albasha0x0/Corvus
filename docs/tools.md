@@ -140,7 +140,7 @@ Structured output: `id`, `tool`, `totalChars`, `offset`, `nextOffset`, `code`, `
 
 **Save the session** (destructive, idempotent)
 
-Write the session's work to one JSON file: loaded files (path, relative path, SHA-256), .NET edits, native patches, names, comments, notes, Il2Cpp games, open minidumps; load_session restores it on any machine.
+Write the session's work to one JSON file: loaded files (path, relative path, SHA-256), .NET edits, native patches, names, comments, notes, Il2Cpp games, open minidumps; load_session restores it anywhere.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -212,7 +212,7 @@ Structured output: `items`, `offset`, `total`, `notEvaluated`, `totalExact`, `li
 
 **Type outline** (read-only, idempotent)
 
-Outline of a type without decompiling: declaration, attributes, member counts, the first members of each kind; section= pages one kind (constants, enum values, signatures, tokens, IL sizes, Il2Cpp RVAs). A field: its value or FieldRVA data (file offset, SHA-256, readers, typed elements, hex rows).
+Outline of a type without decompiling: declaration, attributes, member counts, the first members of each kind; section= pages one kind (constants, enum values, signatures, tokens, IL sizes, Il2Cpp RVAs). A field: its value or FieldRVA data (file offset, SHA-256, readers, typed elements).
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -230,7 +230,7 @@ Structured output: `type`, `declaration`, `counts`, `section`, `items`, `offset`
 
 **Assembly overview** (read-only, idempotent)
 
-Assembly overview: identity (MVID, SHA-256), framework, entry point, counts, Il2Cpp, invalid IL, protection product, edits; view=references: where references resolve; metadata: PE headers, streams, tables, heaps, metadata problems, attributes.
+Assembly overview: identity (MVID, SHA-256), framework, entry point, counts, Il2Cpp, invalid IL, protection product, edits; view=references: where references resolve; metadata: PE headers, streams, tables, heaps, metadata problems.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -328,7 +328,7 @@ Structured output: `language`, `code`, `offset`, `nextOffset`, `totalChars`, `sy
 
 **Search symbols by name** (read-only, idempotent)
 
-Find types and members by name across loaded assemblies: case-insensitive substring, wildcard (Get*Value?) or regex; queries with . or :: also match full names. Exact matches first, then by name length; ties by assembly and token.
+Find types and members by name across loaded assemblies: case-insensitive substring, wildcard (Get*Value?) or regex; queries with . or :: match full names. Exact matches first, then by name length, assembly and token.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -433,7 +433,7 @@ Structured output: `method`, `items`, `offset`, `total`, `limit`, `totalExact`, 
 
 **Call tree (callers / callees)** (read-only, idempotent)
 
-Multi-level callers or callees of a method across loaded assemblies, one row per node in tree order; calls via base / interface methods, repeats and recursion are marked. Continues through P/Invokes and C++/CLI into loaded native code; takes a native export too.
+Multi-level callers or callees of a method across loaded assemblies, one row per node in tree order; calls via base / interface methods, repeats and recursion marked. Continues through P/Invokes and C++/CLI into loaded native code; takes a native export too.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -471,7 +471,7 @@ Structured output: `target`, `items`, `offset`, `total`, `from`, `totalExact`, `
 
 **List manifest resources** (read-only, idempotent)
 
-Manifest resources (embedded, .resources with entry counts, linked) with SHA-256 and file offsets; for a native image its Win32 resources as TYPE/NAME/LANGUAGE with file ranges (icon groups paired with their icons, image headers decoded).
+Manifest resources (embedded, .resources with entry counts, linked) with SHA-256 and file offsets; for a native image its Win32 resources as TYPE/NAME/LANGUAGE with file ranges (icon groups paired with icons, image headers decoded).
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -518,7 +518,7 @@ Structured output: `applied`, `source`, `outputDirectory`, `files`, `projectFile
 
 **ReadyToRun native code of a method** (read-only, idempotent)
 
-Precompiled native code of a method in a ReadyToRun assembly (shared framework too): entry, code ranges, fixup cells and x86 / x64 disassembly with cells named by what they resolve to; generics per compiled instantiation, composite images included.
+Precompiled native code of a method in a ReadyToRun assembly (shared framework too): entry, code ranges, fixup cells and x86 / x64 disassembly with cells named by their targets; generics per compiled instantiation, composite images included.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -2034,7 +2034,7 @@ Analyst notes kept per binary across sessions.
 
 **Record a note** (edit)
 
-Record a finding, question, hypothesis or todo anchored to a native address, a .NET member, a file or a dump; notes persist per user, keyed by SHA-256 or MVID so they follow the binary; decompile_member and decompile_native count the open notes of a target.
+Record a finding, question, hypothesis or todo anchored to a native address, .NET member, file or dump; notes persist per user, keyed by SHA-256 or MVID so they follow the binary; decompile_member and decompile_native count open notes of a target.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -2051,7 +2051,7 @@ Structured output: `id`, `kind`, `status`, `text`, `tags`, `evidence`, `anchor`,
 
 **Update a note** (destructive, idempotent)
 
-Change part of a note: status, kind, text, tags, evidence; verify=true re-checks linked records and sets a hypothesis confirmed or refuted when they verify and name its anchor, else open. A stale expectedRevision is a conflict carrying the note (details.current).
+Change part of a note: status, kind, text, tags, evidence; verify=true re-checks linked records and sets a hypothesis confirmed or refuted when they verify and name its anchor, else open. A stale expectedRevision is a conflict carrying the note.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|

@@ -19,8 +19,7 @@ public sealed class CallGraphTools(AssemblyWorkspace workspace, CallGraphService
 
     [McpServerTool(Name = "get_call_tree", Title = "Call tree (callers / callees)", UseStructuredContent = true, OutputSchemaType = typeof(CallTree))]
     [Description("Multi-level callers or callees of a method across loaded assemblies, one row per node in tree order; calls via base / interface " +
-                 "methods, repeats and recursion are marked. Continues through P/Invokes and C++/CLI into loaded native code; takes a native export " +
-                 "too.")]
+                 "methods, repeats and recursion marked. Continues through P/Invokes and C++/CLI into loaded native code; takes a native export too.")]
     public async Task<string> GetCallTree(
         [Description(SymbolOrNativeDescription)] string method,
         [Description("callers or callees.")] string direction = "callers",

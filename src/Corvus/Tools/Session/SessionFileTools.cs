@@ -36,7 +36,7 @@ public sealed class SessionFileTools(AssemblyWorkspace workspace, SessionService
 
     [McpServerTool(Name = "save_session", Title = "Save the session", UseStructuredContent = true, OutputSchemaType = typeof(SessionSaved))]
     [Description("Write the session's work to one JSON file: loaded files (path, relative path, SHA-256), .NET edits, native patches, names, " +
-                 "comments, notes, Il2Cpp games, open minidumps; load_session restores it on any machine.")]
+                 "comments, notes, Il2Cpp games, open minidumps; load_session restores it anywhere.")]
     public Task<string> SaveSession(
         [Description("Output file path (.json).")] string outputPath,
         [Description("Replace the file if it exists.")] bool overwrite = false,
