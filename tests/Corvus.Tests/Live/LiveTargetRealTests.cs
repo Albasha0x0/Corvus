@@ -237,6 +237,29 @@ public sealed class LiveTargetRealTests(ITestOutputHelper output) : LiveToolCall
         Assert.Empty(Process.GetProcessesByName("orders"));
     }
 
+    // ---- a statically linked program: refused with the cause before Frida's loader runs, started or running
+
+    [LiveTargetFact("linux-x64", attaches: true)] public Task Static_program_is_refused_on_linux_x64() => StaticRefused(LiveTarget.LinuxX64);
+    [LiveTargetFact("linux-x86", attaches: true)] public Task Static_program_is_refused_on_linux_x86() => StaticRefused(LiveTarget.LinuxX86);
+
+    private async Task StaticRefused(LiveTarget target)
+    {
+        var exe = target.Build(_dir, "orders", LivePrograms.Orders, linkStatic: true);
+        await using var server = await Server();
+        Assert.Contains("statically linked", await Refused(server, "live_session", new() { ["action"] = "spawn", ["program"] = exe, ["arguments"] = new[] { "3", "0" } }, "unsupported"));
+        using var running = Process.Start(new ProcessStartInfo(exe) { ArgumentList = { "1000", "20" }, RedirectStandardOutput = true })!;
+        try
+        {
+            Assert.Contains("statically linked", await Refused(server, "live_session", new() { ["action"] = "attach", ["program"] = running.Id.ToString(CultureInfo.InvariantCulture) }, "unsupported"));
+            Assert.False(running.HasExited, "the refusal touched the running program");
+        }
+        finally
+        {
+            running.Kill();
+            running.WaitForExit(10_000);
+        }
+    }
+
     // ---- scripts: load, list, messages, unload
 
     [LiveTargetFact("win-x64")] public Task Scripts_on_win_x64() => Scripts(LiveTarget.WinX64);

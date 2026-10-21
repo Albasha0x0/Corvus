@@ -339,8 +339,14 @@ public sealed partial class LiveSessionService(AssemblyWorkspace workspace, Nati
         {
             target = InputFiles.RequireRegularFile(target, "program");
             if (!File.Exists(target)) throw new ToolError(ErrorCode.NotFound, $"No program at {target}.", "program=<path to the program's file>");
+            if (Native.Live.StaticProgram.Is(target)) throw Native.Live.StaticProgram.Refusal(target);
         }
-        else LiveProgramScope.RefuseOwnChain(target);
+        else
+        {
+            LiveProgramScope.RefuseOwnChain(target);
+            if (int.TryParse(target, out var id) && OperatingSystem.IsLinux() && LiveProgramScope.ImagePath(id) is { } image && Native.Live.StaticProgram.Is(image))
+                throw Native.Live.StaticProgram.Refusal(image);
+        }
         var worker = Backend.Start();
         var session = new LiveSession("live-" + Interlocked.Increment(ref _next), Backend.Name, target, spawn, worker) { DownloadDac = downloadDac };
         worker.EventReceived += e => OnEvent(session, e);
@@ -410,6 +416,10 @@ public sealed partial class LiveSessionService(AssemblyWorkspace workspace, Nati
             // the backend sees only that tracing failed (a started program exits with status 1); the setting says why
             if (e is ToolError { Code: ErrorCode.Failed or ErrorCode.AccessDenied } t && Native.Live.PtraceScope.Refusing(started: spawn) is { } scope)
                 throw Native.Live.PtraceScope.Refusal(scope, t.Message);
+            // a program attached by name is checked once the injection failed
+            if (!spawn && OperatingSystem.IsLinux() && e is ToolError { Code: ErrorCode.Failed } && !int.TryParse(target, out _)
+                && System.Diagnostics.Process.GetProcessesByName(target).Select(p => LiveProgramScope.ImagePath(p.Id)).FirstOrDefault(i => i != null && Native.Live.StaticProgram.Is(i)) is { } named)
+                throw Native.Live.StaticProgram.Refusal(named);
             // the agent refused on Windows: a sandbox token (a Chromium child) is the usual cause, read from the target
             if (!spawn && e is ToolError { Code: ErrorCode.Failed } f && f.Message.Contains("refused to load", StringComparison.Ordinal)
                 && int.TryParse(target, out var pid) && Native.Providers.Live.ProcessSandbox.Describe(pid) is { } sandbox)

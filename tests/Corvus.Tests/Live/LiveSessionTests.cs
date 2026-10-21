@@ -222,6 +222,24 @@ public sealed class LiveSessionTests : IDisposable
     }
 
     [Fact]
+    public async Task A_program_with_no_program_interpreter_is_refused_before_a_worker_starts()
+    {
+        using var dir = new TempDir();
+        var linked = dir.File("linked");
+        File.WriteAllBytes(linked, new NativeFormats.ElfWriter { Machine = NativeFormats.ElfWriter.EmX64, Type = 2, Interpreter = "/lib64/ld-linux-x86-64.so.2" }.Build());
+        var unlinked = dir.File("unlinked");
+        File.WriteAllBytes(unlinked, new NativeFormats.ElfWriter { Machine = NativeFormats.ElfWriter.EmX64, Type = 2 }.Build());
+        Assert.False(Corvus.Native.Live.StaticProgram.Is(linked));
+        Assert.True(Corvus.Native.Live.StaticProgram.Is(unlinked));
+
+        var refused = await Assert.ThrowsAsync<ToolError>(() => _tools.LiveSession("spawn", program: unlinked));
+        Assert.Equal(ErrorCode.Unsupported, refused.Code);
+        Assert.Contains("statically linked", refused.Message);
+        Assert.Contains("gcore", refused.Remediation);
+        Assert.Null(_backend.Worker);
+    }
+
+    [Fact]
     public async Task A_thread_that_stops_again_before_the_resume_reply_keeps_its_new_stop()
     {
         await _tools.LiveSession("spawn", program: Sqlite);

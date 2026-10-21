@@ -59,11 +59,14 @@ internal sealed class LiveTarget
         return code == 0 ? null : $"gcc cannot build {Name} programs here ({(Is64 ? "" : "gcc-multilib, ")}{log.Trim().Split('\n')[^1]}).";
     }
 
-    /// <summary>Compiles <paramref name="source"/> into <c>name</c>(.exe) in <paramref name="dir"/>, unoptimized with full debug information.</summary>
-    public string Build(TempDir dir, string name, string source)
+    /// <summary>
+    /// Compiles <paramref name="source"/> into <c>name</c>(.exe) in <paramref name="dir"/>, unoptimized with full debug information;
+    /// <paramref name="linkStatic"/> links the C library in (gcc only).
+    /// </summary>
+    public string Build(TempDir dir, string name, string source, bool linkStatic = false)
     {
         File.WriteAllText(dir.File(name + ".c"), source);
-        var (code, log) = Tools.Run(Windows ? Msvc(dir, name) : Gcc(dir, name), 300_000);
+        var (code, log) = Tools.Run(Windows ? Msvc(dir, name) : Gcc(dir, name, linkStatic: linkStatic), 300_000);
         Assert.True(code == 0 && File.Exists(dir.File(Exe(name))), log);
         return dir.File(Exe(name));
     }
@@ -86,10 +89,10 @@ internal sealed class LiveTarget
         Arguments = $"/s /c \"\"{VisualStudio.VcVarsAll()}\" {(Is64 ? "x64" : "x86")} >nul && cl /nologo /Od {(debugInfo ? "/Zi " : "")}{(library ? "/LD " : "")}{name}.c /link {(debugInfo ? "/DEBUG:FULL" : "/DEBUG:NONE")} /INCREMENTAL:NO /OUT:{(library ? Library(name) : name + ".exe")}\"",
     };
 
-    private ProcessStartInfo Gcc(TempDir dir, string name, bool library = false, bool debugInfo = true)
+    private ProcessStartInfo Gcc(TempDir dir, string name, bool library = false, bool debugInfo = true, bool linkStatic = false)
     {
         var psi = new ProcessStartInfo("gcc") { WorkingDirectory = dir.Path };
-        foreach (var a in new[] { debugInfo ? "-g" : "-g0", "-O0", "-fno-omit-frame-pointer", Arm64 ? "" : Is64 ? "-m64" : "-m32" })
+        foreach (var a in new[] { debugInfo ? "-g" : "-g0", "-O0", "-fno-omit-frame-pointer", Arm64 ? "" : Is64 ? "-m64" : "-m32", linkStatic ? "-static" : "" })
             if (a.Length > 0) psi.ArgumentList.Add(a);
         foreach (var a in library ? ["-fPIC", "-shared", "-o", Library(name), name + ".c"] : new[] { "-o", name, name + ".c", "-lpthread", "-ldl" }) psi.ArgumentList.Add(a);
         return psi;

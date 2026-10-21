@@ -282,5 +282,8 @@ of the same program (3,020 functions, statically linked C runtime): stop points 
   session and snapshot fails that way.
 - On musl libc (Alpine), sessions attach to running programs; starting a program fails with Frida's
   `ProcessNotRespondingError` and leaves nothing running.
+- A statically linked Linux program (no program interpreter, as most Go programs and busybox) is refused with
+  `unsupported` before anything starts: Frida loads its agent through the program's dynamic loader and C library, so it
+  can neither start nor attach to one. Read the file statically, or write a core with `gcore` and open it with `open_minidump`.
 - Sessions on Linux report a thread's start from `pthread_create`; a thread made with a bare `clone` has only its `ended`
   event. A stop's stack is unwound from the 32 KiB above its stack pointer; deeper frames are the stack scan's.
