@@ -128,6 +128,12 @@ internal abstract class WorkerSessionBase(NativeOpenOptions options) : IAsyncDis
     /// <summary>The database (file or project directory) the session works on, once chosen.</summary>
     protected virtual string? DatabaseLocation => null;
 
+    /// <summary>Records on disk whether the saved database holds a complete analysis, for processes that have not opened it.</summary>
+    protected void RecordAnalysis(bool complete)
+    {
+        if (!ReadOnlySnapshot && Options.Analysis != EngineAnalysis.None && DatabaseLocation is { } db) PartialAnalysis.Record(db, complete);
+    }
+
     /// <summary>What the session does now, from its own bookkeeping (never a worker request, so it answers while the worker is busy).</summary>
     public EngineSessionState State()
     {

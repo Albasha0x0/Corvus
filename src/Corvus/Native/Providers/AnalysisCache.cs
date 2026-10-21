@@ -464,3 +464,25 @@ public sealed class CacheEntry(string directory, string inputCopy, string sha256
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { /* a worker still exiting; the next snapshot uses another directory */ }
     }
 }
+
+/// <summary>
+/// A marker beside a saved database whose analysis an open's budget cut short; an open or reanalysis that finds the
+/// analysis complete removes it. Lets the engine choice name a partial analysis without opening the database.
+/// </summary>
+public static class PartialAnalysis
+{
+    public static string MarkerOf(string database) => Path.TrimEndingDirectorySeparator(database) + ".partial";
+
+    public static bool Marked(string database) => File.Exists(MarkerOf(database));
+
+    public static void Record(string database, bool complete)
+    {
+        try
+        {
+            if (complete) File.Delete(MarkerOf(database));
+            else File.WriteAllText(MarkerOf(database), "");
+        }
+        // The engine choice then reads the database as complete.
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
+    }
+}

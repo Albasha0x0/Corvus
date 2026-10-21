@@ -637,6 +637,8 @@ public sealed class NativeIdaProviderTests(ITestOutputHelper output, IdaCacheFix
             output.WriteLine($"first open: {partial} functions, {s.OpenTime.TotalSeconds:0.0} s; {s.DatabaseNote}");
             Assert.False(s.AnalysisComplete);
             Assert.Contains("analysis partial", s.DatabaseNote);
+            // Other processes read the partial state from disk.
+            Assert.True(PartialAnalysis.Marked(s.DatabasePath));
             // a later request's auto_wait (edits run one) runs the rest only until that request's deadline: it answers, the worker stays
             var pid = s.WorkerProcessId;
             var e = await Assert.ThrowsAsync<ToolError>(() => s.CallAsync("python", IdaProvider.Args(("code", "ida_auto.auto_wait()"), ("reset", false)), default,
@@ -654,6 +656,7 @@ public sealed class NativeIdaProviderTests(ITestOutputHelper output, IdaCacheFix
             output.WriteLine($"reanalysis: {r.FunctionsBefore} -> {r.FunctionsAfter} functions, {r.Elapsed.TotalSeconds:0.0} s");
             Assert.True(r.Complete);
             Assert.True(s.AnalysisComplete);
+            Assert.False(PartialAnalysis.Marked(s.DatabasePath));
         }
         await using (var s = (IdaSession)await provider.OpenAsync(path, null, Offline))
         {

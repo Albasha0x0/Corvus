@@ -45,7 +45,7 @@ internal sealed record EngineChoice(string Engine, string Note)
                 return Named(EngineModes.ProviderId(mode)!, origin, engines);
             default:
                 if (engines?.AnalyzedBy(native) is { } analyzed)
-                    return new(analyzed, $"{origin}: {NativeEngineService.DisplayName(analyzed)} has analyzed these bytes");
+                    return new(analyzed, Analyzed(origin, engines!, native, analyzed));
                 if (builtInGap != null)
                     return engines?.FirstAvailable() is { } first
                         ? new(first, $"{origin}: {builtInGap}; {NativeEngineService.DisplayName(first)} is the first engine installed")
@@ -70,12 +70,17 @@ internal sealed record EngineChoice(string Engine, string Note)
         var first = engines.FirstAvailable();
         // the preferred engine gets one note whether or not it has analyzed the bytes yet: the answer is the same
         if (engines.AnalyzedBy(native) is { } analyzed && analyzed != first)
-            return new(analyzed, $"{origin}: {NativeEngineService.DisplayName(analyzed)} has analyzed these bytes");
+            return new(analyzed, Analyzed(origin, engines, native, analyzed));
         if (first != null)
             return new(first, $"{origin}: {NativeEngineService.DisplayName(first)}, the preferred engine installed");
         var u = engines.Unavailability!.Value;
         throw new ToolError(ErrorCode.ProviderUnavailable, $"No native decompiler engine is available: {u.Reason}", u.Remediation);
     }
+
+    private static string Analyzed(string origin, NativeEngineService engines, LoadedNative native, string id) =>
+        engines.IsPartial(native, id)
+            ? $"{origin}: {NativeEngineService.DisplayName(id)}'s analysis of these bytes is partial (an open's time ran out); reanalyze_native completes it"
+            : $"{origin}: {NativeEngineService.DisplayName(id)} has analyzed these bytes";
 
     private static EngineChoice Named(string id, string origin, NativeEngineService? engines)
     {

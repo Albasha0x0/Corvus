@@ -217,11 +217,16 @@ internal sealed class IdaSession(IdaProvider provider, IdaInstallation ida, Pyth
         _analysisFinished = !info.TryGetProperty("analysis_complete", out var done) || done.GetBoolean();
         if (info.TryGetProperty("idb", out var idb) && idb.GetString() is { Length: > 0 } actual && !PathsEqual(actual, _databasePath))
             _databasePath = actual;
+        RecordAnalysis(_analysisFinished);
         Options.Progress?.Report(new NativeProviderProgress("ready", clock.Elapsed));
     }
 
     /// <summary>After a reanalysis: whether the queue ran empty, so the database now holds a complete analysis.</summary>
-    internal void Reanalyzed(bool complete) => _analysisFinished = complete;
+    internal void Reanalyzed(bool complete)
+    {
+        _analysisFinished = complete;
+        RecordAnalysis(complete);
+    }
 
     private static string Md5(string path)
     {

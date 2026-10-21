@@ -189,6 +189,23 @@ public sealed class NativeEngineService : IDisposable
         (Find(id) switch { IdaProvider i => i.Cache, GhidraProvider g => g.Cache, _ => new AnalysisCache(_cacheRoot ?? AnalysisCache.DefaultRoot) })
             .Find(id, native.OriginalSha256) is { } dir && AnalysisCache.Held(dir);
 
+    /// <summary>
+    /// Whether engine <paramref name="id"/>'s analysis of the image is partial (an open's budget ran out): this process's
+    /// open session says so, else the marker beside the saved database. Never opens or asks an engine.
+    /// </summary>
+    public bool IsPartial(LoadedNative native, string id)
+    {
+        if (_analysis == EngineAnalysis.None) return false;
+        if (Existing(native, id)?.Opening is { IsCompletedSuccessfully: true } opened && opened.Result.IsOpen) return !opened.Result.AnalysisComplete;
+        var db = Find(id) switch
+        {
+            IdaProvider ida => ida.SavedDatabasePath(native.OriginalSha256, native.Overrides != null ? "default-" + native.Overrides.Key : "default"),
+            GhidraProvider ghidra => ghidra.ProjectFor(native.FilePath, native.OriginalSha256, _analysis),
+            _ => null,
+        };
+        return db != null && PartialAnalysis.Marked(db);
+    }
+
     private bool LiveComplete(LoadedNative native, string id) =>
         Existing(native, id)?.Opening is { IsCompletedSuccessfully: true } opened && opened.Result.IsOpen && opened.Result.AnalysisComplete;
 

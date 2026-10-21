@@ -45,6 +45,18 @@ open took (`openSeconds`), the profile and the import overrides in effect.
 - **Edits outlive the database.** Names, comments, types and patches are also kept per file hash outside the engine
   (sidecars) and pushed into a new database, so invalidating one loses no user work.
 
+## Partial analyses
+
+- **Saved as it stands.** An open analyzes within the open's limit (`CORVUS_ENGINE_OPEN_TIMEOUT`). When the limit
+  runs out, the database is saved with the analysis it has and marked partial; every later open, in any process,
+  reopens it as it is.
+- **Reported.** The Engine line of a native tool names a partial analysis and `reanalyze_native`;
+  `get_engine_status` reports the analysis as partial.
+- **Completed on request.** `reanalyze_native` completes the analysis within its own limit (`background=true`
+  returns at once). Nothing completes it unasked: a background run would hold the cache entry's lock (a second
+  server would get a read-only snapshot or a conflict), use the processor while nobody asked for it, and change the
+  database state, and with it the kept answers, between two calls.
+
 ## Invalidation
 
 - `reanalyze_native` runs the engine's auto-analysis again over the image or a range, with analyzer options for

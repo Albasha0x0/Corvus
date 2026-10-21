@@ -178,6 +178,7 @@ public abstract class EngineControlRealTests(ITestOutputHelper output) : IDispos
             await using var session = (Native.Providers.Ghidra.GhidraSession)await provider.OpenAsync(copy, null,
                 new NativeOpenOptions { Symbols = SymbolMode.Off, AnalysisBudget = TimeSpan.FromSeconds(1) }); // seconds short of a full analysis, however fast the machine
             Assert.False(session.AnalysisComplete);
+            Assert.True(PartialAnalysis.Marked(session.ProjectDirectory));
             var e = await Assert.ThrowsAsync<ToolError>(() => session.DecompileAsync(0x10)); // the headers: in no function
             Assert.Equal(ErrorCode.NotFound, e.Code);
             Assert.Contains("is partial (the open's budget ran out): reanalyze_native image=dbghelp.dll engine=ghidra completes it", e.Remediation);
@@ -187,6 +188,7 @@ public abstract class EngineControlRealTests(ITestOutputHelper output) : IDispos
             Assert.True(r.Complete);
             Assert.True(session.AnalysisComplete);
             Assert.True(r.FunctionsAfter >= r.FunctionsBefore);
+            Assert.False(PartialAnalysis.Marked(session.ProjectDirectory));
             e = await Assert.ThrowsAsync<ToolError>(() => session.DecompileAsync(0x10));
             Assert.DoesNotContain("partial", e.Remediation ?? "");
         }

@@ -113,6 +113,24 @@ public sealed class EnginePreferenceTests(ITestOutputHelper output) : IDisposabl
         Assert.Equal(1, provider.Opens);             // no new analysis
     }
 
+    [Fact]
+    public async Task Auto_on_a_partial_saved_analysis_names_it_partial_and_names_reanalyze_native()
+    {
+        var provider = new FakeProvider(available: true) { Complete = false };
+        var rig = Setup(provider);
+        var (native, first) = await Loaded(rig);
+        provider.Functions = [new(first, first + 0x20, "ida_First", NativeFunctionFlags.None, 3)];
+        var saved = Path.Combine(_dir.File("cache"), IdaProvider.ProviderId, native.OriginalSha256);
+        Directory.CreateDirectory(saved);
+        File.WriteAllBytes(Path.Combine(saved, "ida-default.i64"), [0]);
+        rig.Engines.SavedCheckInterval = 0;
+        await rig.Engines.Session(native, "ida", null, default);
+        Assert.Contains("Engine: ida (server default auto: IDA's analysis of these bytes is partial (an open's time ran out); reanalyze_native completes it)",
+            await rig.Tools.ListFunctions(rig.Image));
+        provider.Complete = true;
+        Assert.Contains("Engine: ida (server default auto: IDA has analyzed these bytes)", await rig.Tools.ListFunctions(rig.Image));
+    }
+
     /// <summary>
     /// Two servers sharing one analysis cache with different call histories (one opened Ghidra, the other nothing) pick
     /// the same engine for the same call, and an engine another call opened never changes the choice.

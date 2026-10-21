@@ -307,6 +307,7 @@ internal sealed class GhidraSession(GhidraProvider provider, GhidraInstallation 
         ImageBase = loadedBase;
         DecompilerAvailable = info.GetProperty("decompiler").GetBoolean();
         AnalysisComplete = info.GetProperty("analysis_complete").GetBoolean();
+        RecordAnalysis(AnalysisComplete);
         Language = info.GetProperty("language").GetString() ?? "";
         FunctionCount = info.GetProperty("functions").GetInt32();
         var warnings = info.GetProperty("warnings").EnumerateArray().Select(w => w.GetString() ?? "").ToList();
@@ -701,5 +702,6 @@ internal sealed class GhidraSession(GhidraProvider provider, GhidraInstallation 
     {
         AnalysisComplete = complete;
         FunctionCount = functions;
+        RecordAnalysis(complete);
     }
 }
