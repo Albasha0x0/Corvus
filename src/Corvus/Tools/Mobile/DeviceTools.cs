@@ -9,24 +9,25 @@ namespace Corvus.Tools;
 [McpServerToolType]
 public sealed class DeviceTools(DeviceService devices)
 {
-    private const string SerialDescription = "Device serial; optional with one device ready.";
+    private const string SerialDescription = "Device serial; optional with one device.";
 
     [McpServerTool(Name = "list_android_devices", Title = "List Android devices", UseStructuredContent = true)]
-    [Description("Android devices and emulators adb sees: serial, state, product, model, transport. adb: CORVUS_ADB, else PATH, else the SDK's platform-tools.")]
+    [Description("Android devices and emulators adb sees: serial, state, product, model, transport. adb: CORVUS_ADB, else PATH, else SDK " +
+                 "platform-tools.")]
     public Task<AndroidDeviceList> ListAndroidDevices(CancellationToken cancellationToken = default) =>
         Task.Run(() => devices.Devices(cancellationToken), cancellationToken);
 
     [McpServerTool(Name = "get_android_device_info", Title = "Android device info", UseStructuredContent = true, OutputSchemaType = typeof(AndroidDeviceInfo))]
-    [Description("Device properties (getprop) with a summary: SDK, release, model, ABIs, fingerprint, patch level, build type, " +
-                 "ro.debuggable, ro.secure, emulator; view=: processes, features, services, settings, files, screen (PNG), " +
-                 "window (focused activity, DEX class), display, bugreport (zip). Read-only.")]
+    [Description("Device properties (getprop) with a summary: SDK, release, model, ABIs, fingerprint, patch level, build type, ro.debuggable, " +
+                 "ro.secure, emulator; view=: processes, features, services, settings, files, screen (PNG), window (focused activity, DEX class), " +
+                 "display, bugreport (zip). Read-only.")]
     public Task<string> GetAndroidDeviceInfo(
         [Description(SerialDescription)] string? serial = null,
         [Description("Name or value filter; view=files: directory (default /data/local/tmp); window: local APK.")] string? query = null,
         [Description(ToolSupport.RowOffsetDescription)] int offset = 0,
         [Description("Most rows.")] int limit = 100,
-        [Description("What to read (default props).")] string view = "props",
-        [Description("view=screen: new PNG path; view=bugreport: new or empty directory; default under temp.")] string? outputPath = null,
+        [Description("What to read.")] string view = "props",
+        [Description("view=screen: new PNG path; bugreport: new or empty directory; default under temp.")] string? outputPath = null,
         CancellationToken cancellationToken = default) => Task.Run(() =>
     {
         view = view.Trim().ToLowerInvariant();
@@ -49,7 +50,7 @@ public sealed class DeviceTools(DeviceService devices)
     public Task<string> ListAndroidPackages(
         [Description(SerialDescription)] string? serial = null,
         [Description("Only package names containing this.")] string? query = null,
-        [Description("Android user id (default: the current one).")] int? user = null,
+        [Description("Android user id (default: current).")] int? user = null,
         [Description(ToolSupport.RowOffsetDescription)] int offset = 0,
         [Description("Most packages.")] int limit = 150,
         [Description(ToolSupport.MaxTokensDescription)] int? maxTokens = null,
@@ -83,7 +84,7 @@ public sealed class DeviceTools(DeviceService devices)
     [McpServerTool(Name = "pull_android_file", Title = "Pull device file", UseStructuredContent = true)]
     [Description("Copies one device file (not a directory) to outputPath with its size and SHA-256; a failed pull leaves nothing.")]
     public Task<PulledFile> PullAndroidFile(
-        [Description("The file's path on the device.")] string remotePath,
+        [Description("Path on the device.")] string remotePath,
         [Description("The local file to write.")] string outputPath,
         [Description("Replace outputPath if it exists.")] bool overwrite = false,
         [Description(SerialDescription)] string? serial = null,
@@ -97,7 +98,7 @@ public sealed class DeviceTools(DeviceService devices)
         [Description("Only this process id.")] int? pid = null,
         [Description("Only this log tag.")] string? tag = null,
         [Description("Lowest priority.")] string? priority = null,
-        [Description("Only lines since this time ('01-31 12:00:00.000') or the last N lines.")] string? since = null,
+        [Description("Only lines since this time (\"01-31 12:00:00.000\") or the last N lines.")] string? since = null,
         [Description("Log buffer (default: main, system, crash).")] string? buffer = null,
         [Description("Lines to skip from the newest.")] int offset = 0,
         [Description("Most lines.")] int limit = 500,
@@ -113,11 +114,11 @@ public sealed class DeviceTools(DeviceService devices)
     }, cancellationToken);
 
     [McpServerTool(Name = "install_android_package", Title = "Install package on device", UseStructuredContent = true, OutputSchemaType = typeof(EditOutcome))]
-    [Description("Installs an APK, a split set or a directory of APKs on a device in one session; failures come back by their " +
-                 "INSTALL_FAILED_ code. Changes the device: needs the server option --allow-device-changes.")]
+    [Description("Install an APK, a split set or a folder of APKs on a device in one session; failures come back by INSTALL_FAILED_ code. Changes the " +
+                 "device: needs the server option --allow-device-changes.")]
     public Task<string> InstallAndroidPackage(
         [Description("An .apk, split set or folder of APKs.")] string path,
-        [Description("Fail when the app is installed instead of replacing it.")] bool keepInstalled = false,
+        [Description("Fail if the app is installed instead of replacing it.")] bool keepInstalled = false,
         [Description("Allow a lower version code.")] bool downgrade = false,
         [Description("Grant all requested runtime permissions.")] bool grantPermissions = false,
         [Description(SerialDescription)] string? serial = null,
@@ -132,7 +133,7 @@ public sealed class DeviceTools(DeviceService devices)
     [Description("Remove an app (and its data unless keepData) from a device; needs the server option --allow-device-changes.")]
     public Task<string> UninstallAndroidPackage(
         [Description("Package name, e.g. com.example.app.")] string package,
-        [Description("Keep the app's data and cache.")] bool keepData = false,
+        [Description("Keep app data and cache.")] bool keepData = false,
         [Description(SerialDescription)] string? serial = null,
         CancellationToken cancellationToken = default) =>
         Task.Run(() => Outcome(devices.Uninstall(package, keepData, serial, cancellationToken)), cancellationToken);

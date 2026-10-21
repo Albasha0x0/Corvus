@@ -2348,7 +2348,7 @@ Android packages: manifest, resources, DEX code, Java decompilation, Java / .NET
 
 **Android manifest** (read-only, idempotent)
 
-AndroidManifest.xml decoded. view=summary (default): package, versions, SDKs, permissions, application flags, component counts, exported components and why, queries, features, libraries, highlights. view=components: each component with intent filters, deep links, meta-data.
+AndroidManifest.xml decoded. view=summary: package, versions, SDKs, permissions, application flags, component counts, exported components and why, queries, features, libraries, highlights. components: each component with intent filters, deep links, meta-data.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -2363,12 +2363,12 @@ Structured output: `package`, `versionCode`, `versionName`, `minSdk`, `targetSdk
 
 **List Android resources** (read-only, idempotent)
 
-Compiled resources of an Android package (resources.arsc, or a bundle's resources.pb): a row per resource and configuration with id, type, name, qualifiers, value type and value (cut at 200 characters); counts per type.
+Compiled resources of an Android package (resources.arsc, or resources.pb in a bundle): a row per resource and configuration with id, type, name, qualifiers, value type and value (cut at 200 characters); counts per type.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `path` | string | yes |  | An .apk, .aab or split set (.apks, .xapk, .apkm). |
-| `type` | string |  |  | Only this type (string, layout, xml, ...). |
+| `type` | string |  |  | Only this type (string, layout, xml...). |
 | `name` | string |  |  | Only names matching this (* and ? wildcards). |
 | `config` | string |  |  | Only this configuration (pt-rBR, or default). |
 | `offset` | integer |  |  |  |
@@ -2387,7 +2387,7 @@ One entry or resource of an Android package: an entry path (binary XML decoded, 
 |---|---|---|---|---|
 | `path` | string | yes |  | An .apk, .aab or split set (.apks, .xapk, .apkm). |
 | `name` | string | yes |  | Entry path (res/xml/x.xml, assets/...), @type/name or resource id 0x7f... |
-| `outputPath` | string |  |  | Write the entry's bytes to this file. |
+| `outputPath` | string |  |  | Write the entry bytes to this file. |
 | `overwrite` | boolean |  |  | Replace outputPath if it exists. |
 | `offset` | integer |  |  |  |
 | `maxTokens` | integer |  |  |  |
@@ -2398,7 +2398,7 @@ Structured output: `entry`, `outputPath`, `bytes`, `sha256`, `code`, `offset`, `
 
 **List DEX classes** (read-only, idempotent)
 
-Classes defined in an Android package's DEX code (every classes*.dex): descriptor, DEX file, access, superclass, interfaces, member counts, source file; unfiltered, the largest packages.
+Classes defined in the DEX code of an Android package (every classes*.dex): descriptor, DEX file, access, superclass, interfaces, member counts, source file; unfiltered, the largest packages.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -2408,7 +2408,7 @@ Classes defined in an Android package's DEX code (every classes*.dex): descripto
 | `offset` | integer |  |  |  |
 | `limit` | integer |  | `100` | Most classes. |
 | `maxTokens` | integer |  |  |  |
-| `mapping` | string |  |  | R8 / ProGuard mapping.txt: shows and accepts original names; kept per package. |
+| `mapping` | string |  |  | R8/ProGuard mapping.txt: shows and accepts original names; kept per package. |
 
 Structured output: `items`, `offset`, `total`, `notes`, `packages`, `limit`, `totalExact`, `hasMore`, `nextOffset`.
 
@@ -2416,7 +2416,7 @@ Structured output: `items`, `offset`, `total`, `notes`, `packages`, `limit`, `to
 
 **DEX class** (read-only, idempotent)
 
-One DEX class: superclass, interfaces, generic signature, enclosing and inner classes, Kotlin @Metadata, annotations; then its members, paged: fields (type, static value) and methods (id, Java signature, code size, registers, parameter names).
+One DEX class: superclass, interfaces, generic signature, enclosing and inner classes, Kotlin @Metadata, annotations; then its members, paged: fields (type, static value), methods (id, Java signature, code size, registers, parameter names).
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -2426,7 +2426,7 @@ One DEX class: superclass, interfaces, generic signature, enclosing and inner cl
 | `query` | string |  |  | Only members whose name contains this. |
 | `offset` | integer |  |  |  |
 | `limit` | integer |  | `150` | Most members. |
-| `mapping` | string |  |  | R8 / ProGuard mapping.txt: shows and accepts original names; kept per package. |
+| `mapping` | string |  |  | R8/ProGuard mapping.txt: shows and accepts original names; kept per package. |
 
 Structured output: `descriptor`, `javaName`, `dexFile`, `access`, `super`, `interfaces`, `sourceFile`, `genericSignature`, `enclosingClass`, `enclosingMethod`, `innerClasses`, `kotlin`, `annotations`, `fields`, `methods`, `items`, `offset`, `total`, `original`, `limit`, `totalExact`, `hasMore`, `nextOffset`.
 
@@ -2443,7 +2443,7 @@ Smali (baksmali layout) of a DEX method or class (a class lists its method ids a
 | `format` | string |  |  | Output layout (default smali). Values: smali, annotated. |
 | `offset` | integer |  |  |  |
 | `maxTokens` | integer |  |  |  |
-| `mapping` | string |  |  | R8 / ProGuard mapping.txt: shows and accepts original names; kept per package. |
+| `mapping` | string |  |  | R8/ProGuard mapping.txt: shows and accepts original names; kept per package. |
 
 Structured output: `code`, `offset`, `nextOffset`, `totalChars`.
 
@@ -2451,7 +2451,7 @@ Structured output: `code`, `offset`, `nextOffset`, `totalChars`.
 
 **Decompile Java** (read-only, idempotent, open-world, long-running)
 
-Java source of a class or method of an Android package or a jar through JADX (CORVUS_JAVA_DECOMPILER, JDK 17+), or of a jar or .class through Vineflower (engine=vineflower, CORVUS_JAVA_DECOMPILER2). A member, anonymous or lambda class comes from the code it is written in. Without them, disassemble_dex.
+Java source of a class or method of an Android package or jar via JADX (CORVUS_JAVA_DECOMPILER, JDK 17+), or of a jar or .class via Vineflower (engine=vineflower, CORVUS_JAVA_DECOMPILER2). A member, anonymous or lambda class comes from the code it is written in. Without them: disassemble_dex.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -2461,7 +2461,7 @@ Java source of a class or method of an Android package or a jar through JADX (CO
 | `engine` | string |  |  | jadx (default) or vineflower (class files only). Values: jadx. |
 | `offset` | integer |  |  |  |
 | `maxTokens` | integer |  |  |  |
-| `mapping` | string |  |  | R8 / ProGuard mapping.txt: shows and accepts original names; kept per package. |
+| `mapping` | string |  |  | R8/ProGuard mapping.txt: shows and accepts original names; kept per package. |
 
 Structured output: `code`, `offset`, `nextOffset`, `totalChars`.
 
@@ -2469,7 +2469,7 @@ Structured output: `code`, `offset`, `nextOffset`, `totalChars`.
 
 **Search DEX code** (read-only, idempotent, long-running)
 
-Search DEX code. kind=string: literals with the method and offset of each use; type: defined classes and type uses; method / field: defined and referenced members with use counts; const: numeric constants; opcode: instructions by mnemonic.
+Search DEX code. kind=string: literals with method and offset of each use; type: defined classes and type uses; method / field: defined and referenced members with use counts; const: numeric constants; opcode: instructions by mnemonic.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -2479,7 +2479,7 @@ Search DEX code. kind=string: literals with the method and offset of each use; t
 | `offset` | integer |  |  |  |
 | `limit` | integer |  | `100` | Most hits. |
 | `maxTokens` | integer |  |  |  |
-| `mapping` | string |  |  | R8 / ProGuard mapping.txt: shows and accepts original names; kept per package. |
+| `mapping` | string |  |  | R8/ProGuard mapping.txt: shows and accepts original names; kept per package. |
 
 Structured output: `items`, `offset`, `total`, `notes`, `limit`, `totalExact`, `hasMore`, `nextOffset`.
 
@@ -2487,13 +2487,13 @@ Structured output: `items`, `offset`, `total`, `notes`, `limit`, `totalExact`, `
 
 **Find DEX references** (read-only, idempotent, long-running)
 
-Cross-references in DEX code, with the method and code offset of each instruction. direction=to: callers of a method, readers and writers of a field, uses of a class or string. direction=from: what a method (or each method of a class) calls, reads, writes and loads. Methods match by exact id.
+Cross-references in DEX code, with method and code offset of each instruction. direction=to: callers of a method, readers and writers of a field, uses of a class or string. from: what a method (or each method of a class) calls, reads, writes and loads. Methods match by exact id.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `path` | string | yes |  | An Android package, a .dex, or a jar with classes*.dex. |
 | `target` | string | yes |  | Class, method (Lpkg/C;->m(I)V, pkg.C::m(int)), field (Lpkg/C;->f:I, pkg.C::f), "string". |
-| `direction` | string |  |  | to (default; who refers to target) or from. Values: to, from. |
+| `direction` | string |  |  | Default to: who refers to target. Values: to, from. |
 | `kind` | string |  |  | How to read target (default auto; string: taken literally). Values: auto, class, method, field, string. |
 | `offset` | integer |  |  |  |
 | `limit` | integer |  | `100` | Most references. |
@@ -2505,12 +2505,12 @@ Structured output: `target`, `targetKind`, `direction`, `items`, `offset`, `tota
 
 **Map Java and .NET** (read-only, idempotent)
 
-Pairs across a Java / .NET bridge. .NET for Android (Xamarin / MAUI): Java wrapper classes and methods to .NET types and methods and back ([Register], crc64 names). Unity Mono: C# reaching Java through AndroidJavaClass / Object / Proxy / AndroidJNI, and back, with a confidence. A * / ? pattern lists matching pairs.
+Pairs across a Java / .NET bridge. .NET for Android (Xamarin, MAUI): Java wrapper classes and methods to .NET types and methods and back ([Register], crc64 names). Unity Mono: C# reaching Java via AndroidJavaClass / Object / Proxy / AndroidJNI, and back, with a confidence. A * / ? pattern lists matching pairs.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `symbol` | string | yes |  | Java class (Lpkg/C;, pkg.C) or method (Lpkg/C;->m(I)V), .NET symbol, or pattern. |
-| `path` | string |  |  | The package whose assemblies to read; optional when they are loaded. |
+| `path` | string |  |  | Package whose assemblies to read; optional when they are loaded. |
 | `offset` | integer |  |  |  |
 | `limit` | integer |  | `100` | Most pairs. |
 | `maxTokens` | integer |  |  |  |
@@ -2521,7 +2521,7 @@ Structured output: `query`, `direction`, `items`, `offset`, `total`, `notes`, `l
 
 **List JNI bindings** (read-only, idempotent, long-running)
 
-Java native methods of an Android package paired with their code in lib/<abi>/*.so: Java_ exports by JNI name mangling and RegisterNatives tables in the libraries' data; also unbound methods and stray Java_ exports.
+Java native methods of an Android package paired with their code in lib/<abi>/*.so: Java_ exports by JNI name mangling and RegisterNatives tables in library data; also unbound methods and stray Java_ exports.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -2539,7 +2539,7 @@ Structured output: `items`, `offset`, `total`, `libraries`, `notes`, `limit`, `t
 
 **List Android devices** (read-only, idempotent, open-world)
 
-Android devices and emulators adb sees: serial, state, product, model, transport. adb: CORVUS_ADB, else PATH, else the SDK's platform-tools.
+Android devices and emulators adb sees: serial, state, product, model, transport. adb: CORVUS_ADB, else PATH, else SDK platform-tools.
 
 No parameters.
 
@@ -2553,12 +2553,12 @@ Device properties (getprop) with a summary: SDK, release, model, ABIs, fingerpri
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `serial` | string |  |  | Device serial; optional with one device ready. |
+| `serial` | string |  |  | Device serial; optional with one device. |
 | `query` | string |  |  | Name or value filter; view=files: directory (default /data/local/tmp); window: local APK. |
 | `offset` | integer |  |  |  |
 | `limit` | integer |  | `100` | Most rows. |
-| `view` | string |  | `props` | What to read (default props). Values: props, processes, features, services, settings, files, screen, window, display, bugreport. |
-| `outputPath` | string |  |  | view=screen: new PNG path; view=bugreport: new or empty directory; default under temp. |
+| `view` | string |  | `props` | What to read. Values: props, processes, features, services, settings, files, screen, window, display, bugreport. |
+| `outputPath` | string |  |  | view=screen: new PNG path; bugreport: new or empty directory; default under temp. |
 
 Structured output: `serial`, `summary`, `properties`, `offset`, `total`, `limit`, `totalExact`, `hasMore`, `nextOffset`.
 
@@ -2570,9 +2570,9 @@ Packages installed on a device (pm list packages -f -U -i): name, APK path, uid 
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `serial` | string |  |  | Device serial; optional with one device ready. |
+| `serial` | string |  |  | Device serial; optional with one device. |
 | `query` | string |  |  | Only package names containing this. |
-| `user` | integer |  |  | Android user id (default: the current one). |
+| `user` | integer |  |  | Android user id (default: current). |
 | `offset` | integer |  |  |  |
 | `limit` | integer |  | `150` | Most packages. |
 | `maxTokens` | integer |  |  |  |
@@ -2588,7 +2588,7 @@ One installed package (dumpsys package): versions, SDKs, paths, ABI, flags, inst
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `package` | string | yes |  | Package name, e.g. com.example.app. |
-| `serial` | string |  |  | Device serial; optional with one device ready. |
+| `serial` | string |  |  | Device serial; optional with one device. |
 
 Structured output: `serial`, `package`, `versionName`, `versionCode`, `minSdk`, `targetSdk`, `codePath`, `dataDir`, `primaryCpuAbi`, `flags`, `firstInstallTime`, `lastUpdateTime`, `installer`, `uid`, `permissions`, `users`.
 
@@ -2602,7 +2602,7 @@ Copies every APK of an installed package (base and splits) into a new or empty d
 |---|---|---|---|---|
 | `package` | string | yes |  | Package name, e.g. com.example.app. |
 | `outputDirectory` | string | yes |  | A new or empty directory to write the APKs to. |
-| `serial` | string |  |  | Device serial; optional with one device ready. |
+| `serial` | string |  |  | Device serial; optional with one device. |
 
 Structured output: `serial`, `package`, `files`, `summary`.
 
@@ -2614,10 +2614,10 @@ Copies one device file (not a directory) to outputPath with its size and SHA-256
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `remotePath` | string | yes |  | The file's path on the device. |
+| `remotePath` | string | yes |  | Path on the device. |
 | `outputPath` | string | yes |  | The local file to write. |
 | `overwrite` | boolean |  |  | Replace outputPath if it exists. |
-| `serial` | string |  |  | Device serial; optional with one device ready. |
+| `serial` | string |  |  | Device serial; optional with one device. |
 
 Structured output: `remote`, `local`, `size`, `sha256`.
 
@@ -2629,11 +2629,11 @@ Device log (logcat -d), newest lines first, by buffer, process, tag, priority an
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `serial` | string |  |  | Device serial; optional with one device ready. |
+| `serial` | string |  |  | Device serial; optional with one device. |
 | `pid` | integer |  |  | Only this process id. |
 | `tag` | string |  |  | Only this log tag. |
 | `priority` | string |  |  | Lowest priority. Values: V, D, I, W, E, F. |
-| `since` | string |  |  | Only lines since this time ('01-31 12:00:00.000') or the last N lines. |
+| `since` | string |  |  | Only lines since this time ("01-31 12:00:00.000") or the last N lines. |
 | `buffer` | string |  |  | Log buffer (default: main, system, crash). Values: main, system, crash, events, radio, all, default. |
 | `offset` | integer |  |  | Lines to skip from the newest. |
 | `limit` | integer |  | `500` | Most lines. |
@@ -2644,15 +2644,15 @@ Structured output: `serial`, `items`, `offset`, `total`, `limit`, `totalExact`, 
 
 **Install package on device** (destructive, open-world, long-running)
 
-Installs an APK, a split set or a directory of APKs on a device in one session; failures come back by their INSTALL_FAILED_ code. Changes the device: needs the server option --allow-device-changes.
+Install an APK, a split set or a folder of APKs on a device in one session; failures come back by INSTALL_FAILED_ code. Changes the device: needs the server option --allow-device-changes.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `path` | string | yes |  | An .apk, split set or folder of APKs. |
-| `keepInstalled` | boolean |  |  | Fail when the app is installed instead of replacing it. |
+| `keepInstalled` | boolean |  |  | Fail if the app is installed instead of replacing it. |
 | `downgrade` | boolean |  |  | Allow a lower version code. |
 | `grantPermissions` | boolean |  |  | Grant all requested runtime permissions. |
-| `serial` | string |  |  | Device serial; optional with one device ready. |
+| `serial` | string |  |  | Device serial; optional with one device. |
 
 Structured output: `applied`, `dryRun`, `changes`, `editIds`, `failed`, `items`, `pushedTo`, `digest`.
 
@@ -2665,8 +2665,8 @@ Remove an app (and its data unless keepData) from a device; needs the server opt
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `package` | string | yes |  | Package name, e.g. com.example.app. |
-| `keepData` | boolean |  |  | Keep the app's data and cache. |
-| `serial` | string |  |  | Device serial; optional with one device ready. |
+| `keepData` | boolean |  |  | Keep app data and cache. |
+| `serial` | string |  |  | Device serial; optional with one device. |
 
 Structured output: `applied`, `dryRun`, `changes`, `editIds`, `failed`, `items`, `pushedTo`, `digest`.
 
