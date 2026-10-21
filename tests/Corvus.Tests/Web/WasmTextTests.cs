@@ -25,6 +25,12 @@ public sealed partial class WasmTextTests(ITestOutputHelper output) : IDisposabl
                 yield return (Path.GetRelativePath(dir, file), File.ReadAllBytes(file));
     }
 
+    /// <summary>A module as itself; a component as its core modules, named "component!module" (none when it holds no core module).</summary>
+    internal static List<(string Name, byte[] Bytes)> CoreModules(string name, byte[] bytes) =>
+        WasmComponent.Looks(bytes)
+            ? WasmComponent.CoreModules(bytes).Select(m => ($"{name}!{m.Name}", bytes.AsSpan(m.Offset, m.Length).ToArray())).ToList()
+            : [(name, bytes)];
+
     [Fact]
     public void Text_of_a_function_with_names_blocks_and_floats()
     {
@@ -94,15 +100,20 @@ public sealed partial class WasmTextTests(ITestOutputHelper output) : IDisposabl
         var exe = ExternalTools.Locate(tool)!.Value.Path;
         int compared = 0;
         var differ = new List<string>();
-        foreach (var (name, bytes) in Corpus())
+        var gc = new List<string>();
+        var large = new List<string>();
+        foreach (var (name, bytes) in Corpus().SelectMany(c => CoreModules(c.Name, c.Bytes)))
         {
+            var module = WasmBinary.Read(bytes);
+            if (module.Gc) { gc.Add(name); continue; }
             var path = _dir.File($"m{compared}.wasm");
             File.WriteAllBytes(path, bytes);
-            var run = ExternalTools.Run(exe, ExternalTools.Arguments(tool, "text", ("module", path)), TimeSpan.FromMinutes(5), 1L << 31, default);
+            var run = ExternalTools.Run(exe, ExternalTools.Arguments(tool, "text", ("module", path)), TimeSpan.FromMinutes(5), MaxText, default);
+            if (run.Truncated) { large.Add(name); continue; }
             compared++;
             if (run.ExitCode != 0) { differ.Add($"{name}: wasm2wat failed: {run.Stderr.Trim()}"); continue; }
             var expected = MsvcNan().Replace(run.Text.Replace("\r\n", "\n"), "(;=$1nan;)");
-            var actual = WatWriter.Module(WasmBinary.Read(bytes)) ?? "<unsupported>";
+            var actual = WatWriter.Module(module) ?? "<unsupported>";
             if (expected == actual) continue;
             var e = expected.Split('\n');
             var a = actual.Split('\n');
@@ -111,7 +122,21 @@ public sealed partial class WasmTextTests(ITestOutputHelper output) : IDisposabl
         }
         foreach (var d in differ) output.WriteLine(d);
         output.WriteLine($"{compared - differ.Count} of {compared} modules byte-equal");
+        WriteNotCompared(output, gc, large);
         Assert.Empty(differ);
+    }
+
+    /// <summary>wasm2wat text past this many bytes is not compared: one .NET string holds about 2^30 characters.</summary>
+    private const long MaxText = 1L << 30;
+
+    /// <summary>
+    /// Lists the modules left out of a WABT comparison: GC modules (WABT 1.0.42 does not read packed i8/i16 fields; GC is checked
+    /// on the fixtures of WasmGcTests) and modules whose text does not fit one string.
+    /// </summary>
+    internal static void WriteNotCompared(ITestOutputHelper output, List<string> gc, List<string> large)
+    {
+        if (gc.Count > 0) output.WriteLine($"{gc.Count} GC modules not compared: {string.Join(", ", gc)}");
+        if (large.Count > 0) output.WriteLine($"{large.Count} modules with text over {MaxText >> 20} MiB not compared: {string.Join(", ", large)}");
     }
 
     [System.Text.RegularExpressions.GeneratedRegex(@"\(;=(-?)nan\([a-z]+\);\)")]

@@ -17,10 +17,7 @@ public sealed class WasmValidationTests(ITestOutputHelper output) : IDisposable
         int fromComponents = 0;
         foreach (var (name, bytes) in WasmTextTests.Corpus())
         {
-            // A component is validated through its core modules.
-            var modules = WasmComponent.Looks(bytes)
-                ? WasmComponent.CoreModules(bytes).Select(m => ($"{name}!{m.Name}", bytes.AsSpan(m.Offset, m.Length).ToArray())).ToList()
-                : [(name, bytes)];
+            var modules = WasmTextTests.CoreModules(name, bytes);
             if (WasmComponent.Looks(bytes) && modules.Count == 0) empty.Add(name);
             if (WasmComponent.Looks(bytes)) fromComponents += modules.Count;
             foreach (var (module, code) in modules)
@@ -65,7 +62,7 @@ public sealed class WasmValidationTests(ITestOutputHelper output) : IDisposable
         Assert.True(failures.Count == 0, string.Join("\n", failures.Take(20)));
     }
 
-    /// <summary>wasm-validate (CORVUS_WASM_VALIDATOR) gives the same verdict on the valid and broken fixtures and the real builds.</summary>
+    /// <summary>wasm-validate (CORVUS_WASM_VALIDATOR) gives the same verdict on the valid and broken fixtures and the real builds (a component's core modules).</summary>
     [Trait("Speed", "Slow")]
     [RequiresRealDataFact("CORVUS_WASM_VALIDATOR")]
     public void Verdicts_equal_wasm_validate()
@@ -74,19 +71,23 @@ public sealed class WasmValidationTests(ITestOutputHelper output) : IDisposable
         var exe = ExternalTools.Locate(tool)!.Value.Path;
         int compared = 0;
         var differ = new List<string>();
-        foreach (var (name, bytes) in WasmTextTests.Corpus().Concat(WasmFixtures.Invalid()))
+        var gc = new List<string>();
+        foreach (var (name, bytes) in WasmTextTests.Corpus().SelectMany(c => WasmTextTests.CoreModules(c.Name, c.Bytes)).Concat(WasmFixtures.Invalid()))
         {
+            var module = WasmBinary.Read(bytes);
+            if (module.Gc) { gc.Add(name); continue; }
             var path = _dir.File($"m{compared}.wasm");
             File.WriteAllBytes(path, bytes);
             var run = ExternalTools.Run(exe, ExternalTools.Arguments(tool, "validate", ("module", path)), TimeSpan.FromMinutes(5), 1 << 20, default);
             compared++;
             bool expected = run.ExitCode == 0;
-            var ours = WasmValidator.Validate(WasmBinary.Read(bytes));
+            var ours = WasmValidator.Validate(module);
             if (expected != ours.Valid)
                 differ.Add($"{name}: wasm-validate {(expected ? "valid" : "invalid: " + run.Stderr.Trim())}; ours {WasmValidator.Describe(ours)}");
         }
         foreach (var d in differ) output.WriteLine(d);
         output.WriteLine($"{compared - differ.Count} of {compared} verdicts equal");
+        WasmTextTests.WriteNotCompared(output, gc, []);
         Assert.Empty(differ);
     }
 }
