@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Globalization;
 using System.Security.AccessControl;
 using System.Security.Principal;
@@ -99,6 +100,31 @@ public sealed class LiveChildrenRealTests(ITestOutputHelper output) : LiveToolCa
         await Ok(server, "live_session", new() { ["action"] = "close", ["session"] = "live-1" });
         Ended(child);
         Ended(parent);
+    }
+
+    // The sandbox an attach refusal names is read from the target's token.
+    [LiveTargetFact("win-x64")]
+    public void Sandbox_read_from_a_restricted_child()
+    {
+        if (!OperatingSystem.IsWindows()) return;
+        var launcher = LiveTarget.WinX64.Build(_dir, "launcher", LivePrograms.Launcher);
+        var probe = LiveTarget.WinX64.Build(_dir, "probe", LivePrograms.Probe);
+        FridaBackend.AllowSandboxedReads(_dir.Path);
+        using var parent = Process.Start(new ProcessStartInfo(launcher) { ArgumentList = { "--restricted", probe, "x", "30" }, RedirectStandardOutput = true })!;
+        Process? child = null;
+        try
+        {
+            for (int i = 0; i < 100 && child == null; i++, Thread.Sleep(100))
+                child = Process.GetProcessesByName("probe").FirstOrDefault(p => string.Equals(p.MainModule?.FileName, probe, StringComparison.OrdinalIgnoreCase));
+            Assert.NotNull(child);
+            Assert.Equal("a restricted token", ProcessSandbox.Describe(child.Id));
+            Assert.Null(ProcessSandbox.Describe(parent.Id));
+        }
+        finally
+        {
+            child?.Kill();
+            parent.Kill();
+        }
     }
 
     [System.Runtime.Versioning.SupportedOSPlatform("windows")]

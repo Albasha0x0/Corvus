@@ -397,6 +397,10 @@ public sealed partial class LiveSessionService(AssemblyWorkspace workspace, Nati
             // the backend sees only that tracing failed (a started program exits with status 1); the setting says why
             if (e is ToolError { Code: ErrorCode.Failed or ErrorCode.AccessDenied } t && Native.Live.PtraceScope.Refusing(started: spawn) is { } scope)
                 throw Native.Live.PtraceScope.Refusal(scope, t.Message);
+            // the agent refused on Windows: a sandbox token (a Chromium child) is the usual cause, read from the target
+            if (!spawn && e is ToolError { Code: ErrorCode.Failed } f && f.Message.Contains("refused to load", StringComparison.Ordinal)
+                && int.TryParse(target, out var pid) && Native.Providers.Live.ProcessSandbox.Describe(pid) is { } sandbox)
+                throw Native.Providers.Live.ProcessSandbox.Refusal(sandbox, f.Message);
             throw;
         }
         // The program's own image joins the static model: loaded (it is the file being analyzed) and indexed in the background.

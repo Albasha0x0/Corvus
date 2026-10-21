@@ -161,6 +161,13 @@ runs (a fork that runs on without one is not held); `attach_child` there takes i
 its libraries loaded, so a child session closed before its first continue lets it run; a session that follows children
 there does not report threads that end.
 
+On Windows a child that runs sandboxed, as Chromium and Electron run their GPU, utility and renderer processes, keeps
+the attach to what its token allows. The session's agent loads from a folder that grants read access to restricted
+tokens and AppContainers, so a GPU process (a restricted token) attaches. A child whose sandbox still refuses the agent
+fails with `access_denied`, which names the sandbox read from its token (a restricted token, an AppContainer, low or
+untrusted integrity). Start such a program with its sandbox off (Chromium's `--no-sandbox`, or `--disable-gpu-sandbox`
+for the GPU process alone) to attach to every child.
+
 A watch records each call's arguments and return value without stopping the program. They are decoded from, in order:
 the known-API table (parameter names, ANSI and wide strings, flags and enumerations by name: `dwDesiredAccess=GENERIC_READ`),
 the PDB or DWARF prototype (parameter names from the procedure's frame records or entries, types from the type records,
