@@ -236,4 +236,77 @@ public sealed class LiveChildrenRealTests(ITestOutputHelper output) : LiveToolCa
         await Ok(server, "live_session", new() { ["action"] = "close", ["session"] = "live-1" });
         Ended(copy);
     }
+
+    // ---- a child session closed before its first continue: the copy, let go stopped for that attach, runs on and exits
+
+    [LiveTargetFact("linux-x64")] public Task Copy_runs_on_after_its_session_closes_unstarted_on_linux_x64() => CopyRunsOn(LiveTarget.LinuxX64);
+    [LiveTargetFact("linux-x86")] public Task Copy_runs_on_after_its_session_closes_unstarted_on_linux_x86() => CopyRunsOn(LiveTarget.LinuxX86);
+
+    private async Task CopyRunsOn(LiveTarget target)
+    {
+        var exe = target.Build(_dir, "selfstart", LivePrograms.SelfStarter);
+        await using var server = await Server();
+        await Ok(server, "live_session", new() { ["action"] = "spawn", ["program"] = exe, ["arguments"] = new[] { "fork" }, ["childNames"] = new[] { "selfstart" } });
+        await Ok(server, "live_break", new() { ["session"] = "live-1", ["action"] = "continue" });
+        var copy = await HeldChild(server, exe);
+        await Ok(server, "live_session", new() { ["action"] = "attach_child", ["session"] = "live-1", ["program"] = copy.ToString(CultureInfo.InvariantCulture) });
+        await Ok(server, "live_session", new() { ["action"] = "close", ["session"] = "live-2" });
+        Assert.Matches(@"exit code 0(?![0-9xX])", await UntilExited(server, "live-1", 30));
+        Assert.Contains("copy exited 3", await Events(server, "live-1", kind: "output"));
+        await Ok(server, "live_session", new() { ["action"] = "close", ["session"] = "live-1" });
+        Ended(copy);
+    }
+
+    // ---- a snapshot of a program while the child it started is held
+
+    [LiveTargetFact("linux-x64")] public Task Snapshot_while_a_posix_spawn_child_is_held_on_linux_x64() => SnapshotWhileHeld(LiveTarget.LinuxX64, "spawn");
+    [LiveTargetFact("linux-x64")] public Task Snapshot_while_a_fork_child_is_held_on_linux_x64() => SnapshotWhileHeld(LiveTarget.LinuxX64, "fork");
+
+    private async Task SnapshotWhileHeld(LiveTarget target, string mode)
+    {
+        var exe = target.Build(_dir, "selfstart", LivePrograms.SelfStarter);
+        await using var server = await Server();
+        var open = await Ok(server, "live_session", new() { ["action"] = "spawn", ["program"] = exe, ["arguments"] = new[] { mode }, ["childNames"] = new[] { "selfstart" } });
+        var parent = int.Parse(Regex.Match(open, @"pid (\d+)").Groups[1].Value, CultureInfo.InvariantCulture);
+        await Ok(server, "live_break", new() { ["session"] = "live-1", ["action"] = "continue" });
+        var copy = await HeldChild(server, exe);
+        var sw = Stopwatch.StartNew();
+        var (text, failed) = await Call(server, "live_session", new() { ["action"] = "snapshot", ["session"] = "live-1", ["outputPath"] = _dir.File("parent.core") });
+        Output.WriteLine($"snapshot in {sw.ElapsedMilliseconds} ms: {text}");
+        Assert.False(failed, text);
+        Assert.NotEqual('T', Corvus.Native.Diagnostics.ProcessSnapshot.State(parent, parent));
+        await Ok(server, "live_session", new() { ["action"] = "close", ["session"] = "live-1" });
+        Ended(parent);
+        Ended(copy);
+    }
+
+    // ---- a snapshot of a running child under coverage
+
+    [LiveTargetFact("linux-x64")] public Task Snapshot_of_a_covered_copy_started_by_fork_on_linux_x64() => CoveredCopySnapshot(LiveTarget.LinuxX64, "fork");
+    [LiveTargetFact("linux-x86")] public Task Snapshot_of_a_covered_copy_started_by_fork_on_linux_x86() => CoveredCopySnapshot(LiveTarget.LinuxX86, "fork");
+    [LiveTargetFact("linux-x64")] public Task Snapshot_of_a_covered_copy_started_by_posix_spawn_on_linux_x64() => CoveredCopySnapshot(LiveTarget.LinuxX64, "spawn");
+    [LiveTargetFact("linux-x86")] public Task Snapshot_of_a_covered_copy_started_by_posix_spawn_on_linux_x86() => CoveredCopySnapshot(LiveTarget.LinuxX86, "spawn");
+
+    private async Task CoveredCopySnapshot(LiveTarget target, string mode)
+    {
+        var exe = target.Build(_dir, "selfstart", LivePrograms.SelfStarter);
+        await using var server = await Server();
+        var open = await Ok(server, "live_session", new() { ["action"] = "spawn", ["program"] = exe, ["arguments"] = new[] { mode, "8000" }, ["childNames"] = new[] { "selfstart" } });
+        var parent = int.Parse(Regex.Match(open, @"pid (\d+)").Groups[1].Value, CultureInfo.InvariantCulture);
+        await Ok(server, "live_break", new() { ["session"] = "live-1", ["action"] = "continue" });
+        var copy = await HeldChild(server, exe);
+        await Ok(server, "live_session", new() { ["action"] = "attach_child", ["session"] = "live-1", ["program"] = copy.ToString(CultureInfo.InvariantCulture) });
+        Assert.Contains("counting", await Ok(server, "live_coverage", new() { ["session"] = "live-2", ["action"] = "start" }));
+        await Ok(server, "live_break", new() { ["session"] = "live-2", ["action"] = "continue" });
+        await Task.Delay(1000);
+        var sw = Stopwatch.StartNew();
+        var snapshot = await Ok(server, "live_session", new() { ["action"] = "snapshot", ["session"] = "live-2", ["outputPath"] = _dir.File("copy.core") });
+        Output.WriteLine($"snapshot in {sw.ElapsedMilliseconds} ms");
+        Assert.Contains("the program keeps running", snapshot);
+        Assert.Contains("Tick", await Ok(server, "live_coverage", new() { ["action"] = "report", ["run"] = "cov-1" }));
+        await Ok(server, "live_session", new() { ["action"] = "close", ["session"] = "live-2" });
+        await Ok(server, "live_session", new() { ["action"] = "close", ["session"] = "live-1" });
+        Ended(parent);
+        Ended(copy);
+    }
 }

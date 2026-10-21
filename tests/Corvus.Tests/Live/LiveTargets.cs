@@ -500,18 +500,24 @@ internal static class LivePrograms
         """;
 
     /// <summary>
-    /// selfstart [fork|spawn] (Linux): starts a copy of itself through /proc/self/exe, by fork and execv or by posix_spawn;
-    /// the copy pauses and exits with 3, and the first prints the copy's exit code.
+    /// selfstart [fork|spawn] [ms] (Linux): starts a copy of itself through /proc/self/exe, by fork and execv or by posix_spawn;
+    /// the copy calls Tick every 10 ms for ms (default 200) and exits with 3, and the first prints the copy's exit code.
     /// </summary>
     public const string SelfStarter = Platform + """
         #include <string.h>
         #include <spawn.h>
         #include <sys/wait.h>
         extern char** environ;
+        volatile int g_ticks;
+        NOINLINE void Tick(int i) { g_ticks += i; }
         int main(int argc, char** argv)
         {
-            if (argc > 1 && strcmp(argv[1], "copy") == 0) { Pause(200); exit(3); }
-            char* args[] = { argv[0], "copy", NULL };
+            if (argc > 1 && strcmp(argv[1], "copy") == 0)
+            {
+                for (int i = 0, n = (argc > 2 ? atoi(argv[2]) : 200) / 10; i < n; i++) { Tick(i); Pause(10); }
+                exit(3);
+            }
+            char* args[] = { argv[0], "copy", argc > 2 ? argv[2] : NULL, NULL };
             pid_t pid;
             if (argc > 1 && strcmp(argv[1], "spawn") == 0) { if (posix_spawn(&pid, "/proc/self/exe", NULL, NULL, args, environ) != 0) return 2; }
             else if ((pid = fork()) == 0) { execv("/proc/self/exe", args); _exit(127); }
