@@ -51,11 +51,10 @@ public sealed class ElfCoreHeapRealTests
 
     private static string Quote(string s) => "'" + s.Replace("'", "'\\''", StringComparison.Ordinal) + "'";
 
-    [Fact]
+    [OptInFact("CORVUS_NETWORK_TESTS")]
     public async Task DumpHeapReadsTheHeapOfALinuxCore()
     {
-        if (!OperatingSystem.IsWindows() || Environment.GetEnvironmentVariable("CORVUS_NETWORK_TESTS") != "1"
-            || !File.Exists(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System), "wsl.exe"))) return;
+        if (!OperatingSystem.IsWindows() || !File.Exists(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System), "wsl.exe"))) return;
         // the runtime of the test's own major version installed in WSL: its dotnet and its folder
         var (found, listing) = Wsl($"d=$(command -v dotnet || echo $HOME/.dotnet/dotnet); [ -x \"$d\" ] && $d --list-runtimes | grep '^Microsoft.NETCore.App {Environment.Version.Major}\\.' | tail -1 && echo $d");
         var lines = listing.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
