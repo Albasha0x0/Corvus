@@ -616,7 +616,7 @@ public sealed class NativeIdaProviderTests(ITestOutputHelper output, IdaCacheFix
     }
 
     [IdaFact]
-    public async Task An_open_out_of_analysis_time_keeps_a_partial_database_and_the_next_open_completes_it()
+    public async Task An_open_out_of_analysis_time_keeps_a_partial_database_that_reanalysis_completes()
     {
         // 12,000 functions, each calling the next: push rbp; mov rbp, rsp; call next; pop rbp; ret
         const int count = 12_000;
@@ -644,11 +644,20 @@ public sealed class NativeIdaProviderTests(ITestOutputHelper output, IdaCacheFix
             Assert.Equal(ErrorCode.Timeout, e.Code);
             Assert.Equal(pid, s.WorkerProcessId);
         }
+        // the next open takes the database as it is, as Ghidra's do; a reanalysis completes it
+        await using (var s = (IdaSession)await provider.OpenAsync(path, null, Offline))
+        {
+            output.WriteLine($"second open: {s.OpenTime.TotalSeconds:0.0} s");
+            Assert.True(s.ReusedDatabase);
+            Assert.False(s.AnalysisComplete);
+            var r = await EngineControl.Of(s)!.ReanalyzeAsync([], null, null, 600);
+            output.WriteLine($"reanalysis: {r.FunctionsBefore} -> {r.FunctionsAfter} functions, {r.Elapsed.TotalSeconds:0.0} s");
+            Assert.True(r.Complete);
+            Assert.True(s.AnalysisComplete);
+        }
         await using (var s = (IdaSession)await provider.OpenAsync(path, null, Offline))
         {
             var functions = (await s.ListFunctionsAsync()).Count;
-            output.WriteLine($"second open: {functions} functions, {s.OpenTime.TotalSeconds:0.0} s");
-            Assert.True(s.ReusedDatabase);
             Assert.True(s.AnalysisComplete);
             Assert.True(functions >= count && functions > partial, $"{functions} functions after {partial}");
         }

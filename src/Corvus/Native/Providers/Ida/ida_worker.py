@@ -276,7 +276,14 @@ def op_open(args):
             raise WorkerError("invalid_argument", "IDA loaded the image with processor %s, not %s" % (got, wanted))
         if not reuse:
             setup_overrides(m, overrides, warnings)
-    complete = analyze_within(m, args.get("budget_seconds")) if _state["auto"] else True
+    if not _state["auto"]:
+        complete = True
+    elif reuse and not m.ida_auto.auto_is_ok():
+        # saved with its analysis cut short: opened as it is, as Ghidra's projects are; reanalyze_native completes it
+        bound_auto_wait(m)
+        complete = False
+    else:
+        complete = analyze_within(m, args.get("budget_seconds"))
 
     _state["base"] = m.ida_nalt.get_imagebase()
     ftype = m.ida_ida.inf_get_filetype()
@@ -318,7 +325,7 @@ def op_open(args):
 
 def analyze_within(m, seconds):
     # auto_wait in steps, so the open answers within its budget or request deadline; what is left stays queued in the
-    # saved database and runs on the next open. True: the queue ran empty.
+    # saved database for reanalyze_native. True: the queue ran empty.
     end = time.time() + float(seconds) if seconds else None
     m.ida_auto.enable_auto(True)
     while True:
@@ -3706,7 +3713,7 @@ def op_reanalyze(args):
             m.ida_auto.auto_wait_range(ea, min(hi, ea + step))
             ea += step
         if time.time() - start < budget and not m.ida_auto.auto_is_ok():
-            m.ida_auto.auto_wait()
+            analyze_within(m, budget - (time.time() - start))
         complete = bool(m.ida_auto.auto_is_ok())
     finally:
         ida_ida.inf_set_af(saved[0])

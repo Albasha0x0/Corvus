@@ -29,7 +29,7 @@ internal sealed class IdaSession(IdaProvider provider, IdaInstallation ida, Pyth
     protected override string? Note => string.Join("; ", new[]
     {
         Options.Analysis == EngineAnalysis.None ? "no auto-analysis: functions made where asked"
-            : _analysisFinished ? null : "analysis partial: the open's time ran out; the next open or reanalyze_native continues it",
+            : _analysisFinished ? null : "analysis partial: the open's time ran out; reanalyze_native completes it",
         Entry?.SnapshotOf is { } pid ? $"read-only snapshot of the database process {pid} has open: edits are not saved" : null,
         _adoptedFrom != null ? $"started from a copy of {_adoptedFrom} (that file is never changed)" : null,
         _adoptionRejected,
