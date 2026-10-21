@@ -83,22 +83,22 @@ public sealed partial class NativeAnalysisTools
     }
 
     [McpServerTool(Name = "decompile_native", Title = "Decompile native function", UseStructuredContent = true, OutputSchemaType = typeof(DecompileReport))]
-    [Description("C pseudocode of a native function via IDA (Hex-Rays) or Ghidra. The first call runs auto-analysis (seconds to minutes); " +
-                 "the database and answers are kept per file. Names, comments and types in effect are pushed first; user types win. " +
-                 "functions=: several per request, a failure affects only its item.")]
+    [Description("C pseudocode of a native function via IDA (Hex-Rays) or Ghidra. The first call runs auto-analysis (seconds to minutes); database " +
+                 "and answers are kept per file. Names, comments and types in effect are pushed first; user types win. functions=: several per " +
+                 "request, a failure affects only its item.")]
     public Task<string> DecompileNative(
         [Description(NativeTools.ImageDescription)] string image,
         [Description(NativeTools.AddressDescription)] string? address = null,
         [Description(EngineChoice.EngineOnlyDescription)] string? engine = null,
-        [Description("Prefix each line with the address it was generated from.")] bool addresses = false,
+        [Description("Prefix lines with their source address.")] bool addresses = false,
         [Description("Character offset; with functions/callersOf the first input (nextInput).")] int offset = 0,
         [Description(MaxTokensDescription)] int? maxTokens = null,
         [Description("Several functions instead of address: addresses or names, in order.")] string[]? functions = null,
         [Description("With functions: seconds per function (1-600).")] int perFunctionSeconds = 60,
         [Description("With functions: most decompiled (1-200); the rest follow.")] int maxFunctions = 32,
-        [Description("With address: a footer listing the globals, functions, strings and imports used.")] bool refs = false,
+        [Description("With address: a footer of the globals, functions, strings and imports used.")] bool refs = false,
         [Description("Seconds per engine request (1-600); Ghidra retries once with 4x.")] int? timeoutSeconds = null,
-        [Description("Instead of address: decompile this function's callers (engine references).")] string? callersOf = null,
+        [Description("Instead of address: decompile the callers of this function (engine references).")] string? callersOf = null,
         [Description("c, or pcode (Ghidra high p-code per block).")] string view = "c",
         RequestContext<CallToolRequestParams> context = null!,
         CancellationToken cancellationToken = default) => OrderedProgress.Run(context, async progress =>

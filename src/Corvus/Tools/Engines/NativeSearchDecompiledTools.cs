@@ -49,8 +49,8 @@ public sealed class NativeSearchDecompiledTools(AssemblyWorkspace workspace, Nat
     private const int Chunk = 8;
 
     [McpServerTool(Name = "search_decompiled", Title = "Search native pseudocode", UseStructuredContent = true, OutputSchemaType = typeof(SearchDecompiledReport))]
-    [Description("Regex (case-insensitive; (?-i) for exact case) per line of the IDA or Ghidra pseudocode of every function (or filtered ones), " +
-                 "in address order; parallel where the engine allows, cached. Stops at maxFunctions, timeoutSeconds or limit hits; offset continues.")]
+    [Description("Regex (case-insensitive; (?-i) for exact case) per line of the IDA or Ghidra pseudocode of every function (or filtered ones), in " +
+                 "address order; parallel where the engine allows, cached. Stops at maxFunctions, timeoutSeconds or limit hits; offset continues.")]
     public Task<string> SearchDecompiled(
         [Description(NativeTools.ImageDescription)] string image,
         [Description("Regex.")] string pattern,

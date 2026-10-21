@@ -19,13 +19,13 @@ public sealed class EngineExportTools(AssemblyWorkspace workspace, NativeEngineS
     public sealed record DatabaseExport(string Image, string Engine, [property: Description("The file written.")] string Path, long Bytes, string Note);
 
     [McpServerTool(Name = "export_engine_database", Title = "Export the engine database", UseStructuredContent = true, OutputSchemaType = typeof(DatabaseExport))]
-    [Description("Write a native image's engine database (analysis plus names, comments and types pushed from here) for the engine's GUI: " +
-                 "IDA a compressed .i64, Ghidra a packed .gzf; Ghidra's own types also as .h or .gdt. Written whole or not at all.")]
+    [Description("Write the engine database of a native image (analysis plus names, comments and types pushed from here) for the engine GUI: IDA a " +
+                 "compressed .i64, Ghidra a packed .gzf; Ghidra types also as .h or .gdt. Written whole or not at all.")]
     public Task<string> ExportEngineDatabase(
         [Description(NativeTools.ImageDescription)] string image,
-        [Description("The .i64 (IDA), .gzf, .h or .gdt (Ghidra) file to write.")] string outputPath,
+        [Description("The .i64 (IDA), .gzf, .h or .gdt (Ghidra) to write.")] string outputPath,
         [Description("Replace outputPath if it exists.")] bool overwrite = false,
-        [Description("Default: the extension's engine, else IDA.")] string? engine = null,
+        [Description("Default: the engine of the extension, else IDA.")] string? engine = null,
         RequestContext<CallToolRequestParams> context = null!,
         CancellationToken cancellationToken = default) => OrderedProgress.Run(context, async progress =>
     {

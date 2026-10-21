@@ -23,9 +23,9 @@ public sealed class NativeEmulationTools(AssemblyWorkspace workspace, NativeEngi
     internal const int MaxCandidates = 1000;
 
     [McpServerTool(Name = "emulate_native", Title = "Emulate native code", UseStructuredContent = true, OutputSchemaType = typeof(EmulationReport))]
-    [Description("Emulates native code in Ghidra's p-code emulator: string decoders, hashes, computed constants. " +
-                 "Memory: image, stack, given writes. Stops on return, stopAt or a budget. Calls run in the image or return stubs= " +
-                 "values; an unmodelled call or unmapped read is an error. Reports return value, registers, written strings, reads, trace.")]
+    [Description("Emulate native code in the Ghidra p-code emulator: string decoders, hashes, computed constants. Memory: image, stack, given writes. " +
+                 "Stops on return, stopAt or a budget. Calls run in the image or return stubs= values; an unmodelled call or unmapped read is an " +
+                 "error. Reports return value, registers, written strings, reads, trace.")]
     public Task<string> EmulateNative(
         [Description(NativeTools.ImageDescription)] string image,
         [Description(NativeTools.AddressDescription)] string address,
@@ -38,8 +38,8 @@ public sealed class NativeEmulationTools(AssemblyWorkspace workspace, NativeEngi
         [Description("Instruction budget (1-50000000).")] int maxInstructions = 1_000_000,
         [Description("Time budget, s (1-300).")] int timeoutSeconds = 10,
         [Description("Last instructions listed (0-2000).")] int trace = 0,
-        [Description("Argument sets, ';'-separated, each as args; one timeoutSeconds covers all.")] string? candidates = null,
-        [Description("auto or ghidra.")] string? engine = null,
+        [Description("Argument sets, ;-separated, each as args; one timeoutSeconds covers all.")] string? candidates = null,
+        [Description("Default auto.")] string? engine = null,
         RequestContext<CallToolRequestParams> context = null!,
         CancellationToken cancellationToken = default) => OrderedProgress.Run(context, async progress =>
     {

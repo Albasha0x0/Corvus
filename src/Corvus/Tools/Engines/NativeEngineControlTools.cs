@@ -33,19 +33,19 @@ public sealed class NativeEngineControlTools(AssemblyWorkspace workspace, Native
     }
 
     [McpServerTool(Name = "reanalyze_native", Title = "Re-run native auto-analysis", UseStructuredContent = true, OutputSchemaType = typeof(ReanalysisReport))]
-    [Description("Re-run IDA's or Ghidra's auto-analysis over an image (or from-to) and save; a full run also completes a Ghidra " +
-                 "analysis the open's budget cut short. options= sets analyzers for this run; analyzers=true lists them.")]
+    [Description("Re-run IDA or Ghidra auto-analysis over an image (or from-to) and save; a full run also completes a Ghidra analysis the open budget " +
+                 "cut short. options= sets analyzers for this run; analyzers=true lists them.")]
     public Task<string> ReanalyzeNative(
         [Description(NativeTools.ImageDescription)] string image,
         [Description(EngineChoice.EngineOnlyDescription)] string? engine = null,
-        [Description("List the analyzer options and values instead of running.")] bool analyzers = false,
+        [Description("List analyzer options and values instead of running.")] bool analyzers = false,
         [Description("With analyzers: name filter.")] string? filter = null,
-        [Description("name=value per option (AF_FLIRT=false, 'Decompiler Parameter ID=true').")] string[]? options = null,
-        [Description("full (Ghidra defaults) or a preset in analysis-presets.json (data folder).")] string? preset = null,
-        [Description("Run with no caller waiting; other engine calls get conflict until it ends.")] bool background = false,
-        [Description("Range start (default: the whole image).")] string? from = null,
+        [Description("name=value per option (AF_FLIRT=false, Decompiler Parameter ID=true).")] string[]? options = null,
+        [Description("full (Ghidra defaults) or a preset in analysis-presets.json.")] string? preset = null,
+        [Description("Run with no caller waiting; other engine calls conflict until done.")] bool background = false,
+        [Description("Range start (default: whole image).")] string? from = null,
         [Description("Range end (exclusive).")] string? to = null,
-        [Description("Seconds (1-3600); what is left runs on the next run.")] int timeoutSeconds = 600,
+        [Description("Seconds (1-3600); the rest runs on the next run.")] int timeoutSeconds = 600,
         [Description("With analyzers: rows to skip.")] int offset = 0,
         [Description("With analyzers: max rows.")] int limit = 200,
         RequestContext<CallToolRequestParams> context = null!,

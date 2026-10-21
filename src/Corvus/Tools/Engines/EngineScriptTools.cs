@@ -23,18 +23,18 @@ public sealed class EngineScriptTools(AssemblyWorkspace workspace, NativeEngineS
         bool Saved);
 
     [McpServerTool(Name = "ida_python", Title = "Run IDAPython on a native image", UseStructuredContent = true, OutputSchemaType = typeof(ScriptReport))]
-    [Description("Run Python in the IDA worker holding a native image's database (idalib): IDAPython modules imported, base = image base, " +
-                 "globals persist (reset=true clears); returns a final expression's value, stdout and stderr. " +
-                 "Off unless --ida-scripting (CORVUS_IDA_SCRIPTING=1): the code has the server's rights. Not journaled: persist=true saves.")]
+    [Description("Run Python in the IDA worker holding the image database (idalib): IDAPython imported, base = image base, globals persist " +
+                 "(reset=true clears); returns the final expression value, stdout, stderr. Off unless --ida-scripting (CORVUS_IDA_SCRIPTING=1): the " +
+                 "code has server rights. Not journaled: persist=true saves.")]
     public Task<string> IdaPython(
         [Description(NativeTools.ImageDescription)] string image,
-        [Description("Python source (or pass scriptPath).")] string? code = null,
-        [Description("Clear the globals earlier calls left.")] bool reset = false,
+        [Description("Python source (or scriptPath).")] string? code = null,
+        [Description("Clear globals of earlier calls.")] bool reset = false,
         [Description("Default auto.")] string? engine = null,
         [Description("A .py file to run instead of code.")] string? scriptPath = null,
         [Description(ToolSupport.MaxTokensDescription)] int? maxTokens = null,
-        [Description("Save the database after the script.")] bool persist = false,
-        [Description("Return an exception as the result instead of an error.")] bool allowError = false,
+        [Description("Save the database afterwards.")] bool persist = false,
+        [Description("Return an exception as the result, not an error.")] bool allowError = false,
         RequestContext<CallToolRequestParams> context = null!,
         CancellationToken cancellationToken = default) => OrderedProgress.Run(context, async progress =>
     {
@@ -96,19 +96,19 @@ public sealed class EngineScriptTools(AssemblyWorkspace workspace, NativeEngineS
     private const int MaxScriptBytes = 1 << 20;
 
     [McpServerTool(Name = "ghidra_script", Title = "Run a Ghidra script on a native image", UseStructuredContent = true, OutputSchemaType = typeof(ScriptReport))]
-    [Description("Run Java or Python (PyGhidra, CORVUS_GHIDRA_PYTHON) in the Ghidra worker of a native image: a GhidraScript class, run()'s body " +
-                 "(imports first; currentProgram, println, FlatProgramAPI) or name= an installed script. One transaction: saved on return, rolled back " +
-                 "on an exception. Off unless --ghidra-scripting (CORVUS_GHIDRA_SCRIPTING=1): the code has the server's rights.")]
+    [Description("Run Java or Python (PyGhidra, CORVUS_GHIDRA_PYTHON) in the Ghidra worker: a GhidraScript class, a run() body (imports first; " +
+                 "currentProgram, println, FlatProgramAPI) or name= an installed script. One transaction: saved on return, rolled back on an " +
+                 "exception. Off unless --ghidra-scripting (CORVUS_GHIDRA_SCRIPTING=1): the code has server rights.")]
     public Task<string> GhidraScript(
         [Description(NativeTools.ImageDescription)] string image,
-        [Description("Java (a class extending GhidraScript, or statements for run()) or Python source.")] string? code = null,
-        [Description("Instead of code: a script in Ghidra's script folders, then <data>/ghidra_scripts.")] string? name = null,
-        [Description("With name: the script's arguments (getScriptArgs).")] string[]? args = null,
+        [Description("Java (a GhidraScript class, or statements for run()) or Python source.")] string? code = null,
+        [Description("Instead of code: a script in the Ghidra script folders or <data>/ghidra_scripts.")] string? name = null,
+        [Description("With name: script arguments (getScriptArgs).")] string[]? args = null,
         [Description("Seconds before the script is cancelled (1-3600).")] int timeoutSeconds = 120,
         [Description("java (default) or python; name *.py is Python.")] string? language = null,
         [Description("Default auto.")] string? engine = null,
         [Description(ToolSupport.MaxTokensDescription)] int? maxTokens = null,
-        [Description("Return an exception as the result instead of an error.")] bool allowError = false,
+        [Description("Return an exception as the result, not an error.")] bool allowError = false,
         RequestContext<CallToolRequestParams> context = null!,
         CancellationToken cancellationToken = default) => OrderedProgress.Run(context, async progress =>
     {

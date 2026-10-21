@@ -62,12 +62,12 @@ public sealed class NativeEngineStatusTools(AssemblyWorkspace workspace, NativeE
     public sealed record EngineStatusReport(string Image, IReadOnlyList<EngineStatus> Engines);
 
     [McpServerTool(Name = "get_engine_status", Title = "Engine status of a native image", UseStructuredContent = true, OutputSchemaType = typeof(EngineStatusReport))]
-    [Description("IDA and Ghidra sessions of a native image: opening (stage, seconds), failed, not started, or open with the engine's view (language, " +
+    [Description("IDA and Ghidra sessions of a native image: opening (stage, seconds), failed, not started, or open with the engine view (language, " +
                  "compiler, analysis state, warnings, counts, entry points, hashes, blocks, database, worker, unsaved edits). Starts no engine.")]
     public async Task<string> GetEngineStatus(
         [Description(NativeTools.ImageDescription)] string image,
         [Description("Default auto: both.")] string? engine = null,
-        [Description("Ghidra: list every Error and Warning bookmark (default: the first 5).")] bool bookmarks = false,
+        [Description("Ghidra: every Error and Warning bookmark (default: the first 5).")] bool bookmarks = false,
         CancellationToken cancellationToken = default)
     {
         if (engines == null) throw new ToolError(ErrorCode.ProviderUnavailable, "No analysis engine is set up in this server.");

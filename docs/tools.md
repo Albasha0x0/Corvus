@@ -1493,22 +1493,22 @@ Structured output: `image`, `query`, `type`, `candidates`, `totalCandidates`, `o
 
 **Decompile native function** (read-only, idempotent, open-world, long-running)
 
-C pseudocode of a native function via IDA (Hex-Rays) or Ghidra. The first call runs auto-analysis (seconds to minutes); the database and answers are kept per file. Names, comments and types in effect are pushed first; user types win. functions=: several per request, a failure affects only its item.
+C pseudocode of a native function via IDA (Hex-Rays) or Ghidra. The first call runs auto-analysis (seconds to minutes); database and answers are kept per file. Names, comments and types in effect are pushed first; user types win. functions=: several per request, a failure affects only its item.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `image` | string | yes |  | Image id, name or path. |
 | `address` | string |  |  | Hex VA or RVA (rva:/va:/off: prefix), export, module!import or function. |
 | `engine` | string |  |  | Default auto. Values: auto, ida, ghidra. |
-| `addresses` | boolean |  |  | Prefix each line with the address it was generated from. |
+| `addresses` | boolean |  |  | Prefix lines with their source address. |
 | `offset` | integer |  |  | Character offset; with functions/callersOf the first input (nextInput). |
 | `maxTokens` | integer |  |  |  |
 | `functions` | string[] |  |  | Several functions instead of address: addresses or names, in order. |
 | `perFunctionSeconds` | integer |  | `60` | With functions: seconds per function (1-600). |
 | `maxFunctions` | integer |  | `32` | With functions: most decompiled (1-200); the rest follow. |
-| `refs` | boolean |  |  | With address: a footer listing the globals, functions, strings and imports used. |
+| `refs` | boolean |  |  | With address: a footer of the globals, functions, strings and imports used. |
 | `timeoutSeconds` | integer |  |  | Seconds per engine request (1-600); Ghidra retries once with 4x. |
-| `callersOf` | string |  |  | Instead of address: decompile this function's callers (engine references). |
+| `callersOf` | string |  |  | Instead of address: decompile the callers of this function (engine references). |
 | `view` | string |  | `c` | c, or pcode (Ghidra high p-code per block). |
 
 Structured output: `image`, `engine`, `items`, `inputs`, `succeeded`, `failed`, `skipped`, `nextInput`, `offset`, `engineNote`, `code`, `nextOffset`, `totalChars`.
@@ -1537,7 +1537,7 @@ Structured output: `image`, `engine`, `pattern`, `items`, `functionsTotal`, `off
 
 **Emulate native code** (read-only, idempotent, open-world, long-running)
 
-Emulates native code in Ghidra's p-code emulator: string decoders, hashes, computed constants. Memory: image, stack, given writes. Stops on return, stopAt or a budget. Calls run in the image or return stubs= values; an unmodelled call or unmapped read is an error. Reports return value, registers, written strings, reads, trace.
+Emulate native code in the Ghidra p-code emulator: string decoders, hashes, computed constants. Memory: image, stack, given writes. Stops on return, stopAt or a budget. Calls run in the image or return stubs= values; an unmodelled call or unmapped read is an error. Reports return value, registers, written strings, reads, trace.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -1552,8 +1552,8 @@ Emulates native code in Ghidra's p-code emulator: string decoders, hashes, compu
 | `maxInstructions` | integer |  | `1000000` | Instruction budget (1-50000000). |
 | `timeoutSeconds` | integer |  | `10` | Time budget, s (1-300). |
 | `trace` | integer |  | `0` | Last instructions listed (0-2000). |
-| `candidates` | string |  |  | Argument sets, ';'-separated, each as args; one timeoutSeconds covers all. |
-| `engine` | string |  |  | auto or ghidra. Values: auto, ghidra. |
+| `candidates` | string |  |  | Argument sets, ;-separated, each as args; one timeoutSeconds covers all. |
+| `engine` | string |  |  | Default auto. Values: auto, ghidra. |
 
 Structured output: `image`, `engine`, `instructions`, `stop`, `stoppedAt`, `returnRegister`, `returnValue`, `registers`, `callCount`, `calls`, `written`, `reads`, `trace`, `candidates`.
 
@@ -2095,13 +2095,13 @@ Edits inside the decompiler engine's database: types, locals, frames, declaratio
 
 **Engine status of a native image** (read-only, idempotent, open-world)
 
-IDA and Ghidra sessions of a native image: opening (stage, seconds), failed, not started, or open with the engine's view (language, compiler, analysis state, warnings, counts, entry points, hashes, blocks, database, worker, unsaved edits). Starts no engine.
+IDA and Ghidra sessions of a native image: opening (stage, seconds), failed, not started, or open with the engine view (language, compiler, analysis state, warnings, counts, entry points, hashes, blocks, database, worker, unsaved edits). Starts no engine.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `image` | string | yes |  | Image id, name or path. |
 | `engine` | string |  |  | Default auto: both. Values: auto, ida, ghidra. |
-| `bookmarks` | boolean |  |  | Ghidra: list every Error and Warning bookmark (default: the first 5). |
+| `bookmarks` | boolean |  |  | Ghidra: every Error and Warning bookmark (default: the first 5). |
 
 Structured output: `image`, `engines`.
 
@@ -2109,16 +2109,16 @@ Structured output: `image`, `engines`.
 
 **Set a native prototype or global type** (destructive, idempotent, open-world, long-running)
 
-Set the prototype of a native function ('int __fastcall Parse(Packet *p, int len)') or a global's type ('Handler *[8]') in the engine. Named types must exist there (PDB, RTTI, Il2Cpp or declare_native_types). User types win; empty clears; __noreturn ends the callers' flow at the call. Kept in the annotations.
+Set a native function prototype (int __fastcall Parse(Packet *p, int len)) or global type (Handler *[8]) in the engine. Named types must exist there (PDB, RTTI, Il2Cpp or declare_native_types). User types win; empty clears; __noreturn ends caller flow at the call. Kept in the annotations.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `image` | string | yes |  | Image id, name or path. |
 | `address` | string |  |  | Hex VA or RVA (rva:/va:/off: prefix), export, module!import or function. |
-| `type` | string |  |  | C prototype for a function, C type for a global; empty to clear the user type. |
-| `items` | string |  |  | Instead of address and type: lines 'address = type'. |
+| `type` | string |  |  | C prototype for a function, C type for a global; empty clears the user type. |
+| `items` | string |  |  | Instead of address and type: lines address = type. |
 | `rename` | boolean |  |  | Name the function as its prototype does. |
-| `guess` | boolean |  |  | Report the engine's guess at address without applying it. |
+| `guess` | boolean |  |  | Report the engine guess at address, not applied. |
 | `showDecompile` | string |  |  | after: the pseudocode after the edit; diff: its unified diff. Values: none, after, diff. |
 | `engine` | string |  |  | Default auto. Values: auto, ida, ghidra. |
 
@@ -2128,21 +2128,21 @@ Structured output: `applied`, `dryRun`, `changes`, `editIds`, `failed`, `digest`
 
 **Rename or retype a decompiler local** (destructive, idempotent, open-world, long-running)
 
-Rename and/or retype a local or argument in a native function's pseudocode, named as decompile_native shows it (v3, a1) or stack:0x28. Later edits may use its new name; its first name again, or clear, drops the edit. A type that does not fit is refused. Kept in the annotations.
+Rename and/or retype a local or argument in native pseudocode, named as decompile_native shows it (v3, a1) or stack:0x28. Later edits may use the new name; the first name again, or clear, drops the edit. A type that does not fit is refused. Kept in the annotations.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `image` | string | yes |  | Image id, name or path. |
 | `function` | string | yes |  | Hex VA or RVA (rva:/va:/off: prefix), export, module!import or function. |
-| `local` | string |  |  | The variable: its name in the pseudocode, or stack:<offset> (hex). |
+| `local` | string |  |  | The variable: its pseudocode name, or stack:<offset> (hex). |
 | `newName` | string |  |  | New name (a C identifier). |
 | `type` | string |  |  | New C type. |
-| `clear` | boolean |  |  | Drop the user's name and type of the variable. |
-| `items` | string |  |  | Instead: lines 'local = newName' or JSON [{local, newName?, type?, clear?}]. |
+| `clear` | boolean |  |  | Drop the user name and type. |
+| `items` | string |  |  | Instead: lines local = newName, or JSON [{local, newName?, type?, clear?}]. |
 | `showDecompile` | string |  |  | after: the pseudocode after the edit; diff: its unified diff. Values: none, after, diff. |
 | `engine` | string |  |  | Default auto. Values: auto, ida, ghidra. |
 | `inferStruct` | string |  |  | Ghidra: declare this struct from the local's accesses; the local points to it. |
-| `storage` | string |  |  | Move an argument to this register, or auto: the convention's place. |
+| `storage` | string |  |  | Move an argument to this register; auto: where the convention puts it. |
 
 Structured output: `applied`, `dryRun`, `changes`, `editIds`, `failed`, `digest`.
 
@@ -2150,20 +2150,20 @@ Structured output: `applied`, `dryRun`, `changes`, `editIds`, `failed`, `digest`
 
 **Rename, retype or delete a stack variable** (destructive, idempotent, open-world, long-running)
 
-Rename and/or retype a stack frame member, by its get_native_frame name (var_28) or frame offset (0x20, from the lowest address); a type at an empty offset creates one. The return address and saved registers are refused. Kept in the annotations.
+Rename and/or retype a stack frame member by its get_native_frame name (var_28) or frame offset (0x20, from the lowest address); a type at an empty offset creates one. Return address and saved registers are refused. Kept in the annotations.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `image` | string | yes |  | Image id, name or path. |
 | `function` | string | yes |  | Hex VA or RVA (rva:/va:/off: prefix), export, module!import or function. |
-| `variable` | string |  |  | The member: its name, or its frame offset (hex). |
+| `variable` | string |  |  | The member: name or frame offset (hex). |
 | `newName` | string |  |  | New name (a C identifier). |
 | `type` | string |  |  | New C type. |
 | `delete` | boolean |  |  | Delete the member. |
-| `clear` | boolean |  |  | Drop the user's edit, restoring the engine's member. |
+| `clear` | boolean |  |  | Drop the user edit, restoring the engine member. |
 | `showDecompile` | string |  |  | after: the pseudocode after the edit; diff: its unified diff. Values: none, after, diff. |
 | `engine` | string |  |  | Default auto. Values: auto, ida, ghidra. |
-| `items` | string |  |  | Instead: lines 'member = newName' or JSON [{variable, newName?, type?, delete?, clear?}]. |
+| `items` | string |  |  | Instead: lines member = newName, or JSON [{variable, newName?, type?, delete?, clear?}]. |
 
 Structured output: `applied`, `dryRun`, `changes`, `editIds`, `failed`, `digest`.
 
@@ -2171,7 +2171,7 @@ Structured output: `applied`, `dryRun`, `changes`, `editIds`, `failed`, `digest`
 
 **Native stack frame and locals** (read-only, idempotent, open-world, long-running)
 
-Stack frame of a native function as the engine has it (members: offset, name, type, size; Ghidra counts saved registers as locals); locals=true adds the decompiler's locals (name, type, register or stack offset, user edits). Offsets count from the lowest address; brackets from the return address.
+Stack frame of a native function as the engine has it (members: offset, name, type, size; Ghidra counts saved registers as locals); locals=true adds decompiler locals (name, type, register or stack offset, user edits). Offsets from the lowest address; brackets from the return address.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -2188,19 +2188,19 @@ Structured output: `image`, `engine`, `function`, `name`, `localSize`, `savedReg
 
 **Declare C types in the engine** (destructive, idempotent, open-world, long-running)
 
-Declare C types (structs, unions, enums, typedefs, function types) in the engine, replacing a same-named type; declarations win over recovered types. Engine errors save nothing. typeName edits one type: members (enum), fields (struct or union), resize, nameGaps; delete or rename edits any named type. Kept in the annotations.
+Declare C types (structs, unions, enums, typedefs, function types) in the engine, replacing same-named ones; they win over recovered types. Engine errors save nothing. typeName edits one type: members (enum), fields (struct, union), resize, nameGaps; delete or rename edits any named type. Kept in the annotations.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `image` | string | yes |  | Image id, name or path. |
-| `declarations` | string |  |  | C declarations; types they name must exist or be declared too. |
+| `declarations` | string |  |  | C declarations; named types must exist or be declared too. |
 | `typeName` | string |  |  | Enum, struct or union to edit. |
-| `members` | string |  |  | Enum: 'NAME=value, ...' (hex or decimal; or lines); 'NAME=' removes. |
-| `fields` | string |  |  | Struct or union: 'name: type; name@0x10: type; @0x10: type' (or lines); 'name:' removes; '+name@0x10: type' inserts. |
-| `resize` | string |  |  | Struct: its new size (hex or decimal); goes alone. |
-| `nameGaps` | boolean |  |  | Struct: name its unnamed gaps gap_<offset>. |
+| `members` | string |  |  | Enum: NAME=value, ... (hex or decimal; or lines); NAME= removes. |
+| `fields` | string |  |  | Struct or union: name: type; name@0x10: type; @0x10: type (or lines); name: removes; +name@0x10: type inserts. |
+| `resize` | string |  |  | Struct: new size (hex or decimal); goes alone. |
+| `nameGaps` | boolean |  |  | Struct: name unnamed gaps gap_<offset>. |
 | `delete` | string |  |  | A type to delete. |
-| `rename` | string |  |  | 'Old=New'; kept edits naming it follow. |
+| `rename` | string |  |  | Old=New; kept edits naming it follow. |
 | `engine` | string |  |  | Default auto. Values: auto, ida, ghidra. |
 
 Structured output: `applied`, `dryRun`, `changes`, `editIds`, `failed`, `digest`.
@@ -2209,7 +2209,7 @@ Structured output: `applied`, `dryRun`, `changes`, `editIds`, `failed`, `digest`
 
 **Browse the engine's types** (read-only, idempotent, open-world, long-running)
 
-Named types of the engine's database (PDB, RTTI, Il2Cpp, type libraries, declare_native_types) with size and member count; name= shows one type as a C declaration with member offsets.
+Named types of the engine database (PDB, RTTI, Il2Cpp, type libraries, declare_native_types) with size and member count; name= shows one as a C declaration with member offsets.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -2221,10 +2221,10 @@ Named types of the engine's database (PDB, RTTI, Il2Cpp, type libraries, declare
 | `limit` | integer |  | `200` | Max rows (max 5000). |
 | `maxTokens` | integer |  |  |  |
 | `engine` | string |  |  | Default auto. Values: auto, ida, ghidra. |
-| `sort` | string |  |  | name (default), size, or ordinal (the engine's order). Values: name, size. |
+| `sort` | string |  |  | Default name; ordinal: the engine's order. Values: name, size. |
 | `descending` | boolean |  |  | Reverse the order. |
-| `members` | boolean |  |  | List each type's first 32 members (enums: name = value). |
-| `related` | boolean |  |  | Add the types each one refers to. |
+| `members` | boolean |  |  | List the first 32 members of each (enums: name = value). |
+| `related` | boolean |  |  | Add the types each refers to. |
 
 Structured output: `engine`, `items`, `offset`, `total`, `limit`, `totalExact`, `hasMore`, `nextOffset`.
 
@@ -2232,7 +2232,7 @@ Structured output: `engine`, `items`, `offset`, `total`, `limit`, `totalExact`, 
 
 **Redefine code or data in the engine** (destructive, idempotent, open-world, long-running)
 
-Redefine an address in the engine by kind: code (to end, else along the flow), function (make one to end, or move a function's end), undefine (to end, else the item or function), data (of type), flow (Ghidra: type branch, call, call_return or return; else clears). data and undefine drop a global's user type. Kept in the annotations.
+Redefine an address in the engine by kind: code (to end, else along the flow), function (make one to end, or move a function end), undefine (to end, else the item or function), data (of type), flow (Ghidra: type branch, call, call_return or return; else clears). data and undefine drop a global's user type. Kept in the annotations.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -2240,7 +2240,7 @@ Redefine an address in the engine by kind: code (to end, else along the flow), f
 | `address` | string | yes |  | Hex VA or RVA (rva:/va:/off: prefix), export, module!import or function. |
 | `kind` | string | yes |  | What to make. Values: code, function, undefine, data. |
 | `end` | string |  |  | Exclusive end address (same forms as address). |
-| `type` | string |  |  | kind=data: byte, word, dword, qword, float, double, string, string16 (UTF-16) or a C type; dword[8] arrays. |
+| `type` | string |  |  | kind=data: byte, word, dword, qword, float, double, string, string16 (UTF-16), a C type; dword[8] arrays. |
 | `engine` | string |  |  | Default auto. Values: auto, ida, ghidra. |
 
 Structured output: `applied`, `dryRun`, `changes`, `editIds`, `failed`, `digest`.
@@ -2249,20 +2249,20 @@ Structured output: `applied`, `dryRun`, `changes`, `editIds`, `failed`, `digest`
 
 **Re-run native auto-analysis** (destructive, open-world, long-running)
 
-Re-run IDA's or Ghidra's auto-analysis over an image (or from-to) and save; a full run also completes a Ghidra analysis the open's budget cut short. options= sets analyzers for this run; analyzers=true lists them.
+Re-run IDA or Ghidra auto-analysis over an image (or from-to) and save; a full run also completes a Ghidra analysis the open budget cut short. options= sets analyzers for this run; analyzers=true lists them.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `image` | string | yes |  | Image id, name or path. |
 | `engine` | string |  |  | Default auto. Values: auto, ida, ghidra. |
-| `analyzers` | boolean |  |  | List the analyzer options and values instead of running. |
+| `analyzers` | boolean |  |  | List analyzer options and values instead of running. |
 | `filter` | string |  |  | With analyzers: name filter. |
-| `options` | string[] |  |  | name=value per option (AF_FLIRT=false, 'Decompiler Parameter ID=true'). |
-| `preset` | string |  |  | full (Ghidra defaults) or a preset in analysis-presets.json (data folder). |
-| `background` | boolean |  |  | Run with no caller waiting; other engine calls get conflict until it ends. |
-| `from` | string |  |  | Range start (default: the whole image). |
+| `options` | string[] |  |  | name=value per option (AF_FLIRT=false, Decompiler Parameter ID=true). |
+| `preset` | string |  |  | full (Ghidra defaults) or a preset in analysis-presets.json. |
+| `background` | boolean |  |  | Run with no caller waiting; other engine calls conflict until done. |
+| `from` | string |  |  | Range start (default: whole image). |
 | `to` | string |  |  | Range end (exclusive). |
-| `timeoutSeconds` | integer |  | `600` | Seconds (1-3600); what is left runs on the next run. |
+| `timeoutSeconds` | integer |  | `600` | Seconds (1-3600); the rest runs on the next run. |
 | `offset` | integer |  |  | With analyzers: rows to skip. |
 | `limit` | integer |  | `200` | With analyzers: max rows. |
 
@@ -2272,17 +2272,17 @@ Structured output: `image`, `engine`, `scope`, `complete`, `functionsBefore`, `f
 
 **Set how an operand displays** (destructive, idempotent, open-world, long-running)
 
-Set how an instruction operand displays in the engine's disassembly and, where the decompiler follows, pseudocode: offset (as an address), stack (a stack variable), enum (type: the enum), struct (type: 'Packet' or 'Packet+0x10'; IDA only) or default. Ghidra shows numbers and enum members as equates. Kept in the annotations.
+Set how an instruction operand displays in engine disassembly and, where the decompiler follows, pseudocode: offset (as an address), stack (a stack variable), enum (type: the enum), struct (type: Packet or Packet+0x10; IDA only) or default. Ghidra shows numbers and enum members as equates. Kept in the annotations.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `image` | string | yes |  | Image id, name or path. |
 | `address` | string | yes |  | Hex VA or RVA (rva:/va:/off: prefix), export, module!import or function. |
 | `operand` | integer |  | `0` | Operand index, 0 for the first. |
-| `display` | string |  |  | How to display it (see the description). Values: hex, dec, oct, bin, char, offset, stack, enum, struct, default. |
-| `type` | string |  |  | display=enum or struct: the type's name (struct: optionally +delta). |
+| `display` | string |  |  | How to display it. Values: hex, dec, oct, bin, char, offset, stack, enum, struct, default. |
+| `type` | string |  |  | display=enum or struct: the type name (struct: optionally +delta). |
 | `engine` | string |  |  | Default auto. Values: auto, ida, ghidra. |
-| `items` | string |  |  | Instead: lines 'address operand display [type]' or JSON [{address, operand, display, type?}]. |
+| `items` | string |  |  | Instead: lines address operand display [type], or JSON [{address, operand, display, type?}]. |
 
 Structured output: `applied`, `dryRun`, `changes`, `editIds`, `failed`, `digest`.
 
@@ -2290,18 +2290,18 @@ Structured output: `applied`, `dryRun`, `changes`, `editIds`, `failed`, `digest`
 
 **Run IDAPython on a native image** (destructive, open-world, long-running)
 
-Run Python in the IDA worker holding a native image's database (idalib): IDAPython modules imported, base = image base, globals persist (reset=true clears); returns a final expression's value, stdout and stderr. Off unless --ida-scripting (CORVUS_IDA_SCRIPTING=1): the code has the server's rights. Not journaled: persist=true saves.
+Run Python in the IDA worker holding the image database (idalib): IDAPython imported, base = image base, globals persist (reset=true clears); returns the final expression value, stdout, stderr. Off unless --ida-scripting (CORVUS_IDA_SCRIPTING=1): the code has server rights. Not journaled: persist=true saves.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `image` | string | yes |  | Image id, name or path. |
-| `code` | string |  |  | Python source (or pass scriptPath). |
-| `reset` | boolean |  |  | Clear the globals earlier calls left. |
+| `code` | string |  |  | Python source (or scriptPath). |
+| `reset` | boolean |  |  | Clear globals of earlier calls. |
 | `engine` | string |  |  | Default auto. Values: auto, ida. |
 | `scriptPath` | string |  |  | A .py file to run instead of code. |
 | `maxTokens` | integer |  |  |  |
-| `persist` | boolean |  |  | Save the database after the script. |
-| `allowError` | boolean |  |  | Return an exception as the result instead of an error. |
+| `persist` | boolean |  |  | Save the database afterwards. |
+| `allowError` | boolean |  |  | Return an exception as the result, not an error. |
 
 Structured output: `image`, `engine`, `result`, `stdout`, `stderr`, `error`, `saved`.
 
@@ -2309,19 +2309,19 @@ Structured output: `image`, `engine`, `result`, `stdout`, `stderr`, `error`, `sa
 
 **Run a Ghidra script on a native image** (destructive, open-world, long-running)
 
-Run Java or Python (PyGhidra, CORVUS_GHIDRA_PYTHON) in the Ghidra worker of a native image: a GhidraScript class, run()'s body (imports first; currentProgram, println, FlatProgramAPI) or name= an installed script. One transaction: saved on return, rolled back on an exception. Off unless --ghidra-scripting (CORVUS_GHIDRA_SCRIPTING=1): the code has the server's rights.
+Run Java or Python (PyGhidra, CORVUS_GHIDRA_PYTHON) in the Ghidra worker: a GhidraScript class, a run() body (imports first; currentProgram, println, FlatProgramAPI) or name= an installed script. One transaction: saved on return, rolled back on an exception. Off unless --ghidra-scripting (CORVUS_GHIDRA_SCRIPTING=1): the code has server rights.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `image` | string | yes |  | Image id, name or path. |
-| `code` | string |  |  | Java (a class extending GhidraScript, or statements for run()) or Python source. |
-| `name` | string |  |  | Instead of code: a script in Ghidra's script folders, then <data>/ghidra_scripts. |
-| `args` | string[] |  |  | With name: the script's arguments (getScriptArgs). |
+| `code` | string |  |  | Java (a GhidraScript class, or statements for run()) or Python source. |
+| `name` | string |  |  | Instead of code: a script in the Ghidra script folders or <data>/ghidra_scripts. |
+| `args` | string[] |  |  | With name: script arguments (getScriptArgs). |
 | `timeoutSeconds` | integer |  | `120` | Seconds before the script is cancelled (1-3600). |
 | `language` | string |  |  | java (default) or python; name *.py is Python. |
 | `engine` | string |  |  | Default auto. Values: auto, ghidra. |
 | `maxTokens` | integer |  |  |  |
-| `allowError` | boolean |  |  | Return an exception as the result instead of an error. |
+| `allowError` | boolean |  |  | Return an exception as the result, not an error. |
 
 Structured output: `image`, `engine`, `result`, `stdout`, `stderr`, `error`, `saved`.
 
@@ -2329,14 +2329,14 @@ Structured output: `image`, `engine`, `result`, `stdout`, `stderr`, `error`, `sa
 
 **Export the engine database** (destructive, idempotent, open-world, long-running)
 
-Write a native image's engine database (analysis plus names, comments and types pushed from here) for the engine's GUI: IDA a compressed .i64, Ghidra a packed .gzf; Ghidra's own types also as .h or .gdt. Written whole or not at all.
+Write the engine database of a native image (analysis plus names, comments and types pushed from here) for the engine GUI: IDA a compressed .i64, Ghidra a packed .gzf; Ghidra types also as .h or .gdt. Written whole or not at all.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `image` | string | yes |  | Image id, name or path. |
-| `outputPath` | string | yes |  | The .i64 (IDA), .gzf, .h or .gdt (Ghidra) file to write. |
+| `outputPath` | string | yes |  | The .i64 (IDA), .gzf, .h or .gdt (Ghidra) to write. |
 | `overwrite` | boolean |  |  | Replace outputPath if it exists. |
-| `engine` | string |  |  | Default: the extension's engine, else IDA. Values: auto, ida, ghidra. |
+| `engine` | string |  |  | Default: the engine of the extension, else IDA. Values: auto, ida, ghidra. |
 
 Structured output: `image`, `engine`, `path`, `bytes`, `note`.
 
