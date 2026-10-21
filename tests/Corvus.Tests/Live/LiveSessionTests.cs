@@ -59,12 +59,12 @@ internal sealed class ScriptedLiveBackend(string mainPath, ulong mainBase, uint 
         return Worker.Connect(null);
     }
 
-    /// <summary>A thread hitting stop point <paramref name="id"/>, called from <paramref name="caller"/>.</summary>
+    /// <summary>A thread hitting stop point <paramref name="id"/>, called from <paramref name="caller"/>; a cleared point stops at the caller.</summary>
     public void Hit(string id, long thread, ulong caller) => Stop(thread, new JsonObject
     {
         ["event"] = "stop", ["point"] = id, ["tid"] = thread, ["hits"] = 1,
-        ["registers"] = new JsonObject { ["pc"] = $"0x{_points[id]:x}", ["rcx"] = "0x5000", ["rsp"] = "0x9000" },
-        ["frames"] = new JsonArray($"0x{_points[id]:x}", $"0x{caller:x}", "0x7ffe00001234"),
+        ["registers"] = new JsonObject { ["pc"] = $"0x{_points.GetValueOrDefault(id, caller):x}", ["rcx"] = "0x5000", ["rsp"] = "0x9000" },
+        ["frames"] = new JsonArray($"0x{_points.GetValueOrDefault(id, caller):x}", $"0x{caller:x}", "0x7ffe00001234"),
     });
 
     /// <summary>A thread hitting stop point <paramref name="id"/> with the given stack values, as the worker reports them.</summary>
@@ -258,6 +258,23 @@ public sealed class LiveSessionTests : IDisposable
         var again = await _tools.LiveBreak("live-1", wait: true, waitSeconds: 5);
         Assert.True(again.Contains("thread 77 stopped at s1"), again);
         Assert.Contains("live-1: stopped", again);
+    }
+
+    [Fact]
+    public async Task A_stop_of_a_cleared_point_is_released()
+    {
+        await _tools.LiveSession("spawn", program: Sqlite);
+        await _tools.LiveBreak("live-1", "set", at: "e_sqlite3!sqlite3_open");
+        await _tools.LiveBreak("live-1", "continue");
+        await _tools.LiveBreak("live-1", "clear", stopPoint: "s1");
+        // The thread entered the hook before the clear and stops after it.
+        _backend.Hit("s1", 77, Base + 0x1010);
+        var s = _service.Get("live-1");
+        int Resumes() { lock (_backend.Ops) return _backend.Ops.Count(o => o == "resume"); }
+        for (int i = 0; i < 250 && Resumes() < 2; i++) await Task.Delay(20);
+        Assert.Equal(2, Resumes());
+        Assert.Equal("running", s.State);
+        Assert.Contains("stop point s1 hit after it was cleared: thread released", await _tools.LiveEvents("live-1", kind: "stop"));
     }
 
     [Fact]

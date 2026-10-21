@@ -160,6 +160,8 @@ public sealed class LiveSession
     internal int CompileChecking;
     public List<LiveModuleState> Modules { get; } = [];
     public Dictionary<string, LiveStopPointState> StopPoints { get; } = new(StringComparer.Ordinal);
+    /// <summary>Stop points cleared in this session; guarded by <see cref="StopPoints"/>'s lock.</summary>
+    internal HashSet<string> ClearedPoints { get; } = new(StringComparer.Ordinal);
     public Dictionary<string, LiveWatchState> Watches { get; } = new(StringComparer.Ordinal);
     public List<LiveDeferred> Deferred { get; } = [];
     public List<LiveFailedPoint> Failed { get; } = [];
@@ -665,6 +667,22 @@ public sealed partial class LiveSessionService(AssemblyWorkspace workspace, Nati
                 if (session.CoveragePoints.TryGetValue(point, out var run))
                 {
                     CoverageStop(session, run, point, Thread());
+                    break;
+                }
+                // A thread already inside a point's hook when the point was cleared
+                // stops after the clear; it is released, so a continue that came
+                // before its stop does not leave it held.
+                bool cleared;
+                lock (session.StopPoints) cleared = !session.StopPoints.ContainsKey(point) && session.ClearedPoints.Contains(point);
+                if (cleared && Thread() is { } late)
+                {
+                    session.Add("stop", late, null, $"stop point {point} hit after it was cleared: thread released");
+                    _ = Task.Run(async () =>
+                    {
+                        // An error here means the session ended meanwhile.
+                        try { await Resume(session, late).ConfigureAwait(false); }
+                        catch (Exception x) when (x is ToolError or InvalidOperationException or ObjectDisposedException) { }
+                    });
                     break;
                 }
                 var registers = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
@@ -1480,7 +1498,11 @@ public sealed partial class LiveSessionService(AssemblyWorkspace workspace, Nati
             if (!session.StopPoints.ContainsKey(id))
                 throw new ToolError(ErrorCode.NotFound, $"Session {session.Id} has no stop point '{id}'.", "live_break action=list shows them");
         await session.Worker.RequestAsync("clear", new JsonObject { ["id"] = id }, RequestTimeout, ct).ConfigureAwait(false);
-        lock (session.StopPoints) session.StopPoints.Remove(id);
+        lock (session.StopPoints)
+        {
+            session.StopPoints.Remove(id);
+            session.ClearedPoints.Add(id);
+        }
     }
 
     /// <summary>Resumes held threads (one, or all) and starts a program still suspended at its start.</summary>
