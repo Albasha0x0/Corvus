@@ -597,6 +597,25 @@ public sealed class NativeIdaProviderTests(ITestOutputHelper output, IdaCacheFix
     }
 
     [IdaFact]
+    public async Task A_function_over_the_decompiler_size_limit_is_a_limit_with_other_engines_named()
+    {
+        // push rbp; mov rbp, rsp; 16,000 x add eax, imm32 (80 KB); pop rbp; ret
+        byte[] code = [0x55, 0x48, 0x89, 0xE5, .. Enumerable.Range(0, 16_000).SelectMany(i => (byte[])[0x05, .. BitConverter.GetBytes(i)]), 0x5D, 0xC3];
+        var b = new PeBuilder();
+        var text = b.Add(".text", code, 0x60000020);
+        b.EntryPoint = text.Rva;
+        using var tmp = new TempDir();
+        var path = tmp.File("large-function.exe");
+        File.WriteAllBytes(path, b.Build());
+        await using var s = await Isolated().OpenAsync(path, null, Offline);
+        var e = await Assert.ThrowsAsync<ToolError>(() => s.DecompileAsync(text.Rva));
+        output.WriteLine(e.Render("test"));
+        Assert.Equal(ErrorCode.LimitExceeded, e.Code);
+        Assert.Contains($"the function is {code.Length} bytes", e.Message);
+        Assert.Contains("engine=ghidra", e.Remediation);
+    }
+
+    [IdaFact]
     public async Task Same_image_cannot_be_open_twice()
     {
         await using var s = await Provider.OpenAsync(System64, null, Offline);

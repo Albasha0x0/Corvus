@@ -457,6 +457,14 @@ def line_addresses(m, cf, line):
     return lowest
 
 
+def too_big(m, hf, f):
+    # Hex-Rays' size limit is a limit, not a fault: the caller can pick Ghidra or the disassembly
+    if hf.code != m.ida_hexrays.MERR_FUNCSIZE:
+        return None
+    return WorkerError("limit_exceeded", "decompilation failed: the function is %d bytes, over Hex-Rays' MAX_FUNCSIZE (cfg/hexrays.cfg, 64 KB by default)"
+                       % f.size())
+
+
 def op_decompile(args):
     m = need_open()
     ea = ea_of(args)
@@ -468,9 +476,9 @@ def op_decompile(args):
     try:
         cf = m.ida_hexrays.decompile(f.start_ea, hf, m.ida_hexrays.DECOMP_NO_WAIT)
     except m.ida_hexrays.DecompilationFailure as e:
-        raise WorkerError("failed", "decompilation failed at 0x%X: %s" % (rva_of(hf.errea) or 0, str(e).strip() or hf.desc()))
+        raise too_big(m, hf, f) or WorkerError("failed", "decompilation failed at 0x%X: %s" % (rva_of(hf.errea) or 0, str(e).strip() or hf.desc()))
     if cf is None:
-        raise WorkerError("failed", "decompilation failed: %s" % hf.desc())
+        raise too_big(m, hf, f) or WorkerError("failed", "decompilation failed: %s" % hf.desc())
     text_lines = []
     addresses = []
     for n, sl in enumerate(cf.get_pseudocode()):
@@ -3245,9 +3253,9 @@ def op_value_slice(args):
     try:
         cf = hr.decompile(f.start_ea, failure, hr.DECOMP_NO_WAIT)
     except hr.DecompilationFailure as e:
-        raise WorkerError("failed", "decompilation failed: %s" % (str(e).strip() or failure.desc()))
+        raise too_big(m, failure, f) or WorkerError("failed", "decompilation failed: %s" % (str(e).strip() or failure.desc()))
     if cf is None:
-        raise WorkerError("failed", "decompilation failed: %s" % failure.desc())
+        raise too_big(m, failure, f) or WorkerError("failed", "decompilation failed: %s" % failure.desc())
     s = _Slicer(m, cf, args.get("max_nodes") or 256)
     seed, ea, index = args.get("seed"), ea_of(args), int(args.get("index", -1))
     forward = args.get("direction") == "forward"
