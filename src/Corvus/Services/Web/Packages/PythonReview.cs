@@ -52,7 +52,7 @@ public static partial class PackageReview
                 scripts.Add(new PackageScript("setup.py", "python setup.py (run by pip to build the package)", true));
                 if (Regex.IsMatch(setup, @"\bcmdclass\s*=|class\s+\w+\s*\(\s*(?:_?install|develop|egg_info|build_py|build_ext|sdist|bdist_\w+)\s*\)"))
                     findings.Add(new PackageFinding("review", "install script", "setup.py replaces a setuptools command (cmdclass): its code runs while installing", root + "setup.py"));
-                findings.AddRange(Scan(root + "setup.py", setup, install: true, ct));
+                findings.AddRange(Scan(root + "setup.py", SetupCode(files, root, setup), install: true, ct));
                 name ??= Regex.Match(setup, @"\bname\s*=\s*['""]([^'""]+)['""]").Groups[1].Value is { Length: > 0 } n ? n : null;
                 version ??= Regex.Match(setup, @"\bversion\s*=\s*['""]([^'""]+)['""]").Groups[1].Value is { Length: > 0 } v ? v : null;
                 foreach (Match m in Regex.Matches(setup, @"['""]([\w.-]+)\s*=\s*([\w.]+:[\w.]+)['""]"))
@@ -97,6 +97,25 @@ public static partial class PackageReview
             Publisher = author, Description = Clip(summary), Scripts = scripts, EntryPoints = entries, Dependencies = deps,
             Binaries = binaries.Count > 0 ? binaries : null, Record = record, Findings = findings, Notes = notes,
         };
+    }
+
+    private static readonly Regex LocalImport = new(@"(?m)^[ \t]*(?:from[ \t]+([\w.]+)[ \t]+import[ \t]+([\w, \t]+)|import[ \t]+([\w.]+))", RegexOptions.Compiled);
+
+    /// <summary>setup.py with the package's own modules it imports (pip runs them too), up to eight small files.</summary>
+    private static string SetupCode(PackageFiles files, string root, string setup)
+    {
+        var text = new System.Text.StringBuilder(setup);
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        foreach (Match m in LocalImport.Matches(setup))
+        {
+            var module = (m.Groups[1].Success ? m.Groups[1].Value : m.Groups[3].Value).Replace('.', '/');
+            var names = m.Groups[2].Success ? m.Groups[2].Value.Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries) : [];
+            var candidates = names.Select(n => $"{root}{module}/{n}.py").Concat([$"{root}{module}.py", $"{root}{module}/__init__.py"]);
+            foreach (var path in candidates)
+                if (seen.Count < 8 && files.Has(path) && files.Size(path) <= 64 << 10 && seen.Add(path) && files.Text(path) is { } code)
+                    text.Append('\n').Append(code);
+        }
+        return text.ToString();
     }
 
     /// <summary>Core metadata (METADATA / PKG-INFO): name, version, summary, author and the count of Requires-Dist.</summary>

