@@ -115,6 +115,7 @@ public sealed class PythonDecompilerTests
     /// A real decompiler (pycdc, zrax/pycdc) named by CORVUS_PY_DECOMPILER: every fixture gets source labelled with the
     /// decompiler's name, or a note saying why not; the versions pycdc reads give the program's functions and classes.
     /// </summary>
+    [Trait("Speed", "Slow")]
     [RequiresRealDataFact("CORVUS_PY_DECOMPILER")]
     public void Python_view_shows_the_source_from_a_real_decompiler()
     {
