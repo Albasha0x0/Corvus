@@ -33,9 +33,11 @@ public sealed class LiveCoverageTests : IDisposable
         lock (_backend.Ops) return _backend.Ops.Count(o => o == op);
     }
 
+    // waits for an event, not a duration: a loaded machine took over 2 s to place a load's points
     private async Task Until(Func<bool> done)
     {
-        for (int i = 0; i < 100 && !done(); i++) await Task.Delay(20);
+        var clock = System.Diagnostics.Stopwatch.StartNew();
+        while (!done() && clock.Elapsed < TimeSpan.FromSeconds(30)) await Task.Delay(20);
         Assert.True(done());
     }
 
