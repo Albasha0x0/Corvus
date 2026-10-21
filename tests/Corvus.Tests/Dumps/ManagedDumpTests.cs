@@ -134,6 +134,37 @@ public sealed class ManagedDumpTests
         Assert.NotNull(DacLocator.Verify(bytes, copy)); // a changed copy is in no catalog
     }
 
+    /// <summary>A Linux runtime's DAC on this host is the Windows-hosted one built for Linux targets, stored under libcoreclr.so's build id.</summary>
+    [Fact]
+    public void LinuxRuntimeDacIsKeyedByTheRuntimeBuildId()
+    {
+        var id = System.Collections.Immutable.ImmutableArray.Create<byte>(0x8A, 0x5D, 0x01);
+        var libraries = new[]
+        {
+            new Microsoft.Diagnostics.Runtime.DebugLibraryInfo(Microsoft.Diagnostics.Runtime.DebugLibraryKind.Dac, "libmscordaccore.so", Architecture.X64, OSPlatform.Linux, Microsoft.Diagnostics.Runtime.SymbolProperties.Coreclr, id),
+            new Microsoft.Diagnostics.Runtime.DebugLibraryInfo(Microsoft.Diagnostics.Runtime.DebugLibraryKind.Dac, "mscordaccore.dll", Architecture.X64, OSPlatform.Windows, Microsoft.Diagnostics.Runtime.SymbolProperties.Coreclr, id),
+        };
+        var key = Assert.Single(DacLocator.StoreKeys(libraries, Architecture.X64));
+        Assert.Equal(("mscordaccore.dll", "elf-buildid-coreclr-8a5d01"), (key.Name, key.Key));
+        Assert.Empty(DacLocator.StoreKeys(libraries, Architecture.Arm64));
+        Assert.Equal(["mscordaccore.dll"], DacLocator.FileNames(Microsoft.Diagnostics.Runtime.ClrFlavor.Core, libraries));
+    }
+
+    /// <summary>A core holds no runtime version: it is read from libcoreclr.so on disk and must equal the DAC's file version.</summary>
+    [Fact]
+    public void CoreDacVersionMustMatchTheRuntimeFile()
+    {
+        Assert.Equal("10.0.1326.50504", ClrDecoder.RuntimeVersion("\0@(#)Version 10.0.1326.50504 @Commit: 4099f839\0"u8));
+        Assert.Null(ClrDecoder.RuntimeVersion("no version here"u8));
+        if (!OperatingSystem.IsWindows()) return;
+        var dac = RealPackages.Lib("System.Text.Json", "10.0.1", "net10.0", "System.Text.Json.dll");
+        var info = System.Diagnostics.FileVersionInfo.GetVersionInfo(dac);
+        var own = $"{info.FileMajorPart}.{info.FileMinorPart}.{info.FileBuildPart}.{info.FilePrivatePart}";
+        Assert.Null(ClrDecoder.DacVersionProblem(dac, own));
+        Assert.Null(ClrDecoder.DacVersionProblem(dac, null));
+        Assert.Equal($"DAC version {own}, the runtime is 10.0.1326.50504", ClrDecoder.DacVersionProblem(dac, "10.0.1326.50504"));
+    }
+
     /// <summary>A 32-bit dump goes to the 32-bit decoder after its DAC is looked for here; without the decoder it is a bitness mismatch.</summary>
     [Fact]
     public async Task ThirtyTwoBitDumpNeedsTheThirtyTwoBitDecoder()

@@ -48,7 +48,7 @@ public sealed partial class MinidumpService
     /// <summary>The dump's CLR decoder, created on first use (and again when a new DAC request may succeed where the cached one failed).</summary>
     internal async Task<ClrDecoder?> Decoder(Session s, DacRequest request, CancellationToken ct)
     {
-        var path = s.Dump.Path;
+        var path = s.Core?.Path ?? s.Dump.Path;
         await _decoderGate.WaitAsync(ct).ConfigureAwait(false);
         try
         {
@@ -66,10 +66,20 @@ public sealed partial class MinidumpService
                 }
                 cached.Decoder.Dispose();
             }
-            if (ClrDecoder.RuntimeModule(s.Dump) == null) return null;
-            var file = MinidumpFile.Open(path);
-            var dirs = s.Directories;
-            var decoder = await ClrDecoder.Open(file, m => Load(file, m, dirs).Image, dirs, request, ct).ConfigureAwait(false);
+            ClrDecoder? decoder;
+            if (s.Core is { } core)
+            {
+                if (core.CoreModules.FirstOrDefault(m => m.Module.FileName == "libcoreclr.so") is not { } runtime) return null;
+                var (file, matches, _) = FindElf(core, runtime, s.Directories);
+                decoder = await ClrDecoder.OpenCore(path, runtime.Module, matches ? file : null, CoreArchitecture(core), request, ct).ConfigureAwait(false);
+            }
+            else
+            {
+                if (ClrDecoder.RuntimeModule(s.Dump) == null) return null;
+                var file = MinidumpFile.Open(path);
+                var dirs = s.Directories;
+                decoder = await ClrDecoder.Open(file, m => Load(file, m, dirs).Image, dirs, request, ct).ConfigureAwait(false);
+            }
             if (decoder == null) return null;
             _decoders.Add((path, decoder));
             while (_decoders.Count > MaxDecoders)
@@ -97,9 +107,17 @@ public sealed partial class MinidumpService
 
     private async Task<ManagedSummary?> ManagedSection(Session s, DacRequest request, CancellationToken ct)
     {
-        var d = s.Dump;
-        if (!HostsClr(d, out var runtime)) return null;
-        if (runtime == "Mono") return await MonoSection(s, ct);
+        uint? faulting = null;
+        if (s.Core is { } core)
+        {
+            if (CoreRuntime(core) != ".NET (CoreCLR)") return null;
+        }
+        else
+        {
+            if (!HostsClr(s.Dump, out var runtime)) return null;
+            if (runtime == "Mono") return await MonoSection(s, ct);
+            faulting = s.Dump.Exception is { Code: ExceptionCodes.ClrException } e ? e.ThreadId : null;
+        }
         var decoder = await Decoder(s, request, ct);
         if (decoder == null) return null;
         var dac = new DacSummary(decoder.Dac.Status, decoder.Dac.Path, decoder.Dac.Detail);
@@ -109,7 +127,6 @@ public sealed partial class MinidumpService
             var notes = new List<string>();
             var (domains, threads, heap) = decoder.Facts();
             if (decoder.OutOfProcess) notes.Add("A 32-bit process: decoded by the 32-bit decoder process with the 32-bit DAC.");
-            uint? faulting = d.Exception is { Code: ExceptionCodes.ClrException } e ? e.ThreadId : null;
             ManagedException? ex = null;
             try { ex = decoder.Exception(faulting) ?? (faulting != null ? decoder.Exception(null) : null); }
             catch (Exception err) when (err is not OperationCanceledException) { notes.Add($"the exception object could not be read: {err.Message}"); }
@@ -125,13 +142,13 @@ public sealed partial class MinidumpService
         return Row(e, inner);
 
         ManagedExceptionSummary Row(ManagedException x, IReadOnlyList<ManagedExceptionSummary> chain) =>
-            new(x.Type, x.Message, $"0x{x.HResult:X8}", Hex(s.Dump, x.Address), x.ThreadId, x.Stack.Select(f => FrameRow(s, f, ct)).ToList(), chain);
+            new(x.Type, x.Message, $"0x{x.HResult:X8}", Hex(s.Memory, x.Address), x.ThreadId, x.Stack.Select(f => FrameRow(s, f, ct)).ToList(), chain);
     }
 
     private ManagedFrameSummary FrameRow(Session s, ManagedFrame f, CancellationToken ct)
     {
         var (assembly, check) = AssemblyFor(f.ModulePath, f.Mvid);
-        return new ManagedFrameSummary(f.Name, f.Token is { } t ? $"0x{t:X8}" : null, f.IlOffset, ModuleFile(f.ModulePath), assembly, check, Hex(s.Dump, f.Ip),
+        return new ManagedFrameSummary(f.Name, f.Token is { } t ? $"0x{t:X8}" : null, f.IlOffset, ModuleFile(f.ModulePath), assembly, check, Hex(s.Memory, f.Ip),
             Statement(s, assembly, check, f.Token, f.IlOffset, ct));
     }
 

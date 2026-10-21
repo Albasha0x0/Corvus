@@ -53,10 +53,8 @@ public sealed partial class MinidumpService
     /// <summary>The dump's loaded runtime, or an error naming why it is not available.</summary>
     private async Task<ClrDecoder> RequireRuntime(Session s, bool heap, CancellationToken ct)
     {
-        if (s.Core != null)
-            throw new ToolError(ErrorCode.Unsupported, $"{s.Id} is an ELF core: its .NET heap is not decoded here.",
-                "managed heap inspection needs the Linux DAC (libmscordaccore.so), which this tool does not load; dump_stack and read_dump_memory read the core");
-        if (!HostsClr(s.Dump, out var runtime))
+        string? runtime = null;
+        if (s.Core is { } core ? (runtime = CoreRuntime(core)) is not (".NET (CoreCLR)" or "Mono") : !HostsClr(s.Dump, out runtime))
             throw new ToolError(ErrorCode.Unsupported, "the dumped process has no .NET runtime (CoreCLR or .NET Framework) loaded.", "use dump_stack and read_dump_memory");
         if (runtime == "Mono")
             throw new ToolError(ErrorCode.Unsupported, "Mono has no DAC: its heap cannot be decoded.", "symbolize_stack_text resolves Mono frames from Player.log");
@@ -106,7 +104,7 @@ public sealed partial class MinidumpService
                 }).ToList();
                 return new HeapReport(s.Id, "stats", pattern, minSize, walked, bytes, page, offset, rows.Count, !stopped, notes);
             }
-            var list = objects.Select(o => new HeapRow(o.Type, o.Size) { Address = Hex(s.Dump, o.Address), Value = o.Value }).ToList();
+            var list = objects.Select(o => new HeapRow(o.Type, o.Size) { Address = Hex(s.Memory, o.Address), Value = o.Value }).ToList();
             return new HeapReport(s.Id, "objects", pattern, minSize, walked, bytes, list, offset, (int)Math.Min(matched, int.MaxValue), !stopped, notes);
         }
     }
@@ -123,13 +121,13 @@ public sealed partial class MinidumpService
         using (AssemblyWorkspace.Lock(decoder.Gate))
         {
             var view = decoder.Object(at, depth, maxFields, maxArrayItems)
-                       ?? throw new ToolError(ErrorCode.NotFound, $"no managed object at {Hex(s.Dump, at)} (or the dump does not hold it).",
+                       ?? throw new ToolError(ErrorCode.NotFound, $"no managed object at {Hex(s.Memory, at)} (or the dump does not hold it).",
                            "pass an object address from dump_heap mode=objects or open_minidump's managed exception");
             var notes = new List<string>();
             var (assembly, check) = AssemblyFor(view.Type.ModulePath, view.Type.Mvid);
             if (check == "mismatch") notes.Add($"{assembly} is another build of the type's module (MVID differs).");
-            var fields = view.Fields.Select(f => new ObjectFieldRow(f.Path, f.Depth, f.Type, f.Offset, f.Value, f.Address is { } a ? Hex(s.Dump, a) : null)).ToList();
-            return new ObjectReport(s.Id, Hex(s.Dump, view.Address), view.Type.Name, view.Size, assembly,
+            var fields = view.Fields.Select(f => new ObjectFieldRow(f.Path, f.Depth, f.Type, f.Offset, f.Value, f.Address is { } a ? Hex(s.Memory, a) : null)).ToList();
+            return new ObjectReport(s.Id, Hex(s.Memory, view.Address), view.Type.Name, view.Size, assembly,
                 TypeDefToken(view.Type.Token), check, view.Value, view.Length, fields, view.Truncated, notes);
         }
     }

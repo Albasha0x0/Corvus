@@ -141,6 +141,71 @@ public sealed class ClrDecoder : IDisposable
     }
 
     /// <summary>
+    /// Opens the CoreCLR of a Linux ELF core at <paramref name="path"/>, read by ClrMD's own core reader, with the
+    /// Windows-hosted DAC built for Linux targets (a .so DAC cannot load into a Windows process). <paramref name="runtimeFile"/>
+    /// is libcoreclr.so on disk, matched by build id: its folder is searched and its version checked against the DAC's.
+    /// </summary>
+    public static async Task<ClrDecoder> OpenCore(string path, DumpModule module, string? runtimeFile, Architecture arch, DacRequest request, CancellationToken ct)
+    {
+        string? version = null;
+        if (runtimeFile != null)
+        {
+            try { version = RuntimeVersion(File.ReadAllBytes(runtimeFile)); }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
+        }
+        var core = new CoreRuntime(runtimeFile != null ? System.IO.Path.GetDirectoryName(runtimeFile) : null, version);
+        string name = $".NET {version ?? "(version unknown)"} (CoreCLR)";
+        if (!OperatingSystem.IsWindows())
+            return new ClrDecoder(name, version, new DacState("host_unsupported", null, "a Linux core's heap is decoded with the Microsoft-signed mscordaccore.dll for Linux targets, a Windows DLL: use this server on Windows"), null);
+        if (arch != RuntimeInformation.ProcessArchitecture)
+            return new ClrDecoder(name, version, new DacState("bitness_mismatch", null, $"a {arch} process needs a {arch} DAC, which this {RuntimeInformation.ProcessArchitecture} server cannot load"), null);
+        DataTarget target;
+        try { target = DataTarget.LoadDump(path); }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            return new ClrDecoder(name, version, new DacState("load_failed", null, $"the core could not be read for the runtime: {ex.Message}"), null);
+        }
+        try
+        {
+            // ClrMD reads no version from a core's libcoreclr.so: the DAC's file version is checked against the runtime file here
+            return await Decode(target, module, "CoreCLR", request, arch, (clr, c, _) =>
+            {
+                if (DacVersionProblem(c.Path, version) is { } bad) throw new InvalidDataException(bad);
+                return new InProcessClr(target, clr.CreateRuntime(c.Path, ignoreMismatch: true));
+            }, ownsTarget: true, ct, core).ConfigureAwait(false);
+        }
+        catch
+        {
+            target.Dispose();
+            throw;
+        }
+    }
+
+    /// <summary>A core's runtime as found on disk: its folder and version, when its file was matched.</summary>
+    private sealed record CoreRuntime(string? Folder, string? Version);
+
+    private static readonly System.Buffers.SearchValues<byte> VersionChars = System.Buffers.SearchValues.Create("0123456789."u8);
+
+    /// <summary>The runtime's version from its "@(#)Version" string (e.g. 10.0.1326.50504), or null.</summary>
+    internal static string? RuntimeVersion(ReadOnlySpan<byte> image)
+    {
+        int at = image.IndexOf("@(#)Version "u8);
+        if (at < 0) return null;
+        var rest = image[(at + 12)..];
+        int end = rest.IndexOfAnyExcept(VersionChars);
+        return end > 0 ? System.Text.Encoding.ASCII.GetString(rest[..end]) : null;
+    }
+
+    /// <summary>Null when the DAC at <paramref name="path"/> is <paramref name="version"/>'s build (or the runtime's version is unknown); else why not.</summary>
+    internal static string? DacVersionProblem(string path, string? version)
+    {
+        if (version == null) return null;
+        var info = System.Diagnostics.FileVersionInfo.GetVersionInfo(path);
+        var dac = $"{info.FileMajorPart}.{info.FileMinorPart}.{info.FileBuildPart}.{info.FilePrivatePart}";
+        return dac == version ? null : $"DAC version {dac}, the runtime is {version}";
+    }
+
+    /// <summary>
     /// Opens the CLR of a running process read through <paramref name="reader"/> (which the decoder then owns); the process
     /// is never suspended. Null when it hosts no CLR. A process of another architecture than this server's gives a decoder
     /// without a runtime: the 32-bit decoder process reads dump files only.
@@ -180,19 +245,24 @@ public sealed class ClrDecoder : IDisposable
     /// runtime (and disposes <paramref name="target"/> when <paramref name="ownsTarget"/>).
     /// </summary>
     private static async Task<ClrDecoder> Decode(DataTarget target, DumpModule module, string flavor, DacRequest request, Architecture arch,
-        Func<ClrInfo, DacCandidate, byte[], IClrBackend> load, bool ownsTarget, CancellationToken ct)
+        Func<ClrInfo, DacCandidate, byte[], IClrBackend> load, bool ownsTarget, CancellationToken ct, CoreRuntime? core = null)
     {
-        string name = $"{flavor} {module.FileVersion}".TrimEnd();
+        string name = core != null ? $".NET {core.Version ?? "(version unknown)"} ({flavor})" : $"{flavor} {module.FileVersion}".TrimEnd();
+        string? version = core?.Version ?? module.FileVersion;
         ClrDecoder Fail(string status, string detail)
         {
             if (ownsTarget) target.Dispose();
-            return new ClrDecoder(name, module.FileVersion, new DacState(status, null, detail), null);
+            return new ClrDecoder(name, version, new DacState(status, null, detail), null);
         }
         ClrInfo? clr;
         try { clr = target.ClrVersions.FirstOrDefault(); }
         catch (Exception ex) when (ex is not OperationCanceledException) { return Fail("load_failed", $"the runtime module could not be read: {ex.Message}"); }
         if (clr == null) return Fail("load_failed", $"{module.FileName} is loaded but its runtime could not be identified");
-        name = $"{(clr.Flavor == ClrFlavor.Core ? ".NET" : ".NET Framework")} {clr.Version} ({flavor})";
+        if (core == null)
+        {
+            name = $"{(clr.Flavor == ClrFlavor.Core ? ".NET" : ".NET Framework")} {clr.Version} ({flavor})";
+            version = clr.Version.ToString();
+        }
 
         var problems = new List<string>();
         bool signatureFailed = false;
@@ -220,21 +290,25 @@ public sealed class ClrDecoder : IDisposable
             }
         }
         string Where(DacCandidate c) => arch != RuntimeInformation.ProcessArchitecture ? $"{c.Source}; decoded by the 32-bit decoder process" : c.Source;
-        foreach (var c in request.DownloadOnly ? [] : DacLocator.Local(clr, module, request, arch))
+        foreach (var c in request.DownloadOnly ? [] : DacLocator.Local(clr, module, request, arch, core?.Folder))
         {
             ct.ThrowIfCancellationRequested();
-            if (Try(c) is { } backend) return new ClrDecoder(name, clr.Version.ToString(), new DacState("loaded", c.Path, Where(c)), backend);
+            if (Try(c) is { } backend) return new ClrDecoder(name, version, new DacState("loaded", c.Path, Where(c)), backend);
         }
         if (request.Download)
         {
             if (ReferencePacks.Offline)
                 return Fail("download_refused_offline", Joined("CORVUS_OFFLINE=1: the DAC is not downloaded", problems));
             var (candidate, error) = await DacLocator.Download(clr, request, arch, ct).ConfigureAwait(false);
-            if (candidate != null && Try(candidate) is { } backend) return new ClrDecoder(name, clr.Version.ToString(), new DacState("loaded", candidate.Path, Where(candidate)), backend);
+            if (candidate != null && Try(candidate) is { } backend) return new ClrDecoder(name, version, new DacState("loaded", candidate.Path, Where(candidate)), backend);
             if (candidate == null) return Fail("download_failed", Joined($"download failed: {error}", problems));
         }
         if (signatureFailed) return Fail("signature_invalid", Joined("no DAC with a valid Microsoft signature", problems));
         if (problems.Count > 0) return Fail("load_failed", Joined("no DAC could be loaded", problems));
+        if (core != null)
+            return Fail("not_found", $"no mscordaccore.dll for Linux targets of {name} (symbol store key {DacLocator.ElfKey(clr.ModuleInfo.BuildId)}) in dacPath, " +
+                                     (core.Folder != null ? $"the runtime's folder {core.Folder}" : "the runtime's folder (libcoreclr.so is not in imageDirectories)") +
+                                     " or the local symbol stores: pass dacPath (that mscordaccore.dll or its folder), or open_minidump downloadDac=true");
         return Fail("not_found", $"no DAC for {name} on this machine: pass dacPath (the dumped runtime's mscordaccore.dll / mscordacwks.dll or its folder), " +
                                  "install that runtime version, or downloadDac=true (open_minidump, live_session)");
     }

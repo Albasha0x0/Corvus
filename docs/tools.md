@@ -2717,7 +2717,7 @@ Structured output: `dump`, `threadId`, `threadName`, `context`, `architecture`, 
 
 **Crash dump .NET heap** (read-only, idempotent, long-running)
 
-Lists the .NET GC heap of a minidump (through the DAC). stats: count and size per type, largest first; objects: matching objects (address, type, size, a string's value). Needs heap memory in the dump (else heap_not_captured); not for ELF cores.
+Lists the .NET GC heap of a minidump (through the DAC). stats: count and size per type, largest first; objects: matching objects (address, type, size, a string's value). Needs heap memory in the dump (else heap_not_captured).
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|

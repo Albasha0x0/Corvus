@@ -7,8 +7,8 @@ public static partial class Guide
         open_minidump (user-mode .dmp; view=summary: exception, faulting module+function, instruction and thread; view=modules:
         whether the binaries exist locally; threads, memory, unloaded), dump_stack (x64 unwind data, x86 frame pointers; scanned
         frames carry basis inferred), read_dump_memory. Linux / Android ELF cores open the same way: threads and registers, the signal,
-        modules matched to local files by GNU build id, .eh_frame CFI unwinding with a frame-pointer fallback (no managed heap: that
-        needs the Linux DAC).
+        modules matched to local files by GNU build id, .eh_frame CFI unwinding with a frame-pointer fallback; a .NET core's heap and
+        exception through the Windows-hosted DAC for Linux targets (pass the runtime's folder in imageDirectories for its version check).
         Load the crashed binaries first so frames get your names, PDB and Il2Cpp names; pass imageDirectories when they are not at
         their recorded paths. .NET dumps: the runtime's DAC (found locally: dacPath, the same runtime installed here, symbol stores;
         downloadDac=true fetches it, never under CORVUS_OFFLINE=1; always signature-checked) decodes the managed exception and its

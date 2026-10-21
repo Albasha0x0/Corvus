@@ -157,7 +157,7 @@ public sealed partial class MinidumpService
     public async Task<DumpReport> Summarize(string path, string? imageDirectories, DacRequest dac, CancellationToken ct)
     {
         using var s = Open(path, imageDirectories);
-        if (s.Core is { } core) return await SummarizeCore(s, core, ct);
+        if (s.Core is { } core) return await SummarizeCore(s, core, dac, ct);
         var d = s.Dump;
         var notes = new List<string>();
 

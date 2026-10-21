@@ -18,7 +18,8 @@ public sealed record DacCandidate(string Path, string Source);
 /// <summary>
 /// Finds the DAC (mscordaccore.dll / mscordacwks.dll) that matches a dumped runtime, offline first: the caller's path,
 /// the runtime's own folder when it holds the same build, the runtimes installed on this machine, and local symbol
-/// stores. A download from a symbol server happens only when asked for, never under CORVUS_OFFLINE=1. Every file must
+/// stores. A Linux core's runtime is read with the Windows-hosted DAC built for Linux targets, stored under the
+/// build id of libcoreclr.so. A download from a symbol server happens only when asked for, never under CORVUS_OFFLINE=1. Every file must
 /// carry Microsoft's signature (embedded or through a system catalog) before it is loaded.
 /// </summary>
 public static class DacLocator
@@ -27,15 +28,19 @@ public static class DacLocator
     public static readonly TimeSpan DownloadTimeout = TimeSpan.FromMinutes(2);
     public const long MaxDownloadBytes = 64L << 20;
 
-    /// <summary>Local candidates for a process of <paramref name="arch"/>, best first; none of them is checked for its signature yet.</summary>
-    public static IEnumerable<DacCandidate> Local(ClrInfo clr, DumpModule runtime, DacRequest request, Architecture arch)
+    /// <summary>
+    /// Local candidates for a process of <paramref name="arch"/>, best first; none of them is checked for its signature yet.
+    /// <paramref name="runtimeFolder"/> is the folder of a core's runtime file already matched by build id.
+    /// </summary>
+    public static IEnumerable<DacCandidate> Local(ClrInfo clr, DumpModule runtime, DacRequest request, Architecture arch, string? runtimeFolder = null)
     {
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        var names = FileNames(clr);
+        var names = FileNames(clr.Flavor, clr.DebuggingLibraries);
         foreach (var c in Explicit(request.Path, names)) if (seen.Add(c.Path)) yield return c;
 
         // the runtime's recorded folder, when its file there is the dumped build
-        if (System.IO.Path.GetDirectoryName(runtime.Path) is { Length: > 0 } dir && DumpImages.Check(runtime.Path, runtime).Matches)
+        string? dir = runtimeFolder ?? (System.IO.Path.GetDirectoryName(runtime.Path) is { Length: > 0 } d && DumpImages.Check(runtime.Path, runtime).Matches ? d : null);
+        if (dir != null)
             foreach (var n in names)
                 if (Existing(System.IO.Path.Combine(dir, n)) is { } p && seen.Add(p)) yield return new(p, "the runtime's folder");
 
@@ -49,7 +54,7 @@ public static class DacLocator
 
         var servers = new List<string>();
         foreach (var store in PdbLocator.LocalStores(servers))
-            foreach (var (name, key, _) in StoreKeys(clr, arch))
+            foreach (var (name, key, _) in StoreKeys(clr.DebuggingLibraries, arch))
                 if (Existing(System.IO.Path.Combine(store, name, key, name)) is { } p && seen.Add(p)) yield return new(p, $"symbol store {store}");
     }
 
@@ -65,7 +70,7 @@ public static class DacLocator
         }
         string? error = null;
         foreach (var server in servers)
-            foreach (var (name, key, check) in StoreKeys(clr, arch))
+            foreach (var (name, key, check) in StoreKeys(clr.DebuggingLibraries, arch))
             {
                 try
                 {
@@ -103,26 +108,35 @@ public static class DacLocator
         else throw Targets.FileNotFound(path);
     }
 
-    /// <summary>The DAC's file names for this host: the plain name, then the long name debuggers use.</summary>
-    private static List<string> FileNames(ClrInfo clr)
+    /// <summary>The DAC's file names for this host (Windows DLLs only): the plain name, then the long name debuggers use.</summary>
+    internal static List<string> FileNames(ClrFlavor flavor, IEnumerable<DebugLibraryInfo> libraries)
     {
-        var names = new List<string> { clr.Flavor == ClrFlavor.Core ? "mscordaccore.dll" : "mscordacwks.dll" };
-        foreach (var d in clr.DebuggingLibraries)
-            if (d.Kind == DebugLibraryKind.Dac && System.IO.Path.GetFileName(d.FileName) is { Length: > 0 } n && !names.Contains(n, StringComparer.OrdinalIgnoreCase))
+        var names = new List<string> { flavor == ClrFlavor.Core ? "mscordaccore.dll" : "mscordacwks.dll" };
+        foreach (var d in libraries)
+            if (d.Kind == DebugLibraryKind.Dac && d.Platform == OSPlatform.Windows && System.IO.Path.GetFileName(d.FileName) is { Length: > 0 } n && !names.Contains(n, StringComparer.OrdinalIgnoreCase))
                 names.Add(n);
         return names;
     }
 
+    /// <summary>The symbol store key of a file archived under a Linux runtime's build id (the SSQP "elf-buildid-coreclr" key).</summary>
+    internal static string ElfKey(IEnumerable<byte> buildId) => "elf-buildid-coreclr-" + Convert.ToHexStringLower([.. buildId]);
+
     /// <summary>
     /// Symbol store keys of the DAC that runs on <paramref name="arch"/>: its own timestamp and size (checked after a
-    /// download), then the runtime's (the long-name file, matched by its signature and version only).
+    /// download), then the runtime's (the long-name file, matched by its signature and version only), then a Linux
+    /// runtime's build id (the Windows-hosted DAC for Linux targets, matched by its signature and version).
     /// </summary>
-    private static IEnumerable<(string Name, string Key, Func<string, string?>? Check)> StoreKeys(ClrInfo clr, Architecture arch)
+    internal static IEnumerable<(string Name, string Key, Func<string, string?>? Check)> StoreKeys(IEnumerable<DebugLibraryInfo> libraries, Architecture arch)
     {
-        foreach (var d in clr.DebuggingLibraries.OrderBy(d => d.ArchivedUnder == SymbolProperties.Self ? 0 : 1))
+        foreach (var d in libraries.OrderBy(d => d.ArchivedUnder == SymbolProperties.Self ? 0 : 1))
         {
-            if (d.Kind != DebugLibraryKind.Dac || d.Platform != OSPlatform.Windows || d.TargetArchitecture != arch || d.IndexTimeStamp == 0 || d.IndexFileSize == 0) continue;
+            if (d.Kind != DebugLibraryKind.Dac || d.Platform != OSPlatform.Windows || d.TargetArchitecture != arch) continue;
             string name = System.IO.Path.GetFileName(d.FileName);
+            if (d.IndexTimeStamp == 0 || d.IndexFileSize == 0)
+            {
+                if (d.ArchivedUnder == SymbolProperties.Coreclr && d.IndexBuildId.Length > 0) yield return (name, ElfKey(d.IndexBuildId), null);
+                continue;
+            }
             uint stamp = (uint)d.IndexTimeStamp, size = (uint)d.IndexFileSize;
             Func<string, string?>? check = d.ArchivedUnder == SymbolProperties.Self ? p => PdbLocator.CheckImage(p, stamp, size) : null;
             yield return (name, PdbLocator.ImageKey(stamp, size), check);

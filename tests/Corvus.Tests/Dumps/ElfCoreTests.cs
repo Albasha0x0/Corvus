@@ -1,6 +1,7 @@
 using Corvus.Core;
 using Corvus.Native;
 using Corvus.Native.Dump;
+using Corvus.Native.Dump.Managed;
 using Corvus.Native.Elf;
 using Corvus.Services;
 using Corvus.Tests.NativeFormats;
@@ -114,7 +115,7 @@ internal static class SyntheticCore
     }
 
     /// <summary>The core; <paramref name="moduleCode"/> false keeps only the module's first page, as a default Linux core does.</summary>
-    public static byte[] Core(bool arm64, bool moduleCode = true)
+    public static byte[] Core(bool arm64, bool moduleCode = true, string modulePath = ModulePath)
     {
         var module = Module(arm64);
         var p = Points(arm64);
@@ -165,7 +166,7 @@ internal static class SyntheticCore
         nf.U64(2); nf.U64(0x1000);
         nf.U64(Base); nf.U64(Base + 0x1000); nf.U64(0);
         nf.U64(Base + 0x1000); nf.U64(Base + 0x2000); nf.U64(1);
-        nf.CString(ModulePath); nf.CString(ModulePath);
+        nf.CString(modulePath); nf.CString(modulePath);
         Note(0x46494C45, nf.ToArray());
         var noteBytes = notes.ToArray();
 
@@ -322,16 +323,31 @@ public sealed class ElfCoreTests
     }
 
     [Fact]
-    public async Task Managed_heap_of_a_core_is_unsupported()
+    public async Task Managed_heap_of_a_core_without_a_runtime_is_refused()
     {
         using var dir = new TempDir();
         var path = Write(dir, SyntheticCore.Core(arm64: false));
         using var service = new MinidumpService();
         var heap = await Assert.ThrowsAsync<ToolError>(() => service.Heap(path, "stats", null, 0, 0, 10, 1000, CancellationToken.None));
         Assert.Equal(ErrorCode.Unsupported, heap.Code);
-        Assert.Contains("Linux DAC", heap.Remediation);
+        Assert.Contains("no .NET runtime", heap.Message);
         var obj = await Assert.ThrowsAsync<ToolError>(() => service.Object(path, "0x1000", 1, 10, 10, CancellationToken.None));
         Assert.Equal(ErrorCode.Unsupported, obj.Code);
+    }
+
+    [Fact]
+    public async Task Managed_heap_of_a_core_names_the_missing_dac()
+    {
+        if (!OperatingSystem.IsWindows()) return;
+        using var dir = new TempDir();
+        var path = Write(dir, SyntheticCore.Core(arm64: false, modulePath: "/usr/share/dotnet/shared/Microsoft.NETCore.App/10.0.0/libcoreclr.so"));
+        using var service = new MinidumpService();
+        var heap = await Assert.ThrowsAsync<ToolError>(() => service.Heap(path, "stats", null, 0, 0, 10, 1000, CancellationToken.None));
+        Assert.Equal(ErrorCode.Unsupported, heap.Code);
+        Assert.Contains("DAC is not loaded", heap.Message);
+        Assert.True(heap.Message.Contains("mscordaccore.dll", StringComparison.Ordinal) && heap.Message.Contains(DacLocator.ElfKey(SyntheticCore.BuildId), StringComparison.Ordinal), heap.Message);
+        Assert.Contains("dacPath", heap.Remediation);
+        Assert.Contains("downloadDac=true", heap.Remediation);
     }
 
     [Fact]

@@ -83,7 +83,7 @@ public sealed class MinidumpTools(MinidumpService dumps)
 
     [McpServerTool(Name = "dump_heap", Title = "Crash dump .NET heap", UseStructuredContent = true, OutputSchemaType = typeof(MinidumpService.HeapReport))]
     [Description("Lists the .NET GC heap of a minidump (through the DAC). stats: count and size per type, largest first; objects: matching objects " +
-                 "(address, type, size, a string's value). Needs heap memory in the dump (else heap_not_captured); not for ELF cores.")]
+                 "(address, type, size, a string's value). Needs heap memory in the dump (else heap_not_captured).")]
     public Task<string> DumpHeap(
         [Description(DumpDescription)] string dump,
         [Description("stats (per type) or objects (one row each).")] string? mode = "stats",

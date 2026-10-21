@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using Corvus.Core;
 using Corvus.Native;
 using Corvus.Native.Dump;
+using Corvus.Native.Dump.Managed;
 using Corvus.Native.Elf;
 using Corvus.Native.Itanium;
 
@@ -83,6 +84,13 @@ public sealed partial class MinidumpService
         return new Location(module, shown, $"{label}+0x{shown:X}", null, "none", null, "native", image == null ? detail : null);
     }
 
+    /// <summary>The architecture of a core's process, as ClrMD names it.</summary>
+    private static System.Runtime.InteropServices.Architecture CoreArchitecture(ElfCoreFile core) => core.Arch switch
+    {
+        NativeArch.X86 => System.Runtime.InteropServices.Architecture.X86, NativeArch.Arm64 => System.Runtime.InteropServices.Architecture.Arm64,
+        NativeArch.Arm => System.Runtime.InteropServices.Architecture.Arm, _ => System.Runtime.InteropServices.Architecture.X64,
+    };
+
     private static bool IsAndroid(ElfCoreFile core) =>
         core.Files.Any(f => f.Path.StartsWith("/system/bin/linker", StringComparison.Ordinal) || f.Path.StartsWith("/apex/", StringComparison.Ordinal));
 
@@ -109,7 +117,7 @@ public sealed partial class MinidumpService
     internal static string AuxText(ElfCoreFile core) => string.Join(", ", core.AuxVector.Where(a => AuxNames.ContainsKey(a.Type)).Select(a =>
         a.Type is 15 or 24 or 31 && core.ReadString(a.Value) is { } text ? $"{AuxNames[a.Type]}={text}" : $"{AuxNames[a.Type]}={Hex(core, a.Value)}"));
 
-    private async Task<DumpReport> SummarizeCore(Session s, ElfCoreFile core, CancellationToken ct)
+    private async Task<DumpReport> SummarizeCore(Session s, ElfCoreFile core, DacRequest dac, CancellationToken ct)
     {
         var notes = new List<string>();
         string os = IsAndroid(core) ? "Android" : "Linux";
@@ -135,8 +143,8 @@ public sealed partial class MinidumpService
         if (core.Registers is { Unwinds: false }) notes.Add($"unwinding not supported for {core.ArchName}: threads and registers only.");
         if (core.CoreModules.Any(m => core.ReadableExtent(m.Module.Base, m.Module.Size) < m.Module.Size / 2))
             notes.Add("The core holds little of the modules' code (by default only their first page): code, unwind data and symbols come from matching files on disk (imageDirectories), matched by GNU build id.");
-        if (runtime is ".NET (CoreCLR)" or "Mono")
-            notes.Add($"The process hosts {runtime}: managed frames and the managed heap need the Linux DAC, which is not supported; native frames are walked.");
+        if (runtime == "Mono") notes.Add("The process hosts Mono, which has no DAC: native frames are walked.");
+        var managed = await ManagedSection(s, dac, ct);
         return new DumpReport(s.Id, "summary")
         {
             Path = core.Path,
@@ -147,6 +155,7 @@ public sealed partial class MinidumpService
             Counts = new DumpTotals(core.CoreModules.Count, core.Threads.Count, 0, core.MemoryRanges.Count, core.Segments.Count, core.CapturedBytes, false, 0),
             FaultingModule = faultingModule,
             FaultingThread = faultingThread,
+            Managed = managed,
             Issues = core.Issues.Select(i => $"{i.Area}: {i.Message}").ToList(),
             Notes = notes,
         };
