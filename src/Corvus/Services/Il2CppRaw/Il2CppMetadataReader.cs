@@ -210,7 +210,8 @@ public static class Il2CppMetadataReader
         int images = metadata.imageDefinitions.Length;
         if (Il2CppRegistrationSearch.ModuleArrays(image, images, searchCt) is [var array])
         {
-            codeReg = new Il2CppCodeRegistration { codeGenModulesCount = (ulong)images, addrCodeGenModulePtrs = array };
+            // Before metadata 27 the library reads the attribute generator list unconditionally; an empty one at a mapped address.
+            codeReg = new Il2CppCodeRegistration { codeGenModulesCount = (ulong)images, addrCodeGenModulePtrs = array, customAttributeGeneratorListAddress = array };
             searchNote = $"no code registration in the file (filled at run time): read through its module array at 0x{array:X} ({images} modules); generic method bodies are not mapped";
         }
     }
