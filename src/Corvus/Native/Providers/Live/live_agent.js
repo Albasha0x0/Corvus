@@ -345,7 +345,11 @@ function beforeExit(code) {
   expect('exit-' + tid);
   send({ type: 'exit_status', tid, code, ack: true });
   waitFor('exit-' + tid);
+  // The exit ends Frida's threads at once; one still busy (sending, or serving a close) can leave the agent's heap lock
+  // held, and Frida's hook on the DLL unloads of the shutdown then waits on it forever: give them time to finish
+  if (Process.platform === 'windows') Thread.sleep(EXIT_DRAIN);
 }
+const EXIT_DRAIN = 0.3; // seconds
 if (Process.platform === 'windows') {
   // ExitProcess and a return from main end in RtlExitUserProcess; a probe, so no hook frame is left during the exit
   const exitUser = Process.getModuleByName('ntdll.dll').findExportByName('RtlExitUserProcess');
