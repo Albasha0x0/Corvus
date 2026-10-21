@@ -262,7 +262,9 @@ public sealed class JvmClassTests(Xunit.Abstractions.ITestOutputHelper output)
             string ours;
             try { ours = JvmListing.Class(JvmClass.Read(File.ReadAllBytes(file))); }
             catch (InvalidDataException ex) { ours = "error: " + ex.Message; }
-            var theirs = expected[file];
+            // javap 24+ prints a diagnostic line before a member whose flags carry a bit the JVMS leaves unassigned there (ACC_ENUM on a
+            // scalac method), then lists the member: the diagnostic is not part of the listing
+            var theirs = string.Join('\n', expected[file].Split('\n').Where(l => !l.StartsWith("Error: Access Flags: Unmatched bit position ", StringComparison.Ordinal)));
             if (ours == theirs) continue;
             if (differing++ == 0) first = $"{names[file]}\n{FirstDifference(theirs, ours)}";
         }
