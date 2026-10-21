@@ -13,8 +13,8 @@ internal interface ITcpConsumer
 
 /// <summary>
 /// TCP reassembly: each direction's segments are put in sequence order, retransmitted and overlapping bytes dropped, and
-/// handed on in order. Segments ahead of a hole wait up to <see cref="MaxPending"/> bytes per direction; past that, at a
-/// FIN or RST and at the end of the capture the hole becomes a gap of its size. A connection ends at FIN or RST from both
+/// handed on in order. Segments ahead of a hole wait up to <see cref="MaxPending"/> bytes per direction; past that, once the
+/// receiver acknowledges past the hole, at a FIN or RST and at the end of the capture the hole becomes a gap of its size. A connection ends at FIN or RST from both
 /// sides, at RST, or when <see cref="MaxConnections"/> are open (the oldest ends).
 /// </summary>
 internal sealed class TcpStreams(Func<TcpConnectionInfo, ITcpConsumer> open)
@@ -76,6 +76,7 @@ internal sealed class TcpStreams(Func<TcpConnectionInfo, ITcpConsumer> open)
             d.Started = true;
             d.Next = syn ? unchecked(p.Seq + 1) : p.Seq;
         }
+        if (ack) Acknowledged(c, !fromClient, fromClient ? c.FromServer : c.FromClient, p.Ack);
         if (payload.Length > 0) Segment(c, fromClient, d, syn ? unchecked(p.Seq + 1) : p.Seq, payload);
         if (fin) d.Finished = true;
         if (rst || (c.FromClient.Finished && c.FromServer.Finished)) Close(key);
@@ -119,6 +120,17 @@ internal sealed class TcpStreams(Func<TcpConnectionInfo, ITcpConsumer> open)
             d.PendingBytes -= bytes.Length;
             if (ahead + bytes.Length > 0) Deliver(c, fromClient, d, bytes.AsSpan((int)-ahead));
         }
+    }
+
+    /// <summary>
+    /// The receiver acknowledged a hole up to a waiting segment: those bytes were delivered but never captured and are not
+    /// sent again, so the hole is a gap now rather than at the end (the two directions stay in step).
+    /// </summary>
+    private void Acknowledged(Connection c, bool fromClient, Direction d, uint ack)
+    {
+        if (!d.Started) return;
+        long acked = d.Position + unchecked((int)(ack - d.Next));
+        while (d.Pending.Count > 0 && d.Pending.First().Key <= acked) Skip(c, fromClient, d);
     }
 
     /// <summary>The hole before the first waiting segment becomes a gap; the stream goes on from that segment.</summary>

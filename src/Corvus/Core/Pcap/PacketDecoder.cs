@@ -8,7 +8,11 @@ namespace Corvus.Core.Pcap;
 /// the payload's range in the frame. <see cref="Fragment"/> marks a later IPv4 / IPv6 fragment: no transport header.
 /// </summary>
 internal readonly record struct DecodedPacket(bool V6, UInt128 Src, UInt128 Dst, byte Protocol, ushort SrcPort, ushort DstPort,
-    byte TcpFlags, uint Seq, int PayloadStart, int PayloadLength, bool Fragment);
+    byte TcpFlags, uint Seq, int PayloadStart, int PayloadLength, bool Fragment)
+{
+    /// <summary>The TCP acknowledgment number (meaningful with the ACK flag).</summary>
+    public uint Ack { get; init; }
+}
 
 /// <summary>Link layer (Ethernet with 802.1Q / 802.1ad tags, Linux cooked SLL and SLL2, raw IP, null / loopback) to IP to TCP / UDP.</summary>
 internal static class PacketDecoder
@@ -138,7 +142,7 @@ internal static class PacketDecoder
             p = p with
             {
                 SrcPort = BinaryPrimitives.ReadUInt16BigEndian(t), DstPort = BinaryPrimitives.ReadUInt16BigEndian(t[2..]),
-                Seq = BinaryPrimitives.ReadUInt32BigEndian(t[4..]), TcpFlags = t[13], PayloadStart = start + offset, PayloadLength = t.Length - offset,
+                Seq = BinaryPrimitives.ReadUInt32BigEndian(t[4..]), Ack = BinaryPrimitives.ReadUInt32BigEndian(t[8..]), TcpFlags = t[13], PayloadStart = start + offset, PayloadLength = t.Length - offset,
             };
         }
         else if (p.Protocol == Udp)

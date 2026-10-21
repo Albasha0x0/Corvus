@@ -117,6 +117,37 @@ public sealed class CaptureObjectsTests : IDisposable
         Assert.Contains("1,400 body bytes not captured", entry.Detail);
     }
 
+    private static byte[] WithAck(byte[] frame, uint ack)
+    {
+        System.Buffers.Binary.BinaryPrimitives.WriteUInt32BigEndian(frame.AsSpan(14 + 20 + 8), ack); // Ethernet, IPv4, TCP acknowledgment number
+        return frame;
+    }
+
+    [Fact]
+    public void A_hole_the_receiver_acknowledged_ends_at_once_and_the_next_response_pairs_with_its_request()
+    {
+        // the answer to /one is never captured; the client's ACKs pass it, so /two and /three are answered in step
+        static byte[] Response(string body) => A($"HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: {body.Length}\r\n\r\n{body}");
+        byte[] one = Response("first"), two = Response("second"), three = Response("third");
+        byte[] get1 = A("GET /one HTTP/1.1\r\nHost: files.example.com\r\n\r\n"), get2 = A("GET /two HTTP/1.1\r\nHost: files.example.com\r\n\r\n"), get3 = A("GET /three HTTP/1.1\r\nHost: files.example.com\r\n\r\n");
+        uint c = 1000, s = 50_000;
+        ushort port = 50005;
+        var frames = new List<byte[]>
+        {
+            Ethernet(Tcp(Client, port, Server, 80, 0x02, c - 1, [])),
+            Ethernet(Tcp(Server, 80, Client, port, 0x12, s - 1, [])),
+            WithAck(Ethernet(Tcp(Client, port, Server, 80, 0x18, c, get1)), s),
+            WithAck(Ethernet(Tcp(Client, port, Server, 80, 0x18, c + (uint)get1.Length, get2)), s + (uint)one.Length),
+            Ethernet(Tcp(Server, 80, Client, port, 0x18, s + (uint)one.Length, two)),
+            WithAck(Ethernet(Tcp(Client, port, Server, 80, 0x18, c + (uint)(get1.Length + get2.Length), get3)), s + (uint)(one.Length + two.Length)),
+            Ethernet(Tcp(Server, 80, Client, port, 0x18, s + (uint)(one.Length + two.Length), three)),
+        };
+        var files = Files(Unpack("hole.pcap", Pcap(frames)));
+        Assert.Equal("second", Encoding.ASCII.GetString(files["files.example.com/two.txt"]));
+        Assert.Equal("third", Encoding.ASCII.GetString(files["files.example.com/three.txt"]));
+        Assert.Equal(2, files.Count);
+    }
+
     /// <summary>A TLS 1.3 record sealed with a traffic secret (AES-128-GCM): the payload, its inner content type, then the tag.</summary>
     private static byte[] Sealed(byte[] secret, ulong seq, byte content, byte[] payload)
     {

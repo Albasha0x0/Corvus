@@ -41,6 +41,8 @@ internal sealed class Http1Stream(string scheme, string server, Action<CapturedR
         public MemoryStream? Body;
         public long Remaining, Missing;
         public bool Truncated, Cut;
+        /// <summary>The side resumed at a start line after bytes it could not read (a gap, a capture begun mid-stream).</summary>
+        public bool Resumed;
         // the message being read
         public string Method = "", Target = "", Mime = "", Encoding = "";
         public int Status;
@@ -58,6 +60,7 @@ internal sealed class Http1Stream(string scheme, string server, Action<CapturedR
                     if (!(fromClient ? LooksLikeRequest(data) : data.StartsWith("HTTP/1."u8))) return;
                     side.State = State.Head;
                     side.Buffer.SetLength(0);
+                    side.Resumed = true;
                     continue;
                 case State.Head:
                     data = Head(side, data);
@@ -164,6 +167,12 @@ internal sealed class Http1Stream(string scheme, string server, Action<CapturedR
         }
         if (parts.Length < 2 || !parts[0].StartsWith("HTTP/1.", StringComparison.Ordinal) || !int.TryParse(parts[1], NumberStyles.None, CultureInfo.InvariantCulture, out side.Status))
             return false;
+        if (side.Resumed)
+        {
+            // responses were lost unread: the newest request is the one answered (a client that does not pipeline waits for each answer)
+            while (_requests.Count > 1) _requests.Dequeue();
+            side.Resumed = false;
+        }
         bool noBody = _requests.TryPeek(out var request) && request.Method == "HEAD";
         side.Body = new MemoryStream();
         if (side.Status is >= 100 and < 200)
