@@ -160,6 +160,33 @@ public sealed class LiveStopPointRealTests(ITestOutputHelper output) : LiveToolC
         Ended(pid);
     }
 
+    // ---- a library whose entry point writes its code (a packed DLL): a deferred stop point is set once that returned
+
+    [LiveTargetFact("win-x64")] public Task Deferred_into_code_written_at_load_on_win_x64() => DeferredIntoCodeWrittenAtLoad(LiveTarget.WinX64);
+    [LiveTargetFact("win-x86")] public Task Deferred_into_code_written_at_load_on_win_x86() => DeferredIntoCodeWrittenAtLoad(LiveTarget.WinX86);
+
+    private async Task DeferredIntoCodeWrittenAtLoad(LiveTarget target)
+    {
+        var plugin = target.BuildLibrary(_dir, "plugin", LivePrograms.CodeWrittenAtLoadPlugin);
+        var exe = target.Build(_dir, "loader", LivePrograms.Loader);
+        await using var server = await Server();
+        var pid = await Spawn(server, exe, "live-1", plugin, "3");
+
+        Assert.Contains("s1 deferred: ", await Set(server, "plugin!PluginWork"));
+        var stop = await Ok(server, "live_break", new() { ["session"] = "live-1", ["action"] = "continue", ["wait"] = true, ["waitSeconds"] = 60 });
+        Assert.Contains("stopped at s1 (plugin.dll!PluginWork)", stop);
+        Assert.Equal(0UL, await FirstArgument(server, target));
+        Assert.Contains("deferred stop point s1 set at plugin.dll!PluginWork (plugin.dll loaded; its entry point writes its code, so set once that returned)",
+            await Events(server, "live-1", kind: "module"));
+
+        await Clear(server, "s1");
+        await Ok(server, "live_break", new() { ["session"] = "live-1", ["action"] = "continue" });
+        Assert.Matches(@"exit code 0(?![0-9xX])", await UntilExited(server, "live-1"));
+        Assert.Contains("plugin 12", await Events(server, "live-1", kind: "output"));
+        await Ok(server, "live_session", new() { ["action"] = "close", ["session"] = "live-1" });
+        Ended(pid);
+    }
+
     // ---- a DLL mapped through a delay-load import before a stop: listed at the stop, though its load event comes later
 
     [LiveTargetFact("win-x64")] public Task A_delay_loaded_dll_is_listed_at_the_stop_on_win_x64() => DelayLoadListed(LiveTarget.WinX64);

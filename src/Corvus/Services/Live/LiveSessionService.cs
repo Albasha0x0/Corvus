@@ -656,7 +656,8 @@ public sealed partial class LiveSessionService(AssemblyWorkspace workspace, Nati
                 if (loaded) Match(m);
                 session.Add("module", null, m.Base, $"{(loaded ? "loaded" : "unloaded")} {m.Name} ({m.Path})");
                 long? holder = loaded && body.TryGetProperty("held", out var held) && held.ValueKind == JsonValueKind.True ? Thread() : null;
-                if (loaded) _ = SetDeferredAsync(session, m, holder);
+                var afterEntry = body.TryGetProperty("afterEntry", out var started) && started.ValueKind == JsonValueKind.True;
+                if (loaded) _ = SetDeferredAsync(session, m, holder, afterEntry);
                 break;
             }
             case "jit_ran":
@@ -895,6 +896,10 @@ public sealed partial class LiveSessionService(AssemblyWorkspace workspace, Nati
             offset = (long)rva - f.Start; // negative in a chunk placed before the entry
             if (name != null) named = new(native.Id, native.OriginalSha256, f.Start, name);
         }
+        // code the module writes at run time (a packed DLL) has no file bytes to index: its exports name it
+        else if (native.Image.Sections.FirstOrDefault(s => s.Contains(rva)) is { IsExecutable: true } s && rva - s.Rva >= s.RawSize
+                 && NearestExport(module.Path, rva) is { } e)
+            (function, offset) = (e.Name, rva - e.Rva);
         if (PdbService.StateOf(native)?.Pdb.Source is { } lines && lines.Lookup([returnAddress && rva > 0 ? rva - 1 : rva], ct)[0] is { } at)
             source = $"{at.File ?? "?"}:{at.Line}";
         return new(address, module.Name, native, rva, function, offset, source, named);
@@ -1195,7 +1200,7 @@ public sealed partial class LiveSessionService(AssemblyWorkspace workspace, Nati
         : null;
 
     /// <summary>Sets the points deferred to <paramref name="module"/>, then lets its loading thread (held by the worker) go on.</summary>
-    private async Task SetDeferredAsync(LiveSession session, LiveModuleState module, long? holder)
+    private async Task SetDeferredAsync(LiveSession session, LiveModuleState module, long? holder, bool afterEntry)
     {
         List<LiveDeferred> due;
         bool rest;
@@ -1207,7 +1212,7 @@ public sealed partial class LiveSessionService(AssemblyWorkspace workspace, Nati
         }
         try
         {
-            await SetDueAsync(session, $"{module.Name} loaded", due).ConfigureAwait(false);
+            await SetDueAsync(session, afterEntry ? $"{module.Name} loaded; its entry point writes its code, so set once that returned" : $"{module.Name} loaded", due).ConfigureAwait(false);
             var placed = await PlaceCoverageAsync(session, module).ConfigureAwait(false);
             if (!rest)
                 foreach (var name in due.Select(d => d.Module).Concat(placed).Distinct(StringComparer.OrdinalIgnoreCase))

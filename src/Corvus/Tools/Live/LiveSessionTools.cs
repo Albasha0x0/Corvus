@@ -745,7 +745,7 @@ public sealed partial class LiveSessionTools(ServerOptions options, LiveSessionS
         : d.Point.UntilCompiled
             ? $"{d.Point.Id} deferred: {d.Point.Module} has no code yet (the runtime compiles it at its first call); it is set once it is compiled, so the first calls may be missed"
             : $"{d.Point.Id} deferred: {d.Point.Module} is not loaded; it is set when {d.Point.Module} loads" +
-              (d.Held ? ", before the module's code runs" : " (calls before then are missed)");
+              (d.Held ? ", before the module's code runs (a module whose entry point writes its code: once that returns)" : " (calls before then are missed)");
 
     /// <summary>Says once which deferred points and watches could not be set since the last call; returns the first one's next step.</summary>
     private static string? Dropped(Services.LiveSession s, StringBuilder text)

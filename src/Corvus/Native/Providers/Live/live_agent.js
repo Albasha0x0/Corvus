@@ -149,16 +149,105 @@ function hookJit(m, running) {
 
 const JIT_LIBRARY = /^(lib)?clrjit\.(dll|so|dylib)$/i;
 
+// The parts of a PE image's executable sections the file leaves empty (VirtualSize past SizeOfRawData), which the image
+// fills at start-up (a packed DLL), with its entry point; null for any other image.
+function codeWrittenAtStart(m) {
+  if (Process.platform !== 'windows') return null;
+  try {
+    const nt = m.base.add(m.base.add(0x3c).readU32());
+    const count = nt.add(6).readU16(), table = nt.add(24 + nt.add(20).readU16()), entry = nt.add(40).readU32(), empty = [];
+    for (let i = 0; i < count; i++) {
+      const s = table.add(i * 40), virtual = s.add(8).readU32(), raw = s.add(16).readU32();
+      if ((s.add(36).readU32() & 0x20000000) !== 0 && virtual > raw) empty.push({ at: m.base.add(s.add(12).readU32() + raw), size: virtual - raw }); // IMAGE_SCN_MEM_EXECUTE
+    }
+    return empty.length > 0 && entry !== 0 ? { entry: m.base.add(entry), empty } : null;
+  } catch (e) {
+    return null; // unreadable headers: an ordinary image
+  }
+}
+
+function moduleLoaded(m, held, afterEntry) {
+  const tid = Process.getCurrentThreadId();
+  if (held) expect('load-' + tid);
+  send({ type: 'module', action: 'loaded', module: moduleRow(m), held, tid, afterEntry });
+  if (held) waitFor('load-' + tid);
+}
+
+// The current thread's stack pointer and stack base (Windows)
+let stackPointer = null, stackLimits = null;
+if (Process.platform === 'windows') {
+  try {
+    const k32 = Process.getModuleByName('kernel32.dll'), abi = Process.arch === 'ia32' ? 'stdcall' : 'default';
+    const virtualAlloc = new NativeFunction(k32.getExportByName('VirtualAlloc'), 'pointer', ['pointer', 'size_t', 'uint32', 'uint32'], abi);
+    const code = virtualAlloc(NULL, Process.pageSize, 0x3000, 0x40); // MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE
+    code.writeByteArray(Process.arch === 'x64' ? [0x48, 0x8d, 0x44, 0x24, 0x08, 0xc3] : [0x8d, 0x44, 0x24, 0x04, 0xc3]); // lea rax/eax, [caller's sp]; ret
+    stackPointer = new NativeFunction(code, 'pointer', []);
+    stackLimits = new NativeFunction(k32.getExportByName('GetCurrentThreadStackLimits'), 'void', ['pointer', 'pointer'], abi);
+  } catch (e) {
+    stackPointer = stackLimits = null;
+  }
+}
+
+// Whether the instruction before p is a call (E8 rel32, or FF /2 in its 2, 3, 6 and 7 byte forms), so p is a return address
+function afterCall(p) {
+  try {
+    const b = new Uint8Array(p.sub(7).readByteArray(7));
+    const indirect = i => b[i] === 0xff && (b[i + 1] & 0x38) === 0x10;
+    return b[2] === 0xe8 || indirect(5) || indirect(4) || indirect(1) || indirect(0);
+  } catch (e) {
+    return false;
+  }
+}
+
+// Where the current thread returns from the outermost call into m's code: the return address and the stack slot that
+// holds it; null when no live frame is in m
+function returnFrom(m) {
+  if (stackPointer === null) return null;
+  const limits = Memory.alloc(2 * Process.pointerSize), size = Process.pointerSize;
+  stackLimits(limits, limits.add(size));
+  const sp = stackPointer(), base = limits.add(size).readPointer(), end = m.base.add(m.size);
+  const inM = v => v.compare(m.base) >= 0 && v.compare(end) < 0;
+  for (let slot = base.sub(size); slot.compare(sp) >= 0; slot = slot.sub(size)) {
+    const v = slot.readPointer();
+    if (!inM(v) || !afterCall(v)) continue;
+    // the call into m's code pushed its return address above m's own frames
+    for (let up = slot.add(size); up.compare(base) < 0; up = up.add(size)) {
+      const r = up.readPointer();
+      if (!inM(r) && afterCall(r)) return { at: r, slot: up };
+    }
+    return null;
+  }
+  return null;
+}
+
 if (typeof Process.attachModuleObserver === 'function') {
   Process.attachModuleObserver({
     onAdded(m) {
       if (JIT_LIBRARY.test(m.name)) hookJit(m, !observing);
       if (!observing) return;
       const held = deferredModules.size > 0 && isDeferred(m);
-      const tid = Process.getCurrentThreadId();
-      if (held) expect('load-' + tid);
-      send({ type: 'module', action: 'loaded', module: moduleRow(m), held, tid });
-      if (held) waitFor('load-' + tid);
+      // a point written before such an image's start-up code runs is overwritten by it: hold once that code returns. The
+      // registry can report a DLL first from a load its entry point makes (frida/frida-gum#1190), or after it returned.
+      const start = held ? codeWrittenAtStart(m) : null;
+      if (start === null) {
+        moduleLoaded(m, held, false);
+        return;
+      }
+      const inside = returnFrom(m), tid = Process.getCurrentThreadId();
+      if (inside !== null) {
+        const returned = Interceptor.attach(inside.at, function () {
+          // past the slot once returned (a stdcall entry also pops its arguments); a nested load's return stays below it
+          if (this.threadId !== tid || this.context.sp.compare(inside.slot) <= 0) return;
+          returned.detach();
+          moduleLoaded(m, true, true);
+        });
+      } else if (start.empty.every(r => new Uint8Array(r.at.readByteArray(r.size)).every(b => b === 0))) { // the entry point has not run yet
+        const started = Interceptor.attach(start.entry, { onLeave() { started.detach(); moduleLoaded(m, true, true); } });
+      } else { // it has returned already
+        moduleLoaded(m, true, true);
+        return;
+      }
+      Interceptor.flush(); // attached inside the observer: in place before the loader goes on
     },
     onRemoved(m) { if (observing) send({ type: 'module', action: 'unloaded', module: moduleRow(m) }); },
   });

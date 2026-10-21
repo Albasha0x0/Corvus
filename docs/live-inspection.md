@@ -160,7 +160,9 @@ and an object listed before a garbage collection may be gone; a snapshot (`live_
 
 A stop point or watch on `module!name` whose module is not loaded yet is deferred, as a debugger defers an unresolved
 breakpoint: the loading thread waits at the module's load, before any of the module's code runs, until the point is set
-(a `module` event says so), so its first call is caught. A deferred point the loaded module does not resolve is
+(a `module` event says so), so its first call is caught. A packed DLL, whose entry point writes its code into a section
+the file leaves empty, is waited on when that entry point returns instead, so the point is not overwritten; stops in
+that code are named by the DLL's exports. A deferred point the loaded module does not resolve is
 dropped: the next `live_break` or `live_watch` call says why, the list shows it as failed until it is cleared, and a
 managed name (`Ns.Type::Method`) that an Il2Cpp or NativeAOT layer names `Ns_Type__Method` gets that name as its next
 step. A stop point on a jump is set where the jump leads; when it leads

@@ -326,6 +326,24 @@ internal static class LivePrograms
         EXPORT int PluginOther(int i) { return i * 2; }
         """;
 
+    /// <summary>
+    /// plugin (Windows) whose DllMain writes PluginWork's code into an executable section the file leaves empty, as a packed
+    /// DLL's start-up code does; PluginWork and PluginOther each return twice their argument.
+    /// </summary>
+    public const string CodeWrittenAtLoadPlugin = """
+        #include <windows.h>
+        #include <string.h>
+        #pragma comment(linker, "/SECTION:.bss,ERW")
+        __declspec(dllexport) unsigned char PluginWork[4096]; // uninitialized: no file bytes behind it
+        __declspec(noinline) static int Twice(int i) { return i * 2; }
+        __declspec(dllexport) __declspec(noinline) int PluginOther(int i) { return i * 2; }
+        BOOL WINAPI DllMain(HINSTANCE module, DWORD reason, LPVOID reserved)
+        {
+            if (reason == DLL_PROCESS_ATTACH) memcpy(PluginWork, (const void*)Twice, 64);
+            return TRUE;
+        }
+        """;
+
     /// <summary>loader [library] [calls]: loads the library after a pause, calls PluginWork and PluginOther that many times, prints the sum.</summary>
     public const string Loader = Platform + """
         #ifndef _WIN32
