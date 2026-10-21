@@ -1,4 +1,5 @@
 using System.Reflection;
+using Corvus.Core;
 using dnlib.DotNet;
 using dnlib.DotNet.Emit;
 using dnlib.DotNet.MD;
@@ -62,7 +63,7 @@ internal sealed class Il2CppDummyBuilder
         {
             var image = images[i];
             var name = image.Name ?? $"image{i}.dll";
-            var module = new ModuleDefUser(name, Guid.NewGuid(), corlibRef) { Kind = ModuleKind.Dll, RuntimeVersion = MDHeaderRuntimeVersion.MS_CLR_40 };
+            var module = new ModuleDefUser(name, Guid.Empty, corlibRef) { Kind = ModuleKind.Dll, RuntimeVersion = MDHeaderRuntimeVersion.MS_CLR_40 };
             var asm = AssemblyName(i) ?? new AssemblyNameInfo(Path.GetFileNameWithoutExtension(name));
             new AssemblyDefUser(asm.Name, asm.Version, asm.PublicKeyOrToken as PublicKey, asm.Culture).Modules.Add(module);
             _modules[i] = module;
@@ -121,8 +122,7 @@ internal sealed class Il2CppDummyBuilder
         {
             ct.ThrowIfCancellationRequested();
             var file = Path.Combine(directory, SafeFileName(module.Name));
-            var options = new ModuleWriterOptions(module) { Logger = new WriterLog(module.Name, _unreadable) };
-            try { module.Write(file, options); }
+            try { File.WriteAllBytes(file, DeterministicModule.Write(module, new WriterLog(module.Name, _unreadable))); }
             catch (Exception ex) when (ex is ModuleWriterException or IOException or InvalidOperationException or ArgumentException)
             {
                 _unreadable($"assembly {module.Name}", "write_failed", ex.Message);
@@ -286,7 +286,7 @@ internal sealed class Il2CppDummyBuilder
 
     private void BuildAttributeModule(AssemblyRef corlibRef)
     {
-        var module = new ModuleDefUser(AttributeAssembly + ".dll", Guid.NewGuid(), corlibRef) { Kind = ModuleKind.Dll, RuntimeVersion = MDHeaderRuntimeVersion.MS_CLR_40 };
+        var module = new ModuleDefUser(AttributeAssembly + ".dll", Guid.Empty, corlibRef) { Kind = ModuleKind.Dll, RuntimeVersion = MDHeaderRuntimeVersion.MS_CLR_40 };
         new AssemblyDefUser(AttributeAssembly, new Version(1, 0, 0, 0)).Modules.Add(module);
         _attributeModule = module;
         ITypeDefOrRef attributeBase = new TypeRefUser(module, "System", "Attribute", corlibRef);

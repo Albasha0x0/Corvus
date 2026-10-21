@@ -398,6 +398,32 @@ public sealed class Il2CppRawTests(ITestOutputHelper output) : IDisposable
         Assert.Equal(Names(fullWs), Names(metaWs));
     }
 
+    /// <summary>The real game's dummy assemblies, with the binary and from the metadata alone, are byte-identical on a second build.</summary>
+    [RequiresRealDataFact(GameVariable)]
+    [Trait("Speed", "Slow")]
+    public void RealDummyAssembliesAreTheSameBytesOnEveryBuild()
+    {
+        var files = Il2CppGameFiles.Find(RealData.Path(GameVariable)) ?? throw new InvalidOperationException("not an Il2Cpp game");
+        var alone = _dir.File(Path.Combine("alone-twice", Il2CppGameFiles.MetadataFileName));
+        Directory.CreateDirectory(Path.GetDirectoryName(alone)!);
+        File.Copy(files.Metadata, alone);
+        var metadataOnly = Il2CppGameFiles.Find(alone, metadataOnly: true)!;
+        foreach (var (name, build) in new (string, Action<string>)[]
+                 {
+                     ("binary", dir => Il2CppMetadataReader.Read(files, dir, null, default)),
+                     ("metadata", dir => Il2CppMetadataOnly.Read(metadataOnly, dir, null, default)),
+                 })
+        {
+            string first = _dir.File($"{name}-1"), second = _dir.File($"{name}-2");
+            build(first);
+            build(second);
+            var written = Directory.GetFiles(first, "*.dll").Select(Path.GetFileName).Order(StringComparer.Ordinal).ToList();
+            Assert.NotEmpty(written);
+            Assert.Equal(written, Directory.GetFiles(second, "*.dll").Select(Path.GetFileName).Order(StringComparer.Ordinal).ToList());
+            Assert.All(written, f => Assert.True(File.ReadAllBytes(Path.Combine(first, f!)).AsSpan().SequenceEqual(File.ReadAllBytes(Path.Combine(second, f!))), $"{name}: {f} differs"));
+        }
+    }
+
     /// <summary>
     /// A real game (CORVUS_IL2CPP_GENERICS_GAME: a Windows game folder) copied with its code registration's module fields
     /// cleared, as in builds that fill the registration at run time: the copy reads every ScriptMethod entry of the

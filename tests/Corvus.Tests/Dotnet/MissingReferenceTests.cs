@@ -104,6 +104,21 @@ public class MissingReferenceTests : IDisposable
         Assert.True(exitCode == 0, string.Join("\n", Regex.Matches(output, @"[^\\/\r\n]+\.cs\(\d+,\d+\): error [^\r\n]*").Select(m => m.Value).Distinct()));
     }
 
+    /// <summary>A stub built twice from the same use is the same bytes: its MVID and PE timestamp come from its content.</summary>
+    [Fact]
+    public void MissingDependency_StubIsTheSameBytesOnEveryBuild()
+    {
+        var lib = Compile("Lib", Library);
+        var app = _dir.File("App.dll");
+        File.WriteAllBytes(app, Compile("App", App, lib));
+        using var env = new Env(app);
+        var first = Corvus.Core.ReferenceStubs.Build("Lib", null, [env.Fixture])!.Value.Image;
+        var second = Corvus.Core.ReferenceStubs.Build("Lib", null, [env.Fixture])!.Value.Image;
+        Assert.Equal(first, second);
+        using var module = dnlib.DotNet.ModuleDefMD.Load(first);
+        Assert.NotEqual(Guid.Empty, module.Mvid);
+    }
+
     /// <summary>
     /// An exported project of MediatR (MediatR.Contracts missing) did not build: the stub left out types named only by
     /// [assembly: TypeForwardedTo], and its ref readonly property lacked [IsReadOnly], so C# rejected it (CS0570).

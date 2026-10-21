@@ -172,7 +172,7 @@ public static class Il2CppMetadataOnly
             for (int i = 0; i < images.Length; i++)
             {
                 var name = Name(images[i].nameIndex, $"image{i}.dll");
-                var module = new ModuleDefUser(name, Guid.NewGuid(), _corlib) { Kind = ModuleKind.Dll, RuntimeVersion = MDHeaderRuntimeVersion.MS_CLR_40 };
+                var module = new ModuleDefUser(name, Guid.Empty, _corlib) { Kind = ModuleKind.Dll, RuntimeVersion = MDHeaderRuntimeVersion.MS_CLR_40 };
                 new AssemblyDefUser(AssemblyName(i, name), Version(i)).Modules.Add(module);
                 _modules[i] = module;
                 for (int t = images[i].firstTypeIndex.Value; t < images[i].firstTypeIndex.Value + images[i].typeCount; t++) _typeImage[t] = i;
@@ -221,7 +221,7 @@ public static class Il2CppMetadataOnly
 
         private void BuildAttributeModule()
         {
-            _attributes = new ModuleDefUser(AttributeAssembly + ".dll", Guid.NewGuid(), _corlib) { Kind = ModuleKind.Dll, RuntimeVersion = MDHeaderRuntimeVersion.MS_CLR_40 };
+            _attributes = new ModuleDefUser(AttributeAssembly + ".dll", Guid.Empty, _corlib) { Kind = ModuleKind.Dll, RuntimeVersion = MDHeaderRuntimeVersion.MS_CLR_40 };
             new AssemblyDefUser(AttributeAssembly, new System.Version(1, 0, 0, 0)).Modules.Add(_attributes);
             var attributeBase = new TypeRefUser(_attributes, "System", "Attribute", _corlib);
             var token = new TypeDefUser(AttributeAssembly, "TokenAttribute", attributeBase) { Attributes = dnlib.DotNet.TypeAttributes.Public };
@@ -358,7 +358,7 @@ public static class Il2CppMetadataOnly
                 ct.ThrowIfCancellationRequested();
                 var clean = string.Concat(module.Name.String.Select(c => Path.GetInvalidFileNameChars().Contains(c) ? '_' : c));
                 var file = Path.Combine(directory, clean.EndsWith(".dll", StringComparison.OrdinalIgnoreCase) ? clean : clean + ".dll");
-                try { module.Write(file, new ModuleWriterOptions(module) { Logger = DummyLogger.NoThrowInstance }); }
+                try { File.WriteAllBytes(file, DeterministicModule.Write(module, DummyLogger.NoThrowInstance)); }
                 catch (Exception ex) when (ex is ModuleWriterException or IOException or InvalidOperationException or ArgumentException)
                 {
                     unreadable($"assembly {module.Name}", "write_failed", ex.Message);

@@ -295,7 +295,7 @@ internal static class ReferenceStubs
         AssemblyRef corlibRef = corlib.Name == "System.Private.CoreLib"
             ? new AssemblyRefUser("System.Runtime", corlib.Version, new PublicKeyToken("b03f5f7f11d50a3a"))
             : new AssemblyRefUser(corlib.Name, corlib.Version, corlib.PublicKeyOrToken, corlib.Culture);
-        var module = new ModuleDefUser(assemblyName + ".dll", Guid.NewGuid(), corlibRef)
+        var module = new ModuleDefUser(assemblyName + ".dll", Guid.Empty, corlibRef)
         {
             Kind = ModuleKind.Dll,
             RuntimeVersion = "v4.0.30319",
@@ -471,9 +471,7 @@ internal static class ReferenceStubs
             }
         }
 
-        using var stream = new MemoryStream();
-        module.Write(stream, new ModuleWriterOptions(module) { Logger = DummyLogger.NoThrowInstance });
-        return stream.ToArray();
+        return DeterministicModule.Write(module, DummyLogger.NoThrowInstance);
     }
 
     /// <summary>Clones <paramref name="like"/> under another name; used for a missing event accessor.</summary>
