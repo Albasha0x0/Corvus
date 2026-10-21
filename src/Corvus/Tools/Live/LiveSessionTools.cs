@@ -182,26 +182,25 @@ public sealed partial class LiveSessionTools(ServerOptions options, LiveSessionS
         var path = string.IsNullOrWhiteSpace(outputPath)
             ? Path.Combine(Path.GetTempPath(), "corvus-snapshots", $"{s.Id}-{s.ProcessId}-{DateTime.UtcNow:yyyyMMdd-HHmmss-fff}{(OperatingSystem.IsWindows() ? ".dmp" : ".core")}")
             : outputPath;
-        // a held thread waits inside the backend: its stop's registers, as the dump's exception, let the walk start at the stop
-        // (an x86 program's x86 CONTEXT: the dump reader takes it as the WoW64 thread's 32-bit side)
+        // a held thread waits inside the backend: its stop's registers let the walk start at the stop (on Windows the dump's
+        // exception, an x86 program's x86 CONTEXT taken as the WoW64 thread's 32-bit side; in a Linux core the thread's own)
         Native.Diagnostics.ProcessSnapshot.Stop? stop = null;
         var held = s.Held.FirstOrDefault();
-        if (OperatingSystem.IsWindows() && s.Arch is "x64" or "ia32" && held != null)
+        if (s.Arch is "x64" or "ia32" && held != null)
         {
             var registers = new Dictionary<string, ulong>(StringComparer.OrdinalIgnoreCase);
             foreach (var (name, value) in held.Registers)
                 if (ulong.TryParse(value.StartsWith("0x", StringComparison.OrdinalIgnoreCase) ? value[2..] : value, NumberStyles.HexNumber, CultureInfo.InvariantCulture, out var v))
                     registers[name] = v;
-            if (s.Arch == "x64" && registers.TryGetValue("rip", out var rip) && registers.ContainsKey("rsp"))
-                stop = new((int)held.Thread, Native.Diagnostics.ProcessSnapshot.ContextX64(registers), rip);
-            else if (s.Arch == "ia32" && registers.TryGetValue("eip", out var eip) && registers.ContainsKey("esp"))
-                stop = new((int)held.Thread, Native.Diagnostics.ProcessSnapshot.ContextX86(registers), eip);
+            bool x64 = s.Arch == "x64";
+            if (registers.ContainsKey(x64 ? "rip" : "eip") && registers.ContainsKey(x64 ? "rsp" : "esp"))
+                stop = new((int)held.Thread, x64, registers);
         }
         var bytes = Native.Diagnostics.ProcessSnapshot.Write(s.ProcessId, path, overwrite, ct, stop);
         var full = Path.GetFullPath(path);
         var report = await dumps.Summarize(full, null, ct).ConfigureAwait(false);
         var text = $"{s.Id}: process {s.ProcessId} written to {full} ({bytes:N0} bytes), opened as {report.Id}; the program keeps running\n" +
-                   (stop != null ? $"the stop of thread {stop.ThreadId} at {held!.Point} is the dump's exception (a breakpoint); dump_stack walks from it\n" : "") +
+                   (stop != null ? $"the stop of thread {stop.ThreadId} at {held!.Point} is {(OperatingSystem.IsWindows() ? "the dump's exception (a breakpoint)" : "the core's signal (SIGTRAP), with the stop's registers")}; dump_stack walks from it\n" : "") +
                    $"next: open_minidump path={report.Id} view=threads, dump_stack dump={report.Id}\n";
         return ToolOutput.With(text, new LiveSessionReport("snapshot", s.Id, s.Backend, s.Program, s.ProcessId, s.State, [], []) { Snapshot = new LiveSnapshot(full, bytes, report.Id) });
     }

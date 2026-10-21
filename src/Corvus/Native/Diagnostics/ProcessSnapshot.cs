@@ -12,8 +12,14 @@ namespace Corvus.Native.Diagnostics;
 /// </summary>
 public static class ProcessSnapshot
 {
-    /// <summary>A thread held at a stop: its registers become the dump's exception context, as a debugger's dump at a break records its last event.</summary>
-    public sealed record Stop(int ThreadId, byte[] Context, ulong Address);
+    /// <summary>
+    /// A thread held at a stop, its registers named as Frida names them: on Windows they become the dump's exception context, as a
+    /// debugger's dump at a break records its last event; in a Linux core they replace the thread's own, with SIGTRAP as its signal.
+    /// </summary>
+    public sealed record Stop(int ThreadId, bool X64, IReadOnlyDictionary<string, ulong> Registers)
+    {
+        public ulong Address => Registers.GetValueOrDefault(X64 ? "rip" : "eip");
+    }
 
     // MiniDumpWithFullMemory | WithHandleData | WithUnloadedModules | WithFullMemoryInfo | WithThreadInfo
     private const uint DumpType = 0x2 | 0x4 | 0x20 | 0x800 | 0x1000;
@@ -30,7 +36,7 @@ public static class ProcessSnapshot
         try
         {
             if (OperatingSystem.IsWindows()) WriteMinidump(pid, partial, stop);
-            else if (OperatingSystem.IsLinux()) WriteCore(pid, partial, ct);
+            else if (OperatingSystem.IsLinux()) WriteCore(pid, partial, ct, stop);
             else throw new ToolError(ErrorCode.ProviderUnavailable, "Snapshots are written on Windows (MiniDumpWriteDump) and Linux (gcore).", "on macOS, lldb's process save-core writes one");
             File.Move(partial, full, overwrite);
             return new FileInfo(full).Length;
@@ -86,8 +92,9 @@ public static class ProcessSnapshot
             // one block, in this process (ClientPointers false): MINIDUMP_EXCEPTION_INFORMATION (pack 4), EXCEPTION_POINTERS,
             // an EXCEPTION_RECORD for a breakpoint at the stop, and the CONTEXT 16-byte aligned; a 64-bit writer copies an x64
             // CONTEXT's size whatever the target, so a WoW64 program's x86 CONTEXT is padded to it
+            var stopContext = stop.X64 ? ContextX64(stop.Registers) : ContextX86(stop.Registers);
             const int Info = 0, Pointers = 16, Record = 32, Context = 192;
-            int size = Context + Math.Max(stop.Context.Length, 0x4D0) + 16;
+            int size = Context + Math.Max(stopContext.Length, 0x4D0) + 16;
             block = Marshal.AllocHGlobal(size);
             var bytes = new byte[size];
             long context = ((block.ToInt64() + Context + 15) & ~15L) - block.ToInt64();
@@ -97,7 +104,7 @@ public static class ProcessSnapshot
             BinaryPrimitives.WriteInt64LittleEndian(bytes.AsSpan(Pointers + 8), block.ToInt64() + context);
             BinaryPrimitives.WriteUInt32LittleEndian(bytes.AsSpan(Record), 0x80000003); // EXCEPTION_BREAKPOINT
             BinaryPrimitives.WriteUInt64LittleEndian(bytes.AsSpan(Record + 16), stop.Address);
-            stop.Context.CopyTo(bytes, context);
+            stopContext.CopyTo(bytes, context);
             Marshal.Copy(bytes, 0, block, bytes.Length);
             exception = block;
         }
@@ -136,7 +143,7 @@ public static class ProcessSnapshot
     }
 
     /// <summary>gcore names its output &lt;prefix&gt;.&lt;pid&gt;; the file is moved to <paramref name="path"/>.</summary>
-    private static void WriteCore(int pid, string path, CancellationToken ct)
+    private static void WriteCore(int pid, string path, CancellationToken ct, Stop? stop)
     {
         var gcore = Environment.GetEnvironmentVariable("PATH")?.Split(Path.PathSeparator).Select(d => Path.Combine(d, "gcore")).FirstOrDefault(File.Exists)
                     ?? throw new ToolError(ErrorCode.ProviderUnavailable, "gcore (GDB) is not on PATH.", "install GDB (it ships gcore)");
@@ -153,6 +160,76 @@ public static class ProcessSnapshot
             throw Live.PtraceScope.Refusing(started: false) is { } scope ? Live.PtraceScope.Refusal(scope, failure) : new ToolError(ErrorCode.IoError, failure, "check the disk space at the output path");
         }
         File.Move(written, path, true);
+        if (stop != null) MarkStop(path, stop);
+    }
+
+    // user_regs_struct order (x86-64, i386), as NT_PRSTATUS holds it
+    private static readonly string[] UserRegsX64 = ["r15", "r14", "r13", "r12", "rbp", "rbx", "r11", "r10", "r9", "r8", "rax", "rcx", "rdx", "rsi", "rdi", "", "rip", "", "", "rsp"];
+    private static readonly string[] UserRegsX86 = ["ebx", "ecx", "edx", "esi", "edi", "ebp", "eax", "", "", "", "", "", "eip", "", "", "esp"];
+    private const int SigTrap = 5, TrapBrkpt = 1;
+
+    /// <summary>
+    /// Gives the stopped thread of an ELF core the stop's registers in its NT_PRSTATUS (the segment and flag registers stay),
+    /// and SIGTRAP (TRAP_BRKPT at the stop's address) as its signal and the core's; every other thread's signal is cleared.
+    /// </summary>
+    internal static void MarkStop(string path, Stop stop)
+    {
+        using var file = new FileStream(path, FileMode.Open, FileAccess.ReadWrite, FileShare.None);
+        Span<byte> header = stackalloc byte[64];
+        file.ReadExactly(header);
+        bool is64 = header[4] == 2;
+        ulong phoff = is64 ? BinaryPrimitives.ReadUInt64LittleEndian(header[32..]) : BinaryPrimitives.ReadUInt32LittleEndian(header[28..]);
+        int phentsize = BinaryPrimitives.ReadUInt16LittleEndian(header[(is64 ? 54 : 42)..]), phnum = BinaryPrimitives.ReadUInt16LittleEndian(header[(is64 ? 56 : 44)..]);
+        var phdrs = new byte[phentsize * phnum];
+        file.Position = (long)phoff;
+        file.ReadExactly(phdrs);
+        int word = is64 ? 8 : 4, regAt = is64 ? 112 : 72, pidAt = is64 ? 32 : 24;
+        var order = stop.X64 ? UserRegsX64 : UserRegsX86;
+        for (int i = 0; i < phnum; i++)
+        {
+            var ph = phdrs.AsSpan(i * phentsize, phentsize);
+            if (BinaryPrimitives.ReadUInt32LittleEndian(ph) != 4) continue; // PT_NOTE
+            long offset = is64 ? (long)BinaryPrimitives.ReadUInt64LittleEndian(ph[8..]) : BinaryPrimitives.ReadUInt32LittleEndian(ph[4..]);
+            long size = is64 ? (long)BinaryPrimitives.ReadUInt64LittleEndian(ph[32..]) : BinaryPrimitives.ReadUInt32LittleEndian(ph[16..]);
+            var notes = new byte[size];
+            file.Position = offset;
+            file.ReadExactly(notes);
+            bool stopped = false; // the last NT_PRSTATUS seen is the stopped thread's: the notes after it until the next are its own
+            for (long at = 0; at + 12 <= size;)
+            {
+                uint nameSize = BinaryPrimitives.ReadUInt32LittleEndian(notes.AsSpan((int)at)), descSize = BinaryPrimitives.ReadUInt32LittleEndian(notes.AsSpan((int)at + 4));
+                uint type = BinaryPrimitives.ReadUInt32LittleEndian(notes.AsSpan((int)at + 8));
+                long desc = at + 12 + ((nameSize + 3) & ~3u), next = desc + ((descSize + 3) & ~3u);
+                if (next > size) break;
+                var d = notes.AsSpan((int)desc, (int)descSize);
+                if (type == Dump.CoreFile.NtPrstatus && d.Length >= regAt)
+                {
+                    stopped = BinaryPrimitives.ReadUInt32LittleEndian(d[pidAt..]) == (uint)stop.ThreadId;
+                    int signal = stopped ? SigTrap : 0;
+                    BinaryPrimitives.WriteInt32LittleEndian(d, signal); // pr_info.si_signo
+                    BinaryPrimitives.WriteInt32LittleEndian(d[4..], stopped ? TrapBrkpt : 0); // pr_info.si_code
+                    BinaryPrimitives.WriteUInt16LittleEndian(d[12..], (ushort)signal); // pr_cursig
+                    for (int r = 0; stopped && r < order.Length; r++)
+                        if (order[r].Length > 0 && stop.Registers.TryGetValue(order[r], out var v) && regAt + (r + 1) * word <= d.Length)
+                            if (is64) BinaryPrimitives.WriteUInt64LittleEndian(d[(regAt + r * 8)..], v);
+                            else BinaryPrimitives.WriteUInt32LittleEndian(d[(regAt + r * 4)..], (uint)v);
+                }
+                else if (type == Dump.CoreFile.NtSiginfo && d.Length >= 16 + word)
+                {
+                    d.Clear();
+                    if (stopped)
+                    {
+                        BinaryPrimitives.WriteInt32LittleEndian(d, SigTrap);
+                        BinaryPrimitives.WriteInt32LittleEndian(d[8..], TrapBrkpt);
+                        if (is64) BinaryPrimitives.WriteUInt64LittleEndian(d[16..], stop.Address); // si_addr
+                        else BinaryPrimitives.WriteUInt32LittleEndian(d[12..], (uint)stop.Address);
+                    }
+                }
+                at = next;
+            }
+            file.Position = offset;
+            file.Write(notes);
+        }
     }
 
     [DllImport("kernel32.dll", SetLastError = true)]

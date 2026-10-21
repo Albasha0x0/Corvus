@@ -351,6 +351,7 @@ public sealed class CoreFile : IProcessMemory, IDisposable
             case NtSiginfo:
                 if (d.Length < 12) break;
                 int signo = (int)d.U32(0), errno = (int)d.U32(4), code = (int)d.U32(8);
+                if (signo == 0) break; // a thread that took no signal
                 long union = Is64Bit ? 16 : 12;
                 bool fault = signo is 4 or 5 or 7 or 8 or 11 && code > 0; // SIGILL SIGTRAP SIGBUS SIGFPE SIGSEGV raised by the CPU
                 Signal = new ElfCoreSignal(signo, code, errno, fault && d.Has(union, Is64Bit ? 8 : 4) ? d.Word(union, Is64Bit) : null,
