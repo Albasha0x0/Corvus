@@ -23,7 +23,7 @@ public class ItaniumRttiTests
     /// B-in-C at +8 [f3], virtual A at +16 [f4, __cxa_pure_virtual]. f1 calls slot 1 through this (rdi, x0, r0). ARM32 uses
     /// the same offsets with 4-byte pointers in 8-byte cells.
     /// </summary>
-    private static ElfFile Sample(NativeArch arch = NativeArch.X64)
+    private static ElfFile Sample(NativeArch arch = NativeArch.X64, string nameB = "1B")
     {
         var text = new byte[0x40];
         bool arm32 = arch == NativeArch.Arm;
@@ -65,7 +65,7 @@ public class ItaniumRttiTests
         }
         void Name(uint at, string text) => Encoding.ASCII.GetBytes(text + "\0").CopyTo(data, (int)(At(at) - D));
         Name(Names, "1A");
-        Name(Names + 8, "1B");
+        Name(Names + 8, nameB);
         Name(Names + 16, "1C");
         Import(TiA, "_ZTVN10__cxxabiv117__class_type_infoE"); Ptr(TiA + 8, Names);
         Import(TiB, "_ZTVN10__cxxabiv120__si_class_type_infoE"); Ptr(TiB + 8, Names + 8); Ptr(TiB + 16, TiA);
@@ -117,6 +117,14 @@ public class ItaniumRttiTests
         Assert.Equal([Fn[3], 0u], c.Vtables[2].SlotRvas);
         Assert.Single(r.Classes[1].Bases);
         Assert.Empty(r.Classes[0].Vtables);
+    }
+
+    [Fact]
+    public void Two_typeinfos_of_one_name_still_list_their_classes()
+    {
+        var r = CppRtti.Analyze(Sample(nameB: "1A"));
+        Assert.Equal(["A", "A", "C"], r.Classes.Select(c => c.Name));
+        Assert.Equal(3, r.Classes[2].Vtables.Count);
     }
 
     [Theory]

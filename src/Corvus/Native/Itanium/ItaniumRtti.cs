@@ -218,7 +218,9 @@ public static class ItaniumRtti
             foreach (var (rva, value) in Words(executable: false))
                 if (byVa.TryGetValue(value, out var type)) Vtable(rva, type);
             // a typeinfo slot bound by name (weak definitions on Mach-O)
-            var byName = _types.Values.ToDictionary(t => "_ZTI" + t.Mangled, t => t.Rva, StringComparer.Ordinal);
+            // a name two typeinfos share (internal linkage, e.g. anonymous namespaces in two units) binds neither
+            var byName = _types.Values.GroupBy(t => "_ZTI" + t.Mangled, StringComparer.Ordinal).Where(g => g.Count() == 1)
+                .ToDictionary(g => g.Key, g => g.First().Rva, StringComparer.Ordinal);
             foreach (var imp in image.Imports)
                 if (imp.Name != null && byName.TryGetValue(Bare(image, imp.Name), out var type)) Vtable(imp.SlotRva, type);
         }
