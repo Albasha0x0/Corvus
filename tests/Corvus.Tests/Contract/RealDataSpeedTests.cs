@@ -104,7 +104,8 @@ public class RealDataSpeedTests
                             method.DeclaringType is { IsGenericType: true } d ? d.GetGenericArguments() : null, method.IsGenericMethod ? method.GetGenericArguments() : null);
                         if (callee?.Module == root.Module) queue.Enqueue(callee);
                     }
-                    catch (ArgumentException) { } // a generic member whose context this walk does not track
+                    // A generic member whose context this walk does not track.
+                    catch (ArgumentException) { }
                 }
                 i += code.OperandType switch
                 {
