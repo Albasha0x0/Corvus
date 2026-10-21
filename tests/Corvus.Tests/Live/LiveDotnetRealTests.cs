@@ -226,7 +226,8 @@ public sealed class LiveDotnetRealTests(ITestOutputHelper output) : LiveToolCall
         }
         Assert.False(thread.Length == 0, "no stop on an open of the input file in 50 stops");
         // native frames by module and export; the managed caller named by the runtime (on x86 read by the 32-bit decoder process)
-        var api = target.Windows ? @"KERNELBASE\.dll!CreateFileW" : @"libc\.so\.6!(?:__libc_)?open(?:64)?\b"; // glibc exports open and its aliases at one address
+        // glibc exports open and its aliases at one address.
+        var api = target.Windows ? @"KERNELBASE\.dll!CreateFileW" : @"libc\.so\.6!(?:__libc_|__)?open(?:64)?\b";
         var caller = !target.Windows ? @"libSystem\.Native\.so!SystemNative_Open\S*"
             : @"System\.Private\.CoreLib\.dll!\S.*\(.*\)\+0x[0-9A-F]+";
         // a frame with debug information ends in its source file and line
