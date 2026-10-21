@@ -41,6 +41,11 @@ public static class NativeAddress
         foreach (var e in image.Exports)
             if (e.Name == t && e.ForwardedTo == null && !candidates.Exists(k => k.Rva == e.Rva)) candidates.Add(new(e.Rva, "export"));
         int bang = t.IndexOf('!');
+        // Mach-O symbols carry the C compiler's leading underscore; a C name
+        // finds them without it.
+        if (candidates.Count == 0 && bang < 0 && image.Format == ImageFormat.MachO && !t.StartsWith('_'))
+            try { return Parse(image, "_" + t, names); }
+            catch (ToolError e) when (e.Code == ErrorCode.NotFound) { }
         if (candidates.Count == 0 && bang > 0)
         {
             var module = t[..bang];

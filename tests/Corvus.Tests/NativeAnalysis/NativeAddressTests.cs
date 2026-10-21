@@ -21,6 +21,17 @@ public class NativeAddressTests
     }
 
     [Fact]
+    public void MachOSymbolsResolveByTheirCNameWithoutTheLeadingUnderscore()
+    {
+        var code = new byte[0x20];
+        var image = CodeTestImage.Synthetic(NativeArch.Arm64, code, exports: [new("_open", 1, First, null), new("_close", 2, Second, null), new("close", 3, Third, null)], format: ImageFormat.MachO);
+        Assert.Equal(First, NativeAddress.Parse(image, "open"));
+        Assert.Equal(Third, NativeAddress.Parse(image, "close"));
+        Assert.Contains("'read' is neither", Assert.Throws<ToolError>(() => NativeAddress.Parse(image, "read")).Message);
+        Assert.Throws<ToolError>(() => NativeAddress.Parse(CodeTestImage.Synthetic(NativeArch.Arm64, code, exports: [new("_open", 1, First, null)]), "open"));
+    }
+
+    [Fact]
     public void HexShapedNamesResolveAsNamesBeforeNumbers()
     {
         var image = Image();
