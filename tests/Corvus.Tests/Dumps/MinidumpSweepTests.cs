@@ -28,16 +28,34 @@ public sealed class MinidumpSweepTests(ITestOutputHelper output)
     }
 
     [Fact]
-    public async Task LocalCrashDumpsAreReadAndWalked()
+    public async Task LocalCrashDumpsAreReadAndWalked() => await Sweep(Dumps().ToList());
+
+    [Fact]
+    public async Task A_dump_deleted_during_the_sweep_is_counted_not_failed()
+    {
+        using var dir = new TempDir();
+        var core = dir.File("app.core");
+        File.WriteAllBytes(core, SyntheticCore.Core(arm64: false));
+        var (dumps, disappeared) = await Sweep([core, dir.File("pruned.dmp")]);
+        Assert.Equal((1, 1), (dumps, disappeared));
+        // a sweep that reads none of the dumps still there fails
+        File.WriteAllBytes(dir.File("unreadable.dmp"), new byte[64]);
+        await Assert.ThrowsAsync<Xunit.Sdk.TrueException>(() => Sweep([dir.File("unreadable.dmp"), dir.File("pruned.dmp")]));
+    }
+
+    /// <summary>Summarizes and walks each dump: the dumps read and the dumps gone by the time they were opened.</summary>
+    private async Task<(int Dumps, int Disappeared)> Sweep(List<string> found)
     {
         using var service = new MinidumpService();
-        int dumps = 0, rejected = 0, threads = 0, frames = 0, heuristic = 0, withException = 0;
+        int dumps = 0, rejected = 0, disappeared = 0, threads = 0, frames = 0, heuristic = 0, withException = 0;
         var stops = new Dictionary<string, int>();
         var sw = Stopwatch.StartNew();
-        foreach (var path in Dumps())
+        foreach (var path in found)
         {
             MinidumpService.DumpReport summary;
             try { summary = await service.Summarize(path, null, default); }
+            // Windows Error Reporting prunes these folders on its own: a dump deleted mid-sweep is skipped, not failed
+            catch (ToolError) when (!File.Exists(path)) { disappeared++; continue; }
             catch (ToolError e) when (e.Code is ErrorCode.MalformedInput or ErrorCode.Unsupported or ErrorCode.IoError)
             {
                 rejected++;
@@ -53,7 +71,9 @@ public sealed class MinidumpSweepTests(ITestOutputHelper output)
             foreach (var issue in summary.Issues!) output.WriteLine($"  issue: {issue}");
             for (int i = 0; i < Math.Min(summary.Counts!.Threads, 64); i++)
             {
-                var stack = await service.Stack(path, $"#{i}", true, 256, 0, 256, null, default);
+                MinidumpService.StackReport stack;
+                try { stack = await service.Stack(path, $"#{i}", true, 256, 0, 256, null, default); }
+                catch (ToolError) when (!File.Exists(path)) { disappeared++; dumps--; break; }
                 threads++;
                 frames += stack.Items.Count;
                 heuristic += stack.ScannedFrames;
@@ -62,7 +82,10 @@ public sealed class MinidumpSweepTests(ITestOutputHelper output)
                     output.WriteLine("  " + string.Join(" > ", stack.Items.Take(8).Select(f => f.Symbol ?? f.Address)));
             }
         }
+        if (disappeared > 0) output.WriteLine($"{disappeared} dumps disappeared during the sweep");
+        Assert.True(found.Count == disappeared || dumps > 0, $"none of the {found.Count - disappeared} dumps found could be read");
         output.WriteLine($"{dumps} dumps ({withException} with an exception, {rejected} rejected), {threads} threads, {frames} frames ({heuristic} heuristic) in {sw.ElapsedMilliseconds} ms; " +
                          "stops: " + string.Join(", ", stops.OrderByDescending(kv => kv.Value).Select(kv => $"{kv.Key} {kv.Value}")));
+        return (dumps, disappeared);
     }
 }
