@@ -1,5 +1,9 @@
 using System.Globalization;
+using System.Security.AccessControl;
+using System.Security.Principal;
 using System.Text.RegularExpressions;
+using Corvus.Native.Providers;
+using Corvus.Native.Providers.Live;
 using Xunit.Abstractions;
 
 namespace Corvus.Tests;
@@ -21,11 +25,11 @@ public sealed class LiveChildrenRealTests(ITestOutputHelper output) : LiveToolCa
     private (string Launcher, string Orders) Build(LiveTarget target) =>
         (target.Build(_dir, "launcher", LivePrograms.Launcher), target.Build(_dir, "orders", LivePrograms.Orders));
 
-    private async Task<int> SpawnFollowing(InProcessServer server, string launcher, string orders)
+    private async Task<int> SpawnFollowing(InProcessServer server, string launcher, string orders, bool restricted = false)
     {
         var open = await Ok(server, "live_session", new()
         {
-            ["action"] = "spawn", ["program"] = launcher, ["arguments"] = new[] { orders, "3", "0" }, ["childNames"] = new[] { "orders" },
+            ["action"] = "spawn", ["program"] = launcher, ["arguments"] = (restricted ? ["--restricted"] : Array.Empty<string>()).Concat([orders, "3", "0"]).ToArray(), ["childNames"] = new[] { "orders" },
         });
         Assert.Contains("follows child processes named orders: 0 started", open);
         var pid = int.Parse(Regex.Match(open, @"pid (\d+)").Groups[1].Value, CultureInfo.InvariantCulture);
@@ -58,11 +62,22 @@ public sealed class LiveChildrenRealTests(ITestOutputHelper output) : LiveToolCa
     [LiveTargetFact("linux-x64")] public Task Child_attached_on_linux_x64() => ChildAttached(LiveTarget.LinuxX64);
     [LiveTargetFact("linux-x86")] public Task Child_attached_on_linux_x86() => ChildAttached(LiveTarget.LinuxX86);
 
-    private async Task ChildAttached(LiveTarget target)
+    // The agent DLL loads from the worker's temp folder, which here grants only the user (as under a user profile):
+    // a child under a restricted token reads it by the RESTRICTED entry the backend adds. The fixture folder gets the
+    // same entry so the child can start.
+    [LiveTargetFact("win-x64")] public Task Restricted_child_attached_on_win_x64() => ChildAttached(LiveTarget.WinX64, restricted: true);
+    [LiveTargetFact("win-x86")] public Task Restricted_child_attached_on_win_x86() => ChildAttached(LiveTarget.WinX86, restricted: true);
+
+    private async Task ChildAttached(LiveTarget target, bool restricted = false)
     {
         var (launcher, orders) = Build(target);
+        if (restricted && OperatingSystem.IsWindows())
+        {
+            FridaBackend.AllowSandboxedReads(_dir.Path);
+            UserOnly(Path.Combine(AnalysisCache.DefaultRoot, "workers", "live-temp"));
+        }
         await using var server = await Server();
-        var parent = await SpawnFollowing(server, launcher, orders);
+        var parent = await SpawnFollowing(server, launcher, orders, restricted);
         var child = await HeldChild(server, orders);
 
         var attached = await Ok(server, "live_session", new() { ["action"] = "attach_child", ["session"] = "live-1", ["program"] = child.ToString(CultureInfo.InvariantCulture) });
@@ -84,6 +99,19 @@ public sealed class LiveChildrenRealTests(ITestOutputHelper output) : LiveToolCa
         await Ok(server, "live_session", new() { ["action"] = "close", ["session"] = "live-1" });
         Ended(child);
         Ended(parent);
+    }
+
+    [System.Runtime.Versioning.SupportedOSPlatform("windows")]
+    private static void UserOnly(string folder)
+    {
+        var info = Directory.CreateDirectory(folder);
+        var acl = new DirectorySecurity();
+        acl.SetAccessRuleProtection(isProtected: true, preserveInheritance: false);
+        foreach (var sid in new[] { WindowsIdentity.GetCurrent().User!, new SecurityIdentifier("S-1-5-18") })
+            acl.AddAccessRule(new FileSystemAccessRule(sid, FileSystemRights.FullControl,
+                InheritanceFlags.ContainerInherit | InheritanceFlags.ObjectInherit,
+                PropagationFlags.None, AccessControlType.Allow));
+        info.SetAccessControl(acl);
     }
 
     // ---- a child still held at the close runs on

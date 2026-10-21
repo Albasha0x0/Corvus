@@ -1,3 +1,5 @@
+using System.Security.AccessControl;
+using System.Security.Principal;
 using Corvus.Core;
 
 namespace Corvus.Native.Providers.Live;
@@ -93,6 +95,7 @@ public sealed class FridaBackend : ILiveBackend
         // Frida unpacks its helper DLLs into TEMP and leaves them: each worker gets a folder of its own, removed when it ends.
         var temp = Path.Combine(dir, "live-temp", Guid.NewGuid().ToString("N")[..12]);
         Directory.CreateDirectory(temp);
+        if (OperatingSystem.IsWindows()) AllowSandboxedReads(temp);
         var start = new ChildProcessStart(python.Executable, ["-I", "-u", worker, agent])
         {
             WorkingDirectory = dir,
@@ -110,6 +113,21 @@ public sealed class FridaBackend : ILiveBackend
             throw new ToolError(ErrorCode.ProviderUnavailable, $"The session worker could not be started with {python.Executable}: {ex.Message}",
                 $"Check the Python install or set {PythonVariable}.");
         }
+    }
+
+    /// <summary>
+    /// Grants read and execute on <paramref name="folder"/> to RESTRICTED and ALL APPLICATION PACKAGES: a child that
+    /// runs with a restricted token or in an AppContainer (a Chromium sandbox) loads the agent DLL from here.
+    /// </summary>
+    [System.Runtime.Versioning.SupportedOSPlatform("windows")]
+    internal static void AllowSandboxedReads(string folder)
+    {
+        var info = new DirectoryInfo(folder);
+        var acl = info.GetAccessControl();
+        foreach (var sid in new[] { new SecurityIdentifier(WellKnownSidType.RestrictedCodeSid, null), new SecurityIdentifier("S-1-15-2-1") })
+            acl.AddAccessRule(new FileSystemAccessRule(sid, FileSystemRights.ReadAndExecute,
+                InheritanceFlags.ContainerInherit | InheritanceFlags.ObjectInherit, PropagationFlags.None, AccessControlType.Allow));
+        info.SetAccessControl(acl);
     }
 
     /// <summary>Deletes a worker's temp folder once its files are no longer held (a few tries over about 10 s).</summary>

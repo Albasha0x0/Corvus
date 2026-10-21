@@ -390,22 +390,52 @@ internal static class LivePrograms
         }
         """;
 
-    /// <summary>launcher program [arguments]: starts the program as a child process, waits for it, prints its exit code and returns it.</summary>
+    /// <summary>
+    /// launcher [--restricted] program [arguments]: starts the program as a child process (on Windows with
+    /// --restricted, under a restricted token), waits for it, prints its exit code and returns it.
+    /// </summary>
     public const string Launcher = Platform + """
         #include <string.h>
-        #ifndef _WIN32
+        #ifdef _WIN32
+        #pragma comment(lib, "advapi32")
+        /* A restricted copy of this process's token: only Everyone, Users, RESTRICTED and the logon session pass the
+           second access check, as in a Chromium GPU process. */
+        static HANDLE RestrictedToken(void)
+        {
+            HANDLE token, restricted = NULL;
+            static BYTE groups[4096];
+            DWORD size, count = 0;
+            if (!OpenProcessToken(GetCurrentProcess(), TOKEN_ALL_ACCESS, &token)) return NULL;
+            if (!GetTokenInformation(token, TokenGroups, groups, sizeof groups, &size)) return NULL;
+            SID_AND_ATTRIBUTES sids[4] = { 0 };
+            SID_IDENTIFIER_AUTHORITY world = SECURITY_WORLD_SID_AUTHORITY, nt = SECURITY_NT_AUTHORITY;
+            AllocateAndInitializeSid(&world, 1, SECURITY_WORLD_RID, 0, 0, 0, 0, 0, 0, 0, &sids[count++].Sid);
+            AllocateAndInitializeSid(&nt, 2, SECURITY_BUILTIN_DOMAIN_RID, DOMAIN_ALIAS_RID_USERS, 0, 0, 0, 0, 0, 0, &sids[count++].Sid);
+            AllocateAndInitializeSid(&nt, 1, SECURITY_RESTRICTED_CODE_RID, 0, 0, 0, 0, 0, 0, 0, &sids[count++].Sid);
+            TOKEN_GROUPS* all = (TOKEN_GROUPS*)groups;
+            for (DWORD i = 0; i < all->GroupCount && count < 4; i++)
+                if (all->Groups[i].Attributes & SE_GROUP_LOGON_ID) sids[count++].Sid = all->Groups[i].Sid;
+            CreateRestrictedToken(token, DISABLE_MAX_PRIVILEGE, 0, NULL, 0, NULL, count, sids, &restricted);
+            return restricted;
+        }
+        #else
         #include <sys/wait.h>
         #endif
         int main(int argc, char** argv)
         {
-            int code;
+            int code, restricted = argc > 1 && strcmp(argv[1], "--restricted") == 0;
+            argc -= restricted;
+            argv += restricted;
             if (argc < 2) return 2;
         #ifdef _WIN32
             char line[8192] = "";
             for (int i = 1; i < argc; i++) { strcat(line, "\""); strcat(line, argv[i]); strcat(line, "\" "); }
             STARTUPINFOA si = { sizeof si };
             PROCESS_INFORMATION pi;
-            if (!CreateProcessA(NULL, line, NULL, NULL, FALSE, 0, NULL, NULL, &si, &pi)) { printf("start failed %lu\n", GetLastError()); return 2; }
+            HANDLE token = restricted ? RestrictedToken() : NULL;
+            if (restricted && !token) { printf("no restricted token %lu\n", GetLastError()); return 2; }
+            if (!(token ? CreateProcessAsUserA(token, NULL, line, NULL, NULL, FALSE, 0, NULL, NULL, &si, &pi)
+                        : CreateProcessA(NULL, line, NULL, NULL, FALSE, 0, NULL, NULL, &si, &pi))) { printf("start failed %lu\n", GetLastError()); return 2; }
             DWORD status = 0;
             WaitForSingleObject(pi.hProcess, INFINITE);
             GetExitCodeProcess(pi.hProcess, &status);
