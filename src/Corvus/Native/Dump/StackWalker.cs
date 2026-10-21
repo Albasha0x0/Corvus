@@ -549,11 +549,6 @@ public sealed class StackWalker
     }
 
     /// <summary>
-    /// Whether <paramref name="address"/> can be a return address: inside executable code (a module's code section,
-    /// or an executable region of the dump) and, when the bytes are available, right after a call instruction.
-    /// Strict (scans) requires the call check whenever the code bytes are readable.
-    /// </summary>
-    /// <summary>
     /// <paramref name="address"/> can be code: canonical, and executable where the dump says (an image section, or a region
     /// when the dump has a memory list, which <paramref name="stackPointer"/>'s region shows).
     /// </summary>
@@ -565,6 +560,11 @@ public sealed class StackWalker
         return _dump.RegionAt(address) is { } r ? r.IsExecutable : _dump.RegionAt(stackPointer) == null;
     }
 
+    /// <summary>
+    /// Whether <paramref name="address"/> can be a return address: inside executable code (a module's code section,
+    /// or an executable region of the dump) and, when the bytes are available, right after a call instruction.
+    /// Strict (scans) requires the call check whenever the code bytes are readable.
+    /// </summary>
     public bool IsPlausibleReturn(ulong address, bool strict)
     {
         var module = _dump.ModuleAt(address);

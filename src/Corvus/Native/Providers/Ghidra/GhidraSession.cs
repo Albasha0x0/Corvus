@@ -114,10 +114,10 @@ internal sealed class GhidraSession(GhidraProvider provider, GhidraInstallation 
                 (overrides != null ? "-" + overrides.Key : "")), loader, analyzers);
     }
 
-    /// <summary>Whether a project directory is that of <paramref name="overrides"/> (an overrides key), or of no overrides when null.</summary>
     /// <summary>The project's name for the input file: characters Ghidra rejects in a name (LocalFileSystem) become '_'.</summary>
     internal static string ProgramName(string file) => string.Concat(file.Select(c => c < ' ' || c > 'ÿ' || @"/\'`""*:<>?|".Contains(c) ? '_' : c));
 
+    /// <summary>Whether a project directory is that of <paramref name="overrides"/> (an overrides key), or of no overrides when null.</summary>
     internal static bool OfOverrides(string directory, string? overrides) =>
         overrides != null ? directory.EndsWith("-" + overrides, StringComparison.Ordinal) : !Path.GetFileName(directory).Contains("-ov-", StringComparison.Ordinal);
 
