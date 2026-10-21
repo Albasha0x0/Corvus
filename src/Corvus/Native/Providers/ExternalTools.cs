@@ -203,7 +203,9 @@ public static partial class ExternalTools
         ? $"set {tool.Variable} to the jar or its folder (run by {Java.Variable}, JAVA_HOME or PATH java)"
         : $"set {tool.Variable} to the program or its folder, or put it on PATH";
 
-    private static readonly ConcurrentDictionary<string, ExternalToolProbe> Probes = new(StringComparer.Ordinal);
+    // Lazy, so callers that race for one file share a single version check
+    // rather than each running the program.
+    private static readonly ConcurrentDictionary<string, Lazy<ExternalToolProbe>> Probes = new(StringComparer.Ordinal);
 
     /// <summary>Where the tool is and its version, probed once per file per server process.</summary>
     public static ExternalToolProbe Probe(ExternalTool tool)
@@ -217,7 +219,7 @@ public static partial class ExternalTools
                 : "not found";
             return new(tool.Id, tool.Name, tool.Purpose, false, null, null, null, why, Remediation(tool));
         }
-        return Probes.GetOrAdd(tool.Id + "|" + at.Path + "|" + Stamp(at.Path), _ => VersionProbe(tool, at.Path, at.Source));
+        return Probes.GetOrAdd(tool.Id + "|" + at.Path + "|" + Stamp(at.Path), _ => new(() => VersionProbe(tool, at.Path, at.Source))).Value;
     }
 
     private static string Stamp(string path)

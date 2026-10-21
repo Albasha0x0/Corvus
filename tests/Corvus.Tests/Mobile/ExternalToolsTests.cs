@@ -40,6 +40,18 @@ public class ExternalToolsTests
     }
 
     [Fact]
+    public void Callers_probing_one_file_at_once_share_one_version_check()
+    {
+        using var fake = new FakeTool();
+        // The version check sleeps so the callers overlap it.
+        fake.On("--version", stdout: "TShark (Wireshark) 4.6.9 (v4.6.9-0)\n", sleepMs: 500);
+        using var env = new EnvironmentScope().Set("CORVUS_TSHARK", fake.CopyAs("tshark")).Set(FakeTool.ScriptVariable, fake.ScriptPath);
+        var probes = Enumerable.Range(0, 4).AsParallel().WithDegreeOfParallelism(4).Select(_ => ExternalTools.Probe(ExternalTools.TShark)).ToList();
+        Assert.All(probes, p => Assert.Equal("4.6.9", p.Version));
+        Assert.Single(fake.ArgumentLists);
+    }
+
+    [Fact]
     public void Probe_ReadsVersions_AndChecksTheMinimum()
     {
         using var fake = new FakeTool();

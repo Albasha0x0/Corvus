@@ -251,7 +251,9 @@ public sealed class PacketTSharkTests(ITestOutputHelper output) : IDisposable
         var row = Assert.Single(search.Items);
         Assert.Equal(("2", "frame 2 2023-11-14T22:13:20.500000Z 10.0.0.2:5060 -> 10.0.0.9:5060 sip", "sip.Method=INVITE"), (row.Path, row.Name, row.Detail));
         Assert.Contains(search.Notes, n => n.StartsWith("decoded by TShark 4.6.9", StringComparison.Ordinal));
-        var call = fake.ArgumentLists.Last();
+        // A test running alongside may probe CORVUS_TSHARK too, so the fields
+        // call is picked by its arguments, not by its place in the log.
+        var call = Assert.Single(fake.ArgumentLists, a => a.Contains("-Y"));
         Assert.Equal(["-e", "sip.Method"], call[^2..]);
     }
 
