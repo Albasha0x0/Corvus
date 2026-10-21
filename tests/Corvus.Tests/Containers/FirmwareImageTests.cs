@@ -264,6 +264,19 @@ public sealed class FirmwareImageTests
     }
 
     [Fact]
+    public void A_sercomm_header_is_sized_and_named_before_the_zip_it_wraps()
+    {
+        var header = new byte[0x200];
+        "sErCoMm\0"u8.CopyTo(header);
+        "sErCoMm"u8.CopyTo(header.AsSpan(63));
+        byte[] image = [.. header, .. ContainerFixtures.Zip(("flash.bin", FlashDump()))];
+        var c = Containers.Open(image, "factory.img", AnalysisLimits.Default, default);
+        Assert.StartsWith("firmware image: a 512-byte Sercomm firmware header, then a ", c.Notes[0]);
+        var facts = (FirmwareFileView.Facts)new FirmwareFileView().Inspect(new FileInput("factory.img", image, Blob.Identify(image)), default)!.Detail!;
+        Assert.Contains(facts.Signatures, h => h.Offset == "0x0" && h.Format == "Sercomm firmware header" && h.Size == 512);
+    }
+
+    [Fact]
     public void Firmware_view_lists_each_part_with_its_size()
     {
         var dump = FlashDump();

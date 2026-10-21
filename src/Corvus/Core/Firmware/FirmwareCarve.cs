@@ -31,7 +31,8 @@ internal static class FirmwareCarve
         if (hits.FirstOrDefault(h => Wrapped(h, src.Length)) is { Size: { } wrappedSize } wrapped && wrappedSize <= limits.MaxItemBytes)
         {
             var inner = Containers.Open(src.Read(wrapped.Offset, (int)wrappedSize), $"0x{wrapped.Offset:X}.{Extension(wrapped.Format)}", limits, ct, allFiles: allFiles);
-            return inner with { Kind = "firmware image", Notes = [$"firmware image: a {wrapped.Offset:N0}-byte vendor header, then a {inner.Kind} at 0x{wrapped.Offset:X}", .. inner.Notes] };
+            var header = hits.FirstOrDefault(h => h.Offset == 0 && h.Kind == SignatureKind.Boot && h.Size == wrapped.Offset)?.Format ?? "vendor header";
+            return inner with { Kind = "firmware image", Notes = [$"firmware image: a {wrapped.Offset:N0}-byte {header}, then a {inner.Kind} at 0x{wrapped.Offset:X}", .. inner.Notes] };
         }
         // the file's own format at offset 0, alone, is not a firmware image
         if (!hits.Any(h => h.Kind is SignatureKind.Filesystem or SignatureKind.Boot && (h.Offset > 0 || h.Size is { } s && s < src.Length)))

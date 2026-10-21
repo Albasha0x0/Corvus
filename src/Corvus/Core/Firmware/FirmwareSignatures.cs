@@ -172,6 +172,8 @@ internal static class FirmwareSignatures
         list.Add(S("Android DTB/DTBO table", Boot, [0xD7, 0xB7, 0xAB, 0x1E], (w, at) => w.Be32(at + 8) == 32 && w.Be32(at + 12) == 32 ? Sized(w, at, w.Be32(at + 4), $"{w.Be32(at + 16)} entries") : null));
         list.Add(S("Android verified boot (vbmeta)", Boot, "AVB0", (w, at) => w.Be32(at + 4) == 1 ? Sized(w, at, 256 + (long)w.Be64(at + 12) + (long)w.Be64(at + 20)) : null));
         list.Add(S("Seama firmware header", Boot, [0x5E, 0xA3, 0xA4, 0x17], (w, at) => w.Be16(at + 4) == 0 && w.Be16(at + 6) < 1024 ? Sized(w, at, 12 + w.Be16(at + 6) + 16 + (long)w.Be32(at + 8)) : null));
+        // OpenWrt mksercommfw: the magic again at 0x3F, the payload (a zip) after the 512-byte header
+        list.Add(S("Sercomm firmware header", Boot, "sErCoMm ", (w, at) => w.Is(at + 63, "sErCoMm"u8) ? Sized(w, at, 512) : null));
         list.Add(S("Netgear CHK header", Boot, "*#$^", (w, at) => w.Be32(at + 4) is >= 40 and <= 1024 ? Sized(w, at, w.Be32(at + 4) + (long)w.Be32(at + 24) + w.Be32(at + 28), $"board '{w.Ascii(at + 40, 16)}'") : null));
         list.Add(S("TP-Link firmware header", Boot, "TP-LINK Technologies", (w, at) => w.Be32(at) is 1 or 2 or 3 ? Found($"version {w.Be32(at)}") : null, 4));
         list.Add(S("Linux kernel (x86 bzImage)", Boot, "HdrS", (w, at) => w.U8(at + 0x1FE) == 0x55 && w.U8(at + 0x1FF) == 0xAA && w.Le16(at + 0x206) >= 0x200
