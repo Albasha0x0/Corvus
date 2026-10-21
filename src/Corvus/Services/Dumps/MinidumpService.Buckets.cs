@@ -147,7 +147,8 @@ public sealed partial class MinidumpService
     private string Settings(int topFrames, List<string> skip, bool managed, string? imageDirectories)
     {
         var images = workspace?.Read(() => string.Join(",", workspace.Natives.Select(n => $"{Path.GetFileName(n.FilePath)}:{n.Pe?.Coff.TimeDateStamp:X}").Order(StringComparer.Ordinal))) ?? "";
-        return Hash($"2|{topFrames}|{string.Join(";", skip)}|{managed}|{imageDirectories}|{images}");
+        // the leading number: bump when signatures change (stack walks, frame names), so older entries are read again
+        return Hash($"3|{topFrames}|{string.Join(";", skip)}|{managed}|{imageDirectories}|{images}");
     }
 
     private static string Hash(string text) => Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(text)))[..16].ToLowerInvariant();
