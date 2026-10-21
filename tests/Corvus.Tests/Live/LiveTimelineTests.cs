@@ -156,7 +156,8 @@ public sealed class LiveTimelineTests : IDisposable
     [Fact]
     public void Own_files_match_the_workers_folder_in_its_full_and_final_form()
     {
-        var dir = Directory.CreateTempSubdirectory("corvus-own-").FullName;
+        // the temp folder's final path: on macOS /var is itself a link to /private/var
+        var dir = LiveProgramScope.Canonical(Directory.CreateTempSubdirectory("corvus-own-").FullName);
         try
         {
             var real = Directory.CreateDirectory(Path.Combine(dir, "real", "workers")).FullName;
