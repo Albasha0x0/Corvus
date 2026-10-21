@@ -121,13 +121,32 @@ public sealed partial class LiveSessionService
             throw new ToolError(ErrorCode.LimitExceeded, $"{MaxSessions} timelines are recording.", "stop one with live_timeline action=stop");
         var run = new LiveTimelineRun("tl-" + Interlocked.Increment(ref _nextTimeline), session, ActivitySource.Name);
         // the session's own helpers (the agent and the DLLs it unpacks) are opened from the server's workers folder, never by the program
-        var own = Path.Combine(Native.Providers.AnalysisCache.DefaultRoot, "workers") + Path.DirectorySeparatorChar;
+        var own = OwnFiles(Path.Combine(Native.Providers.AnalysisCache.DefaultRoot, "workers"));
         run.Trace = ActivitySource.Start(session.ProcessId, e =>
         {
-            if (e.Category != "file" || !e.Name.StartsWith(own, StringComparison.OrdinalIgnoreCase)) run.Add(e);
+            if (e.Category != "file" || !own(e.Name)) run.Add(e);
         });
         _timelines[run.Id] = run;
         return run;
+    }
+
+    /// <summary>
+    /// Whether a traced file is under <paramref name="folder"/>: the trace names a file as it was opened, so the folder is
+    /// matched in its full and its final form (a relative root, a junction, a short name), and a short name is expanded.
+    /// </summary>
+    internal static Func<string, bool> OwnFiles(string folder)
+    {
+        var full = Path.TrimEndingDirectorySeparator(Path.GetFullPath(folder));
+        var final = Directory.Exists(full) ? LiveProgramScope.Canonical(full) : full;
+        string[] prefixes = [.. new[] { full, final }.Distinct(StringComparer.OrdinalIgnoreCase).Select(p => p + Path.DirectorySeparatorChar)];
+        bool Under(string name) => prefixes.Any(p => name.StartsWith(p, StringComparison.OrdinalIgnoreCase));
+        return name => Under(name) || (name.Contains('~') && Path.IsPathFullyQualified(name) && Under(Expanded(name)));
+
+        static string Expanded(string name)
+        {
+            try { return LiveProgramScope.Canonical(name); }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException) { return name; }
+        }
     }
 
     /// <summary>Set arithmetic over two timelines' distinct (category, name) pairs; times and counts are not compared.</summary>

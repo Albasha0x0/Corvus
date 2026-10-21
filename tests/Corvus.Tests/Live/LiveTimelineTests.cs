@@ -154,6 +154,37 @@ public sealed class LiveTimelineTests : IDisposable
     }
 
     [Fact]
+    public void Own_files_match_the_workers_folder_in_its_full_and_final_form()
+    {
+        var dir = Directory.CreateTempSubdirectory("corvus-own-").FullName;
+        try
+        {
+            var real = Directory.CreateDirectory(Path.Combine(dir, "real", "workers")).FullName;
+            var link = Path.Combine(dir, "link");
+            // a junction needs no privilege on Windows, unlike a symbolic link
+            if (OperatingSystem.IsWindows())
+            {
+                using var mklink = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo("cmd.exe", ["/c", "mklink", "/J", link, Path.Combine(dir, "real")])
+                    { UseShellExecute = false, RedirectStandardOutput = true, CreateNoWindow = true })!;
+                mklink.WaitForExit();
+                Assert.Equal(0, mklink.ExitCode);
+            }
+            else Directory.CreateSymbolicLink(link, Path.Combine(dir, "real"));
+            var own = LiveSessionService.OwnFiles(link.Replace(Path.DirectorySeparatorChar, '/') + "/./workers/");
+            Assert.True(own(Path.Combine(link, "workers", "live-temp", "1a2b", "dbghelp.dll")));
+            Assert.True(own(Path.Combine(real, "live-temp", "1a2b", "symsrv.dll")));
+            Assert.False(own(Path.Combine(dir, "real", "workers.txt")));
+            Assert.False(own(@"C:\data\orders.txt"));
+        }
+        finally
+        {
+            // the link first: a recursive delete does not remove a junction
+            if (Directory.Exists(Path.Combine(dir, "link"))) Directory.Delete(Path.Combine(dir, "link"));
+            Directory.Delete(dir, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task A_report_page_of_long_names_holds_its_limit()
     {
         await _tools.LiveSession("attach", program: "4242");
