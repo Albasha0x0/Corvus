@@ -118,6 +118,8 @@ public sealed class LiveSession
     internal SemaphoreSlim ClrOpen { get; } = new(1, 1);
     /// <summary>Checks the points deferred until their method is compiled.</summary>
     internal Timer? CompileCheck { get; set; }
+    /// <summary>A runtime DAC found nowhere on this machine is downloaded from a symbol server (opted in at open).</summary>
+    public bool DownloadDac { get; init; }
     // methods the backend saw the JIT compile, by their code: the runtime reads them only once the thread that compiled them goes on
     private readonly Dictionary<ulong, LiveFrameName> _compiled = [];
 
@@ -315,7 +317,7 @@ public sealed partial class LiveSessionService(AssemblyWorkspace workspace, Nati
 
     /// <summary>Attaches to a process (id or name) or starts <paramref name="program"/>; returns the open session.</summary>
     public async Task<LiveSession> OpenAsync(bool spawn, string program, IReadOnlyList<string> arguments, CancellationToken ct,
-        IReadOnlyList<string>? environment = null, IReadOnlyList<string>? childNames = null, bool stopped = false)
+        IReadOnlyList<string>? environment = null, IReadOnlyList<string>? childNames = null, bool stopped = false, bool downloadDac = false)
     {
         if (_sessions.Values.Count(s => !s.Closed) >= MaxSessions)
             throw new ToolError(ErrorCode.LimitExceeded, $"{MaxSessions} sessions are open.", "close one with live_session action=close");
@@ -329,7 +331,7 @@ public sealed partial class LiveSessionService(AssemblyWorkspace workspace, Nati
         }
         else LiveProgramScope.RefuseOwnChain(target);
         var worker = Backend.Start();
-        var session = new LiveSession("live-" + Interlocked.Increment(ref _next), Backend.Name, target, spawn, worker);
+        var session = new LiveSession("live-" + Interlocked.Increment(ref _next), Backend.Name, target, spawn, worker) { DownloadDac = downloadDac };
         worker.EventReceived += e => OnEvent(session, e);
         try
         {

@@ -109,7 +109,7 @@ public sealed partial class LiveSessionService
         LiveSession session;
         try
         {
-            session = await OpenAsync(false, pid.ToString(CultureInfo.InvariantCulture), [], ct, childNames: parent.ChildNames, stopped: stopped).ConfigureAwait(false);
+            session = await OpenAsync(false, pid.ToString(CultureInfo.InvariantCulture), [], ct, childNames: parent.ChildNames, stopped: stopped, downloadDac: parent.DownloadDac).ConfigureAwait(false);
         }
         catch when (stopped)
         {

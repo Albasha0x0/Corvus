@@ -41,7 +41,7 @@ public sealed partial class LiveSessionService
             }
             if (session.Closed || session.Ended != null || modules == session.ClrTriedAt || !HostsRuntime(session)) return null;
             session.ClrTriedAt = modules;
-            try { session.Clr = await LiveClr.OpenAsync(session.ProcessId, ct).ConfigureAwait(false); }
+            try { session.Clr = await LiveClr.OpenAsync(session.ProcessId, new Native.Dump.Managed.DacRequest(Download: session.DownloadDac), ct).ConfigureAwait(false); }
             catch (ToolError) { session.Clr = null; } // the process exited meanwhile
             return session.Clr;
         }

@@ -345,6 +345,52 @@ public sealed class LiveDotnetRealTests(ITestOutputHelper output) : LiveToolCall
         Assert.Contains("closed", await Ok(server, "live_session", new() { ["action"] = "close", ["session"] = "live-2" }));
     }
 
+    /// <summary>
+    /// A runtime whose DAC is on no local path (a copy of the runtime without one, its build stamp changed) is read only
+    /// when the session was opened with downloadDac=true; the download is refused under CORVUS_OFFLINE=1.
+    /// </summary>
+    [DotnetTargetFact("win-x64")]
+    public async Task Dac_download_is_opted_in_per_session_on_win_x64()
+    {
+        var exe = DotnetTarget.WinX64.Build(_dir);
+        var input = _dir.File(InputName);
+        File.WriteAllText(input, "x");
+        var shared = Path.GetDirectoryName(typeof(object).Assembly.Location)!;
+        var root = Directory.GetParent(shared)!.Parent!.Parent!.FullName;
+        var copy = _dir.File("dotnet");
+        var runtime = Path.Combine(copy, "shared", "Microsoft.NETCore.App", Path.GetFileName(shared));
+        foreach (var f in Directory.EnumerateFiles(shared).Where(f => !Path.GetFileName(f).StartsWith("mscordac", StringComparison.OrdinalIgnoreCase)))
+            File.Copy(f, Path.Combine(Directory.CreateDirectory(runtime).FullName, Path.GetFileName(f)));
+        var fxr = Directory.EnumerateDirectories(Path.Combine(root, "host", "fxr")).OrderBy(d => Version.Parse(Path.GetFileName(d).Split('-')[0])).Last();
+        File.Copy(Path.Combine(fxr, "hostfxr.dll"), Path.Combine(Directory.CreateDirectory(Path.Combine(copy, "host", "fxr", Path.GetFileName(fxr))).FullName, "hostfxr.dll"));
+        using (var coreclr = File.Open(Path.Combine(runtime, "coreclr.dll"), FileMode.Open, FileAccess.ReadWrite))
+        {
+            var pe = new byte[4];
+            coreclr.Position = 0x3C;
+            coreclr.ReadExactly(pe);
+            coreclr.Position = BitConverter.ToInt32(pe) + 8; // the COFF header's TimeDateStamp
+            coreclr.Write(BitConverter.GetBytes(0x12345678));
+        }
+        using var env = new EnvironmentScope().Set("CORVUS_OFFLINE", "1");
+        await using var server = await Server();
+        string[] variables = [$"DOTNET_ROOT={copy}", $"DOTNET_ROOT_X64={copy}"];
+        foreach (var (download, reason) in new[] { (false, "not_found"), (true, "download_refused_offline") })
+        {
+            var id = download ? "live-2" : "live-1";
+            var opened = await Ok(server, "live_session", new() { ["action"] = "spawn", ["program"] = exe, ["arguments"] = new[] { input, "1", "100000", "20" }, ["environment"] = variables, ["downloadDac"] = download });
+            Assert.Contains(id, opened);
+            await Ok(server, "live_break", new() { ["session"] = id, ["action"] = "continue" });
+            var refused = "";
+            for (int i = 0; i < 100 && !refused.Contains("cannot be read", StringComparison.Ordinal); i++)
+            {
+                await Task.Delay(100);
+                refused = (await Call(server, "live_break", new() { ["session"] = id, ["action"] = "set", ["at"] = "Readers::ReadOnce" })).Text;
+            }
+            Assert.True(refused.Contains($"cannot be read: {reason}", StringComparison.Ordinal), refused + "\n" + await Events(server, id, kind: "module"));
+            Assert.Contains("closed", await Ok(server, "live_session", new() { ["action"] = "close", ["session"] = id }));
+        }
+    }
+
     /// <summary>A stop by name in an assembly bundled into a single-file program, which never loads as a module of its own.</summary>
     [DotnetTargetFact("win-x64")]
     public async Task Managed_stop_point_in_a_single_file_program_on_win_x64()

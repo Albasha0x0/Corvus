@@ -236,7 +236,7 @@ public sealed class ClrDecoder : IDisposable
         if (signatureFailed) return Fail("signature_invalid", Joined("no DAC with a valid Microsoft signature", problems));
         if (problems.Count > 0) return Fail("load_failed", Joined("no DAC could be loaded", problems));
         return Fail("not_found", $"no DAC for {name} on this machine: pass dacPath (the dumped runtime's mscordaccore.dll / mscordacwks.dll or its folder), " +
-                                 "install that runtime version, or open_minidump downloadDac=true");
+                                 "install that runtime version, or downloadDac=true (open_minidump, live_session)");
     }
 
     private static string Joined(string head, List<string> problems) => problems.Count == 0 ? head : $"{head}; tried: {string.Join("; ", problems.Take(4))}";

@@ -2837,18 +2837,19 @@ Structured output: `processId`, `name`, `view`, `path`, `architecture`, `wow64`,
 
 **Session on a local program** (edit, open-world)
 
-Open, list, inspect or close a session on a local program: its id, backend and modules matched to loaded images; snapshot saves the process as a dump for the dump tools.
+Open, list, inspect or close a session on a program: its id, backend and modules matched to images; snapshot saves the process as a dump.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `action` | string |  | `list` | What to do. Values: list, processes, attach, spawn, status, snapshot, close, children, attach_child, release_child. |
 | `program` | string |  |  | attach: pid or name; spawn: program path (started suspended); processes: name filter; *_child: child pid. |
 | `arguments` | string[] |  |  | spawn: program arguments. |
-| `environment` | string[] |  |  | spawn: NAME=value variables for the program. |
+| `environment` | string[] |  |  | spawn: NAME=value variables. |
 | `session` | string |  |  | Session id from live_session. |
-| `outputPath` | string |  |  | snapshot: dump file (default: temp folder). |
-| `overwrite` | boolean |  |  | Replace outputPath if it exists. |
-| `childNames` | string[] |  |  | Hold child processes by image name (* any) at their start. |
+| `outputPath` | string |  |  | snapshot: dump file (default: temp). |
+| `overwrite` | boolean |  |  | Overwrite outputPath. |
+| `childNames` | string[] |  |  | Hold child processes by image name (* any) at start. |
+| `downloadDac` | boolean |  |  | Download a missing DAC. |
 
 Structured output: `action`, `session`, `backend`, `program`, `processId`, `state`, `modules`, `sessions`, `processes`, `snapshot`.
 

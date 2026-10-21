@@ -108,16 +108,17 @@ public sealed partial class LiveSessionTools(ServerOptions options, LiveSessionS
     }
 
     [McpServerTool(Name = "live_session", Title = "Session on a local program", UseStructuredContent = true, OutputSchemaType = typeof(LiveSessionReport))]
-    [Description("Open, list, inspect or close a session on a local program: its id, backend and modules matched to loaded images; snapshot saves the process as a dump for the dump tools.")]
+    [Description("Open, list, inspect or close a session on a program: its id, backend and modules matched to images; snapshot saves the process as a dump.")]
     public Task<string> LiveSession(
         [Description("What to do.")] string action = "list",
         [Description("attach: pid or name; spawn: program path (started suspended); processes: name filter; *_child: child pid.")] string? program = null,
         [Description("spawn: program arguments.")] string[]? arguments = null,
-        [Description("spawn: NAME=value variables for the program.")] string[]? environment = null,
+        [Description("spawn: NAME=value variables.")] string[]? environment = null,
         [Description(SessionDescription)] string? session = null,
-        [Description("snapshot: dump file (default: temp folder).")] string? outputPath = null,
-        [Description("Replace outputPath if it exists.")] bool overwrite = false,
-        [Description("Hold child processes by image name (* any) at their start.")] string[]? childNames = null,
+        [Description("snapshot: dump file (default: temp).")] string? outputPath = null,
+        [Description("Overwrite outputPath.")] bool overwrite = false,
+        [Description("Hold child processes by image name (* any) at start.")] string[]? childNames = null,
+        [Description("Download a missing DAC.")] bool downloadDac = false,
         CancellationToken cancellationToken = default) =>
         Task.Run(async () =>
         {
@@ -141,7 +142,7 @@ public sealed partial class LiveSessionTools(ServerOptions options, LiveSessionS
                     if (names?.Contains("*") == true) names = [];
                     else if (names is { Count: 0 }) names = null;
                     var opened = await live.OpenAsync(a == "spawn", Scoped(a == "spawn", program), arguments ?? [], cancellationToken,
-                        a == "spawn" ? environment : null, names).ConfigureAwait(false);
+                        a == "spawn" ? environment : null, names, downloadDac: downloadDac).ConfigureAwait(false);
                     return Report(a, opened);
                 case "children":
                     return Report(a, live.Get(RequireSession(session)));

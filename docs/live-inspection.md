@@ -131,7 +131,9 @@ for an overload, or `app.dll!Ns.Type::Method`); a method without code yet is def
 first call is caught, `Main` included. When tiered compilation compiles the method again, the point is set on the new
 code as well; a compile for a running loop (on-stack replacement) is left unhooked. An assembly bundled into a single-file app, or a
 .NET Framework assembly whose native image (`name.ni.dll`) loads in its place, is named the same way. A runtime of another architecture, or one whose DAC
-cannot be found, leaves managed code unnamed.
+cannot be found, leaves managed code unnamed. A session opened with `downloadDac=true` fetches a DAC found nowhere on this
+machine from a symbol server, into the same signature-checked cache as `open_minidump downloadDac=true`; it is off by
+default and refused under `CORVUS_OFFLINE=1`.
 
 A stop point or watch on `module!name` whose module is not loaded yet is deferred, as a debugger defers an unresolved
 breakpoint: the loading thread waits at the module's load, before any of the module's code runs, until the point is set

@@ -29,13 +29,13 @@ public sealed class LiveClr : IDisposable
     public string? Unavailable => _decoder.Runtime == null ? $"{_decoder.Dac.Status}: {_decoder.Dac.Detail}" : null;
 
     /// <summary>The runtime of process <paramref name="pid"/>; null when it hosts none (yet).</summary>
-    public static async Task<LiveClr?> OpenAsync(int pid, CancellationToken ct)
+    public static async Task<LiveClr?> OpenAsync(int pid, DacRequest request, CancellationToken ct)
     {
         if (!OperatingSystem.IsWindows()) return null;
         var reader = new LiveDataReader(LiveProcess.Attach(pid, ct));
         try
         {
-            var decoder = await ClrDecoder.OpenLive(reader, new DacRequest(), ct).ConfigureAwait(false);
+            var decoder = await ClrDecoder.OpenLive(reader, request, ct).ConfigureAwait(false);
             if (decoder != null) return new LiveClr(decoder, reader);
             reader.Dispose();
             return null;
