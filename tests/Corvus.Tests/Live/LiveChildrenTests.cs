@@ -71,7 +71,7 @@ public sealed class LiveChildrenTests : IDisposable
     [Fact]
     public async Task A_child_released_runs_unobserved_and_one_whose_session_closes_before_it_starts_is_held_again()
     {
-        await _tools.LiveSession("spawn", program: Sqlite, followChildren: true);
+        await _tools.LiveSession("spawn", program: Sqlite, childNames: ["*"]);
         Assert.Empty(_backend.LastOpen!["children"]!["names"]!.AsArray());
         var parent = _backend.Worker!;
         _backend.Child(parent, 5001, @"C:\app\child.exe", held: true);
@@ -94,7 +94,7 @@ public sealed class LiveChildrenTests : IDisposable
         var backend = new ScriptedLiveBackend(Sqlite, Base, 0x200000) { Platform = "linux" };
         using var service = new LiveSessionService(_workspace, new NativeCodeService(_workspace, new ServerOptions())) { Backend = backend };
         var tools = new LiveSessionTools(new ServerOptions { AllowLive = true, AllowLiveSpawn = true }, service);
-        await tools.LiveSession("spawn", program: Sqlite, followChildren: true);
+        await tools.LiveSession("spawn", program: Sqlite, childNames: ["*"]);
         backend.Child(backend.Worker!, 5001, "/app/child", held: true);
         await Until(() => tools.LiveSession("children", session: "live-1"), "pid 5001 held");
 
@@ -108,7 +108,7 @@ public sealed class LiveChildrenTests : IDisposable
     }
 
     [Fact]
-    public async Task Without_followChildren_the_session_asks_for_no_child_gating()
+    public async Task Without_childNames_the_session_asks_for_no_child_gating()
     {
         await _tools.LiveSession("spawn", program: Sqlite);
         Assert.Null(_backend.LastOpen!["children"]);

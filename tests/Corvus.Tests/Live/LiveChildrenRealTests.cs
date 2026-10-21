@@ -5,9 +5,9 @@ using Xunit.Abstractions;
 namespace Corvus.Tests;
 
 /// <summary>
-/// A launcher that starts a child process and waits, per target: with followChildren the child is held at its start,
+/// A launcher that starts a child process and waits, per target: with childNames the child is held at its start,
 /// attached as a session of its own and stopped at a stop point; a child still held when the session closes runs on;
-/// without followChildren the session sees only the launcher, as before. Every run ends with no process left.
+/// without childNames the session sees only the launcher, as before. Every run ends with no process left.
 /// </summary>
 [Trait("Speed", "Slow")]
 [Trait("Data", "Real")]
@@ -104,7 +104,7 @@ public sealed class LiveChildrenRealTests(ITestOutputHelper output) : LiveToolCa
         Ended(child);
     }
 
-    // ---- without followChildren the session sees only the launcher
+    // ---- without childNames the session sees only the launcher
 
     [LiveTargetFact("win-x64")] public Task Not_followed_on_win_x64() => NotFollowed(LiveTarget.WinX64);
     [LiveTargetFact("win-x86")] public Task Not_followed_on_win_x86() => NotFollowed(LiveTarget.WinX86);

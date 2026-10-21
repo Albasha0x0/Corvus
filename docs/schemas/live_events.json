@@ -13,7 +13,6 @@
             "type": "integer"
           },
           "kind": {
-            "description": "stop, call, script, exception, module, thread, child, output, error or exit.",
             "type": "string"
           },
           "thread": {

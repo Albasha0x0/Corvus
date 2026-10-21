@@ -2837,32 +2837,31 @@ Structured output: `processId`, `name`, `view`, `path`, `architecture`, `wow64`,
 
 **Session on a local program** (edit, open-world)
 
-Open, list, inspect or close a session on a local program. Returns the session id, the backend, and the program's modules matched to loaded images; snapshot saves the process as a dump for the dump tools. followChildren holds child processes for attach_child.
+Open, list, inspect or close a session on a local program: its id, backend and modules matched to loaded images; snapshot saves the process as a dump for the dump tools.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `action` | string |  | `list` | list, processes, attach, spawn, status, snapshot, close, children, attach_child or release_child. Values: list, processes, attach, spawn, status, snapshot, close, children, attach_child, release_child. |
-| `program` | string |  |  | attach: process id or name; spawn: program path, started suspended; processes: a name filter; *_child: child pid. |
+| `action` | string |  | `list` | What to do. Values: list, processes, attach, spawn, status, snapshot, close, children, attach_child, release_child. |
+| `program` | string |  |  | attach: pid or name; spawn: program path (started suspended); processes: name filter; *_child: child pid. |
 | `arguments` | string[] |  |  | spawn: program arguments. |
-| `environment` | string[] |  |  | spawn: extra NAME=value variables for the program. |
+| `environment` | string[] |  |  | spawn: NAME=value variables for the program. |
 | `session` | string |  |  | Session id from live_session. |
-| `outputPath` | string |  |  | snapshot: the dump file (default: the temp folder). |
+| `outputPath` | string |  |  | snapshot: dump file (default: temp folder). |
 | `overwrite` | boolean |  |  | Replace outputPath if it exists. |
-| `followChildren` | boolean |  |  | Hold child processes at their start. |
-| `childNames` | string[] |  |  | Hold only children with these image names; implies followChildren. |
+| `childNames` | string[] |  |  | Hold child processes by image name (* any) at their start. |
 
-Structured output: `action`, `session`, `backend`, `program`, `processId`, `state`, `modules`, `sessions`, `processes`, `snapshot`, `children`.
+Structured output: `action`, `session`, `backend`, `program`, `processId`, `state`, `modules`, `sessions`, `processes`, `snapshot`.
 
 ### live_break
 
 **Stop points in a session** (edit, open-world)
 
-Set, list or clear stop points by name, module!export, file:line or address; continue resumes held threads. With wait, returns the next stop with a named stack.
+Set, list or clear stop points (name, module!export, file:line, address); continue resumes held threads; wait returns the next stop with a named stack.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `session` | string | yes |  | Session id from live_session. |
-| `action` | string |  | `list` | list, set, clear or continue. Values: list, set, clear, continue. |
+| `action` | string |  | `list` | What to do. Values: list, set, clear, continue. |
 | `at` | string |  |  | set: a name, module!export, address or file:line. |
 | `stopPoint` | string |  |  | clear: stop point id. |
 | `thread` | string |  |  | continue: thread id; default all. |
@@ -2880,7 +2879,7 @@ Record every call of a function with arguments and return value, decoded by prot
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `session` | string | yes |  | Session id from live_session. |
-| `action` | string |  | `list` | list, set or clear. Values: list, set, clear. |
+| `action` | string |  | `list` | What to do. Values: list, set, clear. |
 | `at` | string |  |  | set: name, module!export or address. |
 | `watch` | string |  |  | clear: watch id. |
 | `rateLimit` | integer |  | `10000` | set: calls/s recorded (1-100000); the rest are counted. |
@@ -2932,7 +2931,7 @@ Load, list or unload your own Frida script in a session's program; its messages 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `session` | string | yes |  | Session id from live_session. |
-| `action` | string |  | `list` | list, load or unload. Values: list, load, unload. |
+| `action` | string |  | `list` | What to do. Values: list, load, unload. |
 | `source` | string |  |  | load: JavaScript source. |
 | `path` | string |  |  | load: a .js file instead. |
 | `script` | string |  |  | unload: script id. |
@@ -2948,7 +2947,7 @@ Collect code coverage in a session: which functions of an image ran and how ofte
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `session` | string |  |  | Session id; start only. |
-| `action` | string |  | `list` | start, stop, list, report or diff. Values: start, stop, list, report, diff. |
+| `action` | string |  | `list` | What to do. Values: start, stop, list, report, diff. |
 | `run` | string |  |  | Coverage run id (cov-1; omitted: the only run); diff: the first run. |
 | `other` | string |  |  | diff: the run compared with. |
 | `match` | string |  |  | Only functions whose name contains this; start: module!part for another module. |
@@ -2969,7 +2968,7 @@ Collect a timestamped trace of the files, registry keys, endpoints and child pro
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `session` | string |  |  | Session id; start only. |
-| `action` | string |  | `list` | start, stop, list, report or diff. Values: start, stop, list, report, diff. |
+| `action` | string |  | `list` | What to do. Values: start, stop, list, report, diff. |
 | `run` | string |  |  | Timeline id (tl-1; omitted: the only one); list without it or a filter shows the timelines. |
 | `a` | string |  |  | diff: the first timeline. |
 | `b` | string |  |  | diff: the second timeline. |
@@ -2989,7 +2988,7 @@ Run a program under a console host (the pseudoconsole on Windows) driven by a sc
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `action` | string |  | `list` | start, stop, list, status or transcript. Values: start, stop, list, status, transcript. |
+| `action` | string |  | `list` | What to do. Values: start, stop, list, status, transcript. |
 | `program` | string |  |  | start: program path. |
 | `arguments` | string[] |  |  | start: program arguments. |
 | `script` | string[] |  |  | start: steps, one per line: send TEXT, wait TEXT (output contains it), resize COLUMNS ROWS, delay MS; TEXT takes \r (Enter), \n, \t, \e, \xHH. |

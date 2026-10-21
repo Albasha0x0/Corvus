@@ -27,7 +27,11 @@ public sealed partial class LiveSessionTools(ServerOptions options, LiveSessionS
 
     public sealed record LiveSessionRow(string Session, string Backend, string Program, int ProcessId, string State);
 
-    public sealed record LiveProcessRow(int ProcessId, string Name);
+    public sealed record LiveProcessRow(int ProcessId, string Name)
+    {
+        [Description("children: held, attached (and its session), running or resumed.")]
+        public string? State { get; init; }
+    }
 
     /// <summary>A snapshot of the session's process as a dump file, opened for the dump tools.</summary>
     public sealed record LiveSnapshot(string Path, long Bytes, [property: Description("Id for dump_stack, read_dump_memory and the other dump tools.")] string Dump);
@@ -40,11 +44,7 @@ public sealed partial class LiveSessionTools(ServerOptions options, LiveSessionS
     {
         public IReadOnlyList<LiveProcessRow>? Processes { get; init; }
         public LiveSnapshot? Snapshot { get; init; }
-        public IReadOnlyList<LiveChildRow>? Children { get; init; }
     }
-
-    public sealed record LiveChildRow(int ProcessId, string Path, string CommandLine,
-        [property: Description("held, attached, running or resumed.")] string State, string? Session);
 
     public sealed record LiveStopPoint(string Id,
         [property: Description("As given: a name, module!export, address or file:line.")] string Where,
@@ -97,7 +97,7 @@ public sealed partial class LiveSessionTools(ServerOptions options, LiveSessionS
     }
 
     public sealed record LiveEvent(long Sequence,
-        [property: Description("stop, call, script, exception, module, thread, child, output, error or exit.")] string Kind,
+        string Kind,
         string? Thread, string? Address, string? Name, string Text);
 
     public sealed record LiveEventPage(string Session, IReadOnlyList<LiveEvent> Items,
@@ -108,17 +108,16 @@ public sealed partial class LiveSessionTools(ServerOptions options, LiveSessionS
     }
 
     [McpServerTool(Name = "live_session", Title = "Session on a local program", UseStructuredContent = true, OutputSchemaType = typeof(LiveSessionReport))]
-    [Description("Open, list, inspect or close a session on a local program. Returns the session id, the backend, and the program's modules matched to loaded images; snapshot saves the process as a dump for the dump tools. followChildren holds child processes for attach_child.")]
+    [Description("Open, list, inspect or close a session on a local program: its id, backend and modules matched to loaded images; snapshot saves the process as a dump for the dump tools.")]
     public Task<string> LiveSession(
-        [Description("list, processes, attach, spawn, status, snapshot, close, children, attach_child or release_child.")] string action = "list",
-        [Description("attach: process id or name; spawn: program path, started suspended; processes: a name filter; *_child: child pid.")] string? program = null,
+        [Description("What to do.")] string action = "list",
+        [Description("attach: pid or name; spawn: program path (started suspended); processes: name filter; *_child: child pid.")] string? program = null,
         [Description("spawn: program arguments.")] string[]? arguments = null,
-        [Description("spawn: extra NAME=value variables for the program.")] string[]? environment = null,
+        [Description("spawn: NAME=value variables for the program.")] string[]? environment = null,
         [Description(SessionDescription)] string? session = null,
-        [Description("snapshot: the dump file (default: the temp folder).")] string? outputPath = null,
+        [Description("snapshot: dump file (default: temp folder).")] string? outputPath = null,
         [Description("Replace outputPath if it exists.")] bool overwrite = false,
-        [Description("Hold child processes at their start.")] bool followChildren = false,
-        [Description("Hold only children with these image names; implies followChildren.")] string[]? childNames = null,
+        [Description("Hold child processes by image name (* any) at their start.")] string[]? childNames = null,
         CancellationToken cancellationToken = default) =>
         Task.Run(async () =>
         {
@@ -139,8 +138,10 @@ public sealed partial class LiveSessionTools(ServerOptions options, LiveSessionS
                     if (string.IsNullOrWhiteSpace(program))
                         throw new ToolError(ErrorCode.InvalidArgument, $"action={a} needs program.", a == "spawn" ? "program=<path to the program>" : "program=<process id or name>");
                     var names = childNames?.Where(n => !string.IsNullOrWhiteSpace(n)).Select(n => n.Trim()).ToList();
+                    if (names?.Contains("*") == true) names = [];
+                    else if (names is { Count: 0 }) names = null;
                     var opened = await live.OpenAsync(a == "spawn", Scoped(a == "spawn", program), arguments ?? [], cancellationToken,
-                        a == "spawn" ? environment : null, followChildren || names is { Count: > 0 } ? names ?? [] : null).ConfigureAwait(false);
+                        a == "spawn" ? environment : null, names).ConfigureAwait(false);
                     return Report(a, opened);
                 case "children":
                     return Report(a, live.Get(RequireSession(session)));
@@ -232,27 +233,29 @@ public sealed partial class LiveSessionTools(ServerOptions options, LiveSessionS
         if (s.State == "suspended") text.Append("; set stop points, then live_break action=continue starts it");
         if (s.HeldBy != null && s.State == "suspended") text.Append($" (held by {s.HeldBy.Id})");
         text.AppendLine();
-        List<LiveChildRow>? children = null;
+        List<LiveProcessRow>? children = null;
         if (s.ChildNames != null)
         {
-            lock (s.Children) children = s.Children.Select(c => new LiveChildRow(c.ProcessId, c.Path, c.CommandLine, c.State, c.Session)).ToList();
+            // a child's row: its command line, and its state with the session attached to it
+            lock (s.Children)
+                children = s.Children.Select(c => new LiveProcessRow(c.ProcessId, c.CommandLine) { State = c.State + (c.Session != null ? " in " + c.Session : "") }).ToList();
             text.AppendLine($"follows child processes{(s.ChildNames.Count > 0 ? " named " + string.Join(", ", s.ChildNames) : "")}: {children.Count} started, {children.Count(c => c.State == "held")} held");
-            foreach (var c in children) text.AppendLine($"  pid {c.ProcessId} {c.State}{(c.Session != null ? " in " + c.Session : "")}: {c.CommandLine}");
+            foreach (var c in children) text.AppendLine($"  pid {c.ProcessId} {c.State}: {c.Name}");
         }
         if (action != "children")
         {
             text.AppendLine($"{rows.Count} modules, {rows.Count(r => r.Image != null)} matched to loaded images:");
             foreach (var m in rows) text.AppendLine($"  {m.Base} {m.Name}{(m.Image != null ? "  = " + m.Image : "")}");
         }
-        else if (children == null) text.AppendLine("does not follow child processes: open the session with followChildren=true");
-        return ToolOutput.With(text.ToString(), new LiveSessionReport(action, s.Id, s.Backend, s.Program, s.ProcessId, s.State, action == "children" ? [] : rows, []) { Children = children });
+        else if (children == null) text.AppendLine("does not follow child processes: open the session with childNames=[\"*\"]");
+        return ToolOutput.With(text.ToString(), new LiveSessionReport(action, s.Id, s.Backend, s.Program, s.ProcessId, s.State, action == "children" ? [] : rows, []) { Processes = children });
     }
 
     [McpServerTool(Name = "live_break", Title = "Stop points in a session", UseStructuredContent = true, OutputSchemaType = typeof(LiveStopPointReport))]
-    [Description("Set, list or clear stop points by name, module!export, file:line or address; continue resumes held threads. With wait, returns the next stop with a named stack.")]
+    [Description("Set, list or clear stop points (name, module!export, file:line, address); continue resumes held threads; wait returns the next stop with a named stack.")]
     public Task<string> LiveBreak(
         [Description(SessionDescription)] string session,
-        [Description("list, set, clear or continue.")] string action = "list",
+        [Description("What to do.")] string action = "list",
         [Description("set: a name, module!export, address or file:line.")] string? at = null,
         [Description("clear: stop point id.")] string? stopPoint = null,
         [Description("continue: thread id; default all.")] string? thread = null,
@@ -337,7 +340,7 @@ public sealed partial class LiveSessionTools(ServerOptions options, LiveSessionS
     [Description("Record every call of a function with arguments and return value, decoded by prototype (PDB, DWARF) or known API, as events (live_events from=<watch>).")]
     public Task<string> LiveWatchCalls(
         [Description(SessionDescription)] string session,
-        [Description("list, set or clear.")] string action = "list",
+        [Description("What to do.")] string action = "list",
         [Description("set: name, module!export or address.")] string? at = null,
         [Description("clear: watch id.")] string? watch = null,
         [Description("set: calls/s recorded (1-100000); the rest are counted.")] int rateLimit = 10_000,
@@ -400,7 +403,7 @@ public sealed partial class LiveSessionTools(ServerOptions options, LiveSessionS
     [Description("Load, list or unload your own Frida script in a session's program; its messages become events (live_events from=<script>). Needs --live-scripting.")]
     public Task<string> LiveScriptCalls(
         [Description(SessionDescription)] string session,
-        [Description("list, load or unload.")] string action = "list",
+        [Description("What to do.")] string action = "list",
         [Description("load: JavaScript source.")] string? source = null,
         [Description("load: a .js file instead.")] string? path = null,
         [Description("unload: script id.")] string? script = null,

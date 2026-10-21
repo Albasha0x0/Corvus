@@ -51,7 +51,7 @@ public sealed partial class LiveSessionTools
     [Description("Collect a timestamped trace of the files, registry keys, endpoints and child processes a session's program opens, from the OS diagnostics channel (event tracing on Windows); entries page with a cursor, report counts each name, diff lists the names unique to each of two traces.")]
     public Task<string> LiveTimeline(
         [Description("Session id; start only.")] string? session = null,
-        [Description("start, stop, list, report or diff.")] string action = "list",
+        [Description("What to do.")] string action = "list",
         [Description("Timeline id (tl-1; omitted: the only one); list without it or a filter shows the timelines.")] string? run = null,
         [Description("diff: the first timeline.")] string? a = null,
         [Description("diff: the second timeline.")] string? b = null,

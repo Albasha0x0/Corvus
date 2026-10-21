@@ -47,7 +47,7 @@ public sealed partial class LiveSessionTools
     [Description("Collect code coverage in a session: which functions of an image ran and how often, drawn on the static call graph; diff compares two runs.")]
     public Task<string> LiveCoverage(
         [Description("Session id; start only.")] string? session = null,
-        [Description("start, stop, list, report or diff.")] string action = "list",
+        [Description("What to do.")] string action = "list",
         [Description("Coverage run id (cov-1; omitted: the only run); diff: the first run.")] string? run = null,
         [Description("diff: the run compared with.")] string? other = null,
         [Description("Only functions whose name contains this; start: module!part for another module.")] string? match = null,
