@@ -115,6 +115,9 @@ internal sealed class GhidraSession(GhidraProvider provider, GhidraInstallation 
     }
 
     /// <summary>Whether a project directory is that of <paramref name="overrides"/> (an overrides key), or of no overrides when null.</summary>
+    /// <summary>The project's name for the input file: characters Ghidra rejects in a name (LocalFileSystem) become '_'.</summary>
+    internal static string ProgramName(string file) => string.Concat(file.Select(c => c < ' ' || c > 'ÿ' || @"/\'`""*:<>?|".Contains(c) ? '_' : c));
+
     internal static bool OfOverrides(string directory, string? overrides) =>
         overrides != null ? directory.EndsWith("-" + overrides, StringComparison.Ordinal) : !Path.GetFileName(directory).Contains("-ov-", StringComparison.Ordinal);
 
@@ -250,7 +253,7 @@ internal sealed class GhidraSession(GhidraProvider provider, GhidraInstallation 
                 ("input", Entry.InputCopy),
                 ("project_dir", _projectDirectory),
                 ("project_name", ProjectName),
-                ("program_name", Path.GetFileName(Entry.InputCopy)),
+                ("program_name", ProgramName(Path.GetFileName(Entry.InputCopy))),
                 ("loader_args", Pairs(_loaderArguments)),
                 ("options", Pairs(_analyzerOptions)),
                 ("budget_seconds", Math.Max(1, budget.TotalSeconds)),

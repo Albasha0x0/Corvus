@@ -342,6 +342,24 @@ public sealed class NativeGhidraColdOpenTests(ITestOutputHelper output, GhidraCa
         Assert.StartsWith("push", listing.Instructions[0].Text, StringComparison.OrdinalIgnoreCase);
     }
 
+    /// <summary>A file name with characters Ghidra rejects in a project name (an apostrophe, a letter past Latin-1) opens and decompiles.</summary>
+    [GhidraFact]
+    public async Task A_file_name_Ghidra_rejects_opens_under_a_project_name_it_accepts()
+    {
+        var text = new byte[0x20];
+        Array.Fill(text, (byte)0xCC);
+        new byte[] { 0xB8, 0x07, 0, 0, 0, 0xC3 }.CopyTo(text, 0);
+        var dir = new TempDir();
+        Owned.Add(dir);
+        var path = dir.File("Player's \u0436 Game.so");
+        File.WriteAllBytes(path, new NativeFormats.ElfWriter { Machine = NativeFormats.ElfWriter.EmX64, Entry = NativeFormats.ElfWriter.TextRva, Text = text }.Build());
+        Assert.Equal("Player_s _ Game.so", GhidraSession.ProgramName(Path.GetFileName(path)));
+        var provider = new GhidraProvider(new GhidraProviderOptions { CacheRoot = dir.File("cache") });
+        Owned.Add(provider);
+        await using var s = await provider.OpenAsync(path, null, Offline);
+        Assert.Contains("return 7", (await s.DecompileAsync(NativeFormats.ElfWriter.TextRva)).Text);
+    }
+
     /// <summary>Code nothing references (mov eax, 7; ret after the entry's padding): Ghidra makes no function; the server's index starts one there.</summary>
     [GhidraFact]
     public async Task A_function_only_the_server_s_index_knows_is_made_on_request()
