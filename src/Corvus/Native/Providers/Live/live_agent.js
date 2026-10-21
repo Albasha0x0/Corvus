@@ -39,6 +39,9 @@ function stackFrom(sp) {
 // A bare point (a coverage count) sends only where it stopped: no stack, no registers. at is the point's address when the
 // hook runs elsewhere (a detour's stub, see hookAt), where the registers are the same.
 function stopsIn(id, context, at, bare) {
+  // The point was cleared while this thread was in the hook: a stop reported
+  // now would hold it after the clear.
+  if (!points[id]) return;
   const tid = Process.getCurrentThreadId();
   hits[id] = (hits[id] || 0) + 1;
   const pc = (at || context.pc).toString();
