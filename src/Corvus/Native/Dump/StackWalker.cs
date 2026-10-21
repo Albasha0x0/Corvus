@@ -462,7 +462,7 @@ public sealed class StackWalker
                 if (v < 0x10000 || v - 6 < 0x10000) continue;
                 var m = _dump.ModuleAt(v - 1);
                 var image = m != null ? _image(m) : null;
-                if (ReadCode(v - 6, code, image, m?.Base ?? 0) < 6) continue;
+                if (ReadCode(v - 6, code, image, m?.Base ?? 0, out bool fromImage) < 6) continue;
                 bool calls;
                 ulong? via = null;
                 if (code[1] == 0xE8)
@@ -473,9 +473,7 @@ public sealed class StackWalker
                 }
                 else if (code[0] == 0xFF && code[1] == 0x15)
                 {
-                    uint slot = BinaryPrimitives.ReadUInt32LittleEndian(code.AsSpan(2));
-                    // a bound slot holds the target; one the dump does not hold (or holds unbound) is matched by the import's name
-                    calls = _dump.TryReadU32(slot, out uint bound) && bound == function || ImportName(slot) is { } imported && imported == ExportName(function);
+                    calls = SlotHolds(BinaryPrimitives.ReadUInt32LittleEndian(code.AsSpan(2)), fromImage ? image : null, m, function);
                 }
                 else continue;
                 if (calls && IsPlausibleReturn(v, strict: true)) return (at + (ulong)i, via);
@@ -483,6 +481,18 @@ public sealed class StackWalker
             at += (ulong)n;
         }
         return null;
+    }
+
+    /// <summary>
+    /// Whether the import slot an indirect call names holds <paramref name="function"/>. <paramref name="file"/>: the
+    /// instruction was read from this module image, whose operands hold the slot at the preferred base.
+    /// </summary>
+    private bool SlotHolds(uint slot, PeFile? file, DumpModule? module, ulong function)
+    {
+        if (file != null && module != null) slot = (uint)(slot - file.ImageBase + module.Base);
+        // A bound slot holds the target; a slot the dump does not hold, or holds
+        // unbound, is matched by the import's name.
+        return _dump.TryReadU32(slot, out uint bound) && bound == function || ImportName(slot) is { } imported && imported == ExportName(function);
     }
 
     /// <summary>The name of the import whose IAT slot is at <paramref name="slot"/>, from its module's image.</summary>
@@ -613,16 +623,21 @@ public sealed class StackWalker
     }
 
     /// <summary>Code bytes: captured memory first, then the module image.</summary>
-    private int ReadCode(ulong address, Span<byte> destination, PeFile? image, ulong imageBase)
+    private int ReadCode(ulong address, Span<byte> destination, PeFile? image, ulong imageBase) => ReadCode(address, destination, image, imageBase, out _);
+
+    /// <param name="fromImage">The bytes came from the module image: absolute addresses in them are at its preferred base.</param>
+    private int ReadCode(ulong address, Span<byte> destination, PeFile? image, ulong imageBase, out bool fromImage)
     {
+        fromImage = false;
         int n = _dump.ReadMemory(address, destination);
         if (n == destination.Length || image == null || address < imageBase) return n;
         ulong rva = address - imageBase;
         if (rva > uint.MaxValue) return n;
-        var fromImage = new byte[destination.Length];
-        int m = image.Read((uint)rva, fromImage);
+        var file = new byte[destination.Length];
+        int m = image.Read((uint)rva, file);
         if (m <= n) return n;
-        fromImage.AsSpan(0, m).CopyTo(destination);
+        file.AsSpan(0, m).CopyTo(destination);
+        fromImage = true;
         return m;
     }
 }

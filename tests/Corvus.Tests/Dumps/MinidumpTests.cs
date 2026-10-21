@@ -334,6 +334,34 @@ public sealed class MinidumpTests
     }
 
     /// <summary>
+    /// A small dump of a module loaded away from its preferred base: the call through its import slot is read from the file,
+    /// whose operand holds the slot at the preferred base; relocated, it names the callee, so the caller is a call target.
+    /// </summary>
+    [Fact]
+    public async Task X86_import_call_read_from_a_rebased_file_finds_the_caller()
+    {
+        const uint Rebased = 0x1100_0000;
+        using var dir = new TempDir();
+        File.WriteAllBytes(dir.File("synth32.dll"), SyntheticCrashX86.FileImage());
+        var halt = SyntheticCrashX86.Mapped(SyntheticCrashX86.HaltImage());
+        var stack = new byte[0x100];
+        // The stack holds Halt's return into Trap.
+        BinaryPrimitives.WriteUInt32LittleEndian(stack, Rebased + SyntheticCrashX86.TrapRva + 6);
+        var d = new MinidumpBuilder { ProcessorArchitecture = 0 };
+        d.Modules.Add(new MinidumpBuilder.Module(Rebased, 0x3000, 0, Path.Combine(dir.Path, "synth32.dll")));
+        d.Modules.Add(new MinidumpBuilder.Module(SyntheticCrashX86.HaltBase, (uint)halt.Length, 0, @"Z:\nowhere\halt.dll"));
+        d.Memory.Add((SyntheticCrashX86.HaltBase, halt));
+        d.Memory.Add((SyntheticCrashX86.Stack, stack));
+        d.Threads.Add(new MinidumpBuilder.Thread(102, SyntheticCrashX86.Stack, MinidumpBuilder.ContextX86(SyntheticCrashX86.HaltBase + 0x1002, SyntheticCrashX86.Stack)));
+        var path = dir.File("rebased32.dmp");
+        File.WriteAllBytes(path, d.Build());
+        using var service = new MinidumpService();
+        var walk = await service.Stack(path, "102", true, 64, 0, 64, dir.Path, default);
+        Assert.Equal(["halt!Halt+0x2", "synth32!Trap+0x6"], walk.Items.Take(2).Select(f => f.Symbol));
+        Assert.Equal("call_target", walk.Items[1].Method);
+    }
+
+    /// <summary>
     /// A thread held in a hook: its EBP points off the stack (not a frame), the scan's guessed frame pointer reads a zero
     /// return address (not the end of the stack), and the scan above reaches the program's frame.
     /// </summary>
