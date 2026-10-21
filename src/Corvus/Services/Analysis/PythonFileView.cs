@@ -21,7 +21,8 @@ internal sealed class PythonFileView : IFileSummaryView
         [property: Description("Qualified names of the functions, classes and comprehensions, to 200.")] IReadOnlyList<string> Functions,
         IReadOnlyList<string> Imports, long Offset, long? Next,
         [property: Description("dis output from offset, as the file's own Python version prints it.")] string Disassembly, bool Complete,
-        [property: Description("The source from CORVUS_PY_DECOMPILER, from the same offset.")] string? Source, long? SourceNext, IReadOnlyList<string>? Notes);
+        [property: Description("The source from CORVUS_PY_DECOMPILER, from the same offset.")] string? Source, long? SourceNext,
+        [property: Description("The program that wrote the source.")] string? Decompiler, IReadOnlyList<string>? Notes);
 
     public string Name => "python";
 
@@ -70,7 +71,7 @@ internal sealed class PythonFileView : IFileSummaryView
         int header = PyVersion.HeaderLength(version);
         var label = PyVersion.Label(version);
         if (PyMarshal.TryRead(data, version, out var error, header) is not PyCode code)
-            return new FileView(new Bytecode(label, PyVersion.Magic(data), "", 0, [], [], 0, null, "", false, null, null, [$"The code object does not read: {error}"]),
+            return new FileView(new Bytecode(label, PyVersion.Magic(data), "", 0, [], [], 0, null, "", false, null, null, null, [$"The code object does not read: {error}"]),
                 [$"Python {label} bytecode whose code object does not read."]);
         var functions = new List<string>();
         int count = 0;
@@ -86,16 +87,16 @@ internal sealed class PythonFileView : IFileSummaryView
         bool asked = file.Options.Wants("python");
         string text = "";
         bool complete = true;
-        if (!PyDisassembler.Supports(version)) notes.Add($"Python {label} bytecode is not disassembled (2.7 and 3.0 to 3.13 are).");
+        if (!PyDisassembler.Supports(version)) notes.Add($"Python {label} bytecode is not disassembled (2.7 and 3.0 to 3.14 are).");
         else if (asked) text = PyDisassembler.Disassemble(code, version, MaxText, ct, out complete);
         if (!complete) notes.Add($"The disassembly stops after {MaxText:N0} characters.");
         long offset = Math.Clamp(file.Options.Offset, 0, text.Length);
         var window = text.Substring((int)offset, (int)Math.Min(Window, text.Length - offset));
         long? next = offset + window.Length < text.Length ? offset + window.Length : null;
         if (next != null) notes.Add($"{text.Length:N0} characters of disassembly; offset={next} reads on");
-        var (source, sourceNext) = asked ? Decompile(file, offset, notes, ct) : (null, null);
+        var (source, sourceNext, decompiler) = asked ? Decompile(file, offset, notes, ct) : (null, null, null);
         var facts = new Bytecode(label, PyVersion.Magic(data), code.Filename, count, functions, PyDisassembler.Imports(code, version), offset, next, window, complete,
-            source, sourceNext, notes.Count > 0 ? notes : null);
+            source, sourceNext, decompiler, notes.Count > 0 ? notes : null);
         var highlight = $"Python {label} bytecode of {code.Filename}: {count:N0} code objects";
         if (!asked && PyDisassembler.Supports(version)) highlight += "; view=python shows the disassembly";
         return new FileView(facts, [highlight + "."]);
@@ -103,32 +104,41 @@ internal sealed class PythonFileView : IFileSummaryView
 
     private static readonly TimeSpan DecompileTimeout = TimeSpan.FromMinutes(1);
 
-    /// <summary>The source from the configured decompiler, from <paramref name="offset"/>; it runs only when CORVUS_PY_DECOMPILER is set.</summary>
-    private static (string?, long?) Decompile(FileInput file, long offset, List<string> notes, CancellationToken ct)
+    /// <summary>The source from the configured decompiler, from <paramref name="offset"/>, and the decompiler's name; it runs only when CORVUS_PY_DECOMPILER is set.</summary>
+    private static (string?, long?, string?) Decompile(FileInput file, long offset, List<string> notes, CancellationToken ct)
     {
         var tool = ExternalTools.PythonDecompiler;
-        if (Environment.GetEnvironmentVariable(tool.Variable) is not { Length: > 0 }) return (null, null);
+        if (Environment.GetEnvironmentVariable(tool.Variable) is not { Length: > 0 }) return (null, null, null);
         var probe = ExternalTools.Probe(tool);
         if (!probe.Usable)
         {
             notes.Add($"No source: {probe.Problem}.");
-            return (null, null);
+            return (null, null, null);
         }
         if (!File.Exists(file.Path))
         {
             notes.Add("No source: the decompiler reads a file on disk; unpack_container saves the .pyc.");
-            return (null, null);
+            return (null, null, null);
         }
+        var name = Path.GetFileNameWithoutExtension(probe.Path!);
         var run = ExternalTools.Run(probe.Path!, ExternalTools.Arguments(tool, "decompile", ("input", Path.GetFullPath(file.Path))), DecompileTimeout, MaxText, ct);
         if (run.StartError != null || run.TimedOut || run.Output.Length == 0)
         {
             var why = run.StartError ?? (run.TimedOut ? $"no answer within {DecompileTimeout.TotalSeconds:0} s" : $"no output (exit {run.ExitCode}) {run.Stderr.Trim()}");
-            notes.Add($"No source: the decompiler gave {why[..Math.Min(why.Length, 500)]}.");
-            return (null, null);
+            notes.Add($"No source: {name} gave {why[..Math.Min(why.Length, 500)]}.");
+            return (null, null, null);
+        }
+        // pycdc exits 1 after a partial listing, and reports on stderr what it does
+        // not decompile.
+        if (run.ExitCode != 0) notes.Add($"{name} exited with code {run.ExitCode}: the source may be partial.");
+        if (run.Stderr.Trim() is { Length: > 0 } stderr)
+        {
+            var reported = string.Join("; ", stderr.ReplaceLineEndings("\n").Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).Distinct());
+            notes.Add($"{name} reported: {reported[..Math.Min(reported.Length, 500)]}");
         }
         var text = run.Text.ReplaceLineEndings("\n");
         long at = Math.Clamp(offset, 0, text.Length);
         var window = text.Substring((int)at, (int)Math.Min(Window, text.Length - at));
-        return (window, at + window.Length < text.Length ? at + window.Length : null);
+        return (window, at + window.Length < text.Length ? at + window.Length : null, name);
     }
 }

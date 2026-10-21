@@ -1,5 +1,6 @@
 using Corvus.Core;
 using Corvus.Core.Python;
+using Corvus.Native.Providers;
 using Corvus.Services.Analysis;
 
 namespace Corvus.Tests;
@@ -99,5 +100,40 @@ public sealed class PythonDecompilerTests
         var facts = Assert.IsType<PythonFileView.Bytecode>(new PythonFileView().Inspect(input, default)!.Detail);
         Assert.Equal("# Source Generated\ndef counter():\n    pass\n", facts.Source);
         Assert.Null(facts.SourceNext);
+        Assert.Equal("pycdc", facts.Decompiler);
+    }
+
+    private static PythonFileView.Bytecode View(string version)
+    {
+        var path = Path.Combine(AppContext.BaseDirectory, "Containers", "PythonFixtures", $"constructs-{version}.pyc");
+        var bytes = File.ReadAllBytes(path);
+        var input = new FileInput(path, bytes, Blob.Identify(bytes)) { Options = new FileViewOptions("python") };
+        return Assert.IsType<PythonFileView.Bytecode>(new PythonFileView().Inspect(input, default)!.Detail);
+    }
+
+    /// <summary>
+    /// A real decompiler (pycdc, zrax/pycdc) named by CORVUS_PY_DECOMPILER: every fixture gets source labelled with the
+    /// decompiler's name, or a note saying why not; the versions pycdc reads give the program's functions and classes.
+    /// </summary>
+    [RequiresRealDataFact("CORVUS_PY_DECOMPILER")]
+    public void Python_view_shows_the_source_from_a_real_decompiler()
+    {
+        var name = Path.GetFileNameWithoutExtension(ExternalTools.Locate(ExternalTools.PythonDecompiler)!.Value.Path);
+        string[] versions = ["2.7", .. Enumerable.Range(0, 15).Select(m => $"3.{m}")];
+        foreach (var version in versions)
+        {
+            var facts = View(version);
+            if (facts.Source == null)
+                Assert.Contains(facts.Notes ?? [], n => n.StartsWith($"No source: {name} gave", StringComparison.Ordinal));
+            else
+                Assert.Equal(name, facts.Decompiler);
+        }
+        foreach (var version in new[] { "2.7", "3.0", "3.6", "3.8", "3.12" })
+        {
+            var source = View(version).Source;
+            Assert.NotNull(source);
+            Assert.Contains("def counter(", source);
+            Assert.Contains("class Store(OD):", source);
+        }
     }
 }
