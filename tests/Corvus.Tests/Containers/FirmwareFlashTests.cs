@@ -288,7 +288,7 @@ public sealed class FirmwareFlashTests
 
     /// <summary>
     /// A UBI image of 64 KiB erase blocks: the volume table (two copies), a dynamic "rootfs" volume holding <paramref name="rootfs"/>,
-    /// a static "kernel" volume, one block rewritten (the older copy has a lower sequence number) and one erased block.
+    /// a static "kernel" volume, an empty "rootfs_data" volume, one block rewritten (the older copy has a lower sequence number) and one erased block.
     /// </summary>
     internal static byte[] Ubi(byte[] rootfs, byte[] kernel)
     {
@@ -337,6 +337,7 @@ public sealed class FirmwareFlashTests
         }
         Record(0, "rootfs", 1, (rootfs.Length + LebSize - 1) / LebSize + 2);
         Record(1, "kernel", 2, 1);
+        Record(2, "rootfs_data", 1, 4); // formatted at first boot: no block written
         Leb(0x7FFFEFFF, 0, 1, table);
         Leb(0x7FFFEFFF, 1, 1, table);
         int count = (rootfs.Length + LebSize - 1) / LebSize;
@@ -355,7 +356,7 @@ public sealed class FirmwareFlashTests
         var kernel = Isa("mips32be.elf");
         var c = Containers.Open(Ubi(ubifs, kernel), "flash.ubi", AnalysisLimits.Default, default);
         Assert.Equal("UBI", c.Kind);
-        Assert.Equal(["rootfs", "kernel"], c.Entries!.Select(e => e.Path));
+        Assert.Equal([("rootfs", true), ("kernel", true), ("rootfs_data", false)], c.Entries!.Select(e => (e.Path, e.Size > 0)));
         Assert.Equal(kernel, c.Items.Single(i => i.Name == "kernel").Bytes);
         var rootfs = c.Items.Single(i => i.Name == "rootfs").Bytes;
         Assert.Equal(ubifs, rootfs.AsSpan(0, ubifs.Length).ToArray());

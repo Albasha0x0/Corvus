@@ -55,7 +55,7 @@ internal sealed class UbiReader : IContainerReader
         notes.Add($"UBI, {peb >> 10} KiB erase blocks ({lebSize:N0}-byte logical blocks), {blocks:N0} blocks, {unmapped:N0} unmapped" + (bad > 0 ? $", {bad} with damaged headers" : ""));
 
         // the volume table: one 172-byte record per volume id, CRC-checked
-        var names = new Dictionary<uint, (string Name, uint DataPad)>();
+        var names = new Dictionary<uint, (string Name, uint DataPad, byte Type)>();
         if (lebs.TryGetValue((LayoutVolume, 0), out var layout) || lebs.TryGetValue((LayoutVolume, 1), out layout))
         {
             var table = src.Read(layout.Peb + dataAt, (int)Math.Min(lebSize, 128 * 172));
@@ -64,7 +64,7 @@ internal sealed class UbiReader : IContainerReader
                 var r = table.AsSpan((int)v * 172, 172);
                 if (BinaryPrimitives.ReadUInt32BigEndian(r) == 0 || Crc.Ubi(r[..168]) != BinaryPrimitives.ReadUInt32BigEndian(r[168..])) continue;
                 int nameLength = Math.Min((int)BinaryPrimitives.ReadUInt16BigEndian(r[14..]), 127);
-                names[v] = (Encoding.UTF8.GetString(r.Slice(16, nameLength)), BinaryPrimitives.ReadUInt32BigEndian(r[8..]));
+                names[v] = (Encoding.UTF8.GetString(r.Slice(16, nameLength)), BinaryPrimitives.ReadUInt32BigEndian(r[8..]), r[12]);
             }
         }
         else notes.Add("no volume table found: volumes are named by id");
@@ -72,17 +72,23 @@ internal sealed class UbiReader : IContainerReader
         var items = new List<ExtractedItem>();
         var entries = new List<ContainerEntry>();
         long total = 0;
-        foreach (var group in lebs.Where(l => l.Key.Volume != LayoutVolume).GroupBy(l => l.Key.Volume).OrderBy(g => g.Key))
+        var byVolume = lebs.Where(l => l.Key.Volume != LayoutVolume).GroupBy(l => l.Key.Volume).ToDictionary(g => g.Key, g => g.ToDictionary(l => l.Key.Lnum, l => l.Value));
+        foreach (var volume in byVolume.Keys.Union(names.Keys).Order())
         {
             ct.ThrowIfCancellationRequested();
-            var (name, pad) = names.TryGetValue(group.Key, out var n) ? n : ($"volume_{group.Key}", 0u);
-            if (!FsTree.UsableName(name)) name = $"volume_{group.Key}";
-            var map = group.ToDictionary(l => l.Key.Lnum, l => l.Value);
+            var (name, pad, type) = names.TryGetValue(volume, out var n) ? n : ($"volume_{volume}", 0u, (byte)0);
+            if (!FsTree.UsableName(name)) name = $"volume_{volume}";
+            // a volume in the table with no block written yet (an autoresize volume formatted at first boot) is empty
+            if (!byVolume.TryGetValue(volume, out var map))
+            {
+                entries.Add(new ContainerEntry(name, 0, $"{(type == 2 ? "static" : "dynamic")} volume {volume}, no logical blocks mapped"));
+                continue;
+            }
             bool isStatic = map.Values.First().Type == 2;
             long usable = lebSize - pad;
             uint count = isStatic ? map.Values.First().UsedBlocks : map.Keys.Max() + 1;
             long size = isStatic ? map.Where(l => l.Key < count).Sum(l => (long)l.Value.DataSize) : count * usable;
-            var detail = $"{(isStatic ? "static" : "dynamic")} volume {group.Key}, {map.Count} of {count} logical blocks mapped";
+            var detail = $"{(isStatic ? "static" : "dynamic")} volume {volume}, {map.Count} of {count} logical blocks mapped";
             entries.Add(new ContainerEntry(name, size, detail));
             if (size <= 0 || size > limits.MaxItemBytes || usable <= 0) { notes.Add($"{name}: {size:N0} bytes, not extracted"); continue; }
             if ((total += size) > limits.MaxTotalBytes)
