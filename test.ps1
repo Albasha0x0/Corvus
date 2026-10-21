@@ -51,6 +51,17 @@ $tempRoot = [IO.Path]::GetTempPath()
 $env:PATH = ($env:PATH -split [IO.Path]::PathSeparator | Where-Object {
     $_ -and -not ($_.StartsWith($tempRoot, [StringComparison]::OrdinalIgnoreCase) -and -not (Test-Path $_)) }) -join [IO.Path]::PathSeparator
 
+# A shell started before a CORVUS_* user variable was set (an agent's, an editor's) lacks it, and its engine and real-data
+# tests skip; full and background runs take such variables from the user's environment.
+function Import-UserTestVariables {
+    if (-not $IsWindows) { return }
+    $user = [Environment]::GetEnvironmentVariables('User')
+    foreach ($name in $user.Keys) {
+        if (($name -like 'CORVUS_*' -or $name -eq 'GHIDRA_INSTALL_DIR') -and -not [Environment]::GetEnvironmentVariable($name)) { Set-Item "env:$name" $user[$name] }
+    }
+}
+if ($Full -or $Background) { Import-UserTestVariables }
+
 if ($Status) {
     if (-not (Test-Path $result)) { Write-Host 'No background run yet.'; exit 0 }
     Write-Host (Get-Content $result -Raw).Trim()
