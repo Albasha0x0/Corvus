@@ -18,6 +18,8 @@ internal sealed class ClrHelperClient : IClrBackend, ILiveClrReads
     /// <summary>Overrides the decoder's path (tests and custom layouts).</summary>
     public const string PathVariable = "CORVUS_CLR32";
     private static readonly TimeSpan StartTimeout = TimeSpan.FromMinutes(2), CallTimeout = TimeSpan.FromMinutes(10);
+    /// <summary>A read of a running process serves a stop or a coverage sample: a slower one stops the decoder rather than the session.</summary>
+    internal static TimeSpan LiveCallTimeout { get; set; } = TimeSpan.FromSeconds(15);
     private const long MemoryLimit = 3L << 30;
 
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
@@ -100,28 +102,30 @@ internal sealed class ClrHelperClient : IClrBackend, ILiveClrReads
     public ObjectView? Object(ulong address, int depth, int maxFields, int maxArrayItems) =>
         Call<ObjectView?>(FormattableString.Invariant($"object\t{address}\t{depth}\t{maxFields}\t{maxArrayItems}"));
 
-    public void Refresh() => Call<object?>("refresh");
+    public void Refresh() => Call<object?>("refresh", LiveCallTimeout);
 
-    public LiveMethod? MethodAt(ulong ip) => Call<LiveMethod?>(FormattableString.Invariant($"method_at\t{ip}"));
+    public LiveMethod? MethodAt(ulong ip) => Call<LiveMethod?>(FormattableString.Invariant($"method_at\t{ip}"), LiveCallTimeout);
 
     public IReadOnlyList<ulong> Frames(uint thread, IReadOnlyDictionary<string, string> registers, int max) =>
-        Call<List<ulong>>(FormattableString.Invariant($"live_frames\t{thread}\t{max}\t{string.Join(';', registers.Select(r => Field(r.Key) + "=" + Field(r.Value)))}"));
+        Call<List<ulong>>(FormattableString.Invariant($"live_frames\t{thread}\t{max}\t{string.Join(';', registers.Select(r => Field(r.Key) + "=" + Field(r.Value)))}"), LiveCallTimeout);
 
     public LiveCode? CodeOf(string path, int typeToken, int methodToken) =>
-        Call<LiveCode?>(FormattableString.Invariant($"code_of\t{Field(path)}\t{typeToken}\t{methodToken}"));
+        Call<LiveCode?>(FormattableString.Invariant($"code_of\t{Field(path)}\t{typeToken}\t{methodToken}"), LiveCallTimeout);
 
-    public LiveModuleImage? ModuleImage(string path) => Call<LiveModuleImage?>($"module_image\t{Field(path)}");
+    public LiveModuleImage? ModuleImage(string path) => Call<LiveModuleImage?>($"module_image\t{Field(path)}", LiveCallTimeout);
 
-    public IReadOnlyList<uint> Prepared(string path) => Call<List<uint>>($"prepared\t{Field(path)}");
+    public IReadOnlyList<uint> Prepared(string path) => Call<List<uint>>($"prepared\t{Field(path)}", LiveCallTimeout);
 
     /// <summary>A request field: tabs and line breaks never occur in type names, so they are dropped; "-" stands for none.</summary>
     private static string Field(string? value) => string.IsNullOrEmpty(value) ? "-" : value.Replace('\t', ' ').Replace('\n', ' ').Replace('\r', ' ');
 
-    private T Call<T>(string request)
+    private T Call<T>(string request) => Call<T>(request, CallTimeout);
+
+    private T Call<T>(string request, TimeSpan timeout)
     {
         try { _input.WriteLine(request); }
         catch (IOException ex) { throw Exited(ex.Message); }
-        var value = Read(CallTimeout);
+        var value = Read(timeout);
         return value.ValueKind == JsonValueKind.Null ? default! : value.Deserialize<T>(Json)!;
     }
 
@@ -132,7 +136,7 @@ internal sealed class ClrHelperClient : IClrBackend, ILiveClrReads
         if (!line.Wait(timeout))
         {
             Dispose();
-            throw new ToolError(ErrorCode.Timeout, $"the 32-bit .NET decoder did not answer within {timeout.TotalMinutes:0} minutes and was stopped.", "call again");
+            throw new ToolError(ErrorCode.Timeout, $"the 32-bit .NET decoder did not answer within {timeout.TotalSeconds:0} s and was stopped.", "call again");
         }
         if (line.Result is not { } text) throw Exited("no answer");
         using var doc = JsonDocument.Parse(text);

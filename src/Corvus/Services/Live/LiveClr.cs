@@ -19,8 +19,14 @@ public sealed class LiveClr : IDisposable
     /// <summary>Runtime name and version, e.g. ".NET 10.0.11 (CoreCLR)".</summary>
     public string RuntimeName => _decoder.RuntimeName;
 
-    /// <summary>Why the runtime's code cannot be named (no DAC, no 32-bit decoder); null when it can.</summary>
-    public string? Unavailable => _decoder.Live == null ? $"{_decoder.Dac.Status}: {_decoder.Dac.Detail}" : null;
+    /// <summary>Why the runtime's code cannot be named (no DAC, no 32-bit decoder, the decoder stopped); null when it can.</summary>
+    public string? Unavailable => Lost is { } lost ? $"decoder_stopped: {lost}" : _decoder.Live == null ? $"{_decoder.Dac.Status}: {_decoder.Dac.Detail}" : null;
+
+    /// <summary>Why the 32-bit decoder process stopped (it failed, or a read took longer than its budget); null while it runs.</summary>
+    public string? Lost { get; private set; }
+
+    /// <summary>Called once, outside every read, when the decoder stops.</summary>
+    public Action<string>? Stopped { get; set; }
 
     /// <summary>The runtime of process <paramref name="pid"/>; null when it hosts none (yet).</summary>
     public static async Task<LiveClr?> OpenAsync(int pid, DacRequest request, CancellationToken ct)
@@ -42,12 +48,15 @@ public sealed class LiveClr : IDisposable
 
     private T? Read<T>(Func<ILiveClrReads, T> read)
     {
+        string? stopped = null;
         lock (_decoder.Gate)
         {
-            if (_decoder.Live is not { } live) return default;
+            if (Lost != null || _decoder.Live is not { } live) return default;
             try { return read(live); }
-            catch (ToolError) { return default; } // the 32-bit decoder stopped
+            catch (ToolError e) { Lost = stopped = e.Message; } // the 32-bit decoder failed or ran past its budget, and was ended
         }
+        Stopped?.Invoke(stopped);
+        return default;
     }
 
     /// <summary>Drops what was read before: the program has run since (new modules, code compiled, code moved to a later tier).</summary>

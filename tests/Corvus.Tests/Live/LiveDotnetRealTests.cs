@@ -380,13 +380,14 @@ public sealed class LiveDotnetRealTests(ITestOutputHelper output) : LiveToolCall
             var opened = await Ok(server, "live_session", new() { ["action"] = "spawn", ["program"] = exe, ["arguments"] = new[] { input, "1", "100000", "20" }, ["environment"] = variables, ["downloadDac"] = download });
             Assert.Contains(id, opened);
             await Ok(server, "live_break", new() { ["session"] = id, ["action"] = "continue" });
-            var refused = "";
-            for (int i = 0; i < 100 && !refused.Contains("cannot be read", StringComparison.Ordinal); i++)
+            // a point set while the runtime cannot be read names the reason, and waits for the JIT's compile
+            var set = "";
+            for (int i = 0; i < 100 && !set.Contains("cannot be read", StringComparison.Ordinal); i++)
             {
                 await Task.Delay(100);
-                refused = (await Call(server, "live_break", new() { ["session"] = id, ["action"] = "set", ["at"] = "Readers::ReadOnce" })).Text;
+                set = (await Call(server, "live_break", new() { ["session"] = id, ["action"] = "set", ["at"] = "Readers::ReadOnce" })).Text;
             }
-            Assert.True(refused.Contains($"cannot be read: {reason}", StringComparison.Ordinal), refused + "\n" + await Events(server, id, kind: "module"));
+            Assert.True(set.Contains($"cannot be read: {reason}", StringComparison.Ordinal), set +"\n" + await Events(server, id, kind: "module"));
             Assert.Contains("closed", await Ok(server, "live_session", new() { ["action"] = "close", ["session"] = id }));
         }
     }
@@ -548,7 +549,7 @@ public sealed class LiveDotnetRealTests(ITestOutputHelper output) : LiveToolCall
         await Refused(server, "live_coverage", new() { ["action"] = "report", ["run"] = runs[0], ["format"] = "dot" }, "unsupported");
     }
 
-    /// <summary>Builds a 32-bit .NET Framework program: Main calls Add <paramref name="rounds"/> times, 20 ms apart; Unused never runs.</summary>
+    /// <summary>Builds a 32-bit .NET Framework program: Main calls Add <paramref name="rounds"/> times, 20 ms apart, then Late; Unused never runs.</summary>
     private string Calc32(int rounds = 10)
     {
         File.WriteAllText(_dir.File("Directory.Build.props"), "<Project />");
@@ -568,8 +569,10 @@ public sealed class LiveDotnetRealTests(ITestOutputHelper output) : LiveToolCall
                 {
                     int t = 0;
                     for (int i = 0; i < {{rounds}}; i++) { t = Add(t, i); System.Threading.Thread.Sleep(20); }
-                    System.Console.WriteLine(t);
+                    System.Console.WriteLine(t + Late());
                 }
+                [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+                static int Late() { return 2; }
             }
             """);
         var (code, log) = Tools.Dotnet(_dir.Path, "build", "-c", "Release", "-o", "out", "-nologo");
@@ -618,6 +621,54 @@ public sealed class LiveDotnetRealTests(ITestOutputHelper output) : LiveToolCall
         Assert.Matches(@"ran  0x06000001  Calc::Add\(int, int\)", report);
         Assert.Matches(@"ran  0x06000003  Calc::Main\(\)", report);
         Assert.DoesNotMatch(@"ran  0x06000002", report);
+    }
+
+    /// <summary>
+    /// The 32-bit decoder stops mid-session (here one that never answers, ended at its per-read budget): the stop still
+    /// comes, the session says so once, and a coverage run read from the runtime goes on counting first compiles.
+    /// </summary>
+    [DotnetTargetFact("win-x64")]
+    public async Task A_32_bit_session_goes_on_when_its_decoder_stops()
+    {
+        var exe = Calc32(rounds: 250);
+        Directory.CreateDirectory(_dir.File("silent"));
+        File.WriteAllText(_dir.File(Path.Combine("silent", "silent.csproj")), """
+            <Project Sdk="Microsoft.NET.Sdk">
+              <PropertyGroup><OutputType>Exe</OutputType><TargetFramework>net10.0</TargetFramework></PropertyGroup>
+            </Project>
+            """);
+        File.WriteAllText(_dir.File(Path.Combine("silent", "Program.cs")), """
+            System.Console.Out.WriteLine("{\"ok\":true,\"value\":{\"runtime\":\"4.8\"}}");
+            System.Console.Out.Flush();
+            if (System.Console.ReadLine() != null) System.Threading.Thread.Sleep(System.Threading.Timeout.Infinite);
+            """);
+        var (code, log) = Tools.Dotnet(_dir.File("silent"), "build", "-c", "Release", "-o", "out", "-nologo");
+        var silent = _dir.File(Path.Combine("silent", "out", "silent.exe"));
+        Assert.True(code == 0 && File.Exists(silent), log);
+        using var decoder = new EnvironmentScope().Set(Corvus.Native.Dump.Managed.ClrHelperClient.PathVariable, silent);
+        var budget = Corvus.Native.Dump.Managed.ClrHelperClient.LiveCallTimeout;
+        Corvus.Native.Dump.Managed.ClrHelperClient.LiveCallTimeout = TimeSpan.FromSeconds(2);
+        try
+        {
+            await using var server = await Server();
+            await Spawn(server, exe, "live-1");
+            var start = await Ok(server, "live_coverage", new() { ["session"] = "live-1", ["action"] = "start", ["match"] = "Calc.exe!" });
+            var run = Regex.Match(start, @"^(cov-\d+) recording which of \d+ methods of Calc\.exe run in live-1, from the runtime's record");
+            Assert.True(run.Success, start);
+            await Ok(server, "live_break", new() { ["session"] = "live-1", ["action"] = "set", ["at"] = "Calc::Late" });
+            await Ok(server, "live_break", new() { ["session"] = "live-1", ["action"] = "continue" });
+            var stop = await Ok(server, "live_break", new() { ["session"] = "live-1", ["action"] = "list", ["wait"] = true, ["waitSeconds"] = 60 });
+            Assert.Matches(@"thread \d+ stopped at s1", stop);
+            await Ok(server, "live_break", new() { ["session"] = "live-1", ["action"] = "clear", ["stopPoint"] = "s1" });
+            await Ok(server, "live_break", new() { ["session"] = "live-1", ["action"] = "continue" });
+            await UntilExited(server, "live-1");
+            var report = await Ok(server, "live_coverage", new() { ["action"] = "report", ["run"] = run.Groups[1].Value });
+            Assert.Matches(@"ran  0x06000004  Calc::Late\(\)", report);
+            var events = await Ok(server, "live_events", new() { ["session"] = "live-1", ["kind"] = "error" });
+            Assert.Single(Regex.Matches(events, "the 32-bit .NET decoder stopped"));
+            Assert.Contains($"{run.Groups[1].Value} counts first compiles from now on", events);
+        }
+        finally { Corvus.Native.Dump.Managed.ClrHelperClient.LiveCallTimeout = budget; }
     }
 
     /// <summary>

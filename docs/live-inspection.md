@@ -145,8 +145,10 @@ for an overload, or `app.dll!Ns.Type::Method`); a method without code yet is def
 first call is caught, `Main` included. When tiered compilation compiles the method again, the point is set on the new
 code as well; a compile for a running loop (on-stack replacement) is left unhooked. An assembly bundled into a single-file app, or a
 .NET Framework assembly whose native image (`name.ni.dll`) loads in its place, is named the same way. A 32-bit runtime is read by the bundled 32-bit decoder process
-(`clr32/`), which checks the DAC's hash before loading it. Another architecture, or a runtime whose DAC cannot be found, leaves
-managed code unnamed. A session opened with `downloadDac=true` fetches a DAC found nowhere on this
+(`clr32/`), which checks the DAC's hash before loading it. Each of its reads has a 15-second budget; a decoder that fails
+or runs past it is ended, the session says so once in its events and goes on naming managed code from the JIT's compiles,
+and its managed coverage runs count first compiles from then on. Another architecture, or a runtime whose DAC cannot be found, leaves
+managed code unnamed; a stop point on a managed method is then set when the JIT compiles it. A session opened with `downloadDac=true` fetches a DAC found nowhere on this
 machine from a symbol server, into the same signature-checked cache as `open_minidump downloadDac=true`; it is off by
 default and refused under `CORVUS_OFFLINE=1`.
 

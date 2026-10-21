@@ -726,7 +726,9 @@ public sealed partial class LiveSessionTools(ServerOptions options, LiveSessionS
     private static string Src(string? source) => source != null ? "  " + source : "";
 
     private static string Deferred((LiveDeferred Point, bool Held) d) =>
-        d.Point.UntilCompiled
+        d.Point is { UntilCompiled: true, Unreadable: { } reason }
+            ? $"{d.Point.Id} deferred: {d.Point.Module} has no code yet, and the program's runtime cannot be read: {reason}; it is set when the JIT compiles it"
+        : d.Point.UntilCompiled
             ? $"{d.Point.Id} deferred: {d.Point.Module} has no code yet (the runtime compiles it at its first call); it is set once it is compiled, so the first calls may be missed"
             : $"{d.Point.Id} deferred: {d.Point.Module} is not loaded; it is set when {d.Point.Module} loads" +
               (d.Held ? ", before the module's code runs" : " (calls before then are missed)");

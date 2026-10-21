@@ -104,7 +104,10 @@ public sealed class LiveCoverageRun
     internal bool IsExit(string pointId) => _exits.ContainsKey(pointId);
 
     /// <summary>A managed run counted from the JIT's compiles (the runtime cannot be read): the methods' IL bodies, by address, and their tokens.</summary>
-    internal IReadOnlyDictionary<ulong, uint>? JitBodies { get; init; }
+    internal IReadOnlyDictionary<ulong, uint>? JitBodies { get; set; }
+
+    /// <summary>The counted assembly's file, for a managed run.</summary>
+    internal string? AssemblyPath { get; init; }
 
     /// <summary>A managed run: records the methods that have run so far; with wait, after a read in progress ends (a last read before the run is complete).</summary>
     internal Func<bool, Task>? Sample { get; set; }
@@ -414,7 +417,7 @@ public sealed partial class LiveSessionService
         if (await ClrAsync(session, ct).ConfigureAwait(false) is { Unavailable: { } reason } && !reason.StartsWith("load_failed", StringComparison.Ordinal))
             return await StartJitCoverageAsync(session, asm, points, reason, ct).ConfigureAwait(false);
         if (BeforeCoverageRun is { } before) await before().ConfigureAwait(false);
-        var run = new LiveCoverageRun("cov-" + Interlocked.Increment(ref _nextCoverage), session, file, asm.OriginalSha256, points);
+        var run = new LiveCoverageRun("cov-" + Interlocked.Increment(ref _nextCoverage), session, file, asm.OriginalSha256, points) { AssemblyPath = asm.FilePath };
         var tokens = points.Select(p => p.Rva).ToHashSet();
         var path = asm.FilePath;
         run.Sample = wait => run.SampleAsync(async () =>
@@ -451,23 +454,14 @@ public sealed partial class LiveSessionService
     private async Task<LiveCoverageRun> StartJitCoverageAsync(LiveSession session, LoadedAssembly asm, List<LiveCoveragePoint> points, string reason, CancellationToken ct)
     {
         var file = Path.GetFileName(asm.FilePath);
-        var bodies = new Dictionary<ulong, uint>();
-        foreach (var p in points)
-            foreach (var il in IlBodies(session, new LiveManagedTarget(asm.FilePath, 0, (int)p.Rva, p.Name, p.Name)))
-                bodies[il] = p.Rva;
+        var bodies = JitBodiesOf(session, asm.FilePath, points);
         if (bodies.Count == 0)
             throw new ToolError(ErrorCode.Unsupported, $"The program's runtime cannot be read ({reason}), and {file} is not loaded yet, so its methods' compiles cannot be watched.",
                 "start the run once the assembly has loaded, or count a native module with match=module!part");
         if (BeforeCoverageRun is { } before) await before().ConfigureAwait(false);
-        var run = new LiveCoverageRun("cov-" + Interlocked.Increment(ref _nextCoverage), session, file, asm.OriginalSha256, points) { JitBodies = bodies };
+        var run = new LiveCoverageRun("cov-" + Interlocked.Increment(ref _nextCoverage), session, file, asm.OriginalSha256, points) { JitBodies = bodies, AssemblyPath = asm.FilePath };
         _coverage[run.Id] = run;
-        try
-        {
-            await session.Worker.RequestAsync("count_jit", new JsonObject
-            {
-                ["run"] = run.Id, ["ils"] = new JsonArray([.. bodies.Keys.Select(il => (JsonNode)$"0x{il:X}")]),
-            }, RequestTimeout, ct).ConfigureAwait(false);
-        }
+        try { await CountJitAsync(session, run, ct).ConfigureAwait(false); }
         catch
         {
             _coverage.TryRemove(run.Id, out _);
@@ -475,6 +469,30 @@ public sealed partial class LiveSessionService
         }
         EndedMeanwhile(session, run);
         return run;
+    }
+
+    /// <summary>The IL bodies of the methods <paramref name="points"/> name, by address, and their tokens.</summary>
+    private Dictionary<ulong, uint> JitBodiesOf(LiveSession session, string assembly, IEnumerable<LiveCoveragePoint> points)
+    {
+        var bodies = new Dictionary<ulong, uint>();
+        foreach (var p in points)
+            foreach (var il in IlBodies(session, new LiveManagedTarget(assembly, 0, (int)p.Rva, p.Name, p.Name)))
+                bodies[il] = p.Rva;
+        return bodies;
+    }
+
+    private static Task CountJitAsync(LiveSession session, LiveCoverageRun run, CancellationToken ct) =>
+        session.Worker.RequestAsync("count_jit", new JsonObject
+        {
+            ["run"] = run.Id, ["ils"] = new JsonArray([.. run.JitBodies!.Keys.Select(il => (JsonNode)$"0x{il:X}")]),
+        }, RequestTimeout, ct);
+
+    /// <summary>A run read from the runtime goes on counting the first compiles of the methods that have not run yet.</summary>
+    private async Task CountCompilesAsync(LiveSession session, LiveCoverageRun run)
+    {
+        run.JitBodies = JitBodiesOf(session, run.AssemblyPath!, run.Points.Where(p => run.HitsAt(p.Rva) == 0));
+        try { await CountJitAsync(session, run, CancellationToken.None).ConfigureAwait(false); }
+        catch (Exception e) when (e is ToolError or TimeoutException or OperationCanceledException) { }
     }
 
     /// <summary>The session script saw the first compile of a method a JIT-counted run watches.</summary>

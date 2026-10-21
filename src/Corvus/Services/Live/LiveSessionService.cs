@@ -37,6 +37,8 @@ public sealed record LiveStopPointState(string Id, string Where, ulong Address, 
 public sealed record LiveDeferred(string Id, string Where, string Module, bool Watch, int PerSecond, int RawArguments)
 {
     public bool UntilCompiled { get; init; }
+    /// <summary>Why the runtime cannot be read, when only the backend's JIT hook tells when the method is compiled.</summary>
+    public string? Unreadable { get; init; }
     /// <summary>Where the method's IL body is mapped, which the backend's JIT hook reports the compile of; empty when unknown.</summary>
     public IReadOnlyList<ulong> IlBodies { get; init; } = [];
 }

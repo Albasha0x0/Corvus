@@ -43,9 +43,22 @@ public sealed partial class LiveSessionService
             session.ClrTriedAt = modules;
             try { session.Clr = await LiveClr.OpenAsync(session.ProcessId, new Native.Dump.Managed.DacRequest(Download: session.DownloadDac), ct).ConfigureAwait(false); }
             catch (ToolError) { session.Clr = null; } // the process exited meanwhile
+            if (session.Clr != null) session.Clr.Stopped = why => DecoderStopped(session, why);
             return session.Clr;
         }
         finally { session.ClrOpen.Release(); }
+    }
+
+    /// <summary>
+    /// The 32-bit decoder stopped mid-session: managed code is named from the JIT's compiles from then on, and the session's
+    /// managed coverage runs count first compiles; said once, in the session's events.
+    /// </summary>
+    private void DecoderStopped(LiveSession session, string why)
+    {
+        var runs = _coverage.Values.Where(r => r.Session == session.Id && r.AssemblyPath != null && r.JitBodies == null && r.State == "recording").ToList();
+        session.Add("error", null, null, $"the 32-bit .NET decoder stopped ({why}); managed frames are named from the JIT's compiles only"
+                                         + (runs.Count > 0 ? $", and {string.Join(", ", runs.Select(r => r.Id))} count{(runs.Count == 1 ? "s" : "")} first compiles from now on" : ""));
+        foreach (var run in runs) _ = CountCompilesAsync(session, run);
     }
 
     /// <summary>Whether the program has loaded a .NET runtime: its library, or a single-file host's runtime export.</summary>
@@ -231,19 +244,26 @@ public sealed partial class LiveSessionService
                 || NativeImageOf(m.Name)?.Equals(target.File, StringComparison.OrdinalIgnoreCase) == true);
         if (!loaded) return await DeferAsync(session, $"{target.File}!{target.Member}", watch, perSecond, rawArguments, ct, id).ConfigureAwait(false);
         if (await ManagedCodeAsync(session, target, ct).ConfigureAwait(false) != null) return null;
-        var clr = session.Clr;
-        if (clr?.Unavailable is { } reason && !reason.StartsWith("load_failed", StringComparison.Ordinal))
-            throw new ToolError(ErrorCode.Unsupported, $"{target.Display} is JIT-compiled code, and the program's runtime cannot be read: {reason}.",
-                "publish the program ReadyToRun (its methods then have code before they run), or stop at a native function it calls");
+        // without the runtime only the backend's hook on the JIT tells when the method is compiled
+        var unreadable = session.Clr?.Unavailable is { } reason && !reason.StartsWith("load_failed", StringComparison.Ordinal) ? reason : null;
+        ToolError Unreadable() => new(ErrorCode.Unsupported, $"{target.Display} is JIT-compiled code, and the program's runtime cannot be read: {unreadable}.",
+            "publish the program ReadyToRun (its methods then have code before they run), or stop at a native function it calls");
         var d = new LiveDeferred(id ?? (watch ? session.NextWatchId() : session.NextPointId()), $"{target.File}!{target.Member}", target.Display, watch, perSecond, rawArguments)
         {
             UntilCompiled = true,
+            Unreadable = unreadable,
             IlBodies = IlBodies(session, target),
         };
+        if (unreadable != null && d.IlBodies.Count == 0) throw Unreadable();
         lock (session.Deferred) session.Deferred.Add(d);
         // the backend holds the thread that compiles the method, so its first call stops; without the hook the runtime is read until it has code
         foreach (var il in d.IlBodies)
             try { await session.Worker.RequestAsync("watch_jit", new JsonObject { ["il"] = $"0x{il:X}" }, RequestTimeout, ct).ConfigureAwait(false); }
+            catch (ToolError) when (unreadable != null)
+            {
+                lock (session.Deferred) session.Deferred.Remove(d);
+                throw Unreadable();
+            }
             catch (ToolError) { break; } // a worker without the op
         session.CompileCheck ??= new Timer(_ => _ = CheckCompiledAsync(session), null, CompileCheckPeriod, CompileCheckPeriod);
         return (d, false);
