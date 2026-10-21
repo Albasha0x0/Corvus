@@ -101,6 +101,50 @@ public sealed class JvmClassTests(Xunit.Abstractions.ITestOutputHelper output)
         return [.. file];
     }
 
+    /// <summary>module-info of module m@1: requires java.base, uses p.S, and two provides (p.S with p.A, p.B; p.T with p.C).</summary>
+    internal static byte[] ModuleInfo()
+    {
+        var pool = new List<byte[]>();
+        int Add(params byte[] entry) { pool.Add(entry); return pool.Count; }
+        int Utf(string s) { var b = Encoding.UTF8.GetBytes(s); return Add([1, (byte)(b.Length >> 8), (byte)b.Length, .. b]); }
+        byte[] U2(int v) => [(byte)(v >> 8), (byte)v];
+        int Class(string name) => Add([7, .. U2(Utf(name))]);
+        int Module(string name) => Add([19, .. U2(Utf(name))]);
+        int self = Class("module-info"), source = Utf("SourceFile"), sourceName = Utf("module-info.java"), moduleAttr = Utf("Module");
+        int m = Module("m"), version = Utf("1"), javaBase = Module("java.base");
+        int s = Class("p/S"), t = Class("p/T"), a = Class("p/A"), b = Class("p/B"), c = Class("p/C");
+        byte[] body = [.. U2(m), 0, 0, .. U2(version),
+            0, 1, .. U2(javaBase), 0x80, 0, 0, 0,
+            0, 0, 0, 0,
+            0, 1, .. U2(s),
+            0, 2, .. U2(s), 0, 2, .. U2(a), .. U2(b), .. U2(t), 0, 1, .. U2(c)];
+        var file = new List<byte>([0xCA, 0xFE, 0xBA, 0xBE, 0, 0, 0, 53]);
+        file.AddRange(U2(pool.Count + 1));
+        foreach (var e in pool) file.AddRange(e);
+        file.AddRange([0x80, 0, .. U2(self), 0, 0, 0, 0, 0, 0, 0, 0]);
+        file.AddRange([0, 2, .. U2(source), 0, 0, 0, 2, .. U2(sourceName)]);
+        file.AddRange([.. U2(moduleAttr), .. BitConverter.GetBytes(System.Buffers.Binary.BinaryPrimitives.ReverseEndianness(body.Length)), .. body]);
+        return [.. file];
+    }
+
+    [Fact]
+    public void Module_info_with_several_provides_lists_as_javap_does()
+    {
+        Assert.Equal("""
+            Compiled from "module-info.java"
+            module m@1 {
+              requires java.base;
+              uses p.S;
+              provides  p.S with
+                p.A,
+                p.B;
+              provides  p.T with
+                p.C;
+            }
+
+            """, JvmListing.Class(JvmClass.Read(ModuleInfo())));
+    }
+
     [Fact]
     public void Disassemble_dex_lists_a_jar_of_class_files_as_javap_does()
     {

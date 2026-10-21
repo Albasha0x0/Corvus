@@ -237,9 +237,10 @@ public sealed class JvmListing
             _out.Println(";");
         }
         p += 2 + 2 * _c.U2(p);
-        for (int i = 0, n = _c.U2(p); i < n; i++)
+        int provides = _c.U2(p);
+        p += 2;
+        for (int i = 0; i < provides; i++)
         {
-            p += 2;
             _out.Print("provides  ");
             _out.Print(_c.ClassName(_c.U2(p)).Replace('/', '.'));
             int with = _c.U2(p + 2);
@@ -251,7 +252,7 @@ public sealed class JvmListing
             }
             _out.Println(";");
             if (with > 0) _out.Indent(-1);
-            p += 2 + 2 * with - 2;
+            p += 4 + 2 * with;
         }
     }
 
