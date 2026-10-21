@@ -114,6 +114,8 @@ public sealed class LiveSession
     public string Arch { get; internal set; } = "";
     /// <summary>windows, linux or darwin (Frida's names).</summary>
     public string Platform { get; internal set; } = "";
+    /// <summary>An x64 or x86 program on an ARM64 Windows machine, which runs it under emulation.</summary>
+    public bool Emulated => OperatingSystem.IsWindows() && System.Runtime.InteropServices.RuntimeInformation.OSArchitecture == System.Runtime.InteropServices.Architecture.Arm64 && Arch is "x64" or "ia32";
     internal WorkerConnection Worker { get; }
     /// <summary>Unwinds stops from the stack bytes they carry (outside Windows); null where the architecture has no register file.</summary>
     internal LiveStackWalk? Stacks { get; set; }
@@ -1075,13 +1077,23 @@ public sealed partial class LiveSessionService(AssemblyWorkspace workspace, Nati
             }
             var m = Named()
                     ?? throw new ToolError(ErrorCode.NotFound, $"The program has no module '{name}'.", "live_session action=status lists its modules");
+            var export = t[(bang + 1)..];
             var native = ImageOf(m);
-            if (native == null) throw new ToolError(ErrorCode.Unsupported, $"{m.Path} could not be loaded as a native image.", "pass a live address instead");
-            try { return m.Base + await RvaOf(native, t[(bang + 1)..], ct).ConfigureAwait(false); }
-            catch (ToolError e) when (e.Code == ErrorCode.NotFound)
-            {
-                throw await WithLayerNameAsync(e, m, native, t[(bang + 1)..], ct).ConfigureAwait(false);
-            }
+            // An emulated program calls a hybrid DLL's x64 or x86 view (ARM64X,
+            // CHPE), whose exports the file's own table does not hold. Other
+            // files answer for themselves, since the program's lookup waits on
+            // a loader lock a held load keeps.
+            if (session.Emulated && native?.Image is Native.Pe.PeFile { LoadConfig.ChpeMetadataPointer: not 0 }
+                && await ExportAsync(session, m.Name, export, ct).ConfigureAwait(false) is { } emulated) return emulated;
+            ToolError missing;
+            if (native == null) missing = new ToolError(ErrorCode.Unsupported, $"{m.Path} could not be loaded as a native image.", "pass a live address instead");
+            else
+                try { return m.Base + await RvaOf(native, export, ct).ConfigureAwait(false); }
+                catch (ToolError e) when (e.Code == ErrorCode.NotFound) { missing = e; }
+            // The loader's own view answers for a module whose file is not on
+            // disk (the dyld shared cache).
+            if (await ExportAsync(session, m.Name, export, ct).ConfigureAwait(false) is { } loaded) return loaded;
+            throw native != null && missing.Code == ErrorCode.NotFound ? await WithLayerNameAsync(missing, m, native, export, ct).ConfigureAwait(false) : missing;
         }
         if (t.StartsWith("0x", StringComparison.OrdinalIgnoreCase) && ulong.TryParse(t[2..], NumberStyles.HexNumber, CultureInfo.InvariantCulture, out var value))
         {
@@ -1150,6 +1162,9 @@ public sealed partial class LiveSessionService(AssemblyWorkspace workspace, Nati
             LiveModuleState? m;
             lock (session.Modules) m = session.Modules.FirstOrDefault(x => x.Contains(address));
             if (m == null || Match(m) is not { } native) break;
+            // In an ARM64X module of an emulated x64 program, the file's code
+            // is not the code the program runs.
+            if (session.Emulated && native.Image.Arch == NativeArch.Arm64) break;
             var index = code.Ready(native) ?? await code.Index(native, null, ct).ConfigureAwait(false);
             var rva = (uint)(address - m.Base);
             if (index.Decode(rva) is not { } insn) break;
@@ -1566,6 +1581,14 @@ public sealed partial class LiveSessionService(AssemblyWorkspace workspace, Nati
         if (!started && thread == null && session.HeldBy != null && session.Suspended) started = await StartHeldChildAsync(session, ct).ConfigureAwait(false);
         if (started) session.Suspended = false;
         return (resumed, started);
+    }
+
+    /// <summary>The live address of a module's export as the program's loader resolves it; null when the module has no such export.</summary>
+    private async Task<ulong?> ExportAsync(LiveSession session, string module, string name, CancellationToken ct)
+    {
+        if (session.Closed || session.Ended != null) return null;
+        var r = await session.Worker.RequestAsync("export", new JsonObject { ["module"] = module, ["name"] = name }, RequestTimeout, ct).ConfigureAwait(false);
+        return r.GetProperty("address").GetString() is { } a ? Convert.ToUInt64(a[2..], 16) : null;
     }
 
     /// <summary>Bytes at a live address; null when the program cannot be read there.</summary>

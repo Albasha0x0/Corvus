@@ -435,6 +435,8 @@ def handle(state, op, args):
         return state.load_script(args)
     if op == "unload_script":
         return state.unload_script(args)
+    if op == "export":
+        return {"address": state.require().export_of(args["module"], args["name"])}
     if op == "read":
         data = state.require().read(args["address"], int(args["length"]))
         return {"bytes": None if data is None else bytes(data).hex()}

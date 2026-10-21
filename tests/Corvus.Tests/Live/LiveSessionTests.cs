@@ -31,6 +31,8 @@ internal sealed class ScriptedLiveBackend(string mainPath, ulong mainBase, uint 
     private readonly List<long> _held = [];
     /// <summary>Addresses the backend cannot hook, as Frida refuses a function too short for its jump.</summary>
     public readonly HashSet<ulong> Unhookable = [];
+    /// <summary>Exports the program's loader resolves (module!name), for modules with no file to read.</summary>
+    public readonly Dictionary<string, ulong> Exports = [];
     /// <summary>What the session script was told to read for each watch.</summary>
     public readonly Dictionary<string, List<string>> WatchedKinds = [];
     /// <summary>Lists the program's module after the system one, as Frida may order them.</summary>
@@ -188,6 +190,8 @@ internal sealed class ScriptedLiveBackend(string mainPath, ulong mainBase, uint 
                     bytes[i] = Memory.FirstOrDefault(m => a >= m.Key && a - m.Key < (ulong)m.Value.Length) is { Value: { } block, Key: var start } ? block[a - start] : (byte)0;
                 }
                 return new JsonObject { ["bytes"] = Convert.ToHexStringLower(bytes) };
+            case "export":
+                return new JsonObject { ["address"] = Exports.TryGetValue($"{args["module"]}!{args["name"]}", out var export) ? $"0x{export:x}" : null };
             default: return null;
         }
     }
@@ -243,6 +247,16 @@ public sealed class LiveSessionTests : IDisposable
         Assert.Contains("statically linked", refused.Message);
         Assert.Contains("gcore", refused.Remediation);
         Assert.Null(_backend.Worker);
+    }
+
+    [Fact]
+    public async Task A_module_without_a_file_resolves_its_export_through_the_program()
+    {
+        await _tools.LiveSession("spawn", program: Sqlite);
+        var missing = await Assert.ThrowsAsync<ToolError>(() => _tools.LiveBreak("live-1", "set", at: "system!open"));
+        Assert.Contains("could not be loaded as a native image", missing.Message);
+        _backend.Exports["system.dll!open"] = 0x7ffe00001230;
+        Assert.Contains("s1 set at 0x7FFE00001230 ", await _tools.LiveBreak("live-1", "set", at: "system!open"));
     }
 
     [Fact]

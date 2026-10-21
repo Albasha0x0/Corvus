@@ -590,6 +590,10 @@ rpc.exports = {
     delete watches[id];
     return true;
   },
+  exportOf(module, name) {
+    const m = Process.findModuleByName(module), e = m === null ? null : m.findExportByName(name);
+    return e === null ? null : e.toString();
+  },
   read(address, length) {
     try {
       const b = ptr(address).readByteArray(length);
