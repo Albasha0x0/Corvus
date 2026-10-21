@@ -187,10 +187,17 @@ internal sealed class SquashfsReader : IContainerReader
             }
         }
 
+        /// <summary>The position after an inode's 16-byte common header, which may end in the next metadata block.</summary>
+        private (long Block, int Offset) AfterHeader((long Block, int Offset) at)
+        {
+            var (block, offset) = at;
+            Meta(ref block, ref offset, 16);
+            return (block, offset);
+        }
+
         private void Symlink(string path, (long Block, int Offset) at)
         {
-            long block = at.Block;
-            int offset = at.Offset + 16;
+            var (block, offset) = AfterHeader(at);
             var d = Meta(ref block, ref offset, 8);
             int size = (int)Math.Min(BinaryPrimitives.ReadUInt32LittleEndian(d.AsSpan(4)), 4096);
             _tree.Link(path, Encoding.UTF8.GetString(Meta(ref block, ref offset, size)));
@@ -198,8 +205,7 @@ internal sealed class SquashfsReader : IContainerReader
 
         private void File(string path, (long Block, int Offset) at, int type)
         {
-            long block = at.Block;
-            int offset = at.Offset + 16;
+            var (block, offset) = AfterHeader(at);
             long blocksStart, size;
             uint fragment, fragOffset;
             if (type == 2)

@@ -72,6 +72,86 @@ public sealed class FirmwareFilesystemTests
         Assert.Equal(c.Items.Select(i => Blob.Sha256(i.Bytes)), streamed.Items.Select(i => Blob.Sha256(i.Bytes)));
     }
 
+    /// <summary>
+    /// A squashfs 4.0 image with stored (uncompressed) metadata blocks whose symbolic link and file inodes start 8 and 4 bytes
+    /// before the end of a metadata block, so each inode's common header continues in the next block.
+    /// </summary>
+    internal static byte[] SquashfsWithHeadersAcrossBlocks(byte[] content)
+    {
+        const int Meta = 8192, BlockSize = 4096, DataAt = 96;
+        var inodes = new byte[3 * Meta];
+        void Header(int at, int type, int number)
+        {
+            BitConverter.TryWriteBytes(inodes.AsSpan(at), (ushort)type);
+            BitConverter.TryWriteBytes(inodes.AsSpan(at + 2), (ushort)(type == 3 ? 0x1FF : 0x1ED));
+            BitConverter.TryWriteBytes(inodes.AsSpan(at + 12), number);
+        }
+        int linkAt = Meta - 8, fileAt = 2 * Meta - 4;
+        var target = "../bin/busybox"u8.ToArray();
+        Header(linkAt, 3, 2);
+        BitConverter.TryWriteBytes(inodes.AsSpan(linkAt + 16), 1);
+        BitConverter.TryWriteBytes(inodes.AsSpan(linkAt + 20), target.Length);
+        target.CopyTo(inodes, linkAt + 24);
+        Header(fileAt, 2, 3);
+        BitConverter.TryWriteBytes(inodes.AsSpan(fileAt + 16), DataAt);
+        BitConverter.TryWriteBytes(inodes.AsSpan(fileAt + 20), uint.MaxValue);
+        BitConverter.TryWriteBytes(inodes.AsSpan(fileAt + 28), content.Length);
+        BitConverter.TryWriteBytes(inodes.AsSpan(fileAt + 32), content.Length | 0x1000000);
+        // the directory listing: one header per inode block, then its entries
+        var dir = new MemoryStream();
+        void Entry(int block, int offset, int type, string name)
+        {
+            foreach (var v in new[] { 0, block * (Meta + 2), 2 }) dir.Write(BitConverter.GetBytes(v));
+            dir.Write(BitConverter.GetBytes((ushort)offset));
+            dir.Write(BitConverter.GetBytes((short)0));
+            dir.Write(BitConverter.GetBytes((ushort)type));
+            dir.Write(BitConverter.GetBytes((ushort)(name.Length - 1)));
+            dir.Write(Encoding.ASCII.GetBytes(name));
+        }
+        Entry(0, linkAt, 3, "init");
+        Entry(1, fileAt % Meta, 2, "data.bin");
+        Header(0, 1, 1);
+        BitConverter.TryWriteBytes(inodes.AsSpan(20), 2);
+        BitConverter.TryWriteBytes(inodes.AsSpan(24), (ushort)(dir.Length + 3));
+        static byte[] Stored(byte[] data, int size)
+        {
+            var o = new MemoryStream();
+            for (int at = 0; at < data.Length; at += size)
+            {
+                int n = Math.Min(size, data.Length - at);
+                o.Write(BitConverter.GetBytes((ushort)(n | 0x8000)));
+                o.Write(data, at, n);
+            }
+            return o.ToArray();
+        }
+        var inodeTable = Stored(inodes, Meta);
+        var dirTable = Stored(dir.ToArray(), Meta);
+        long inodeAt = DataAt + content.Length, dirAt = inodeAt + inodeTable.Length, end = dirAt + dirTable.Length;
+        var sb = new byte[96];
+        "hsqs"u8.CopyTo(sb);
+        BitConverter.TryWriteBytes(sb.AsSpan(4), 3);
+        BitConverter.TryWriteBytes(sb.AsSpan(12), BlockSize);
+        BitConverter.TryWriteBytes(sb.AsSpan(20), (ushort)1);
+        BitConverter.TryWriteBytes(sb.AsSpan(22), (ushort)12);
+        BitConverter.TryWriteBytes(sb.AsSpan(26), (ushort)1);
+        BitConverter.TryWriteBytes(sb.AsSpan(28), (ushort)4);
+        BitConverter.TryWriteBytes(sb.AsSpan(40), end);
+        foreach (var at in new[] { 48, 56, 80, 88 }) BitConverter.TryWriteBytes(sb.AsSpan(at), end);
+        BitConverter.TryWriteBytes(sb.AsSpan(64), inodeAt);
+        BitConverter.TryWriteBytes(sb.AsSpan(72), dirAt);
+        return [.. sb, .. content, .. inodeTable, .. dirTable];
+    }
+
+    [Fact]
+    public void Squashfs_inode_headers_continue_in_the_next_metadata_block()
+    {
+        var content = Encoding.ASCII.GetBytes(new string('x', 100));
+        var c = Containers.Open(SquashfsWithHeadersAcrossBlocks(content), "rootfs.squashfs", AnalysisLimits.Default, default, allFiles: true);
+        Assert.DoesNotContain(c.Notes, n => n.Contains("unreadable", StringComparison.Ordinal));
+        Assert.Contains(c.Entries!, e => e.Path == "init" && e.Detail == "symbolic link to ../bin/busybox");
+        Assert.Equal(content, c.Items.Single(i => i.Name == "data.bin").Bytes);
+    }
+
     [Theory]
     [InlineData("cramfs-le.img", "cramfs")]
     [InlineData("cramfs-be.img", "cramfs")]
