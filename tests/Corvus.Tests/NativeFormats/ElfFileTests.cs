@@ -58,6 +58,18 @@ public sealed class ElfFileTests(ITestOutputHelper output)
         Assert.Equal([("puts", 0x20300u), ("shared_counter", 0x20304u)], elf.Imports.Select(i => (i.Name, i.SlotRva)));
     }
 
+    /// <summary>
+    /// A non-PIC MIPS executable binds its calls through the MIPS PLT: R_MIPS_JUMP_SLOT in DT_JMPREL.
+    /// The fixture: clang -target mips-linux-gnu -O2 -fno-pic -mno-abicalls -nostdlib -fuse-ld=lld of a call to puts, linked to a stub library.
+    /// </summary>
+    [Fact]
+    public void Mips_plt_slots_are_imports()
+    {
+        var elf = ElfFile.FromBytes(File.ReadAllBytes(Path.Combine(AppContext.BaseDirectory, "Engines", "IsaFixtures", "mips32be-plt.elf")), "mips32be-plt.elf");
+        var puts = Assert.Single(elf.Imports);
+        Assert.Equal(("puts", 0x2032Cu - (uint)elf.ImageBase, true), (puts.Name, puts.SlotRva, puts.IsDelayLoad));
+    }
+
     [Fact]
     public void SharedObject_ImageModel()
     {

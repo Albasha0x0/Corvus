@@ -99,7 +99,7 @@ public sealed partial class ElfFile
             {
                 var sym = d.Symbols[(int)i];
                 if (sym.IsDefined || sym.Name.Length == 0 || !TryVaToRva(got + (localGot + i - gotSym) * (ulong)word, out uint rva) || !importSlots.Add(rva)) continue;
-                imports.Add(new NativeImport(sym.VersionLibrary ?? "*", sym.Name, null, 0, rva, lazy));
+                imports.Add(new NativeImport(sym.VersionLibrary ?? "*", sym.Name, null, 0, rva, false));
             }
         rvas.Sort();
         return new RelocationInfo(all, new FixupOverlay(fixups, BigEndian), imports, [.. rvas.Distinct()]);

@@ -187,6 +187,17 @@ public static class ElfNames
             248 => ElfRelocationKind.IRelative,
             _ => ElfRelocationKind.Other,
         },
+        // R_MIPS_REL32 is relative in practice: dynamic linkers emit it against symbol 0 (imports go through the GOT or the PLT)
+        EmMips => type switch
+        {
+            0 => ElfRelocationKind.None,
+            2 => ElfRelocationKind.Absolute,
+            3 => ElfRelocationKind.Relative,
+            126 => ElfRelocationKind.Copy,
+            127 => ElfRelocationKind.JumpSlot,
+            38 or 39 or 40 or 41 or 47 or 48 => ElfRelocationKind.Tls,
+            _ => ElfRelocationKind.Other,
+        },
         _ => type == 0 ? ElfRelocationKind.None : ElfRelocationKind.Other,
     };
 
