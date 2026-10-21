@@ -17,7 +17,7 @@
             "type": "string"
           },
           "address": {
-            "description": "Null while deferred.",
+            "description": "Null unless set.",
             "type": "string"
           },
           "hits": {
@@ -25,6 +25,10 @@
           },
           "followed": {
             "description": "The jump followed, if any.",
+            "type": "string"
+          },
+          "state": {
+            "description": "set, deferred (until its module loads or method compiles) or failed (deferred, then not set).",
             "type": "string"
           }
         },

@@ -155,7 +155,10 @@ default and refused under `CORVUS_OFFLINE=1`.
 
 A stop point or watch on `module!name` whose module is not loaded yet is deferred, as a debugger defers an unresolved
 breakpoint: the loading thread waits at the module's load, before any of the module's code runs, until the point is set
-(a `module` event says so), so its first call is caught. A stop point on a jump is set where the jump leads; when it leads
+(a `module` event says so), so its first call is caught. A deferred point the loaded module does not resolve is
+dropped: the next `live_break` or `live_watch` call says why, the list shows it as failed until it is cleared, and a
+managed name (`Ns.Type::Method`) that an Il2Cpp or NativeAOT layer names `Ns_Type__Method` gets that name as its next
+step. A stop point on a jump is set where the jump leads; when it leads
 through a pointer in a writable section (a delay-load import, an export that jumps through a table filled on first use),
 the point moves when the program rebinds the pointer, and a `module` event says so. An address inside an instruction, a stop point in the first 16 bytes of a watched or counted function (or a watch or count over one),
 two stop points whose hook jumps would overlap (closer than 5 bytes on 32-bit x86, 16 elsewhere), a watch past a function's

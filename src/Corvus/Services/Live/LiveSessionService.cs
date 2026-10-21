@@ -7,6 +7,7 @@ using System.Text.Json.Nodes;
 using System.Text.RegularExpressions;
 using Corvus.Core;
 using Corvus.Native;
+using Corvus.Native.Annotations;
 using Corvus.Native.Calls;
 using Corvus.Native.Code;
 using Corvus.Native.Providers;
@@ -42,6 +43,12 @@ public sealed record LiveDeferred(string Id, string Where, string Module, bool W
     public string? Unreadable { get; init; }
     /// <summary>Where the method's IL body is mapped, which the backend's JIT hook reports the compile of; empty when unknown.</summary>
     public IReadOnlyList<ulong> IlBodies { get; init; } = [];
+}
+
+/// <summary>A deferred stop point or watch that could not be set when its module loaded or its method compiled; <see cref="Reported"/> once a call has said so.</summary>
+public sealed record LiveFailedPoint(string Id, string Where, bool Watch, string Because, string Reason, string? Next)
+{
+    public bool Reported { get; set; }
 }
 
 /// <summary>A stop point or watch on a managed method, by the method's IL bodies, and the code it is hooked at.</summary>
@@ -153,6 +160,7 @@ public sealed class LiveSession
     public Dictionary<string, LiveStopPointState> StopPoints { get; } = new(StringComparer.Ordinal);
     public Dictionary<string, LiveWatchState> Watches { get; } = new(StringComparer.Ordinal);
     public List<LiveDeferred> Deferred { get; } = [];
+    public List<LiveFailedPoint> Failed { get; } = [];
     /// <summary>User scripts loaded with live_script: id to where the source came from.</summary>
     public Dictionary<string, string> Scripts { get; } = new(StringComparer.Ordinal);
     /// <summary>Stop points of coverage runs: point id to its run.</summary>
@@ -936,7 +944,11 @@ public sealed partial class LiveSessionService(AssemblyWorkspace workspace, Nati
                     ?? throw new ToolError(ErrorCode.NotFound, $"The program has no module '{name}'.", "live_session action=status lists its modules");
             var native = ImageOf(m);
             if (native == null) throw new ToolError(ErrorCode.Unsupported, $"{m.Path} could not be loaded as a native image.", "pass a live address instead");
-            return m.Base + await RvaOf(native, t[(bang + 1)..], ct).ConfigureAwait(false);
+            try { return m.Base + await RvaOf(native, t[(bang + 1)..], ct).ConfigureAwait(false); }
+            catch (ToolError e) when (e.Code == ErrorCode.NotFound)
+            {
+                throw await WithLayerNameAsync(e, m, native, t[(bang + 1)..], ct).ConfigureAwait(false);
+            }
         }
         if (t.StartsWith("0x", StringComparison.OrdinalIgnoreCase) && ulong.TryParse(t[2..], NumberStyles.HexNumber, CultureInfo.InvariantCulture, out var value))
         {
@@ -953,9 +965,29 @@ public sealed partial class LiveSessionService(AssemblyWorkspace workspace, Nati
         {
             if (Match(m) is not { } native) continue;
             try { return m.Base + await RvaOf(native, t, ct).ConfigureAwait(false); }
-            catch (ToolError e) when (e.Code == ErrorCode.NotFound || e.Code == ErrorCode.InvalidArgument) { first ??= e; }
+            catch (ToolError e) when (e.Code == ErrorCode.NotFound || e.Code == ErrorCode.InvalidArgument)
+            {
+                var hinted = await WithLayerNameAsync(e, m, native, t, ct).ConfigureAwait(false);
+                if (first == null || hinted != e) first = hinted;
+            }
         }
         throw first ?? new ToolError(ErrorCode.NotFound, $"No loaded image of the program names '{t}'.", "use module!export, file:line or an address");
+    }
+
+    /// <summary>
+    /// <paramref name="e"/> with a next step naming the Il2Cpp or NativeAOT layer's C identifier for a managed name
+    /// ("Ns.Type::Method(int)" as "Ns_Type__Method"), when that layer of <paramref name="native"/> names a function so.
+    /// </summary>
+    private async Task<ToolError> WithLayerNameAsync(ToolError e, LiveModuleState m, LoadedNative native, string name, CancellationToken ct)
+    {
+        var t = name.Trim();
+        if (t.IndexOf('(') is > 0 and var paren) t = t[..paren];
+        if (!t.Contains("::", StringComparison.Ordinal)) return e;
+        var index = code.Ready(native) ?? await code.Index(native, null, ct).ConfigureAwait(false);
+        var identifier = NativeName.Identifier(t.Replace("::", "$$", StringComparison.Ordinal));
+        return index.AddressesOfName(identifier).Select(c => c.Source).FirstOrDefault(l => l is "il2cpp" or "nativeaot") is { } layer
+            ? new ToolError(e.Code, e.Message, $"at={m.Name}!{identifier} (the {layer} layer's name for it)")
+            : e;
     }
 
     private async Task<uint> RvaOf(LoadedNative native, string name, CancellationToken ct)
@@ -1186,6 +1218,7 @@ public sealed partial class LiveSessionService(AssemblyWorkspace workspace, Nati
             catch (Exception e) when (e is ToolError or TimeoutException or OperationCanceledException)
             {
                 session.Add("error", null, null, $"deferred {d.Id} at {d.Where} could not be set ({because}): {e.Message}");
+                lock (session.Failed) session.Failed.Add(new(d.Id, d.Where, d.Watch, because, e.Message, (e as ToolError)?.Remediation));
             }
         }
     }
@@ -1335,9 +1368,11 @@ public sealed partial class LiveSessionService(AssemblyWorkspace workspace, Nati
         lock (session.Scripts) session.Scripts.Remove(id);
     }
 
-    /// <summary>Drops a deferred stop point or watch; false when <paramref name="id"/> is none.</summary>
+    /// <summary>Drops a deferred (or failed deferred) stop point or watch; false when <paramref name="id"/> is none.</summary>
     public static bool ClearDeferred(LiveSession session, string id)
     {
+        lock (session.Failed)
+            if (session.Failed.RemoveAll(d => d.Id == id) > 0) return true;
         lock (session.Deferred) return session.Deferred.RemoveAll(d => d.Id == id) > 0;
     }
 

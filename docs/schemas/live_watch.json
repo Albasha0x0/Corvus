@@ -17,6 +17,7 @@
             "type": "string"
           },
           "address": {
+            "description": "Null unless set.",
             "type": "string"
           },
           "name": {
@@ -45,25 +46,19 @@
           "followed": {
             "description": "The jump followed, if any.",
             "type": "string"
+          },
+          "state": {
+            "description": "set, deferred (until its module loads or method compiles) or failed (deferred, then not set).",
+            "type": "string"
           }
         },
         "required": [
           "id",
           "where",
-          "address",
-          "prototype",
-          "decoding",
           "rateLimit",
           "calls",
           "skipped"
         ]
-      }
-    },
-    "deferred": {
-      "description": "Watches deferred until their module loads.",
-      "type": "array",
-      "items": {
-        "type": "string"
       }
     },
     "namedAddresses": {

@@ -2886,7 +2886,7 @@ Record every call of a function with arguments and return value, decoded by prot
 | `rateLimit` | integer |  | `10000` | set: calls/s recorded (1-100000); the rest are counted. |
 | `arguments` | integer |  | `4` | set: raw values without a prototype (0-16). |
 
-Structured output: `session`, `watches`, `deferred`, `namedAddresses`.
+Structured output: `session`, `watches`, `namedAddresses`.
 
 ### live_read
 
