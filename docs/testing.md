@@ -114,6 +114,10 @@ their tool is missing:
   close, request bodies) must export exactly the files `tshark --export-objects http` exports, by SHA-256. With
   `CORVUS_CAPTURES` naming a folder of captures (key logs beside them as `<name>*.keys`), every object TShark exports
   must be among ours; TShark's `object<frame>` files from frames that start no HTTP message are counted apart.
+- **Package review on real packages** (`PackageDatasetTests`): `CORVUS_PACKAGES_BAD` names a folder of known-bad npm,
+  PyPI and VS Code packages and `CORVUS_PACKAGES_GOOD` one of ordinary packages, each grouped in subfolders; prints the
+  noteworthy share per subfolder and checks both against floors. `CORVUS_PACKAGES_REPORT` names a file for one line
+  per package with its findings.
 - **Real-client checks** (`tests/agents/run-tasks.ps1`, or the full set with `CORVUS_CLIENT_CHECKS=1`): each installed
   agent client (Claude Code, Codex, Gemini CLI; `CORVUS_CLIENT_CLAUDE`, `CORVUS_CLIENT_CODEX`,
   `CORVUS_CLIENT_GEMINI` name other executables) gets one known-answer question about the Notes sample through this
