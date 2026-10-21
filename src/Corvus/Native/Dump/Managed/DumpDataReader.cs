@@ -1,5 +1,4 @@
 using System.Buffers.Binary;
-using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using Microsoft.Diagnostics.Runtime;
 using Corvus.Native.Pe;
@@ -11,7 +10,7 @@ namespace Corvus.Native.Dump.Managed;
 /// headers and read-only sections, relocated to the module's base; writable data never falls back, because initial
 /// values would mislead the runtime's data access layer.
 /// </summary>
-public sealed class DumpDataReader(MinidumpFile dump, Func<DumpModule, PeFile?> image) : IDataReader, IDisposable
+public sealed class DumpDataReader(MinidumpFile dump, Func<DumpModule, PeFile?> image) : ByteDataReader, IDataReader, IDisposable
 {
     private readonly Dictionary<DumpModule, (PeFile? Image, uint[] Pointers)> _images = [];
 
@@ -26,7 +25,7 @@ public sealed class DumpDataReader(MinidumpFile dump, Func<DumpModule, PeFile?> 
         _ => Architecture.X64,
     };
     public int ProcessId => (int)(dump.MiscInfo?.ProcessId ?? 0);
-    public int PointerSize => dump.Is64Bit ? 8 : 4;
+    public override int PointerSize => dump.Is64Bit ? 8 : 4;
 
     /// <summary>Reads served from module images rather than the dump (for tests and notes).</summary>
     public long ImageReads { get; private set; }
@@ -50,15 +49,12 @@ public sealed class DumpDataReader(MinidumpFile dump, Func<DumpModule, PeFile?> 
         if (Override is { } o && o.Thread == threadID) bytes = o.Context;
         else if (dump.ThreadById(threadID) is { } thread) bytes = dump.ContextBytes(thread.Context);
         else return false;
-        if (bytes.Length == 0) return false;
-        context.Clear();
-        bytes.AsSpan(0, Math.Min(bytes.Length, context.Length)).CopyTo(context);
-        return true;
+        return CopyContext(bytes, context);
     }
 
     public void FlushCachedData() { }
 
-    public int Read(ulong address, Span<byte> buffer)
+    public override int Read(ulong address, Span<byte> buffer)
     {
         int n = dump.ReadMemory(address, buffer);
         while (n < buffer.Length)
@@ -143,35 +139,6 @@ public sealed class DumpDataReader(MinidumpFile dump, Func<DumpModule, PeFile?> 
             else BinaryPrimitives.WriteUInt32LittleEndian(bytes[(int)at..], BinaryPrimitives.ReadUInt32LittleEndian(bytes[(int)at..]) + (uint)delta);
         }
     }
-
-    public bool Read<T>(ulong address, out T value) where T : unmanaged
-    {
-        Span<byte> b = stackalloc byte[Unsafe.SizeOf<T>()];
-        if (Read(address, b) == b.Length)
-        {
-            value = MemoryMarshal.Read<T>(b);
-            return true;
-        }
-        value = default;
-        return false;
-    }
-
-    public T Read<T>(ulong address) where T : unmanaged => Read(address, out T value) ? value : default;
-
-    public bool ReadPointer(ulong address, out ulong value)
-    {
-        Span<byte> b = stackalloc byte[8];
-        int size = PointerSize;
-        if (Read(address, b[..size]) != size)
-        {
-            value = 0;
-            return false;
-        }
-        value = size == 8 ? BinaryPrimitives.ReadUInt64LittleEndian(b) : BinaryPrimitives.ReadUInt32LittleEndian(b);
-        return true;
-    }
-
-    public ulong ReadPointer(ulong address) => ReadPointer(address, out var value) ? value : 0;
 
     public void Dispose() => dump.Dispose();
 

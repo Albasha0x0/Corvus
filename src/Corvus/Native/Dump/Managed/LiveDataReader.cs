@@ -1,6 +1,5 @@
 using System.Buffers.Binary;
 using System.Collections.Concurrent;
-using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using Microsoft.Diagnostics.Runtime;
 using Corvus.Native.Live;
@@ -12,7 +11,7 @@ namespace Corvus.Native.Dump.Managed;
 /// the module list read again on each flush. Thread contexts are only those handed in with <see cref="SetContext"/>
 /// (a thread held at a stop point, as the stop captured it): a running thread's registers are never read.
 /// </summary>
-public sealed class LiveDataReader(LiveProcess process) : IDataReader, IDisposable
+public sealed class LiveDataReader(LiveProcess process) : ByteDataReader, IDataReader, IDisposable
 {
     private const int X64ContextSize = 0x4D0;
     private readonly ConcurrentDictionary<uint, byte[]> _contexts = new();
@@ -29,7 +28,7 @@ public sealed class LiveDataReader(LiveProcess process) : IDataReader, IDisposab
         _ => Architecture.X64,
     };
     public int ProcessId => process.Pid;
-    public int PointerSize => process.Is64Bit ? 8 : 4;
+    public override int PointerSize => process.Is64Bit ? 8 : 4;
 
     /// <summary>
     /// The x64 registers a thread was stopped with (Frida's names: rip or pc, rsp or sp, rax..r15); false when the
@@ -67,44 +66,12 @@ public sealed class LiveDataReader(LiveProcess process) : IDataReader, IDisposab
 
     public bool GetThreadContext(uint threadID, uint contextFlags, Span<byte> context)
     {
-        if (!_contexts.TryGetValue(threadID, out var bytes)) return false;
-        context.Clear();
-        bytes.AsSpan(0, Math.Min(bytes.Length, context.Length)).CopyTo(context);
-        return true;
+        return _contexts.TryGetValue(threadID, out var bytes) && CopyContext(bytes, context);
     }
 
     public void FlushCachedData() => process.RefreshModules();
 
-    public int Read(ulong address, Span<byte> buffer) => process.ReadMemory(address, buffer);
-
-    public bool Read<T>(ulong address, out T value) where T : unmanaged
-    {
-        Span<byte> b = stackalloc byte[Unsafe.SizeOf<T>()];
-        if (Read(address, b) == b.Length)
-        {
-            value = MemoryMarshal.Read<T>(b);
-            return true;
-        }
-        value = default;
-        return false;
-    }
-
-    public T Read<T>(ulong address) where T : unmanaged => Read(address, out T value) ? value : default;
-
-    public bool ReadPointer(ulong address, out ulong value)
-    {
-        Span<byte> b = stackalloc byte[8];
-        int size = PointerSize;
-        if (Read(address, b[..size]) != size)
-        {
-            value = 0;
-            return false;
-        }
-        value = size == 8 ? BinaryPrimitives.ReadUInt64LittleEndian(b) : BinaryPrimitives.ReadUInt32LittleEndian(b);
-        return true;
-    }
-
-    public ulong ReadPointer(ulong address) => ReadPointer(address, out var value) ? value : 0;
+    public override int Read(ulong address, Span<byte> buffer) => process.ReadMemory(address, buffer);
 
     public void Dispose() => process.Dispose();
 }
