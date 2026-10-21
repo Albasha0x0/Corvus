@@ -7,7 +7,11 @@ using System.Text.Json;
 namespace Corvus.Core;
 
 /// <summary>One captured HTTP exchange: what was asked, what came back, and the response body as sent (still content-encoded).</summary>
-public sealed record CapturedResponse(string Method, string Url, int Status, string? MimeType, string? ContentEncoding, byte[]? Body, string? Problem);
+public sealed record CapturedResponse(string Method, string Url, int Status, string? MimeType, string? ContentEncoding, byte[]? Body, string? Problem)
+{
+    /// <summary>A request's body (an upload, a form post) rather than a response's; Status is 0.</summary>
+    public bool Request { get; init; }
+}
 
 /// <summary>
 /// Traffic captures as containers of responses: HAR (browser and proxy exports, JSON) and mitmproxy flow files (tnetstrings).
@@ -320,7 +324,7 @@ public static class Captures
         private readonly List<ContainerEntry> _entries = [];
         private readonly List<ExtractedItem> _items = [];
         private long _total;
-        private int _responses, _empty;
+        private int _responses, _requests, _empty;
         private bool _stopped;
 
         /// <summary>Responses listed as entries; past this the capture is still read and counted.</summary>
@@ -329,10 +333,11 @@ public static class Captures
         public void Add(CapturedResponse r)
         {
             ct.ThrowIfCancellationRequested();
-            _responses++;
+            if (r.Request) _requests++;
+            else _responses++;
             if (_stopped) return;
-            var path = PathOf(r);
-            var detail = new StringBuilder($"{r.Method} {r.Status}");
+            var path = r.Request ? "requests/" + PathOf(r) : PathOf(r);
+            var detail = new StringBuilder(r.Request ? $"{r.Method} request body" : $"{r.Method} {r.Status}");
             if (r.MimeType != null) detail.Append(' ').Append(r.MimeType.Split(';')[0].Trim());
             byte[]? body = r.Body;
             if (body != null && r.ContentEncoding is { Length: > 0 } enc && !enc.Equals("identity", StringComparison.OrdinalIgnoreCase))
@@ -342,7 +347,7 @@ public static class Captures
                 else detail.Append($", {enc} body not decoded");
             }
             if (r.Problem != null) detail.Append(", ").Append(r.Problem);
-            if (body == null || body.Length == 0) { _empty++; detail.Append(", no body"); }
+            if (body == null || body.Length == 0) { if (!r.Request) _empty++; detail.Append(", no body"); }
             if (_entries.Count < MaxEntries) _entries.Add(new ContainerEntry(path, body?.Length ?? 0, $"{detail}; {Clip(r.Url)}"));
             if (body is not { Length: > 0 } || !(allFiles || Containers.IsInteresting(path))) return;
             if (_items.Count >= limits.MaxItems || body.Length > limits.MaxItemBytes || (_total += body.Length) > limits.MaxTotalBytes)
@@ -351,7 +356,7 @@ public static class Captures
                 _stopped = true;
                 return;
             }
-            _items.Add(new ExtractedItem(path, body, $"{source} response {r.Method} {Clip(r.Url)}"));
+            _items.Add(new ExtractedItem(path, body, $"{source} {(r.Request ? "request" : "response")} {r.Method} {Clip(r.Url)}"));
         }
 
         /// <summary>A file that is no response (a TCP stream), listed and extracted within the same limits.</summary>
@@ -371,7 +376,8 @@ public static class Captures
 
         public ContainerContents Contents()
         {
-            Notes.Insert(0, $"{_responses} response(s), {_responses - _empty} with a body; files are named host/path, the query folded into a short hash.");
+            Notes.Insert(0, $"{_responses} response(s), {_responses - _empty} with a body" + (_requests > 0 ? $"; {_requests} request body(ies) under requests/" : "") +
+                            "; files are named host/path, the query folded into a short hash.");
             if (_responses > MaxEntries) Notes.Insert(1, $"The first {MaxEntries:N0} responses are listed.");
             return new ContainerContents(kind, _items, Notes) { Entries = _entries };
         }

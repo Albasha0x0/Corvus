@@ -6,7 +6,7 @@ namespace Corvus.Core.Pcap;
 /// <summary>
 /// HTTP/1.x over one connection's two in-order streams: requests and responses parsed as they arrive (heads up to 64 KiB,
 /// bodies by Content-Length, chunked or until the connection ends), each response paired with the oldest open request and
-/// handed on with its body (still content-encoded). After a gap the side resumes at the next start line.
+/// handed on with its body (still content-encoded), as is each request body. After a gap the side resumes at the next start line.
 /// </summary>
 internal sealed class Http1Stream(string scheme, string server, Action<CapturedResponse> emit, long maxBody) : ITcpConsumer
 {
@@ -44,7 +44,7 @@ internal sealed class Http1Stream(string scheme, string server, Action<CapturedR
         /// <summary>The side resumed at a start line after bytes it could not read (a gap, a capture begun mid-stream).</summary>
         public bool Resumed;
         // the message being read
-        public string Method = "", Target = "", Mime = "", Encoding = "";
+        public string Method = "", Target = "", Url = "", Mime = "", Encoding = "";
         public int Status;
         public Dictionary<string, string> Headers = new(StringComparer.OrdinalIgnoreCase);
     }
@@ -157,12 +157,12 @@ internal sealed class Http1Stream(string scheme, string server, Action<CapturedR
             if (parts.Length < 3 || !parts[2].StartsWith("HTTP/", StringComparison.Ordinal)) return false;
             (side.Method, side.Target) = (parts[0], parts[1]);
             Requests++;
-            _requests.Enqueue(new Request(side.Method, Url(side.Target, side.Headers.GetValueOrDefault("Host"))));
-            // a request body is read past, not kept
+            side.Url = Url(side.Target, side.Headers.GetValueOrDefault("Host"));
+            _requests.Enqueue(new Request(side.Method, side.Url));
             if (chunked) side.State = State.ChunkSize;
             else if (length > 0) { side.Remaining = length.Value; side.State = State.Body; }
             else side.State = State.Head;
-            side.Body = null;
+            side.Body = side.State == State.Head ? null : new MemoryStream();
             return true;
         }
         if (parts.Length < 2 || !parts[0].StartsWith("HTTP/1.", StringComparison.Ordinal) || !int.TryParse(parts[1], NumberStyles.None, CultureInfo.InvariantCulture, out side.Status))
@@ -210,14 +210,20 @@ internal sealed class Http1Stream(string scheme, string server, Action<CapturedR
     private void Complete(Side side)
     {
         side.State = State.Head;
-        if (side.Requests || side.Body == null) return;
-        Responses++;
-        var request = _requests.TryDequeue(out var r) ? r : new Request("?", $"{scheme}://{server}/");
+        if (side.Body == null) return;
         string? problem = side.Truncated ? $"body over {maxBody:N0} bytes, not kept" : side.Missing > 0 ? $"{side.Missing:N0} body bytes not captured"
             : side.Cut ? "the connection ended before the body did" : null;
-        emit(new CapturedResponse(request.Method, request.Url, side.Status, side.Mime.Length > 0 ? side.Mime : null, side.Encoding.Length > 0 ? side.Encoding : null,
-            side.Truncated ? null : side.Body.ToArray(), problem));
+        string? mime = side.Mime.Length > 0 ? side.Mime : null, encoding = side.Encoding.Length > 0 ? side.Encoding : null;
+        var body = side.Truncated ? null : side.Body.ToArray();
         side.Body = null;
+        if (side.Requests)
+        {
+            if (body is not { Length: 0 }) emit(new CapturedResponse(side.Method, side.Url, 0, mime, encoding, body, problem) { Request = true });
+            return;
+        }
+        Responses++;
+        var request = _requests.TryDequeue(out var r) ? r : new Request("?", $"{scheme}://{server}/");
+        emit(new CapturedResponse(request.Method, request.Url, side.Status, mime, encoding, body, problem));
     }
 
     public void Gap(bool fromClient, long bytes)
@@ -234,17 +240,18 @@ internal sealed class Http1Stream(string scheme, string server, Action<CapturedR
             return;
         }
         if (side.State == State.UntilClose) { side.Missing += bytes; return; }
-        if (!side.Requests && side.Body != null) { side.Missing += bytes; Complete(side); }
+        if (side.Body != null) { side.Missing += bytes; Complete(side); }
         side.State = State.Lost;
     }
 
     public void End()
     {
         // a body read until the connection closed is complete now; a cut one is handed on as far as it got
-        if (_server.Body != null && _server.State is State.UntilClose or State.Body or State.ChunkData or State.ChunkSize or State.ChunkEnd or State.Trailer)
-        {
-            _server.Cut = _server.State != State.UntilClose;
-            Complete(_server);
-        }
+        foreach (var side in new[] { _client, _server })
+            if (side.Body != null && side.State is State.UntilClose or State.Body or State.ChunkData or State.ChunkSize or State.ChunkEnd or State.Trailer)
+            {
+                side.Cut = side.State != State.UntilClose;
+                Complete(side);
+            }
     }
 }

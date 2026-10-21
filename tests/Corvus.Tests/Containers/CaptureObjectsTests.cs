@@ -117,6 +117,21 @@ public sealed class CaptureObjectsTests : IDisposable
         Assert.Contains("1,400 body bytes not captured", entry.Detail);
     }
 
+    [Fact]
+    public void Request_bodies_are_exported_under_requests()
+    {
+        var frames = Connection(50004, 80,
+        [
+            (true, A("POST /upload HTTP/1.1\r\nHost: files.example.com\r\nContent-Type: text/plain\r\nTransfer-Encoding: chunked\r\n\r\n5\r\nhello\r\n6\r\n world\r\n0\r\n\r\n")),
+            (false, A("HTTP/1.1 201 Created\r\nContent-Type: application/json\r\nContent-Length: 9\r\n\r\n{\"id\":42}")),
+        ]);
+        var report = Unpack("post.pcap", Pcap(frames));
+        var files = Files(report);
+        Assert.Equal("hello world", Encoding.ASCII.GetString(files["requests/files.example.com/upload.txt"]));
+        Assert.Equal("{\"id\":42}", Encoding.ASCII.GetString(files["files.example.com/upload.json"]));
+        Assert.Contains(report.Notes, n => n.StartsWith("1 response(s), 1 with a body; 1 request body(ies) under requests/", StringComparison.Ordinal));
+    }
+
     private static byte[] WithAck(byte[] frame, uint ack)
     {
         System.Buffers.Binary.BinaryPrimitives.WriteUInt32BigEndian(frame.AsSpan(14 + 20 + 8), ack); // Ethernet, IPv4, TCP acknowledgment number
