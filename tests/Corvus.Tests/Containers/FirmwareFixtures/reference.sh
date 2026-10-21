@@ -1,10 +1,15 @@
 #!/bin/sh
 # Lists one filesystem image as its reference tool extracts it, one line per file, link and directory:
 #   <type f|l|d> <mode, octal> <size> <sha-256 or -> <path>[ -> <link target>]
-# Usage (as root, so modes and owners are kept): sh reference.sh <format> <image>
+# Usage (as root, so modes and owners are kept): sh reference.sh <format> <image>; format "signatures" lists signature hits
 # Each format's reference tool and its native options are in the table below; a tool may be replaced by setting its variable.
 set -eu
 format=$1 image=$2
+# signatures: the signature scanner's hits instead, one "<offset> <description>" line each
+if [ "$format" = signatures ]; then
+    ${SIGNATURE_SCANNER:-binwalk} "$image" | awk '/^[0-9]+ +0x[0-9A-F]+ / { o = $1; $1 = ""; $2 = ""; sub(/^ +/, ""); print o, $0 }'
+    exit
+fi
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
 out="$work/out"
@@ -18,7 +23,7 @@ case "$format" in
     jffs2) ${JFFS2_EXTRACTOR:-jefferson} -f -d "$out" "$image" >/dev/null ;;
     ext) ${EXT_EXTRACTOR:-debugfs} -R "rdump / $out" "$image" >/dev/null 2>&1 ;;
     fat) ${FAT_EXTRACTOR:-mcopy} -s -n -i "$image" ::/ "$out" ;;
-    cramfs) rmdir "$out"; ${CRAMFS_EXTRACTOR:-fsck.cramfs} -x "$out" "$image" >/dev/null ;;
+    cramfs) rmdir "$out"; ${CRAMFS_EXTRACTOR:-fsck.cramfs} --extract="$out" "$image" >/dev/null ;;
     cpio) (cd "$out" && ${CPIO_EXTRACTOR:-cpio} -idm --quiet --no-absolute-filenames < "$image") ;;
     # libfdt's fdtget rather than dumpimage, which refuses node names with a unit address (kernel@0)
     fit) get=${FIT_EXTRACTOR:-fdtget}

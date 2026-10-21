@@ -76,6 +76,51 @@ public sealed class FirmwareComparisonTests(ITestOutputHelper output)
         Assert.True(failures.Count == 0, string.Join("\n", failures));
     }
 
+    /// <summary>Signature hits of each image against the scanner's (binwalk) by offset, and the sizes both state.</summary>
+    [Fact]
+    public void Firmware_signatures_match_the_scanners()
+    {
+        if (Environment.GetEnvironmentVariable("CORVUS_FIRMWARE_IMAGES") is not { Length: > 0 } root || !Directory.Exists(root)
+            || Environment.GetEnvironmentVariable("CORVUS_FS_REFERENCE") is not { Length: > 0 } runner) return;
+        var script = Path.Combine(FirmwareFilesystemTests.FixtureDir, "reference.sh");
+        int ours = 0, theirs = 0, common = 0, inside = 0, sized = 0, sameSize = 0;
+        foreach (var file in Directory.EnumerateFiles(root, "*", SearchOption.AllDirectories).Order(StringComparer.Ordinal))
+        {
+            using var work = new TempDir();
+            var data = File.ReadAllBytes(file);
+            if (file.EndsWith(".gz", StringComparison.OrdinalIgnoreCase)) data = Gunzip(data);
+            var hits = Corvus.Core.Firmware.FirmwareSignatures.Scan(data, 2000, default).ToDictionary(h => h.Offset);
+            var reference = Run(runner, script, "signatures", data, work).Split('\n', StringSplitOptions.RemoveEmptyEntries)
+                .Select(l => l.Split(' ', 2)).GroupBy(f => long.Parse(f[0])).ToDictionary(g => g.Key, g => g.First()[1]);
+            ours += hits.Count;
+            theirs += reference.Count;
+            var differences = new List<string>();
+            foreach (var at in hits.Keys.Union(reference.Keys).Order())
+            {
+                if (!reference.TryGetValue(at, out var description)) { differences.Add($"only ours: 0x{at:X} {hits[at].Format} ({hits[at].Size})"); continue; }
+                if (!hits.TryGetValue(at, out var hit))
+                {
+                    // a hit inside a region we sized (a file of a filesystem, a stream of a kernel) is that region's reader's to find
+                    if (hits.Values.Any(h => h.Offset < at && at < h.Offset + (h.Size ?? 0))) inside++;
+                    else differences.Add($"only scanner: 0x{at:X} {description}");
+                    continue;
+                }
+                common++;
+                if (System.Text.RegularExpressions.Regex.Match(description, @"(?<![a-z] )size: (\d+) bytes") is { Success: true } m && hit.Size is { } size)
+                {
+                    sized++;
+                    if (long.Parse(m.Groups[1].Value) == size) sameSize++;
+                    else differences.Add($"size: 0x{at:X} {hit.Format} ours {size}, scanner {m.Groups[1].Value}: {description}");
+                }
+            }
+            output.WriteLine($"{Path.GetFileName(file)}: ours {hits.Count}, scanner {reference.Count}, both {hits.Keys.Intersect(reference.Keys).Count()}"
+                             + (differences.Count > 0 ? "\n    " + string.Join("\n    ", differences.Take(15)) : ""));
+        }
+        output.WriteLine($"signatures: ours {ours:N0}, scanner {theirs:N0}, at the same offset {common:N0}, scanner hits inside our sized regions {inside:N0}; sizes stated by both {sized:N0}, equal {sameSize:N0}");
+        Assert.Equal(sized, sameSize);
+        Assert.True(common + inside >= theirs * 0.99, $"{theirs - common - inside} scanner hits outside every region we found");
+    }
+
     /// <summary>Each ELF program of a filesystem opens at its architecture; one linked to libraries lists its imports.</summary>
     private static void Programs(ContainerContents c, string where, SortedDictionary<string, (int Linked, int WithImports)> programs, List<string> failures)
     {
@@ -94,13 +139,7 @@ public sealed class FirmwareComparisonTests(ITestOutputHelper output)
     private (int Total, int Same, List<string> Differences) Compare(string runner, string script, string format, byte[] image, ContainerContents c)
     {
         using var work = new TempDir();
-        var imagePath = work.File("image");
-        File.WriteAllBytes(imagePath, image);
-        bool wsl = Path.GetFileNameWithoutExtension(runner).Equals("wsl", StringComparison.OrdinalIgnoreCase);
-        List<string> args = wsl ? ["-u", "root", "-e", "sh", LinuxPath(script), format, LinuxPath(imagePath)] : [script, format, imagePath];
-        var run = ExternalTools.Run(runner, args, TimeSpan.FromMinutes(10), 256L << 20, default);
-        Assert.True(run.StartError == null && !run.TimedOut && !run.Truncated && run.ExitCode == 0, $"reference {format}: {run.StartError ?? run.Stderr}");
-        var reference = Reference(run.Text);
+        var reference = Reference(Run(runner, script, format, image, work));
         var ours = Ours(c);
         var differences = new List<string>();
         int same = 0;
@@ -114,6 +153,18 @@ public sealed class FirmwareComparisonTests(ITestOutputHelper output)
             else same++;
         }
         return (reference.Keys.Union(ours.Keys).Count(), same, differences);
+    }
+
+    /// <summary>The script's output for <paramref name="image"/>, written to <paramref name="work"/> first.</summary>
+    private static string Run(string runner, string script, string format, byte[] image, TempDir work)
+    {
+        var imagePath = work.File("image");
+        File.WriteAllBytes(imagePath, image);
+        bool wsl = Path.GetFileNameWithoutExtension(runner).Equals("wsl", StringComparison.OrdinalIgnoreCase);
+        List<string> args = wsl ? ["-u", "root", "-e", "sh", LinuxPath(script), format, LinuxPath(imagePath)] : [script, format, imagePath];
+        var run = ExternalTools.Run(runner, args, TimeSpan.FromMinutes(10), 256L << 20, default);
+        Assert.True(run.StartError == null && !run.TimedOut && !run.Truncated && run.ExitCode == 0, $"reference {format}: {run.StartError ?? run.Stderr}");
+        return run.Text;
     }
 
     /// <summary>The script's f and l lines by path (directories are left out: the readers list files and links).</summary>
