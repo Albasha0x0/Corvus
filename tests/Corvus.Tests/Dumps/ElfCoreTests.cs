@@ -351,6 +351,18 @@ public sealed class ElfCoreTests
     }
 
     [Fact]
+    public async Task Core_runtime_version_resolves_when_a_later_open_names_image_directories()
+    {
+        using var dir = new TempDir();
+        var path = Write(dir, SyntheticCore.Core(arm64: false, modulePath: "/usr/share/dotnet/shared/Microsoft.NETCore.App/10.0.0/libcoreclr.so"));
+        var images = Directory.CreateDirectory(dir.File("images")).FullName;
+        File.WriteAllBytes(Path.Combine(images, "libcoreclr.so"), [.. SyntheticCore.Module(arm64: false), .. "@(#)Version 10.0.1.2 "u8]);
+        using var service = new MinidumpService();
+        Assert.Null((await service.Summarize(path, null, default)).Managed!.Version);
+        Assert.Equal("10.0.1.2", (await service.Summarize(path, images, default)).Managed!.Version);
+    }
+
+    [Fact]
     public void Heap_hint_of_a_core_names_the_runtime_dump_tools()
     {
         var core = MinidumpService.HeapHint(core: true);

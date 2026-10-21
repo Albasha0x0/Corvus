@@ -10,7 +10,8 @@ public sealed partial class MinidumpService
     /// <summary>Open CLR decoders (each holds a loaded DAC and its own dump handle); the least recently used is closed beyond this.</summary>
     private const int MaxDecoders = 4;
 
-    private readonly List<(string Path, ClrDecoder Decoder)> _decoders = [];
+    // RuntimeFound: a core's libcoreclr.so was matched on disk when the decoder was opened
+    private readonly List<(string Path, ClrDecoder Decoder, bool RuntimeFound)> _decoders = [];
     private readonly SemaphoreSlim _decoderGate = new(1, 1);
     private bool _disposed;
 
@@ -53,11 +54,20 @@ public sealed partial class MinidumpService
         try
         {
             ObjectDisposedException.ThrowIf(_disposed, this);
+            ElfCoreModule? runtime = null;
+            string? runtimeFile = null;
+            if (s.Core is { } core)
+            {
+                if ((runtime = core.CoreModules.FirstOrDefault(m => m.Module.FileName == "libcoreclr.so")) == null) return null;
+                var (file, matches, _) = FindElf(core, runtime, s.Directories);
+                runtimeFile = matches ? file : null;
+            }
             int at = _decoders.FindIndex(d => d.Path.Equals(path, StringComparison.OrdinalIgnoreCase));
             if (at >= 0)
             {
                 var cached = _decoders[at];
-                bool retry = !cached.Decoder.Loaded && (request.Path != null || request.Download);
+                // a core opened before its runtime file was found is reopened once imageDirectories find it
+                bool retry = !cached.Decoder.Loaded && (request.Path != null || request.Download) || !cached.RuntimeFound && runtimeFile != null;
                 _decoders.RemoveAt(at);
                 if (!retry)
                 {
@@ -67,12 +77,8 @@ public sealed partial class MinidumpService
                 cached.Decoder.Dispose();
             }
             ClrDecoder? decoder;
-            if (s.Core is { } core)
-            {
-                if (core.CoreModules.FirstOrDefault(m => m.Module.FileName == "libcoreclr.so") is not { } runtime) return null;
-                var (file, matches, _) = FindElf(core, runtime, s.Directories);
-                decoder = await ClrDecoder.OpenCore(path, runtime.Module, matches ? file : null, CoreArchitecture(core), request, ct).ConfigureAwait(false);
-            }
+            if (s.Core != null)
+                decoder = await ClrDecoder.OpenCore(path, runtime!.Module, runtimeFile, CoreArchitecture(s.Core), request, ct).ConfigureAwait(false);
             else
             {
                 if (ClrDecoder.RuntimeModule(s.Dump) == null) return null;
@@ -81,7 +87,7 @@ public sealed partial class MinidumpService
                 decoder = await ClrDecoder.Open(file, m => Load(file, m, dirs).Image, dirs, request, ct).ConfigureAwait(false);
             }
             if (decoder == null) return null;
-            _decoders.Add((path, decoder));
+            _decoders.Add((path, decoder, runtimeFile != null));
             while (_decoders.Count > MaxDecoders)
             {
                 _decoders[0].Decoder.Dispose();
@@ -99,7 +105,7 @@ public sealed partial class MinidumpService
         try
         {
             _disposed = true;
-            foreach (var (_, decoder) in _decoders) decoder.Dispose();
+            foreach (var (_, decoder, _) in _decoders) decoder.Dispose();
             _decoders.Clear();
         }
         finally { _decoderGate.Release(); }
