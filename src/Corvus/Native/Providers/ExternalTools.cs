@@ -105,7 +105,11 @@ public static partial class ExternalTools
         Ops(("fields", ["-r", "{file}", "-n", "-2", "-Y", "{filter}", "-T", "fields", "-E", "separator=/t", "-E", "occurrence=a", "-E", "aggregator=,", "-E", "quote=n",
                 "-e", "frame.number", "-e", "frame.time_epoch", "-e", "ip.src", "-e", "ipv6.src", "-e", "ip.dst", "-e", "ipv6.dst",
                 "-e", "tcp.srcport", "-e", "udp.srcport", "-e", "tcp.dstport", "-e", "udp.dstport", "-e", "_ws.col.protocol"]),
-            ("field", ["-e", "{field}"])))
+            ("field", ["-e", "{field}"]),
+            // test oracle for unpack_container's HTTP objects; TShark leaves out-of-order segments unassembled by default
+            ("export-objects", ["-r", "{file}", "-n", "-q", "-o", "tcp.reassemble_out_of_order:TRUE", "--export-objects", "http,{out}"]),
+            ("http-messages", ["-r", "{file}", "-n", "-Y", "http.request or http.response", "-T", "fields", "-e", "frame.number"]),
+            ("key-log", ["-o", "tls.keylog_file:{keys}"])))
     {
         KnownDirectories = WiresharkDirectories,
     };

@@ -109,6 +109,11 @@ their tool is missing:
   are compared with a reference tool's listing: `CORVUS_ARCHIVE_LISTER` (7-Zip), `CORVUS_SETUP_LISTER` (innounp),
   `CORVUS_MSI_LISTER` (lessmsi), `CORVUS_BUNDLE_EXTRACTOR` (the WiX `wix` tool). A format whose tool is unset is
   skipped; each installer must match at least 99% of the reference rows.
+- **Capture HTTP objects against Wireshark** (`CaptureObjectsTSharkTests`): with `CORVUS_TSHARK` set, synthetic
+  captures (Content-Length, chunked, gzip / deflate / brotli, pipelining, resent segments, ranges, bodies ending at
+  close, request bodies) must export exactly the files `tshark --export-objects http` exports, by SHA-256. With
+  `CORVUS_CAPTURES` naming a folder of captures (key logs beside them as `<name>*.keys`), every object TShark exports
+  must be among ours; TShark's `object<frame>` files from frames that start no HTTP message are counted apart.
 - **Real-client checks** (`tests/agents/run-tasks.ps1`, or the full set with `CORVUS_CLIENT_CHECKS=1`): each installed
   agent client (Claude Code, Codex, Gemini CLI; `CORVUS_CLIENT_CLAUDE`, `CORVUS_CLIENT_CODEX`,
   `CORVUS_CLIENT_GEMINI` name other executables) gets one known-answer question about the Notes sample through this
