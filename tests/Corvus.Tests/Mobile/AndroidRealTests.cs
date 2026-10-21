@@ -47,8 +47,9 @@ public class AndroidRealTests(Xunit.Abstractions.ITestOutputHelper output)
         Assert.Equal(0, truncated);
 
         var manifest = new AndroidPackageService().Manifest(Package);
-        var launcher = manifest.Components.First(c => c.Launcher).Name;
-        var detail = dex.GetClass(Package, launcher, default);
+        // an activity-alias launcher (switchable app icons) opens its target activity, the class the DEX code defines
+        var launcher = manifest.Components.First(c => c.Launcher);
+        var detail = dex.GetClass(Package, launcher.TargetActivity ?? launcher.Name, default);
         output.WriteLine($"{detail.Descriptor}: {detail.Methods.Count} methods, super {detail.Super}; kotlin {detail.Kotlin}");
         var method = detail.Methods.First(m => m.CodeUnits > 0);
         var callees = dex.References(Package, method.Id, null, "from", 0, 50, default);
