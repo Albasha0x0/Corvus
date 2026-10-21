@@ -45,4 +45,32 @@ public class Il2CppRegistrationSearchTests
         Assert.Equal([(ulong)array], Il2CppRegistrationSearch.ModuleArrays(image, 3));
         Assert.Empty(Il2CppRegistrationSearch.ModuleArrays(image, 2));
     }
+
+    /// <summary>
+    /// A 32-bit ARM library whose data holds three tables of Thumb code pointers behind a null entry: a module's method
+    /// pointers (excluded by its range), a longer table and the generic method pointers (null + 3) followed by non-code words.
+    /// </summary>
+    [Fact]
+    public void GenericMethodPointers_NullFirstEntryThenCodePointers()
+    {
+        var data = new PeBlob(ElfWriter.DataRva);
+        var relocations = new List<ElfWriter.Reloc>();
+        uint Table(int codePointers)
+        {
+            uint start = data.U32(0);
+            for (int i = 0; i < codePointers; i++) relocations.Add(new(data.U32(0), ArmRelative, Addend: ElfWriter.TextRva + 2 * (uint)i + 1));
+            data.U32(0x12345678);
+            return start;
+        }
+        uint module = Table(3), longer = Table(5), generic = Table(3);
+
+        var w = new ElfWriter { Is64 = false, Machine = ElfWriter.EmArm, UseRel = true, Text = new byte[0x20], Data = data.ToArray(), Relocations = relocations };
+        var image = ElfFile.FromBytes(w.Build(), "libil2cpp.so");
+        (ulong, ulong) moduleRange = (module + 4, module + 16);
+        Assert.Equal([(ulong)generic], Il2CppRegistrationSearch.GenericMethodPointers(image, 4, [moduleRange]));
+        // Without the exclusion two exact-length tables qualify; the longer one alone is taken when nothing else fits.
+        Assert.Equal([(ulong)module, generic], Il2CppRegistrationSearch.GenericMethodPointers(image, 4, []));
+        Assert.Equal([(ulong)longer], Il2CppRegistrationSearch.GenericMethodPointers(image, 5, []));
+        Assert.Empty(Il2CppRegistrationSearch.GenericMethodPointers(image, 7, []));
+    }
 }

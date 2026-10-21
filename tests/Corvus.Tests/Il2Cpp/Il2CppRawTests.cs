@@ -398,8 +398,41 @@ public sealed class Il2CppRawTests(ITestOutputHelper output) : IDisposable
         Assert.Equal(Names(fullWs), Names(metaWs));
     }
 
+    /// <summary>
+    /// A real game (CORVUS_IL2CPP_GENERICS_GAME: a Windows game folder) copied with its code registration's module fields
+    /// cleared, as in builds that fill the registration at run time: the copy reads every ScriptMethod entry of the
+    /// original, generic instances (from the generic method pointer array found in the data) included.
+    /// </summary>
+    [RequiresRealDataFact(GenericsVariable)]
+    [Trait("Speed", "Slow")]
+    public void RuntimeFilledRegistrationKeepsTheGenericInstances()
+    {
+        var files = Il2CppGameFiles.Find(RealData.Path(GenericsVariable)) ?? throw new InvalidOperationException("not an Il2Cpp game");
+        var original = Il2CppMetadataReader.Read(files, _dir.File("dummy-original"), null, default).Model;
+
+        var bytes = File.ReadAllBytes(files.Binary);
+        var image = Corvus.Native.NativeImageLoader.FromBytes(bytes, files.Binary);
+        int ptr = image.Is64Bit ? 8 : 4;
+        var registration = Assert.Single(Il2CppRegistrationSearch.CodeRegistration(image));
+        Assert.True(image.TryRvaToFileOffset((uint)(registration.FieldVa - image.ImageBase) - (uint)ptr, out long at));
+        Array.Clear(bytes, (int)at, 2 * ptr);
+        var copy = _dir.File(Path.Combine("cleared", Path.GetFileName(files.Binary)));
+        Directory.CreateDirectory(Path.GetDirectoryName(copy)!);
+        File.WriteAllBytes(copy, bytes);
+        var cleared = Il2CppMetadataReader.Read(files with { Binary = copy }, _dir.File("dummy-cleared"), null, default);
+        foreach (var note in cleared.Notes) output.WriteLine(note);
+
+        Assert.Contains(cleared.Notes, n => n.Contains("filled at run time") && n.Contains("generic method pointers ("));
+        var expected = original.Methods.Select(e => (e.Address, e.Name)).ToHashSet();
+        var actual = cleared.Model.Methods.Select(e => (e.Address, e.Name)).ToHashSet();
+        int generic = expected.Count(e => e.Name.Contains('<'));
+        output.WriteLine($"ScriptMethod entries {actual.Count(expected.Contains)} of {expected.Count} ({generic} with generic arguments); copy has {actual.Count}");
+        Assert.True(expected.SetEquals(actual));
+    }
+
     private const string GameVariable = "CORVUS_IL2CPP_GAME";
     private const string DumpVariable = "CORVUS_IL2CPP_GAME_DUMP";
+    private const string GenericsVariable = "CORVUS_IL2CPP_GENERICS_GAME";
 
     private void Report(string what, int same, int dumpCount, int rawCount) =>
         output.WriteLine($"{what}: {same} of {dumpCount} ({(dumpCount == 0 ? 0 : 100.0 * same / dumpCount):0.00} %); raw has {rawCount}");

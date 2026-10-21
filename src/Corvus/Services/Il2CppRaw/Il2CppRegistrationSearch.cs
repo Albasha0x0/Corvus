@@ -84,6 +84,51 @@ public static class Il2CppRegistrationSearch
         return [.. result.Distinct()];
     }
 
+    /// <summary>
+    /// The addresses of generic method pointer arrays of <paramref name="count"/> entries, for builds that fill their code
+    /// registration at run time: a null first entry (Il2Cpp's generated table always starts with one) followed by
+    /// count - 1 code pointers, outside the <paramref name="exclude"/>d ranges (the modules' own method pointer arrays).
+    /// When several qualify, those whose run of code pointers ends with the array are kept (a longer run is another table).
+    /// </summary>
+    public static List<ulong> GenericMethodPointers(INativeImage image, int count, IReadOnlyCollection<(ulong Start, ulong End)> exclude, CancellationToken ct = default)
+    {
+        var found = new List<(ulong Va, bool Exact)>();
+        if (count < 2) return [];
+        int ptr = image.Is64Bit ? 8 : 4;
+        ulong thumb = image.Arch == NativeArch.Arm && !image.Is64Bit ? 1UL : 0;
+        var code = image.Sections.Where(s => s.IsExecutable).Select(s => (Start: image.ImageBase + s.Rva, End: image.ImageBase + s.Rva + s.MappedSize)).ToArray();
+        bool IsCode(ulong va)
+        {
+            va &= ~thumb;
+            foreach (var (start, end) in code)
+                if (va >= start && va < end) return true;
+            return false;
+        }
+        foreach (var section in image.Sections)
+        {
+            if (section.IsExecutable || section.RawSize == 0 || section.MappedSize < (ulong)count * (uint)ptr) continue;
+            ct.ThrowIfCancellationRequested();
+            var bytes = new byte[Math.Min(section.MappedSize, (uint)Array.MaxLength)];
+            int n = image.Read(section.Rva, bytes) / ptr * ptr;
+            long nullAt = -1, run = 0;
+            void End()
+            {
+                if (nullAt < 0 || run < count - 1) return;
+                ulong va = image.ImageBase + section.Rva + (ulong)nullAt, end = va + (ulong)count * (uint)ptr;
+                if (!exclude.Any(x => va < x.End && x.Start < end)) found.Add((va, run == count - 1));
+            }
+            for (int at = 0; at < n; at += ptr)
+            {
+                ulong word = ptr == 8 ? BinaryPrimitives.ReadUInt64LittleEndian(bytes.AsSpan(at)) : BinaryPrimitives.ReadUInt32LittleEndian(bytes.AsSpan(at));
+                if (word != 0 && IsCode(word)) { run++; continue; }
+                End();
+                (nullAt, run) = (word == 0 ? at : -1, 0);
+            }
+            End();
+        }
+        return [.. (found.Count > 1 && found.Any(f => f.Exact) ? found.Where(f => f.Exact) : found).Select(f => f.Va)];
+    }
+
     private static IEnumerable<uint> Strings(INativeImage image, string text, CancellationToken ct)
     {
         var needle = Encoding.ASCII.GetBytes(text + "\0");

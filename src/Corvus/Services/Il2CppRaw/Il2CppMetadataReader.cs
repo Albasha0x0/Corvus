@@ -186,8 +186,8 @@ public static class Il2CppMetadataReader
     /// <summary>
     /// The library's fallback when its own search leaves the code registration unfound: our relocation-based candidates,
     /// each read with the version's layout and kept when its module count and array pointer read back as found; else,
-    /// for builds that fill the registration at run time, one made up of the module array alone (one module per image,
-    /// no generic method pointers).
+    /// for builds that fill the registration at run time, one made up of the module array (one module per image)
+    /// and the generic method pointer array found in the data.
     /// </summary>
     private static void LocateRegistrations(Il2CppBinary binary, LibCpp2IL.Metadata.Il2CppMetadata metadata, ref Il2CppCodeRegistration? codeReg, ref Il2CppMetadataRegistration? metaReg)
     {
@@ -212,8 +212,40 @@ public static class Il2CppMetadataReader
         {
             // Before metadata 27 the library reads the attribute generator list unconditionally; an empty one at a mapped address.
             codeReg = new Il2CppCodeRegistration { codeGenModulesCount = (ulong)images, addrCodeGenModulePtrs = array, customAttributeGeneratorListAddress = array };
-            searchNote = $"no code registration in the file (filled at run time): read through its module array at 0x{array:X} ({images} modules); generic method bodies are not mapped";
+            searchNote = $"no code registration in the file (filled at run time): read through its module array at 0x{array:X} ({images} modules); " +
+                         GenericMethodPointers(binary, image, codeReg, metaReg);
         }
+    }
+
+    /// <summary>
+    /// Places the generic method pointer array of a run-time-filled registration into <paramref name="codeReg"/>: its
+    /// length is one past the largest pointer index of the metadata registration's generic method table. Returns the note.
+    /// </summary>
+    private static string GenericMethodPointers(Il2CppBinary binary, Native.INativeImage image, Il2CppCodeRegistration codeReg, Il2CppMetadataRegistration? metaReg)
+    {
+        if (metaReg == null || metaReg.genericMethodTableCount <= 0) return "generic method bodies are not mapped (no generic method table)";
+        int count;
+        var exclude = new List<(ulong, ulong)>();
+        int ptr = searchIs64 ? 8 : 4;
+        try
+        {
+            var table = binary.ReadReadableArrayAtVirtualAddress<Il2CppGenericMethodFunctionsDefinitions>(metaReg.genericMethodTable, metaReg.genericMethodTableCount);
+            count = table.Max(t => t.Indices.methodIndex) + 1;
+            foreach (ulong module in binary.ReadNUintArrayAtVirtualAddress(codeReg.addrCodeGenModulePtrs, (long)codeReg.codeGenModulesCount))
+            {
+                var m = binary.ReadReadableAtVirtualAddress<Il2CppCodeGenModule>(module);
+                if (m.methodPointerCount > 0) exclude.Add((m.methodPointers, m.methodPointers + (ulong)m.methodPointerCount * (ulong)ptr));
+            }
+        }
+        catch (Exception ex) when (ex is not (OutOfMemoryException or OperationCanceledException))
+        {
+            return $"generic method bodies are not mapped (generic method table unreadable: {Clip(ex.Message)})";
+        }
+        var found = Il2CppRegistrationSearch.GenericMethodPointers(image, count, exclude, searchCt);
+        if (found is not [var array]) return $"generic method bodies are not mapped ({found.Count} arrays of {count} generic method pointers found, one expected)";
+        codeReg.genericMethodPointers = array;
+        codeReg.genericMethodPointersCount = (ulong)count;
+        return $"generic method pointers ({count}) at 0x{array:X}";
     }
 
     /// <summary>The innermost frame of an exception, for reports.</summary>
