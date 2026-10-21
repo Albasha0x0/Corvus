@@ -11,7 +11,7 @@ namespace Corvus.Tools;
 
 [McpServerToolType]
 public sealed class SessionTools(AssemblyWorkspace workspace, IndexingService indexing, ServerOptions options, ResultStore results,
-    NativeEngineService? engines = null, NotesService? notes = null)
+    NativeEngineService? engines = null, NotesService? notes = null, LiveSessionService? live = null)
 {
     public sealed record Capability(string Name, bool Available, string Detail, string? Remediation);
 
@@ -129,6 +129,7 @@ public sealed class SessionTools(AssemblyWorkspace workspace, IndexingService in
                 ? new("programs sessions may open", true, "limited to: " + string.Join(", ", options.LiveAllow), null)
                 : new("programs sessions may open", true, "any program the session switches allow",
                     $"limit them with {ServerOptions.LiveAllowOption} <program or folder> (repeatable)"));
+        if (options.AllowLive && live?.Backend is { } backend) capabilities.Add(LiveBackendCapability(backend));
         // listed only when on: status is at its report budget, and a refused save names the switch
         if (options.AllowReplaceOriginal)
             capabilities.Add(new("saves that replace the loaded file", true, "on: save_assembly and save_native take replaceOriginal=true (a .bak is kept)", null));
@@ -160,6 +161,17 @@ public sealed class SessionTools(AssemblyWorkspace workspace, IndexingService in
             new Capability($"external tool: {p.Name}, for {p.Purpose}", p.Usable,
                 p.Usable ? $"{p.Path} (from {p.Source}{(p.Version != null ? $", version {p.Version}" : "")})" : p.Problem!,
                 p.Usable ? null : p.Remediation));
+
+    /// <summary>The session backend: whether it can start, and for Frida its version against the tested range.</summary>
+    internal static Capability LiveBackendCapability(Native.Providers.Live.ILiveBackend backend)
+    {
+        var name = $"live sessions ({backend.Name})";
+        if (backend.Unavailable() is { } missing) return new(name, false, missing.Reason, missing.Remediation);
+        if (backend is not Native.Providers.Live.FridaBackend { FridaVersion: var version, Python: var python }) return new(name, true, "ready", null);
+        var untested = Native.Providers.Live.FridaVersions.Warning(version);
+        return new(name, true, $"Frida {version} in {python?.Executable}: " + (untested ?? $"in the tested range {Native.Providers.Live.FridaVersions.TestedRange}"),
+            untested == null ? null : Native.Providers.Live.FridaBackend.Upgrade);
+    }
 
     // The report budget: a reason already in an unavailableTools row is said once, there.
     internal static List<Capability> PointToUnavailable(List<Capability> capabilities, List<UnavailableGroup> unavailable) =>

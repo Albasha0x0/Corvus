@@ -20,14 +20,18 @@ public sealed class FridaBackend : ILiveBackend
     public const string PythonVariable = "CORVUS_FRIDA_PYTHON";
     private const string WorkerResource = "Corvus.Native.Providers.Live.live_worker.py";
     private const string AgentResource = "Corvus.Native.Providers.Live.live_agent.js";
-    private readonly Lazy<(PythonInterpreter? Python, string? Problem)> _python = new(Locate);
+    private readonly Lazy<(PythonInterpreter? Python, string? Frida, string? Problem)> _python = new(Locate);
 
     public string Name => "frida";
 
     public (string Reason, string Remediation)? Unavailable() => PlatformProblem(OperatingSystem.IsMacOS())
         ?? (_python.Value.Problem is { } problem
             ? (problem, $"Install Frida's Python bindings (python -m pip install frida) in a 64-bit Python 3, or set {PythonVariable} to that python.")
-            : null);
+            : FridaVersions.Refusal(_python.Value.Frida) is { } old ? (old, Upgrade) : null);
+
+    /// <summary>The pip command that installs a Frida in the tested range.</summary>
+    public static string Upgrade =>
+        $"Install a tested Frida (python -m pip install \"frida>={FridaVersions.TestedFrom},<{FridaVersions.TestedMajor + 1}\"), or set {PythonVariable} to a python that has one.";
 
     /// <summary>The session script is written and tested for Windows and Linux only.</summary>
     internal static (string Reason, string Remediation)? PlatformProblem(bool macOS) => macOS
@@ -38,7 +42,10 @@ public sealed class FridaBackend : ILiveBackend
     /// <summary>The interpreter sessions use, for server_status; null when none imports frida.</summary>
     public PythonInterpreter? Python => _python.Value.Python;
 
-    private static (PythonInterpreter?, string?) Locate()
+    /// <summary>frida.__version__ in that interpreter.</summary>
+    public string? FridaVersion => _python.Value.Frida;
+
+    private static (PythonInterpreter?, string?, string?) Locate()
     {
         var log = new List<string>();
         var seen = new HashSet<string>(OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal);
@@ -56,11 +63,11 @@ public sealed class FridaBackend : ILiveBackend
                 continue;
             }
             python = python with { Source = source };
-            var run = PythonLocator.RunCapture(python.Executable, ["-I", "-c", "import frida"], TimeSpan.FromSeconds(30));
-            if (run.ExitCode == 0) return (python, null);
+            var run = PythonLocator.RunCapture(python.Executable, ["-I", "-c", "import frida; print(frida.__version__)"], TimeSpan.FromSeconds(30));
+            if (run.ExitCode == 0) return (python, run.Stdout.Trim(), null);
             log.Add($"{source}: {python.Executable} has no frida package");
         }
-        return (null, "No 64-bit Python with Frida's bindings was found (" + (log.Count == 0 ? "no Python found" : string.Join("; ", log.Distinct())) + ").");
+        return (null, null, "No 64-bit Python with Frida's bindings was found (" + (log.Count == 0 ? "no Python found" : string.Join("; ", log.Distinct())) + ").");
     }
 
     /// <summary>CORVUS_FRIDA_PYTHON, the interpreter the usual search finds first, then every python on PATH.</summary>

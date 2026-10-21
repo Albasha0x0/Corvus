@@ -84,6 +84,9 @@ apply to the whole server process, which for a stdio client means its client con
 Run programs you do not trust only in a disposable virtual machine: a session observes the program, it does not contain
 it. A session runs a worker on Frida's Python bindings
 (`pip install frida`; `CORVUS_FRIDA_PYTHON` names the interpreter when the first one found lacks them).
+Sessions are tested on Frida 17.24.3 to 17.x: `server_status` shows the Frida version and whether it is in that range, a
+session on a Frida outside it opens with an `error` event naming the version and the range, and a Frida older than 17.0
+is refused with `provider_unavailable` (the session script needs the 17.x API).
 
 | Step | Call |
 |---|---|

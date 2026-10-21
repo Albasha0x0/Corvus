@@ -334,7 +334,10 @@ public sealed partial class LiveSessionService(AssemblyWorkspace workspace, Nati
         try
         {
             await worker.WaitReadyAsync(StartTimeout, ct).ConfigureAwait(false);
-            await worker.RequestAsync("hello", null, StartTimeout, ct).ConfigureAwait(false);
+            var hello = await worker.RequestAsync("hello", null, StartTimeout, ct).ConfigureAwait(false);
+            var frida = hello.ValueKind == JsonValueKind.Object && hello.TryGetProperty("frida", out var v) ? v.GetString() : null;
+            if (FridaVersions.Refusal(frida) is { } old) throw new ToolError(ErrorCode.ProviderUnavailable, old, FridaBackend.Upgrade);
+            if (FridaVersions.Warning(frida) is { } untested) session.Add("error", null, null, untested);
             var args = spawn
                 ? new JsonObject
                 {

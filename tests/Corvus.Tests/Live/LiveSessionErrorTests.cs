@@ -58,6 +58,33 @@ public sealed class LiveSessionErrorTests : IDisposable
     }
 
     [Fact]
+    public async Task A_Frida_outside_the_tested_range_opens_with_a_warning_and_one_too_old_is_refused()
+    {
+        foreach (var (version, warned) in new[] { ("18.0.1", true), ("17.24.3", false) })
+        {
+            using var service = new LiveSessionService(_workspace, new NativeCodeService(_workspace, new ServerOptions()))
+                { Backend = new ScriptedLiveBackend(Sqlite, Base, 0x200000) { FridaVersion = version } };
+            var tools = new LiveSessionTools(new ServerOptions { AllowLiveAttach = true }, service);
+            await tools.LiveSession("attach", program: "4242");
+            var events = await tools.LiveEvents("live-1");
+            Assert.Equal(warned, events.Contains($"Frida {version} is outside the tested range {Native.Providers.Live.FridaVersions.TestedRange}"));
+        }
+        using var old = new LiveSessionService(_workspace, new NativeCodeService(_workspace, new ServerOptions()))
+            { Backend = new ScriptedLiveBackend(Sqlite, Base, 0x200000) { FridaVersion = "16.5.9" } };
+        await Refused(ErrorCode.ProviderUnavailable, () => new LiveSessionTools(new ServerOptions { AllowLiveAttach = true }, old).LiveSession("attach", program: "4242"),
+            "Frida 16.5.9 is older than 17.0.0");
+        Assert.Empty(old.Sessions);
+    }
+
+    [Theory]
+    [InlineData("17.24.3", "17.24.3")]
+    [InlineData("17.5.0-dev.3", "17.5.0")]
+    [InlineData("18", "18.0.0")]
+    [InlineData("test", null)]
+    public void Frida_versions_parse_from_their_leading_numbers(string text, string? expected) =>
+        Assert.Equal(expected, Native.Providers.Live.FridaVersions.Parse(text)?.ToString());
+
+    [Fact]
     public async Task Unknown_ids_are_not_found()
     {
         await _tools.LiveSession("attach", program: "4242");

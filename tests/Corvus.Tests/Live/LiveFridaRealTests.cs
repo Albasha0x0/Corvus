@@ -219,6 +219,17 @@ public sealed class LiveFridaRealTests(ITestOutputHelper output) : IDisposable
     }
 
     [FridaFact]
+    public async Task Server_status_names_the_Frida_version_and_whether_it_is_tested()
+    {
+        await using var server = await InProcessServer.StartAsync(options: new ServerOptions { BackgroundIndexing = false, WatchFiles = false, AllowLiveAttach = true });
+        var (status, _) = await Call(server, "server_status", new());
+        var version = new FridaBackend().FridaVersion!;
+        Assert.Matches(@"^\d+\.\d+\.\d+", version);
+        Assert.Contains($"Frida {version} in ", status);
+        Assert.Contains(FridaVersions.Warning(version) == null ? $"in the tested range {FridaVersions.TestedRange}" : "outside the tested range", status);
+    }
+
+    [FridaFact]
     public async Task A_user_script_runs_in_the_program_and_its_messages_are_events()
     {
         var exe = Build();

@@ -44,6 +44,8 @@ internal sealed class ScriptedLiveBackend(string mainPath, ulong mainBase, uint 
     public readonly List<int> ChildResumes = [];
     /// <summary>The platform the program runs on, as Frida names it; null leaves it out of the open reply.</summary>
     public string? Platform { get; init; }
+    /// <summary>The version the hello reply names.</summary>
+    public string FridaVersion { get; init; } = FridaVersions.TestedFrom.ToString();
 
     public string Name => "scripted";
     public (string Reason, string Remediation)? Unavailable() => Missing == null ? null : (Missing, "install it");
@@ -117,7 +119,7 @@ internal sealed class ScriptedLiveBackend(string mainPath, ulong mainBase, uint 
         lock (Ops) Ops.Add(op);
         switch (op)
         {
-            case "hello": return new JsonObject { ["frida"] = "test" };
+            case "hello": return new JsonObject { ["frida"] = FridaVersion };
             case "open":
                 LastOpen = (JsonObject)args.DeepClone();
                 _suspended = args["spawn"] != null || args["stopped"] is { } stopped && (bool)stopped;
