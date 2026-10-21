@@ -64,7 +64,16 @@ if ($Full -or $Background) { Import-UserTestVariables }
 
 if ($Status) {
     if (-not (Test-Path $result)) { Write-Host 'No background run yet.'; exit 0 }
-    Write-Host (Get-Content $result -Raw).Trim()
+    $text = (Get-Content $result -Raw).Trim()
+    # A run that ended without writing its result (killed, or its worktree
+    # broke) leaves "running" and its record behind.
+    $record = Join-Path $gitDir 'corvus-background.json'
+    if ($text -match ' running since ' -and (Test-Path $record)) {
+        $run = Get-Content $record -Raw | ConvertFrom-Json
+        $alive = Get-Process -Id $run.pid -ErrorAction SilentlyContinue | Where-Object { $_.StartTime.ToUniversalTime().Ticks -eq $run.started }
+        if (-not $alive) { $text = "$($run.commit.Substring(0, 8)) not running (pid $($run.pid) gone, no result)" }
+    }
+    Write-Host $text
     if (Test-Path $log) { Get-Content $log -Tail 5 | Where-Object { $_ -match '\[FAIL\]|Passed!|Failed!|Stamped' } | ForEach-Object { Write-Host "  $_" } }
     if (Test-Path "$log.previous") {
         $before = Get-Content "$log.previous"
@@ -136,6 +145,11 @@ if ($Background) {
     $dir = Join-Path $bgRoot "corvus-bg-$($commit.Substring(0, 8))"
     if (Test-Path $dir) { git -C $root worktree remove --force $dir 2>$null; Remove-Item -Recurse -Force $dir -ErrorAction SilentlyContinue }
     git -C $root worktree add --detach $dir $commit | Out-Null
+    $checkedOut = git -C $dir rev-parse HEAD 2>$null
+    if ($LASTEXITCODE -ne 0 -or "$checkedOut".Trim() -ne $commit) {
+        Write-Host "The background run did not start: $dir is not a worktree of $commit (git worktree add failed)." -ForegroundColor Red
+        exit 1
+    }
     # Routine by default; release strength records the passes a release takes.
     $flags = '-Full' + $(if ($Whole) { ' -Exhaustive' } elseif ($Exhaustive) { ' -Exhaustive -Reuse' } else { ' -Reuse' })
     $short = $commit.Substring(0, 8)
