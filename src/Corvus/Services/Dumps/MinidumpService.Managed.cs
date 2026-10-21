@@ -59,7 +59,7 @@ public sealed partial class MinidumpService
             if (s.Core is { } core)
             {
                 if ((runtime = core.CoreModules.FirstOrDefault(m => m.Module.FileName == "libcoreclr.so")) == null) return null;
-                var (file, matches, _) = FindElf(core, runtime, s.Directories);
+                var (file, matches, _) = FindImage(core, runtime, s.Directories);
                 runtimeFile = matches ? file : null;
             }
             int at = _decoders.FindIndex(d => d.Path.Equals(path, StringComparison.OrdinalIgnoreCase));

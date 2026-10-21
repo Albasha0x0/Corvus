@@ -31,14 +31,14 @@ public sealed partial class MinidumpService
 
     private (ushort Machine, string? BuildId)? Probe(string path) => _elfProbes.GetOrAdd(FileKey(path), _ => ElfMemoryHeader.Probe(path));
 
-    private (string? Path, bool Matches, string Detail) FindElf(CoreFile core, CoreModule module, IReadOnlyList<string> directories) =>
+    private (string? Path, bool Matches, string Detail) FindImage(CoreFile core, CoreModule module, IReadOnlyList<string> directories) =>
         CoreImage.Find(module, directories, core.Machine, Probe);
 
     /// <summary>A core module's image: the matched file on disk, else the module as the core holds it.</summary>
-    internal (CoreImage? Image, string Detail) LoadElf(CoreFile core, DumpModule module, IReadOnlyList<string> directories)
+    internal (CoreImage? Image, string Detail) LoadImage(CoreFile core, DumpModule module, IReadOnlyList<string> directories)
     {
         if (core.CoreModule(module) is not { } cm) return (null, "not a module of the core");
-        var (path, matches, detail) = FindElf(core, cm, directories);
+        var (path, matches, detail) = FindImage(core, cm, directories);
         if (matches && path != null)
         {
             try
@@ -73,7 +73,7 @@ public sealed partial class MinidumpService
         }
         uint shown = (uint)(address - module.Base);
         string label = module.FileName;
-        var (image, detail) = s.Elf(module);
+        var (image, detail) = s.Image(module);
         if (image?.SymbolAt(lookup) is { } symbol)
         {
             string name = ItaniumDemangler.Demangle(symbol.Name) ?? symbol.Name;
@@ -182,7 +182,7 @@ public sealed partial class MinidumpService
     internal ModuleSummary CoreModuleRow(Session s, CoreModule m)
     {
         var core = s.Core!;
-        var (path, matches, detail) = FindElf(core, m, s.Directories);
+        var (path, matches, detail) = FindImage(core, m, s.Directories);
         string state = matches ? "matches" : path != null ? "mismatch" : "missing";
         return new ModuleSummary(m.Module.FileName, m.Module.Path, $"0x{m.Module.Base:X}", $"0x{m.Module.Size:X}", "", null, null, null, null, null,
             state, path, detail, null) { BuildId = m.BuildId };
@@ -229,7 +229,7 @@ public sealed partial class MinidumpService
     private WalkResult CoreWalk(Session s, CoreFile core, CoreRegisters regs, int maxFrames, CancellationToken ct)
     {
         var stack = core.SegmentAt(regs.Sp);
-        var unwinder = new CoreUnwinder(core, regs.Arch, a => core.ModuleAt(a) is { } m ? s.Elf(m).Image : null);
+        var unwinder = new CoreUnwinder(core, regs.Arch, a => core.ModuleAt(a) is { } m ? s.Image(m).Image : null);
         return unwinder.Walk(regs, stack?.Start ?? 0, stack?.End ?? 0, maxFrames, ct);
     }
 
@@ -251,7 +251,7 @@ public sealed partial class MinidumpService
     /// <summary>Where each module's image and names came from, for the modules a core session resolved.</summary>
     private static IEnumerable<string> CoreModuleNotes(Session s)
     {
-        foreach (var (m, image, detail) in s.ElfLoaded.OrderBy(x => x.Module.Base))
+        foreach (var (m, image, detail) in s.ImagesLoaded.OrderBy(x => x.Module.Base))
             yield return image == null ? $"{m.FileName}: {detail}"
                 : $"{m.FileName}: image {image.Source}{(image.LocalPath != null ? $" ({image.LocalPath})" : "")}; {(image.HasCfi ? ".eh_frame" : "no .eh_frame")}; " +
                   $"{image.Symbols.Count} function symbols; {image.Detail}";
@@ -265,7 +265,7 @@ public sealed partial class MinidumpService
         int n = core.ReadMemory(va, buffer);
         string source = n > 0 ? "dump_memory" : "none";
         string? note = null;
-        if (n < length && imageFallback && core.ModuleAt(va + (ulong)n) is { } m && s.Elf(m).Image is { Source: "disk" } image)
+        if (n < length && imageFallback && core.ModuleAt(va + (ulong)n) is { } m && s.Image(m).Image is { Source: "disk" } image)
         {
             var tmp = new byte[length];
             int k = image.Read(va, tmp);

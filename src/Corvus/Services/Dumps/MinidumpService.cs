@@ -122,24 +122,24 @@ public sealed partial class MinidumpService(AssemblyWorkspace? workspace = null,
             get { lock (_modules) return _modules.Select(kv => (kv.Key, kv.Value)).ToList(); }
         }
 
-        /// <summary>The ELF core of a core session, else null.</summary>
+        /// <summary>The core file of a core session, else null.</summary>
         public CoreFile? Core => Memory as CoreFile;
 
-        private readonly Dictionary<DumpModule, (CoreImage? Image, string Detail)> _elf = [];
+        private readonly Dictionary<DumpModule, (CoreImage? Image, string Detail)> _images = [];
 
         /// <summary>A core module's image (matched file, else core memory), or the reason there is none.</summary>
-        public (CoreImage? Image, string Detail) Elf(DumpModule module)
+        public (CoreImage? Image, string Detail) Image(DumpModule module)
         {
-            using (AssemblyWorkspace.Lock(_elf))
+            using (AssemblyWorkspace.Lock(_images))
             {
-                if (!_elf.TryGetValue(module, out var e)) _elf[module] = e = owner.LoadElf(Core!, module, Directories);
+                if (!_images.TryGetValue(module, out var e)) _images[module] = e = owner.LoadImage(Core!, module, Directories);
                 return e;
             }
         }
 
-        public IEnumerable<(DumpModule Module, CoreImage? Image, string Detail)> ElfLoaded
+        public IEnumerable<(DumpModule Module, CoreImage? Image, string Detail)> ImagesLoaded
         {
-            get { lock (_elf) return _elf.Select(kv => (kv.Key, kv.Value.Image, kv.Value.Detail)).ToList(); }
+            get { lock (_images) return _images.Select(kv => (kv.Key, kv.Value.Image, kv.Value.Detail)).ToList(); }
         }
 
         public void Dispose() => (Memory as IDisposable)?.Dispose();

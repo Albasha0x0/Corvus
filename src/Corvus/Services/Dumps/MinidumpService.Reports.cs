@@ -350,7 +350,7 @@ public sealed partial class MinidumpService
         var buffer = new byte[16];
         int n = d.ReadMemory(address, buffer);
         string? source = n > 0 ? "dump_memory" : null;
-        if (n < buffer.Length && s.Core != null && d.ModuleAt(address) is { } em && s.Elf(em).Image is { } elf)
+        if (n < buffer.Length && s.Core != null && d.ModuleAt(address) is { } em && s.Image(em).Image is { } elf)
         {
             var fromImage = new byte[16];
             int k = elf.Read(address, fromImage);
