@@ -1,3 +1,4 @@
+using System.Runtime.InteropServices;
 using Corvus.Core;
 using Corvus.Native.Diagnostics;
 using Corvus.Native.Dump;
@@ -7,8 +8,9 @@ namespace Corvus.Tests;
 
 /// <summary>
 /// Snapshot writes: one the running program disturbs (it changed a list or a region during the read) is written again; a
-/// Linux core written at a stop gives the stopped thread the stop's registers and signal; a program waiting in vfork for a
-/// child that has not run its program is refused instead of holding gcore, and is left running.
+/// program still starting is written once its loader has run; a Linux core written at a stop gives the stopped thread the
+/// stop's registers and signal; a program waiting in vfork for a child that has not run its program is refused instead of
+/// holding gcore, and is left running.
 /// </summary>
 public sealed class ProcessSnapshotTests
 {
@@ -130,4 +132,77 @@ public sealed class ProcessSnapshotTests
             if (!parent.HasExited) parent.Kill(true);
         }
     }
+
+    [Fact]
+    public void A_program_still_starting_is_written_once_its_loader_has_run()
+    {
+        if (!OperatingSystem.IsWindows()) return;
+        using var dir = new TempDir();
+        // Regression: a snapshot right after a process started failed three times with ERROR_PARTIAL_COPY.
+        // The process is created suspended (its loader has not run) and resumed 500 ms later.
+        var si = new StartupInfo { cb = Marshal.SizeOf<StartupInfo>() };
+        Assert.True(CreateProcessW(Path.Combine(Environment.SystemDirectory, "findstr.exe"), "findstr x\0".ToCharArray(), IntPtr.Zero, IntPtr.Zero, false,
+            0x4 | 0x08000000, IntPtr.Zero, null, ref si, out var pi), "CreateProcess");
+        try
+        {
+            using var resume = new Timer(_ => _ = ResumeThread(pi.Thread), null, 500, Timeout.Infinite);
+            Assert.True(ProcessSnapshot.Write(pi.ProcessId, dir.File("start.dmp"), false, CancellationToken.None) > 0);
+        }
+        finally
+        {
+            TerminateProcess(pi.Process, 0);
+            CloseHandle(pi.Thread);
+            CloseHandle(pi.Process);
+        }
+    }
+
+    [Fact]
+    public void A_loader_that_never_runs_is_refused_after_the_wait()
+    {
+        var wait = ProcessSnapshot.LoaderWait;
+        ProcessSnapshot.LoaderWait = TimeSpan.FromMilliseconds(100);
+        try
+        {
+            var refused = Assert.Throws<ToolError>(() => ProcessSnapshot.AwaitLoader(7, () => false, CancellationToken.None));
+            Assert.Equal(ErrorCode.Timeout, refused.Code);
+            Assert.Contains("Process 7 has not started", refused.Message);
+            Assert.Contains("live_break action=continue", refused.Remediation);
+            var answers = new Queue<bool?>([false, false, true]);
+            ProcessSnapshot.AwaitLoader(7, () => answers.Dequeue(), CancellationToken.None);
+            Assert.Empty(answers);
+            // An unreadable PEB is unknown, not a loader that has not run.
+            ProcessSnapshot.AwaitLoader(7, () => null, CancellationToken.None);
+        }
+        finally { ProcessSnapshot.LoaderWait = wait; }
+    }
+
+    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+    private struct StartupInfo
+    {
+        public int cb;
+        public string? Reserved, Desktop, Title;
+        public int X, Y, XSize, YSize, XCountChars, YCountChars, FillAttribute, Flags;
+        public short ShowWindow, Reserved2;
+        public IntPtr Reserved3, StdInput, StdOutput, StdError;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct ProcessInformation
+    {
+        public IntPtr Process, Thread;
+        public int ProcessId, ThreadId;
+    }
+
+    [DllImport("kernel32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
+    private static extern bool CreateProcessW(string application, char[] commandLine, IntPtr processAttributes, IntPtr threadAttributes, bool inherit,
+        uint flags, IntPtr environment, string? directory, ref StartupInfo startup, out ProcessInformation info);
+
+    [DllImport("kernel32.dll")]
+    private static extern uint ResumeThread(IntPtr thread);
+
+    [DllImport("kernel32.dll")]
+    private static extern bool TerminateProcess(IntPtr process, uint code);
+
+    [DllImport("kernel32.dll")]
+    private static extern bool CloseHandle(IntPtr handle);
 }

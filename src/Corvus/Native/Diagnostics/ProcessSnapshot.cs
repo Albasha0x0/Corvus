@@ -36,7 +36,7 @@ public static class ProcessSnapshot
         var partial = full + ".partial";
         try
         {
-            if (OperatingSystem.IsWindows()) WriteMinidump(pid, partial, stop);
+            if (OperatingSystem.IsWindows()) WriteMinidump(pid, partial, stop, ct);
             else if (OperatingSystem.IsLinux()) WriteCore(pid, partial, ct, stop);
             else if (OperatingSystem.IsMacOS()) WriteMachCore(pid, partial, ct);
             else throw new ToolError(ErrorCode.ProviderUnavailable, "Snapshots are written on Windows (MiniDumpWriteDump), Linux (gcore) and macOS (lldb).");
@@ -93,7 +93,7 @@ public static class ProcessSnapshot
         return c;
     }
 
-    private static void WriteMinidump(int pid, string path, Stop? stop)
+    private static void WriteMinidump(int pid, string path, Stop? stop, CancellationToken ct)
     {
         var process = OpenProcess(ProcessAccess, false, pid);
         if (process == IntPtr.Zero)
@@ -127,6 +127,8 @@ public static class ProcessSnapshot
         }
         try
         {
+            // Wait for the loader first: until it has listed the modules, every write fails as a changed program does.
+            AwaitLoader(pid, () => LoaderReady(process), ct);
             Attempts(pid, () =>
             {
                 using var file = new FileStream(path, FileMode.Create, FileAccess.ReadWrite, FileShare.None);
@@ -138,6 +140,41 @@ public static class ProcessSnapshot
             CloseHandle(process);
             if (block != IntPtr.Zero) Marshal.FreeHGlobal(block);
         }
+    }
+
+    /// <summary>How long a snapshot waits for a starting program's loader before it refuses.</summary>
+    internal static TimeSpan LoaderWait { get; set; } = TimeSpan.FromSeconds(10);
+
+    /// <summary>
+    /// Returns once <paramref name="ready"/> is not false (true, or null for unknown); refuses with
+    /// <see cref="ErrorCode.Timeout"/> after <see cref="LoaderWait"/>.
+    /// </summary>
+    internal static void AwaitLoader(int pid, Func<bool?> ready, CancellationToken ct)
+    {
+        var clock = Stopwatch.StartNew();
+        while (ready() == false)
+        {
+            if (clock.Elapsed >= LoaderWait)
+                throw new ToolError(ErrorCode.Timeout, $"Process {pid} has not started: its loader has not listed its modules within {LoaderWait.TotalSeconds:0} s.",
+                    "a program held at its start is written once it runs: live_break action=continue, then snapshot again");
+            ct.ThrowIfCancellationRequested();
+            ct.WaitHandle.WaitOne(20);
+        }
+    }
+
+    /// <summary>
+    /// Whether the loader of <paramref name="process"/> has set up its module list (PEB.Ldr set and initialized),
+    /// which a process created suspended has not; null when the PEB cannot be read.
+    /// </summary>
+    private static bool? LoaderReady(IntPtr process)
+    {
+        // PROCESS_BASIC_INFORMATION: PebBaseAddress is its second field.
+        var basic = new nint[6];
+        if (NtQueryInformationProcess(process, 0, basic, IntPtr.Size * basic.Length, out _) != 0) return null;
+        if (!ReadProcessMemory(process, basic[1] + (IntPtr.Size == 8 ? 0x18 : 0x0C), out nint ldr, IntPtr.Size, out _)) return null;
+        if (ldr == 0) return false;
+        // PEB_LDR_DATA.Initialized follows its 4-byte Length.
+        return ReadProcessMemory(process, ldr + 4, out byte initialized, 1, out _) ? initialized != 0 : null;
     }
 
     // HRESULT_FROM_WIN32 of ERROR_BAD_LENGTH and ERROR_PARTIAL_COPY: the running program changed a list or a region while it was read
@@ -343,6 +380,15 @@ public static class ProcessSnapshot
 
     [DllImport("kernel32.dll")]
     private static extern bool CloseHandle(IntPtr handle);
+
+    [DllImport("ntdll.dll")]
+    private static extern int NtQueryInformationProcess(IntPtr process, int infoClass, [Out] nint[] info, int length, out int returned);
+
+    [DllImport("kernel32.dll")]
+    private static extern bool ReadProcessMemory(IntPtr process, nint address, out nint buffer, nint size, out nint read);
+
+    [DllImport("kernel32.dll")]
+    private static extern bool ReadProcessMemory(IntPtr process, nint address, out byte buffer, nint size, out nint read);
 
     [DllImport("dbghelp.dll", SetLastError = true)]
     private static extern bool MiniDumpWriteDump(IntPtr process, uint processId, SafeFileHandle file, uint type, IntPtr exception, IntPtr user, IntPtr callback);
