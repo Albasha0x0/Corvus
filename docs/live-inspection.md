@@ -105,7 +105,7 @@ stack reads `orders.exe!AddLine+0x1B  orders.c:9`, not a bare address (names fro
 symbol table a MinGW-style link keeps in the image); other modules join once loaded with
 `load_assembly`. Source lines and `file:line` stop points come from the PDB line tables on Windows and the DWARF line
 tables on Linux; on Linux a stop's frames are unwound from its stack with each module's `.eh_frame` CFI, as `dump_stack`
-walks a core. Stop points hold only the thread that hits them; other threads run on. Memory is read, never written: a `cstring` or
+walks a core. Stop points hold only the thread that hits them; other threads run on. While a thread is held, `live_session status` also lists a DLL the loader mapped through a delay-load import before its `module` event arrives. Memory is read, never written: a `cstring` or
 `utf16` read stops at the string's terminator, at most `length` bytes (default 4096), and says where a string without
 one stops short; a `pointer` is as wide as the program's pointers.
 A session ends on `close`, after `CORVUS_LIVE_MAX_MINUTES` (default 30) and with the server; each releases every held

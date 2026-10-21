@@ -148,6 +148,7 @@ public sealed partial class LiveSessionService
         if (match?.IndexOf('!') is > 0 and var bang) (module, match) = (match[..bang].Trim(), match[(bang + 1)..]);
         Live(session);
         await IndexedAsync(session, TimeSpan.FromSeconds(60), ct).ConfigureAwait(false);
+        if (!string.IsNullOrWhiteSpace(module)) await RefreshModulesAsync(session, ct).ConfigureAwait(false);
         LiveModuleState? m;
         lock (session.Modules)
             m = string.IsNullOrWhiteSpace(module) ? session.Modules.FirstOrDefault() : session.Modules.FirstOrDefault(x => ModuleNamed(x, module));

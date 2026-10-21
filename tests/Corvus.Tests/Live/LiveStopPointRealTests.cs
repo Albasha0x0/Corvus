@@ -160,6 +160,27 @@ public sealed class LiveStopPointRealTests(ITestOutputHelper output) : LiveToolC
         Ended(pid);
     }
 
+    // ---- a DLL mapped through a delay-load import before a stop: listed at the stop, though its load event comes later
+
+    [LiveTargetFact("win-x64")] public Task A_delay_loaded_dll_is_listed_at_the_stop_on_win_x64() => DelayLoadListed(LiveTarget.WinX64);
+    [LiveTargetFact("win-x86")] public Task A_delay_loaded_dll_is_listed_at_the_stop_on_win_x86() => DelayLoadListed(LiveTarget.WinX86);
+
+    private async Task DelayLoadListed(LiveTarget target)
+    {
+        var exe = target.Build(_dir, "delayload", LivePrograms.DelayLoad);
+        await using var server = await Server();
+        var pid = await Spawn(server, exe, "live-1");
+        await Set(server, "Ready");
+        Assert.Contains("stopped at s1", await Ok(server, "live_break", new() { ["session"] = "live-1", ["action"] = "continue", ["wait"] = true, ["waitSeconds"] = 60 }));
+        Assert.Matches(new Regex(@"0x[0-9A-F]+ windows\.storage\.dll", RegexOptions.IgnoreCase), await Ok(server, "live_session", new() { ["action"] = "status", ["session"] = "live-1" }));
+
+        await Ok(server, "live_break", new() { ["session"] = "live-1", ["action"] = "continue" });
+        Assert.Matches(@"exit code 0(?![0-9xX])", await UntilExited(server, "live-1"));
+        Assert.Contains("ready 2 found 1", await Events(server, "live-1", kind: "output"));
+        await Ok(server, "live_session", new() { ["action"] = "close", ["session"] = "live-1" });
+        Ended(pid);
+    }
+
     // ---- a function with no prototype: its calls are recorded as raw values
 
     [LiveTargetFact("win-x64")] public Task Raw_values_on_win_x64() => RawValues(LiveTarget.WinX64);

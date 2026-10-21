@@ -136,7 +136,9 @@ public sealed partial class LiveSessionTools(ServerOptions options, LiveSessionS
                         a == "spawn" ? environment : null).ConfigureAwait(false);
                     return Report(a, opened);
                 case "status":
-                    return Report(a, live.Get(RequireSession(session)));
+                    var current = live.Get(RequireSession(session));
+                    await live.RefreshModulesAsync(current, cancellationToken).ConfigureAwait(false);
+                    return Report(a, current);
                 case "snapshot":
                     return await Snapshot(live.Get(RequireSession(session)), outputPath, overwrite, cancellationToken).ConfigureAwait(false);
                 case "close":

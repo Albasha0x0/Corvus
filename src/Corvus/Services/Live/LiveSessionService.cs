@@ -430,6 +430,27 @@ public sealed partial class LiveSessionService(AssemblyWorkspace workspace, Nati
         return native;
     }
 
+    /// <summary>
+    /// While a thread is held, a DLL the loader mapped through a delay-load import can have no load event yet (it comes
+    /// with the next load, often after the resume): the backend's module list, read now, adds it. Its event, and the
+    /// deferred points it sets, still come with the load event.
+    /// </summary>
+    public async Task RefreshModulesAsync(LiveSession session, CancellationToken ct)
+    {
+        if (session.Held.Count == 0 || session.Closed || session.Ended != null) return;
+        JsonElement info;
+        try { info = await session.Worker.RequestAsync("info", null, RequestTimeout, ct).ConfigureAwait(false); }
+        catch (ToolError) { return; }
+        if (info.ValueKind != JsonValueKind.Object || !info.TryGetProperty("modules", out var listed) || listed.ValueKind != JsonValueKind.Array) return;
+        lock (session.Modules)
+            foreach (var m in listed.EnumerateArray().Select(Module))
+                if (!session.Modules.Any(x => x.Base == m.Base))
+                {
+                    session.Modules.Add(m);
+                    Match(m);
+                }
+    }
+
     private void OnEvent(LiveSession session, Native.Providers.WorkerMessage.Event e)
     {
         var body = e.Body;
@@ -760,8 +781,14 @@ public sealed partial class LiveSessionService(AssemblyWorkspace workspace, Nati
         if (t.IndexOf('!') is > 0 and var bang)
         {
             var name = t[..bang];
-            var m = modules.FirstOrDefault(x => x.Name.Equals(name, StringComparison.OrdinalIgnoreCase)
-                                               || Path.GetFileNameWithoutExtension(x.Name).Equals(name, StringComparison.OrdinalIgnoreCase))
+            LiveModuleState? Named() => modules.FirstOrDefault(x => x.Name.Equals(name, StringComparison.OrdinalIgnoreCase)
+                                                               || Path.GetFileNameWithoutExtension(x.Name).Equals(name, StringComparison.OrdinalIgnoreCase));
+            if (Named() == null && session.Held.Count > 0)
+            {
+                await RefreshModulesAsync(session, ct).ConfigureAwait(false);
+                lock (session.Modules) modules = session.Modules.ToList();
+            }
+            var m = Named()
                     ?? throw new ToolError(ErrorCode.NotFound, $"The program has no module '{name}'.", "live_session action=status lists its modules");
             var native = ImageOf(m);
             if (native == null) throw new ToolError(ErrorCode.Unsupported, $"{m.Path} could not be loaded as a native image.", "pass a live address instead");

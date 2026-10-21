@@ -54,6 +54,38 @@ function moduleRow(m) {
   return { name: m.name, base: m.base.toString(), size: m.size, path: m.path };
 }
 
+// Frida's module list misses a DLL the loader maps through a delay-load import until its next load event; the loader's
+// own list (K32EnumProcessModules, which takes no loader lock, so a thread held inside DllMain does not block it) adds
+// those, leaving out the agent's cloaked ranges.
+function loadedModules() {
+  const rows = Process.enumerateModules().map(moduleRow);
+  if (Process.platform !== 'windows') return rows;
+  try {
+    const k32 = Process.getModuleByName('kernel32.dll');
+    const abi = Process.arch === 'ia32' ? 'stdcall' : 'default';
+    const enumModules = new NativeFunction(k32.getExportByName('K32EnumProcessModules'), 'int', ['pointer', 'pointer', 'uint32', 'pointer'], abi);
+    const fileName = new NativeFunction(k32.getExportByName('K32GetModuleFileNameExW'), 'uint32', ['pointer', 'pointer', 'pointer', 'uint32'], abi);
+    const self = ptr(Process.pointerSize === 8 ? '0xffffffffffffffff' : '0xffffffff'); // GetCurrentProcess()
+    const capacity = 2048, handles = Memory.alloc(capacity * Process.pointerSize), needed = Memory.alloc(4);
+    if (!enumModules(self, handles, capacity * Process.pointerSize, needed)) return rows;
+    const known = new Set(rows.map(r => r.base));
+    const name = Memory.alloc(2 * 32768);
+    const count = Math.min(needed.readU32() / Process.pointerSize, capacity);
+    for (let i = 0; i < count; i++) {
+      const base = handles.add(i * Process.pointerSize).readPointer();
+      if (known.has(base.toString()) || (typeof Cloak !== 'undefined' && Cloak.hasRangeContaining(base))) continue;
+      const length = fileName(self, base, name, 32768);
+      if (length === 0) continue;
+      const path = name.readUtf16String(length);
+      const size = base.add(base.add(0x3c).readU32() + 0x50).readU32(); // SizeOfImage, at the same offset in PE32 and PE32+
+      rows.push({ name: path.substring(path.lastIndexOf('\\') + 1), base: base.toString(), size, path });
+    }
+  } catch (e) {
+    // the observer's list stands
+  }
+  return rows;
+}
+
 // Modules with deferred points (lower-case name or name without extension): their load holds the loading thread, before
 // the module's code runs, until the worker posts load-<tid> once the points are set.
 const deferredModules = new Set();
@@ -250,7 +282,7 @@ rpc.exports = {
   },
   info() {
     return { arch: Process.arch, platform: Process.platform, pointerSize: Process.pointerSize, pid: Process.id,
-      modules: Process.enumerateModules().map(moduleRow) };
+      modules: loadedModules() };
   },
   set(id, address, bare) {
     // a probe: the onEnter form takes the stack top for a return address, which past a function's start is a saved register

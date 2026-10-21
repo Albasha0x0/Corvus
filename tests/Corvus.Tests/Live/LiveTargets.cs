@@ -349,6 +349,27 @@ internal static class LivePrograms
         }
         """;
 
+    /// <summary>
+    /// delay-load (Windows): main asks shell32 for a known folder, which loads windows.storage.dll through shell32's
+    /// delay-load import, then calls Ready and prints whether the folder was found.
+    /// </summary>
+    public const string DelayLoad = Platform + """
+        #include <shlobj.h>
+        #pragma comment(lib, "shell32.lib")
+        #pragma comment(lib, "ole32.lib")
+        NOINLINE int Ready(int i) { return i + 1; }
+        int main(int argc, char** argv)
+        {
+            PWSTR path = NULL;
+            int found = SHGetKnownFolderPath(&FOLDERID_LocalAppData, 0, NULL, &path) == S_OK;
+            CoTaskMemFree(path);
+            int ready = Ready(1);
+            printf("ready %d found %d\n", ready, found);
+            fflush(stdout);
+            return 0;
+        }
+        """;
+
     /// <summary>probe [arg] [seconds]: prints PROBE_MODE, PROBE_SECRET, its working folder and arguments, then waits; exits 3.</summary>
     public const string Probe = Platform + """
         #ifdef _WIN32
