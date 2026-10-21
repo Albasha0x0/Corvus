@@ -2678,7 +2678,7 @@ Crash dumps and crash text.
 
 **Open a crash dump** (read-only, idempotent, open-world, long-running)
 
-Reads a Windows minidump (.dmp) or Linux/Android ELF core; returns the dump id. view=summary: OS, process, exception (thread, module!function, registers, C++ type), .NET state (managed exception and heap); modules (version, PDB, image match), threads, memory, unloaded: paged rows. .NET loads Microsoft's signature-checked DAC.
+Reads a Windows minidump (.dmp) or an ELF or Mach-O core; returns the dump id. view=summary: OS, process, exception (thread, module!function, registers, C++ type), .NET state (managed exception and heap); modules (version, PDB, image match), threads, memory, unloaded: paged rows. .NET loads Microsoft's signature-checked DAC.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -2697,7 +2697,7 @@ Structured output: `id`, `view`, `path`, `fileSize`, `timeUtc`, `dumpType`, `sys
 
 **Crash dump stack** (read-only, idempotent)
 
-Call stack of a minidump thread: x64 unwind data, x86 PDB frame data, call targets, EBP chain; JIT code without unwind data: a stack scan. Names from loaded images (code index, PDB, Il2Cpp) or exports. .NET frames (DAC): token, IL offset, assembly, C# statement; Mono JIT frames from the runtime's report beside the dump. ELF cores: CFI, then frame pointer.
+Call stack of a minidump thread: x64 unwind data, x86 PDB frame data, call targets, EBP chain; JIT code without unwind data: a stack scan. Names from loaded images (code index, PDB, Il2Cpp) or exports. .NET frames (DAC): token, IL offset, assembly, C# statement; Mono JIT frames from the runtime's report beside the dump. Cores: CFI, then frame pointer.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|

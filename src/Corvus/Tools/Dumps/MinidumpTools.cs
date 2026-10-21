@@ -17,7 +17,7 @@ public sealed class MinidumpTools(MinidumpService dumps, LiveSessionService? ses
         "Program binary folders (';'-separated), kept for the dump, plus its own folder.";
 
     [McpServerTool(Name = "open_minidump", Title = "Open a crash dump", UseStructuredContent = true, OutputSchemaType = typeof(MinidumpService.DumpReport))]
-    [Description("Reads a Windows minidump (.dmp) or Linux/Android ELF core; returns the dump id. view=summary: OS, process, exception " +
+    [Description("Reads a Windows minidump (.dmp) or an ELF or Mach-O core; returns the dump id. view=summary: OS, process, exception " +
                  "(thread, module!function, registers, C++ type), .NET state (managed exception and heap); modules (version, " +
                  "PDB, image match), threads, memory, unloaded: paged rows. .NET loads Microsoft's signature-checked DAC.")]
     public Task<string> OpenMinidump(
@@ -61,7 +61,7 @@ public sealed class MinidumpTools(MinidumpService dumps, LiveSessionService? ses
     [McpServerTool(Name = "dump_stack", Title = "Crash dump stack", UseStructuredContent = true, OutputSchemaType = typeof(MinidumpService.StackReport))]
     [Description("Call stack of a minidump thread: x64 unwind data, x86 PDB frame data, call targets, EBP chain; JIT code without " +
                  "unwind data: a stack scan. Names from loaded images (code index, PDB, Il2Cpp) or exports. .NET frames (DAC): token, IL " +
-                 "offset, assembly, C# statement; Mono JIT frames from the runtime's report beside the dump. ELF cores: CFI, then frame pointer.")]
+                 "offset, assembly, C# statement; Mono JIT frames from the runtime's report beside the dump. Cores: CFI, then frame pointer.")]
     public Task<string> DumpStack(
         [Description(DumpDescription)] string dump,
         [Description("Thread id, '#index', name or 'exception' (default: faulting thread, else first).")] string? thread = null,

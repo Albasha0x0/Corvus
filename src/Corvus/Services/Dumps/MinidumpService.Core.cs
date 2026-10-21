@@ -5,18 +5,21 @@ using Corvus.Native.Dump;
 using Corvus.Native.Dump.Managed;
 using Corvus.Native.Elf;
 using Corvus.Native.Itanium;
+using Corvus.Native.MachO;
 
 namespace Corvus.Services;
 
 /// <summary>
 /// The dump tools on a Linux or Android ELF core: threads and registers from NT_PRSTATUS, the signal from
 /// NT_SIGINFO, modules from NT_FILE (matched to files on disk by GNU build id), stacks unwound by .eh_frame CFI.
+/// A macOS Mach-O core reads the same way: modules from its image list, matched by UUID, walked by the frame chain.
 /// </summary>
 public sealed partial class MinidumpService
 {
     private const int MaxCachedElfFiles = 64;
     private readonly ConcurrentDictionary<string, (ushort Machine, string? BuildId)?> _elfProbes = new(StringComparer.OrdinalIgnoreCase);
     private readonly ConcurrentDictionary<string, ElfFile> _elfFiles = new(StringComparer.OrdinalIgnoreCase);
+    private readonly ConcurrentDictionary<string, MachOFile?> _machFiles = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>Frames that say how a signal was raised, not where: skipped in core signatures.</summary>
     private static readonly string[] CoreNoiseFrames =
@@ -32,14 +35,34 @@ public sealed partial class MinidumpService
     private (ushort Machine, string? BuildId)? Probe(string path) => _elfProbes.GetOrAdd(FileKey(path), _ => ElfMemoryHeader.Probe(path));
 
     private (string? Path, bool Matches, string Detail) FindImage(CoreFile core, CoreModule module, IReadOnlyList<string> directories) =>
-        CoreImage.Find(module, directories, core.Machine, Probe);
+        core.IsMachO ? MachOCoreImage.Find(module, directories, p => OpenMachO(p, core.Machine)) : CoreImage.Find(module, directories, core.Machine, Probe);
+
+    /// <summary>The Mach-O file at <paramref name="path"/> (of a universal file, the slice of the core's CPU); null when it is not one.</summary>
+    private MachOFile? OpenMachO(string path, ushort machine)
+    {
+        uint cpu = machine == 183 ? 0x0100000Cu : 0x01000007u;
+        string key = FileKey(path);
+        if (_machFiles.TryGetValue(key, out var cached)) return cached;
+        MachOFile? file = null;
+        try
+        {
+            file = MachOFile.Open(path);
+            if (file.CpuType != cpu)
+                file = file.Slices.FirstOrDefault(s => s.CpuType == cpu) is { } slice ? MachOFile.Open(path, slice.Index.ToString(System.Globalization.CultureInfo.InvariantCulture)) : null;
+        }
+        catch (ToolError) { file = null; }
+        if (_machFiles.Count >= MaxCachedElfFiles) _machFiles.Clear();
+        return _machFiles[key] = file;
+    }
 
     /// <summary>A core module's image: the matched file on disk, else the module as the core holds it.</summary>
     internal (CoreImage? Image, string Detail) LoadImage(CoreFile core, DumpModule module, IReadOnlyList<string> directories)
     {
         if (core.CoreModule(module) is not { } cm) return (null, "not a module of the core");
         var (path, matches, detail) = FindImage(core, cm, directories);
-        if (matches && path != null)
+        if (matches && path != null && core.IsMachO && OpenMachO(path, core.Machine) is { } machFile)
+            return (MachOCoreImage.FromFile(machFile, module, core, path, detail), detail);
+        if (matches && path != null && !core.IsMachO)
         {
             try
             {
@@ -55,8 +78,8 @@ public sealed partial class MinidumpService
             catch (ToolError ex) { detail = $"{path}: {ex.Message}"; }
         }
         string local = path != null && !matches ? $"{path}: {detail}" : detail;
-        var image = CoreImage.FromMemory(core, module, $"from core memory; local file: {local}");
-        return (image, image?.Detail ?? $"no image: {local}; the core does not hold its ELF header");
+        var image = core.IsMachO ? MachOCoreImage.FromMemory(core, module, $"from core memory; local file: {local}") : CoreImage.FromMemory(core, module, $"from core memory; local file: {local}");
+        return (image, image?.Detail ?? $"no image: {local}; the core does not hold its {(core.IsMachO ? "Mach-O" : "ELF")} header");
     }
 
     private Location LocateCore(Session s, ulong address, bool returnAddress)
@@ -120,11 +143,12 @@ public sealed partial class MinidumpService
     private async Task<DumpReport> SummarizeCore(Session s, CoreFile core, DacRequest dac, CancellationToken ct)
     {
         var notes = new List<string>();
-        string os = IsAndroid(core) ? "Android" : "Linux";
+        string os = core.IsMachO ? "macOS" : IsAndroid(core) ? "Android" : "Linux";
         var runtime = CoreRuntime(core);
         string? execfn = core.Aux(31) is { } fn ? core.ReadString(fn) : null;
         var faulting = core.FaultingThread;
-        var process = new ProcessSummary(core.Process?.Pid ?? faulting?.Id, execfn ?? core.MainModule?.Module.Path ?? core.Process?.Name, null, null, false, runtime);
+        // A Mach-O core's thread ids are not the process id.
+        var process = new ProcessSummary(core.Process?.Pid ?? (core.IsMachO ? null : faulting?.Id), execfn ?? core.MainModule?.Module.Path ?? core.Process?.Name, null, null, false, runtime);
         ExceptionSummary? exception = null;
         ModuleSummary? faultingModule = null;
         ThreadSummary? faultingThread = null;
@@ -135,14 +159,16 @@ public sealed partial class MinidumpService
             if (signo != 0) exception = await DescribeSignal(s, core, faulting, signo, ct);
             if (faulting.Registers is { } r && core.CoreModules.FirstOrDefault(m => m.Module.Contains(r.Pc)) is { } fm) faultingModule = CoreModuleRow(s, fm);
         }
-        notes.Add($"ELF core dump ({os}, {core.ArchName}).");
+        notes.Add($"{(core.IsMachO ? "Mach-O" : "ELF")} core dump ({os}, {core.ArchName})." + (core.ImageList != null ? $" Modules from {core.ImageList}." : ""));
         if (core.Process is { } p)
             notes.Add($"process: {p.Name ?? "?"} (pid {p.Pid}, parent {p.ParentPid}, uid {p.Uid}, gid {p.Gid}, state {p.State})" + (p.Arguments != null ? $"; arguments: {p.Arguments}" : ""));
         if (core.AuxVector.Count > 0) notes.Add($"auxv: {AuxText(core)}");
         if (signo == 0) notes.Add("No signal: the core was written without one (gcore or a debugger). dump_stack walks any thread.");
         if (core.Registers is { Unwinds: false }) notes.Add($"unwinding not supported for {core.ArchName}: threads and registers only.");
         if (core.CoreModules.Any(m => core.ReadableExtent(m.Module.Base, m.Module.Size) < m.Module.Size / 2))
-            notes.Add("The core holds little of the modules' code (by default only their first page): code, unwind data and symbols come from matching files on disk (imageDirectories), matched by GNU build id.");
+            notes.Add(core.IsMachO
+                ? "The core holds little of the modules' code (only modified memory): code and symbols come from matching files on disk (imageDirectories), matched by UUID."
+                : "The core holds little of the modules' code (by default only their first page): code, unwind data and symbols come from matching files on disk (imageDirectories), matched by GNU build id.");
         if (runtime == "Mono") notes.Add("The process hosts Mono, which has no DAC: native frames are walked.");
         var managed = await ManagedSection(s, dac, ct);
         return new DumpReport(s.Id, "summary")
@@ -229,7 +255,8 @@ public sealed partial class MinidumpService
     private WalkResult CoreWalk(Session s, CoreFile core, CoreRegisters regs, int maxFrames, CancellationToken ct)
     {
         var stack = core.SegmentAt(regs.Sp);
-        var unwinder = new CoreUnwinder(core, regs.Arch, a => core.ModuleAt(a) is { } m ? s.Image(m).Image : null);
+        CoreImage? Image(ulong a) => core.ModuleAt(a) is { } m ? s.Image(m).Image : null;
+        var unwinder = new CoreUnwinder(core, regs.Arch, Image, a => Image(a)?.SymbolAt(a)?.Start == a);
         return unwinder.Walk(regs, stack?.Start ?? 0, stack?.End ?? 0, maxFrames, ct);
     }
 
@@ -253,7 +280,7 @@ public sealed partial class MinidumpService
     {
         foreach (var (m, image, detail) in s.ImagesLoaded.OrderBy(x => x.Module.Base))
             yield return image == null ? $"{m.FileName}: {detail}"
-                : $"{m.FileName}: image {image.Source}{(image.LocalPath != null ? $" ({image.LocalPath})" : "")}; {(image.HasCfi ? ".eh_frame" : "no .eh_frame")}; " +
+                : $"{m.FileName}: image {image.Source}{(image.LocalPath != null ? $" ({image.LocalPath})" : "")}; {(s.Core!.IsMachO ? "" : image.HasCfi ? ".eh_frame; " : "no .eh_frame; ")}" +
                   $"{image.Symbols.Count} function symbols; {image.Detail}";
     }
 

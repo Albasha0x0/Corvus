@@ -57,6 +57,8 @@ public sealed partial class MinidumpService
     /// <summary>The dump's loaded runtime, or an error naming why it is not available.</summary>
     private async Task<ClrDecoder> RequireRuntime(Session s, bool heap, CancellationToken ct)
     {
+        if (s.Core is { IsMachO: true })
+            throw new ToolError(ErrorCode.Unsupported, $"{s.Id} is a Mach-O core: its .NET heap is not decoded here.", "dump_stack and read_dump_memory read the core");
         string? runtime = null;
         if (s.Core is { } core ? (runtime = CoreRuntime(core)) is not (".NET (CoreCLR)" or "Mono") : !HostsClr(s.Dump, out runtime))
             throw new ToolError(ErrorCode.Unsupported, "the dumped process has no .NET runtime (CoreCLR or .NET Framework) loaded.", "use dump_stack and read_dump_memory");

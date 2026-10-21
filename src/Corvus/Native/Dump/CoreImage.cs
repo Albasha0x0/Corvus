@@ -97,6 +97,7 @@ public readonly record struct CoreSymbol(ulong Start, ulong Size, string Name, s
 /// A module of a core as the unwinder and the namer read it: its .eh_frame (found through PT_GNU_EH_FRAME, or the
 /// .eh_frame section of a file), and function symbols (.symtab and .dynsym of a file; .dynsym through PT_DYNAMIC in
 /// memory). Bytes come from the matched file on disk, else from the core's memory. Built once per module and session.
+/// A module of a Mach-O core holds only its function symbols (<see cref="FromSymbols"/>): the frame chain walks it.
 /// </summary>
 public sealed class CoreImage
 {
@@ -110,9 +111,10 @@ public sealed class CoreImage
     private readonly bool is64, bigEndian;
     private readonly Lazy<CfiIndex?> cfi;
     private readonly Lazy<List<CoreSymbol>> symbols;
+    private readonly ElfMemoryHeader.ReadAt? fileBytes;
 
     private CoreImage(DumpModule module, IProcessMemory memory, ElfFile? file, IReadOnlyList<ElfSegment> segments, bool is64, bool bigEndian, ulong bias,
-        string source, string? localPath, string detail)
+        string source, string? localPath, string detail, List<CoreSymbol>? given = null, ElfMemoryHeader.ReadAt? fileBytes = null)
     {
         Module = module;
         this.memory = memory;
@@ -125,7 +127,8 @@ public sealed class CoreImage
         LocalPath = localPath;
         Detail = detail;
         cfi = new Lazy<CfiIndex?>(BuildCfi);
-        symbols = new Lazy<List<CoreSymbol>>(file != null ? FileSymbols : MemorySymbols);
+        symbols = new Lazy<List<CoreSymbol>>(given != null ? () => given : file != null ? FileSymbols : MemorySymbols);
+        this.fileBytes = fileBytes;
     }
 
     public DumpModule Module { get; }
@@ -151,10 +154,16 @@ public sealed class CoreImage
         return new CoreImage(module, memory, null, h.Segments, h.Is64, h.BigEndian, h.Bias, "core_memory", null, detail);
     }
 
+    /// <summary>A module named by <paramref name="symbols"/> (sorted by start), with no unwind data; bytes past the core's memory from <paramref name="fileBytes"/>.</summary>
+    internal static CoreImage FromSymbols(DumpModule module, IProcessMemory memory, List<CoreSymbol> symbols, ElfMemoryHeader.ReadAt? fileBytes,
+        string source, string? localPath, string detail) =>
+        new(module, memory, null, [], true, false, 0, source, localPath, detail, symbols, fileBytes);
+
     /// <summary>Process bytes at <paramref name="address"/>: the core's memory, the rest from the file.</summary>
     public int Read(ulong address, Span<byte> destination)
     {
         int n = memory.ReadMemory(address, destination);
+        if (n < destination.Length && fileBytes != null) return n + fileBytes(address + (ulong)n, destination[n..]);
         if (n == destination.Length || file == null) return n;
         ulong link = address + (ulong)n - Bias;
         if (link < file.ImageBase || link - file.ImageBase >= file.SizeOfImage) return n;
@@ -366,23 +375,10 @@ public sealed class CoreImage
     {
         string recorded = module.Module.Path.EndsWith(" (deleted)", StringComparison.Ordinal) ? module.Module.Path[..^10] : module.Module.Path;
         string name = recorded.Split('/')[^1];
-        var candidates = new List<string>();
-        void Add(Func<string> make)
-        {
-            try { candidates.Add(System.IO.Path.GetFullPath(make())); }
-            catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException) { }
-        }
-        if (recorded.StartsWith('/') && OperatingSystem.IsLinux()) Add(() => recorded);
-        foreach (var dir in directories)
-        {
-            if (name.Length > 0) Add(() => System.IO.Path.Combine(dir, name));
-            if (recorded.Length > 1) Add(() => System.IO.Path.Combine(dir, recorded.TrimStart('/').Replace('/', System.IO.Path.DirectorySeparatorChar)));
-        }
         var why = new StringBuilder();
         string? existing = null;
-        foreach (var path in candidates.Distinct(StringComparer.OrdinalIgnoreCase))
+        foreach (var path in Candidates(recorded, directories, OperatingSystem.IsLinux()))
         {
-            if (!File.Exists(path)) continue;
             existing ??= path;
             if (probe(path) is not var (fileMachine, buildId)) { why.Append($"{path}: not an ELF image; "); continue; }
             if (fileMachine != machine) { why.Append($"{path}: another machine ({ElfNames.Machine(fileMachine)}); "); continue; }
@@ -392,5 +388,24 @@ public sealed class CoreImage
         }
         string detail = why.Length > 0 ? why.ToString().TrimEnd(' ', ';') : name.Length > 0 ? $"no file named {name} in {string.Join(", ", directories)}" : "no file name";
         return (existing, false, detail);
+    }
+
+    /// <summary>Existing files for a module recorded at <paramref name="recorded"/>: the path itself (on its own system), then each folder by file name and as a sysroot.</summary>
+    internal static IEnumerable<string> Candidates(string recorded, IReadOnlyList<string> directories, bool ownSystem)
+    {
+        string name = recorded.Split('/')[^1];
+        var candidates = new List<string>();
+        void Add(Func<string> make)
+        {
+            try { candidates.Add(System.IO.Path.GetFullPath(make())); }
+            catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException) { }
+        }
+        if (recorded.StartsWith('/') && ownSystem) Add(() => recorded);
+        foreach (var dir in directories)
+        {
+            if (name.Length > 0) Add(() => System.IO.Path.Combine(dir, name));
+            if (recorded.Length > 1) Add(() => System.IO.Path.Combine(dir, recorded.TrimStart('/').Replace('/', System.IO.Path.DirectorySeparatorChar)));
+        }
+        return candidates.Distinct(StringComparer.OrdinalIgnoreCase).Where(File.Exists);
     }
 }

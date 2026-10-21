@@ -30,10 +30,10 @@ public sealed record CoreSegment(ulong Start, ulong MemorySize, ulong FileSize, 
 /// <summary>
 /// A Linux or Android ELF core dump (ET_CORE): PT_LOAD segments as the process memory, and the PT_NOTE notes
 /// NT_PRSTATUS (threads and registers), NT_SIGINFO, NT_FILE (mapped files, grouped into modules), NT_AUXV and
-/// NT_PRPSINFO. Only the header check throws; other problems are recorded in <see cref="Issues"/>. Memory is read
-/// on demand with positional reads.
+/// NT_PRPSINFO; or a macOS Mach-O core (MH_CORE, see CoreFile.MachO.cs) in the same terms. Only the header check
+/// throws; other problems are recorded in <see cref="Issues"/>. Memory is read on demand with positional reads.
 /// </summary>
-public sealed class CoreFile : IProcessMemory, IDisposable
+public sealed partial class CoreFile : IProcessMemory, IDisposable
 {
     private const int MaxSegments = 1 << 16;
     private const int MaxNotesBytes = 64 << 20;
@@ -55,8 +55,8 @@ public sealed class CoreFile : IProcessMemory, IDisposable
     private readonly List<DumpMemoryRegion> _regions = [];
     private readonly List<(ulong Offset, ulong Size, ulong Align)> _notes = [];
 
-    /// <summary>The file starts with an ELF header of type ET_CORE.</summary>
-    public static bool IsCore(ReadOnlySpan<byte> head) =>
+    /// <summary>The file starts with an ELF header of type ET_CORE, or a 64-bit Mach-O header of type MH_CORE.</summary>
+    public static bool IsCore(ReadOnlySpan<byte> head) => IsMachOCore(head) ||
         head.Length >= 18 && head[0] == 0x7F && head[1] == 'E' && head[2] == 'L' && head[3] == 'F'
         && (head[5] == 2 ? head[16] == 0 && head[17] == 4 : head[16] == 4 && head[17] == 0);
 
@@ -97,6 +97,11 @@ public sealed class CoreFile : IProcessMemory, IDisposable
         Path = path;
         FileSize = source.Length;
         var head = Block(0, 64);
+        if (IsMachOCore(head))
+        {
+            ReadMachO(new ByteView(head, false));
+            return;
+        }
         if (!IsCore(head))
             throw new ToolError(ErrorCode.MalformedInput, $"{(path.Length > 0 ? path : "the file")} is not an ELF core dump (no ELF header of type ET_CORE).",
                 "pass a core file written by the Linux kernel, gcore or lldb process save-core");
@@ -114,13 +119,13 @@ public sealed class CoreFile : IProcessMemory, IDisposable
 
     public string Path { get; }
     public long FileSize { get; }
-    public bool Is64Bit { get; }
+    public bool Is64Bit { get; private set; }
     public bool BigEndian { get; }
-    /// <summary>e_machine.</summary>
-    public ushort Machine { get; }
-    public NativeArch Arch { get; }
+    /// <summary>e_machine (of a Mach-O core, the ELF value of its CPU).</summary>
+    public ushort Machine { get; private set; }
+    public NativeArch Arch { get; private set; }
     /// <summary>The register file of <see cref="Machine"/>; null when not known.</summary>
-    public CoreArch? Registers { get; }
+    public CoreArch? Registers { get; private set; }
     public string ArchName => Registers?.Name ?? ElfNames.Machine(Machine);
     public IReadOnlyList<ParseIssue> Issues => _issues;
     public IReadOnlyList<CoreSegment> Segments => _segments;
@@ -138,9 +143,9 @@ public sealed class CoreFile : IProcessMemory, IDisposable
     public string Identity => $"core|{Path}|{FileSize}";
 
     /// <summary>The module holding AT_ENTRY (else AT_PHDR): the executable.</summary>
-    public CoreModule? MainModule =>
-        (Aux(9) is { } entry ? _coreModules.FirstOrDefault(m => m.Module.Contains(entry)) : null)
-        ?? (Aux(3) is { } phdr ? _coreModules.FirstOrDefault(m => m.Module.Contains(phdr)) : null);
+    public CoreModule? MainModule => _machMain ??
+        ((Aux(9) is { } entry ? _coreModules.FirstOrDefault(m => m.Module.Contains(entry)) : null)
+        ?? (Aux(3) is { } phdr ? _coreModules.FirstOrDefault(m => m.Module.Contains(phdr)) : null));
 
     /// <summary>The thread that took the signal: the first whose pr_cursig is set, else the first.</summary>
     public CoreThread? FaultingThread => _threads.FirstOrDefault(t => t.Signal != 0) ?? _threads.FirstOrDefault();
@@ -268,17 +273,29 @@ public sealed class CoreFile : IProcessMemory, IDisposable
             ulong memsz = Is64Bit ? table.U64(at + 40) : table.U32(at + 20);
             ulong align = Is64Bit ? table.U64(at + 48) : table.U32(at + 28);
             if (type == 4) _notes.Add((offset, filesz, align));
-            if (type != 1 || memsz == 0) continue;
-            ulong captured = Math.Min(filesz, memsz);
-            if (offset > (ulong)FileSize) captured = 0;
-            else if (captured > (ulong)FileSize - offset)
-            {
-                Issue("memory", $"PT_LOAD at 0x{vaddr:X} holds 0x{captured:X} bytes past the end of the file; the core is truncated", (long)Math.Min(offset, long.MaxValue));
-                captured = (ulong)FileSize - offset;
-            }
-            _segments.Add(new CoreSegment(vaddr, memsz, captured, (long)Math.Min(offset, long.MaxValue), flags));
-            if (captured > 0) ranges.Add(new DumpMemoryRange(vaddr, captured, (long)offset));
+            if (type == 1) AddSegment("PT_LOAD", vaddr, memsz, filesz, offset, flags, ranges);
         }
+        SetMemory(ranges);
+    }
+
+    /// <summary>A segment of the process: <paramref name="memsz"/> bytes at <paramref name="vaddr"/>, of which the file holds <paramref name="filesz"/>.</summary>
+    private void AddSegment(string kind, ulong vaddr, ulong memsz, ulong filesz, ulong offset, uint flags, List<DumpMemoryRange> ranges)
+    {
+        if (memsz == 0) return;
+        ulong captured = Math.Min(filesz, memsz);
+        if (offset > (ulong)FileSize) captured = 0;
+        else if (captured > (ulong)FileSize - offset)
+        {
+            Issue("memory", $"{kind} at 0x{vaddr:X} holds 0x{captured:X} bytes past the end of the file; the core is truncated", (long)Math.Min(offset, long.MaxValue));
+            captured = (ulong)FileSize - offset;
+        }
+        _segments.Add(new CoreSegment(vaddr, memsz, captured, (long)Math.Min(offset, long.MaxValue), flags));
+        if (captured > 0) ranges.Add(new DumpMemoryRange(vaddr, captured, (long)offset));
+    }
+
+    /// <summary>Sorts the segments and keeps the captured ranges without overlaps.</summary>
+    private void SetMemory(List<DumpMemoryRange> ranges)
+    {
         _segments.Sort((a, b) => a.Start.CompareTo(b.Start));
         ranges.Sort((a, b) => a.Start.CompareTo(b.Start));
         var clean = new List<DumpMemoryRange>(ranges.Count);
@@ -286,7 +303,7 @@ public sealed class CoreFile : IProcessMemory, IDisposable
         {
             if (clean.Count > 0 && r.Start < clean[^1].End)
             {
-                Issue("memory", $"PT_LOAD at 0x{r.Start:X} overlaps the one below; the lower one owns the overlap");
+                Issue("memory", $"the segment at 0x{r.Start:X} overlaps the one below; the lower one owns the overlap");
                 if (r.End <= clean[^1].End) continue;
                 ulong skip = clean[^1].End - r.Start;
                 clean.Add(new DumpMemoryRange(r.Start + skip, r.Size - skip, r.FileOffset + (long)skip));
@@ -433,6 +450,12 @@ public sealed class CoreFile : IProcessMemory, IDisposable
             var module = new DumpModule(start, (uint)Math.Min(end - start, uint.MaxValue), 0, 0, path, null, null, null);
             _coreModules.Add(new CoreModule(module, elf ? MemoryBuildId(start) : null, maps));
         }
+        AddModulesAndRegions();
+    }
+
+    /// <summary>Lists the modules by base, then each segment as a region: committed, with the page protection its flags give.</summary>
+    private void AddModulesAndRegions()
+    {
         _coreModules.Sort((a, b) => a.Module.Base.CompareTo(b.Module.Base));
         _modules.AddRange(_coreModules.Select(m => m.Module));
         foreach (var s in _segments)
