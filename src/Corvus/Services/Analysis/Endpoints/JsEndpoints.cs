@@ -1,3 +1,4 @@
+using System.Text.RegularExpressions;
 using Acornima.Ast;
 using Corvus.Services.Web;
 
@@ -10,7 +11,7 @@ namespace Corvus.Services.Analysis.Endpoints;
 /// build manifests) as ROUTE rows, and absolute URL literals no call names. Constants, concatenations and templates are
 /// folded ({name} for what stays computed); a function that passes its parameter into the URL is followed to its callers.
 /// </summary>
-internal static class JsEndpoints
+internal static partial class JsEndpoints
 {
     private const int MaxRows = 5000;
     private static readonly HashSet<string> Verbs = new(StringComparer.Ordinal) { "get", "post", "put", "delete", "patch", "head", "options" };
@@ -68,7 +69,7 @@ internal static class JsEndpoints
                     break;
                 case TaggedTemplateExpression t when JsProgram.Chain(t.Tag)?.Split('.')[^1] is "gql" or "graphql":
                     var op = string.Concat(t.Quasi.Quasis.Select(q => q.Value.Cooked ?? q.Value.Raw));
-                    if (System.Text.RegularExpressions.Regex.Match(op, @"\b(query|mutation|subscription)\s+([A-Za-z_][A-Za-z0-9_]*)", System.Text.RegularExpressions.RegexOptions.None, TimeSpan.FromMilliseconds(50)) is { Success: true } m)
+                    if (GraphQlOperation().Match(op) is { Success: true } m)
                         endpoints.Add(new CodeEndpoint("POST", $"{{graphql}}#{m.Groups[1].Value} {m.Groups[2].Value}", "graphql", file, Module(p, t), Line(t)));
                     break;
                 case ObjectExpression o:
@@ -194,7 +195,7 @@ internal static class JsEndpoints
         if (text.StartsWith("//", StringComparison.Ordinal)) return true;
         if (!strict) return text.StartsWith('/') || text.Contains('/', StringComparison.Ordinal);
         var last = text.Split('?')[0].Split('/')[^1];
-        return !System.Text.RegularExpressions.Regex.IsMatch(last, @"\.(png|jpe?g|gif|svg|css|woff2?|ttf|ico|webp|mp3|mp4|map)$", System.Text.RegularExpressions.RegexOptions.IgnoreCase, TimeSpan.FromMilliseconds(50));
+        return !AssetFile().IsMatch(last);
     }
 
     private static JsBinding? Param(JsProgram p, Node urlNode, JsScope scope)
@@ -216,4 +217,12 @@ internal static class JsEndpoints
     private static string? Module(JsProgram p, Node at) => p.Modules.LastOrDefault(m => m.Start <= at.Start && at.End <= m.End) is { } m ? "module " + m.Id : null;
 
     private static string Line(Node n) => $"{n.Location.Start.Line}:{n.Location.Start.Column + 1}";
+
+    // Fixed linear patterns take no match timeout: a 50 ms one ran out on a
+    // loaded machine and threw.
+    [GeneratedRegex(@"\b(query|mutation|subscription)\s+([A-Za-z_][A-Za-z0-9_]*)")]
+    private static partial Regex GraphQlOperation();
+
+    [GeneratedRegex(@"\.(png|jpe?g|gif|svg|css|woff2?|ttf|ico|webp|mp3|mp4|map)$", RegexOptions.IgnoreCase)]
+    private static partial Regex AssetFile();
 }
