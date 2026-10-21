@@ -14,8 +14,11 @@ namespace Corvus.Tools;
 /// <summary>Native images (PE, ELF, Mach-O): headers, imports, exports, addresses and bytes.</summary>
 [McpServerToolType]
 public sealed partial class NativeTools(AssemblyWorkspace workspace, OutputPager pager, NativeCodeService? code = null, NativeLinkService? link = null,
-    NativeEngineService? engines = null)
+    NativeEngineService? engines = null, PdbService? pdbs = null)
 {
+    /// <summary>Longest get_pe_info waits for the automatic PDB search it reports.</summary>
+    private static readonly TimeSpan PdbSearchWait = TimeSpan.FromSeconds(30);
+
     public const string EngineTimeoutDescription = "Seconds per engine request (default CORVUS_ENGINE_REQUEST_TIMEOUT); scans then answer partial.";
 
     /// <summary>A tool's timeoutSeconds as an engine request limit; null when not given.</summary>
@@ -89,7 +92,12 @@ public sealed partial class NativeTools(AssemblyWorkspace workspace, OutputPager
                 });
             }, cancellationToken);
         }
-        return await OnImage(image, native => PeInfoSummary(native, offset, maxTokens), cancellationToken);
+        return await OnImage(image, native =>
+        {
+            // The PDB line reports the automatic search's result, not how far a background index build has got with it.
+            pdbs?.SettleAutoSearch(native, PdbSearchWait, cancellationToken);
+            return PeInfoSummary(native, offset, maxTokens);
+        }, cancellationToken);
     }
 
     private string PeInfoSummary(LoadedNative native, int offset, int? maxTokens)

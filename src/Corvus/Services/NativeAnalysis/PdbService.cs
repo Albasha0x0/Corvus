@@ -50,6 +50,8 @@ public sealed class PdbService
         public PdbState? State;
         public PdbLocation? AutoSearch;
         public bool AutoTried;
+        /// <summary>Completes when the automatic search (and read) finishes; null before it starts.</summary>
+        public TaskCompletionSource? Auto;
     }
 
     public PdbService(NativeCodeService code, ILogger<PdbService>? logger = null)
@@ -65,6 +67,20 @@ public sealed class PdbService
     /// <summary>The result of the automatic local search, when it ran and found nothing.</summary>
     public static PdbLocation? AutoSearchOf(LoadedNative native) => States.TryGetValue(native, out var s) ? s.AutoSearch : null;
 
+    /// <summary>Whether the automatic local search (and read) for <paramref name="native"/> has started and not finished.</summary>
+    public static bool AutoSearchPending(LoadedNative native) => States.TryGetValue(native, out var s) && s.Auto is { Task.IsCompleted: false };
+
+    /// <summary>
+    /// Runs the automatic local search for <paramref name="native"/> when no index build has, or joins the one running,
+    /// for up to <paramref name="wait"/>; false when it is still running then.
+    /// </summary>
+    public bool SettleAutoSearch(LoadedNative native, TimeSpan wait, CancellationToken ct)
+    {
+        if (Environment.GetEnvironmentVariable(AutoVariable) == "0") return true;
+        // The search outlives a cancelled request: the index build joins it and takes its result.
+        return Task.Run(() => AutoLoad(native, CancellationToken.None), CancellationToken.None).Wait(wait, ct);
+    }
+
     /// <summary>
     /// The PDB an engine (IDA) should use for <paramref name="native"/>: the loaded one, else a matching local one (no
     /// network); null when none. Engines work on a copy of the image, so they cannot find a PDB next to it themselves.
@@ -77,18 +93,42 @@ public sealed class PdbService
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ToolError) { return null; }
     }
 
-    /// <summary>On the index build thread: the PDB's function starts, reading the matching local PDB on the first build.</summary>
+    /// <summary>
+    /// On the index build thread (or for get_pe_info): the PDB's function starts, reading the matching local PDB on the
+    /// first call. A call while another runs waits for it and returns its result.
+    /// </summary>
     private IReadOnlyCollection<uint>? AutoLoad(LoadedNative native, CancellationToken ct)
     {
         var slot = States.GetValue(native, _ => new Slot());
         var saved = NativeNameLayers.OfOrNull(native)?.Get(NativeNameSource.Pdb) is { Info: { Restored: true } info } ? info : null;
         bool dwarf = native.Image.Format is ImageFormat.Elf or ImageFormat.MachO;
+        TaskCompletionSource? running, mine = null;
         lock (slot.Gate)
         {
             if (slot.State != null) return slot.State.FunctionStarts;
-            if (slot.AutoTried || (saved == null && !dwarf && native.Pe?.CodeView is not { Format: "RSDS" })) return null;
-            slot.AutoTried = true;
+            running = slot.Auto;
+            if (running == null)
+            {
+                if (slot.AutoTried || (saved == null && !dwarf && native.Pe?.CodeView is not { Format: "RSDS" })) return null;
+                slot.AutoTried = true;
+                slot.Auto = mine = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            }
         }
+        if (running != null)
+        {
+            running.Task.Wait(ct);
+            lock (slot.Gate) return slot.State?.FunctionStarts;
+        }
+        try { return AutoSearch(native, slot, saved, dwarf, ct); }
+        finally { mine!.TrySetResult(); }
+    }
+
+    /// <summary>Called as the automatic search starts, on its thread (tests hold it there).</summary>
+    internal static Action<LoadedNative>? AutoSearchStarting;
+
+    private IReadOnlyCollection<uint>? AutoSearch(LoadedNative native, Slot slot, ImportInfo? saved, bool dwarf, CancellationToken ct)
+    {
+        AutoSearchStarting?.Invoke(native);
         if (saved != null) return Reopen(native, slot, saved, ct);
         PdbLocation location;
         if (dwarf) location = DwarfLocator.Locate(native.Image, native.FilePath);

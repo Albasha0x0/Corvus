@@ -33,6 +33,7 @@ public sealed class PdbTools(AssemblyWorkspace workspace, PdbService pdbs)
                 : $"PDB loaded: {s.Path} ({(s.Verified ? "GUID and age match" : "not verified")}{(s.Automatic ? ", found automatically" : "")}), " +
                   $"{Plural(s.Names.Count, "name")} (search_pdb_symbols)";
         if (native.Pe?.CodeView is not { Format: "RSDS" }) return null;
+        if (PdbService.AutoSearchPending(native)) return "PDB search pending: local matches load on their own (load_pdb reads one now)";
         if (PdbService.AutoSearchOf(native) is { } search)
             return $"PDB not found locally ({Plural(search.Probes.Count, "place")} searched); load_pdb with a path, or download=true";
         return "PDB not loaded (load_pdb)";

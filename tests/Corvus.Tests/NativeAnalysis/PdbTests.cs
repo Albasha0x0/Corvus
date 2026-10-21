@@ -51,6 +51,44 @@ public class PdbTests
 
     // ---- reading ----
 
+    /// <summary>The automatic search is held on the index build thread while get_pe_info runs.</summary>
+    [Fact]
+    public async Task Pe_info_reports_the_finished_pdb_search_while_an_index_build_runs_it()
+    {
+        using var dir = new TempDir();
+        using var env = new Env();
+        env.Options.BackgroundIndexing = false;
+        var path = dir.File("held.exe");
+        File.WriteAllBytes(path, TinyImage(Guid.NewGuid(), 1, "held.pdb"));
+        using var started = new SemaphoreSlim(0);
+        using var release = new ManualResetEventSlim();
+        PdbService.AutoSearchStarting = n =>
+        {
+            if (n.FilePath != path) return;
+            started.Release();
+            release.Wait(TimeSpan.FromSeconds(60));
+        };
+        try
+        {
+            var code = new NativeCodeService(env.Workspace, env.Options);
+            var pdbs = new PdbService(code);
+            var native = env.Workspace.LoadAny(path).Native!;
+            var build = code.Index(native, null, default);
+            Assert.True(await started.WaitAsync(TimeSpan.FromSeconds(30)));
+            var info = Task.Run(() => new Corvus.Tools.NativeTools(env.Workspace, env.Pager, code, pdbs: pdbs).GetPeInfo(native.Id));
+            await Task.Delay(300);
+            Assert.False(info.IsCompleted);
+            release.Set();
+            Assert.Contains("PDB not found locally", await info);
+            await build;
+        }
+        finally
+        {
+            PdbService.AutoSearchStarting = null;
+            release.Set();
+        }
+    }
+
     [Fact]
     public void X86_frame_data_keeps_programs_and_sizes_the_search_from_fpo_data()
     {
