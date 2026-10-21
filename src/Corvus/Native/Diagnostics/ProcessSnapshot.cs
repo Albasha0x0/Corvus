@@ -103,14 +103,35 @@ public static class ProcessSnapshot
         }
         try
         {
-            using var file = new FileStream(path, FileMode.Create, FileAccess.ReadWrite, FileShare.None);
-            if (!MiniDumpWriteDump(process, (uint)pid, file.SafeFileHandle, DumpType, exception, IntPtr.Zero, IntPtr.Zero))
-                throw new ToolError(ErrorCode.IoError, $"MiniDumpWriteDump failed for process {pid} (error 0x{Marshal.GetLastPInvokeError():X}).", "check the disk space at the output path");
+            Attempts(pid, () =>
+            {
+                using var file = new FileStream(path, FileMode.Create, FileAccess.ReadWrite, FileShare.None);
+                return MiniDumpWriteDump(process, (uint)pid, file.SafeFileHandle, DumpType, exception, IntPtr.Zero, IntPtr.Zero) ? 0 : Marshal.GetLastPInvokeError();
+            });
         }
         finally
         {
             CloseHandle(process);
             if (block != IntPtr.Zero) Marshal.FreeHGlobal(block);
+        }
+    }
+
+    // HRESULT_FROM_WIN32 of ERROR_BAD_LENGTH and ERROR_PARTIAL_COPY: the running program changed a list or a region while it was read
+    private static readonly int[] Changed = [unchecked((int)0x80070018), unchecked((int)0x8007012B)];
+    internal const int WriteTries = 3;
+
+    /// <summary>Runs <paramref name="write"/> (0, else its error) again while the error says the program changed during the read, up to <see cref="WriteTries"/> times.</summary>
+    internal static void Attempts(int pid, Func<int> write)
+    {
+        for (int i = 1; ; i++)
+        {
+            int error = write();
+            if (error == 0) return;
+            if (!Changed.Contains(error))
+                throw new ToolError(ErrorCode.IoError, $"MiniDumpWriteDump failed for process {pid} (error 0x{error:X}).", "check the disk space at the output path");
+            if (i == WriteTries)
+                throw new ToolError(ErrorCode.IoError, $"MiniDumpWriteDump failed for process {pid} {WriteTries} times (error 0x{error:X}): the program changed while it was read.",
+                    "try again: a program loading modules or starting threads (as at start-up) settles");
         }
     }
 
