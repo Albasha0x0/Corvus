@@ -34,7 +34,7 @@ public sealed class IndexingService : IDisposable
         }
     }
 
-    /// <summary>"idle", "indexing X (n/m types)", "building call graph", "done".</summary>
+    /// <summary>"idle", "indexing X (n/m types)", "building call graph", "done", "superseded", "stopped" (workspace disposed), "failed: ...".</summary>
     public string Status => _status;
 
     /// <summary>Restarts indexing for everything not indexed yet (a newer load supersedes a running pass).</summary>
@@ -96,6 +96,10 @@ public sealed class IndexingService : IDisposable
         catch (OperationCanceledException)
         {
             _status = "superseded";
+        }
+        catch (ObjectDisposedException)
+        {
+            _status = "stopped";
         }
         catch (Exception ex)
         {

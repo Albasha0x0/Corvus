@@ -11,6 +11,14 @@ namespace Corvus.Core;
 public sealed class AssemblyWorkspace : IDisposable
 {
     private readonly ReaderWriterLockSlim _lock = new(LockRecursionPolicy.SupportsRecursion);
+
+    // Every Read or Write counts itself in _users before it checks _disposed,
+    // so once Dispose has set _disposed and seen _users reach 0, no call can
+    // touch the lock again.
+    private int _users, _disposed;
+
+    /// <summary>How long Dispose waits for running and queued calls to leave the lock before it leaves the lock undisposed.</summary>
+    internal static TimeSpan DisposeWait { get; set; } = TimeSpan.FromSeconds(10);
     private readonly List<LoadedAssembly> _assemblies = new();
     private readonly List<LoadedNative> _natives = new();
     private readonly List<string> _searchDirectories = new();
@@ -178,13 +186,18 @@ public sealed class AssemblyWorkspace : IDisposable
     /// <summary>Runs <paramref name="action"/> under the shared lock; a cancelled wait throws <see cref="OperationCanceledException"/>.</summary>
     public T Read<T>(Func<T> action, CancellationToken cancellationToken)
     {
-        Enter(write: false, cancellationToken);
-        try { return Locked(action); }
-        finally
+        Use();
+        try
         {
-            Released();
-            _lock.ExitReadLock();
+            Enter(write: false, cancellationToken);
+            try { return Locked(action); }
+            finally
+            {
+                Released();
+                _lock.ExitReadLock();
+            }
         }
+        finally { Interlocked.Decrement(ref _users); }
     }
 
     public T Write<T>(Func<T> action) => Write(action, CallToken);
@@ -192,16 +205,30 @@ public sealed class AssemblyWorkspace : IDisposable
     /// <summary>Runs <paramref name="action"/> under the exclusive lock; a cancelled wait throws <see cref="OperationCanceledException"/>.</summary>
     public T Write<T>(Func<T> action, CancellationToken cancellationToken)
     {
-        Enter(write: true, cancellationToken);
-        try { return Locked(action); }
-        finally
+        Use();
+        try
         {
-            Generation++;
-            lock (_referenceModules) _referenceModules.Clear();
-            lock (_externalDecompilerRefs) _externalDecompilerRefs.Clear();
-            Released();
-            _lock.ExitWriteLock();
+            Enter(write: true, cancellationToken);
+            try { return Locked(action); }
+            finally
+            {
+                Generation++;
+                lock (_referenceModules) _referenceModules.Clear();
+                lock (_externalDecompilerRefs) _externalDecompilerRefs.Clear();
+                Released();
+                _lock.ExitWriteLock();
+            }
         }
+        finally { Interlocked.Decrement(ref _users); }
+    }
+
+    /// <summary>Counts a call into the lock; throws <see cref="ObjectDisposedException"/> once Dispose has begun.</summary>
+    private void Use()
+    {
+        Interlocked.Increment(ref _users);
+        if (Volatile.Read(ref _disposed) == 0) return;
+        Interlocked.Decrement(ref _users);
+        throw new ObjectDisposedException(nameof(AssemblyWorkspace));
     }
 
     private void Enter(bool write, CancellationToken cancellationToken)
@@ -1132,15 +1159,23 @@ public sealed class AssemblyWorkspace : IDisposable
         public void Dispose() { }
     }
 
+    /// <summary>
+    /// Refuses new calls, cancels background work, waits up to <see cref="DisposeWait"/> for calls holding or queued for the
+    /// lock, then disposes the assemblies and the lock. A lock still in use after the wait is left to the garbage collector.
+    /// </summary>
     public void Dispose()
     {
+        if (Interlocked.Exchange(ref _disposed, 1) != 0) return;
+        // Cancels background code index builds and closes engine sessions.
+        foreach (var n in _natives.ToArray())
+            n.Release();
+        // A Dispose called under this thread's own lock cannot wait for itself.
+        bool idle = !LockHeld && SpinWait.SpinUntil(() => Volatile.Read(ref _users) == 0, DisposeWait);
         foreach (var a in _assemblies)
             a.Dispose();
         _assemblies.Clear();
-        // Cancels background code index builds and closes engine sessions.
-        foreach (var n in _natives)
-            n.Release();
         _natives.Clear();
-        _lock.Dispose();
+        if (idle) _lock.Dispose();
+        else _logger?.LogWarning("Workspace disposed while {Count} calls still use its lock; the lock is not disposed", Volatile.Read(ref _users));
     }
 }

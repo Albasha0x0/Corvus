@@ -83,6 +83,36 @@ public class WorkspaceTests
     }
 
     [Fact]
+    public async Task Dispose_waits_for_calls_holding_or_queued_for_the_lock()
+    {
+        // Regression: CI on b8f374e0 threw SynchronizationLockException here.
+        var ws = new AssemblyWorkspace();
+        using var held = new ManualResetEventSlim();
+        using var release = new ManualResetEventSlim();
+        var reader = Task.Run(() => ws.Read(() => { held.Set(); release.Wait(); return 0; }));
+        held.Wait();
+        var writer = Task.Run(() => ws.Write(() => 1));
+        SpinWait.SpinUntil(() => ws.Waiting.Writers == 1);
+
+        var dispose = Task.Run(ws.Dispose);
+        Assert.NotSame(dispose, await Task.WhenAny(dispose, Task.Delay(200)));
+        release.Set();
+        await dispose;
+        Assert.Equal((0, 1), (await reader, await writer));
+        Assert.Throws<ObjectDisposedException>(() => ws.Read(() => 0));
+    }
+
+    [Fact]
+    public void Dispose_inside_the_callers_own_lock_returns_without_waiting()
+    {
+        var ws = new AssemblyWorkspace();
+        var watch = System.Diagnostics.Stopwatch.StartNew();
+        ws.Read(() => { ws.Dispose(); return 0; });
+        Assert.True(watch.Elapsed < AssemblyWorkspace.DisposeWait / 2);
+        Assert.Throws<ObjectDisposedException>(() => ws.Write(() => 0));
+    }
+
+    [Fact]
     public void UnloadAndGenerationInvalidation()
     {
         using var ws = new AssemblyWorkspace();
