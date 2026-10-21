@@ -14,18 +14,18 @@ public sealed class InspectionTools(InspectionService inspection, AssemblyWorksp
     Services.Mobile.AppGraph? graph = null)
 {
     private const string AssemblyParam = "A loaded assembly; pass this or path.";
-    private const string PathParam = "A .NET assembly file to analyze without loading it; pass this or assembly.";
+    private const string PathParam = "A .NET assembly file to analyze without loading; pass this or assembly.";
 
     [McpServerTool(Name = "summarize_file", Title = "Summarize file", UseStructuredContent = true, OutputSchemaType = typeof(FileSummaryRecord))]
-    [Description("First look at a file or loaded assembly (never executed): type, hashes, signature, containers, assemblies, highlights " +
-                 "(toolchain, capability features, packaging tools), entry points. view=: managed, native, android, apple, electron, flutter, go, layers, nib, pcap, " +
-                 "package (review before install), plist, protobuf, rust, script (layers peeled), sqlite (table= pages rows), sqlite-recover, all; " +
-                 "views lists those that apply.")]
+    [Description("First look at a file or loaded assembly (never executed): type, hashes, signature, containers, assemblies, highlights (toolchain, " +
+                 "capability features, packaging tools), entry points. view=: managed, native, android, apple, electron, flutter, go, layers, nib, " +
+                 "pcap, package (review before install), plist, protobuf, rust, script (layers peeled), sqlite (table= pages rows), sqlite-recover, " +
+                 "all; views lists those that apply.")]
     public Task<string> SummarizeFile(
         [Description("File (assembly, bundle, .nupkg, .apk, .ipa, zip, .asar, executable) or .app folder.")] string? path = null,
         [Description(AssemblyParam)] string? assembly = null,
-        [Description("overview (default) or a view the overview lists.")] string view = "overview",
-        [Description("sqlite, sqlite-recover: the table to page.")] string? table = null,
+        [Description("A view the overview lists.")] string view = "overview",
+        [Description("sqlite, sqlite-recover: table to page.")] string? table = null,
         [Description("With table=: these columns (rowid too).")] string[]? columns = null,
         [Description(ToolSupport.RowOffsetDescription)] long offset = 0,
         [Description(ToolSupport.LimitDescription)] int? limit = null,
@@ -76,10 +76,9 @@ public sealed class InspectionTools(InspectionService inspection, AssemblyWorksp
     }
 
     [McpServerTool(Name = "survey_features", Title = "Survey features", UseStructuredContent = true, OutputSchemaType = typeof(SurveyRecord))]
-    [Description("Rules over API calls, P/Invokes and strings (network, execution, registry, persistence, collection, " +
-                 "system changes, code loading, cross-process, crypto); category= adds evidence. Native: imports, call " +
-                 "arguments, strings, sections, RTTI. Apps: MASVS findings (WebView, TLS, pinning, root / instrumentation, " +
-                 "code loading, weak crypto, keys) by method offset.")]
+    [Description("Rules over API calls, P/Invokes and strings (network, execution, registry, persistence, collection, system changes, code loading, " +
+                 "cross-process, crypto); category= adds evidence. Native: imports, call arguments, strings, sections, RTTI. Apps: MASVS findings " +
+                 "(WebView, TLS, pinning, root checks, code loading, weak crypto, keys) by method offset.")]
     public async Task<string> SurveyFeatures(
         [Description(AssemblyParam)] string? assembly = null,
         [Description("A .NET, native or app file, read without loading.")] string? path = null,
@@ -96,7 +95,7 @@ public sealed class InspectionTools(InspectionService inspection, AssemblyWorksp
     }
 
     [McpServerTool(Name = "extract_strings", Title = "Extract typed strings", UseStructuredContent = true, OutputSchemaType = typeof(ValuePage))]
-    [Description("Typed values (URLs, domains, IPs, emails, file paths, pipes, registry keys, mutexes, user agents, crypto keys) from an assembly's " +
+    [Description("Typed values (URLs, domains, IPs, emails, file paths, pipes, registry keys, mutexes, user agents, crypto keys) from assembly " +
                  "literals, constants, resource text and decoded base64 / hex / compressed text, with count, locations and the APIs receiving them. " +
                  "read_result outputPath exports all (text: CSV).")]
     public async Task<string> ExtractStrings(
@@ -117,8 +116,8 @@ public sealed class InspectionTools(InspectionService inspection, AssemblyWorksp
     }
 
     [McpServerTool(Name = "extract_embedded", Title = "Extract embedded content", UseStructuredContent = true, OutputSchemaType = typeof(EmbeddedPage))]
-    [Description("Embedded content of an assembly or of every assembly in a container (resources, byte arrays, long literals), decoded through " +
-                 "hex, base64, compression and XOR until a PE, archive, ELF / Mach-O or text appears, plus high-entropy blobs, each with its encoding " +
+    [Description("Embedded content of an assembly or of every assembly in a container (resources, byte arrays, long literals), decoded through hex, " +
+                 "base64, compression and XOR until a PE, archive, ELF, Mach-O or text appears, plus high-entropy blobs, each with its encoding " +
                  "chain. save=true writes them (defanged names). Nothing is executed.")]
     public async Task<string> ExtractEmbedded(
         [Description(AssemblyParam)] string? assembly = null,

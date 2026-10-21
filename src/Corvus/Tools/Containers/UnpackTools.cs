@@ -12,16 +12,17 @@ namespace Corvus.Tools;
 public sealed class UnpackTools(UnpackService unpacker)
 {
     [McpServerTool(Name = "unpack_container", Title = "Extract container", UseStructuredContent = true, OutputSchemaType = typeof(UnpackPage))]
-    [Description("Extract the .NET assemblies inside a container and load them: single-file bundles, Costura.Fody, .nupkg, Xamarin / MAUI .apk / " +
-                 ".aab (per ABI), zips, embedded .NET images, nested containers; Electron .asar, Unity WebGL .data, HAR / mitmproxy captures: " +
-                 "every file; pcap: HTTP objects and TCP streams; JS: modules and the source map's original tree. Nothing runs; runnable extensions get .bin.")]
+    [Description("Extract the .NET assemblies inside a container and load them: single-file bundles, Costura.Fody, .nupkg, Xamarin / MAUI .apk / .aab " +
+                 "(per ABI), zips, embedded .NET images, nested containers; Electron .asar, Unity WebGL .data, HAR / mitmproxy captures: every file; " +
+                 "pcap: HTTP objects and TCP streams; JS: modules and the original tree of the source map. Nothing runs; runnable extensions get " +
+                 ".bin.")]
     public Task<string> UnpackContainer(
         [Description("Container file, Blazor or ClickOnce folder.")] string path,
         [Description("New or empty directory, or an earlier extract of this file; default under temp.")] string? outputDirectory = null,
         [Description("Extract without loading the assemblies; default: loaded, ids in loadedAs.")] bool extractOnly = false,
         [Description(RowOffsetDescription)] int offset = 0,
         [Description(LimitDescription)] int limit = 100,
-        [Description("A pcap's TLS key log (SSLKEYLOGFILE) to decrypt with.")] string? keyLog = null,
+        [Description("TLS key log of a pcap (SSLKEYLOGFILE) to decrypt with.")] string? keyLog = null,
         RequestContext<CallToolRequestParams> context = null!,
         CancellationToken cancellationToken = default) => OrderedProgress.Run(context, async progress =>
         {
@@ -32,9 +33,9 @@ public sealed class UnpackTools(UnpackService unpacker)
         });
 
     [McpServerTool(Name = "search_container", Title = "Search inside a container", UseStructuredContent = true, OutputSchemaType = typeof(UnpackService.ContainerSearch))]
-    [Description("Find types and members by name in every managed assembly inside a container (bundle, .nupkg, .apk / .aab, Costura, zip, " +
-                 "nested) or an assembly, without extracting: substring or * / ? wildcards. kind=file: inner " +
-                 "file paths; packet: a pcap display filter; endpoint: endpoints in code or a capture; request: a capture's requests; feature: JS text to native code.")]
+    [Description("Find types and members by name in every managed assembly inside a container (bundle, .nupkg, .apk, .aab, Costura, zip, nested) or " +
+                 "an assembly, without extracting: substring or * / ? wildcards. kind=file: inner file paths; packet: a pcap display filter; " +
+                 "endpoint: endpoints in code or a capture; request: capture requests; feature: JS text to native code.")]
     public async Task<string> SearchContainer(
         [Description("Container or assembly file (absolute).")] string path,
         [Description("Name or part of a name.")] string query,

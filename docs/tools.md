@@ -559,8 +559,8 @@ First look at a file or loaded assembly (never executed): type, hashes, signatur
 |---|---|---|---|---|
 | `path` | string |  |  | File (assembly, bundle, .nupkg, .apk, .ipa, zip, .asar, executable) or .app folder. |
 | `assembly` | string |  |  | A loaded assembly; pass this or path. |
-| `view` | string |  | `overview` | overview (default) or a view the overview lists. Values: overview, managed, android, apple, electron, firmware, flutter, go, hermes, installer, layers, lnk, native, nib, office, package, pcap, pdf, plist, protobuf, rust, script, sqlite, sqlite-recover, wasm, all. |
-| `table` | string |  |  | sqlite, sqlite-recover: the table to page. |
+| `view` | string |  | `overview` | A view the overview lists. Values: overview, managed, android, apple, electron, firmware, flutter, go, hermes, installer, layers, lnk, native, nib, office, package, pcap, pdf, plist, protobuf, rust, script, sqlite, sqlite-recover, wasm, all. |
+| `table` | string |  |  | sqlite, sqlite-recover: table to page. |
 | `columns` | string[] |  |  | With table=: these columns (rowid too). |
 | `offset` | integer |  |  |  |
 | `limit` | integer |  |  |  |
@@ -571,7 +571,7 @@ Structured output: `path`, `size`, `type`, `sha256`, `container`, `view`, `views
 
 **Survey features** (read-only, idempotent)
 
-Rules over API calls, P/Invokes and strings (network, execution, registry, persistence, collection, system changes, code loading, cross-process, crypto); category= adds evidence. Native: imports, call arguments, strings, sections, RTTI. Apps: MASVS findings (WebView, TLS, pinning, root / instrumentation, code loading, weak crypto, keys) by method offset.
+Rules over API calls, P/Invokes and strings (network, execution, registry, persistence, collection, system changes, code loading, cross-process, crypto); category= adds evidence. Native: imports, call arguments, strings, sections, RTTI. Apps: MASVS findings (WebView, TLS, pinning, root checks, code loading, weak crypto, keys) by method offset.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -586,12 +586,12 @@ Structured output: `assembly`, `methodsScanned`, `features`, `category`, `notes`
 
 **Extract typed strings** (read-only, idempotent)
 
-Typed values (URLs, domains, IPs, emails, file paths, pipes, registry keys, mutexes, user agents, crypto keys) from an assembly's literals, constants, resource text and decoded base64 / hex / compressed text, with count, locations and the APIs receiving them. read_result outputPath exports all (text: CSV).
+Typed values (URLs, domains, IPs, emails, file paths, pipes, registry keys, mutexes, user agents, crypto keys) from assembly literals, constants, resource text and decoded base64 / hex / compressed text, with count, locations and the APIs receiving them. read_result outputPath exports all (text: CSV).
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `assembly` | string |  |  | A loaded assembly; pass this or path. |
-| `path` | string |  |  | A .NET assembly file to analyze without loading it; pass this or assembly. |
+| `path` | string |  |  | A .NET assembly file to analyze without loading; pass this or assembly. |
 | `types` | string[] |  |  | Only these types. |
 | `offset` | integer |  |  |  |
 | `limit` | integer |  | `100` |  |
@@ -603,7 +603,7 @@ Structured output: `assembly`, `items`, `offset`, `total`, `byType`, `valuesResu
 
 **Extract embedded content** (edit, idempotent)
 
-Embedded content of an assembly or of every assembly in a container (resources, byte arrays, long literals), decoded through hex, base64, compression and XOR until a PE, archive, ELF / Mach-O or text appears, plus high-entropy blobs, each with its encoding chain. save=true writes them (defanged names). Nothing is executed.
+Embedded content of an assembly or of every assembly in a container (resources, byte arrays, long literals), decoded through hex, base64, compression and XOR until a PE, archive, ELF, Mach-O or text appears, plus high-entropy blobs, each with its encoding chain. save=true writes them (defanged names). Nothing is executed.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -624,7 +624,7 @@ Structured output: `assembly`, `items`, `offset`, `total`, `outputDirectory`, `n
 
 **Search inside a container** (read-only, idempotent)
 
-Find types and members by name in every managed assembly inside a container (bundle, .nupkg, .apk / .aab, Costura, zip, nested) or an assembly, without extracting: substring or * / ? wildcards. kind=file: inner file paths; packet: a pcap display filter; endpoint: endpoints in code or a capture; request: a capture's requests; feature: JS text to native code.
+Find types and members by name in every managed assembly inside a container (bundle, .nupkg, .apk, .aab, Costura, zip, nested) or an assembly, without extracting: substring or * / ? wildcards. kind=file: inner file paths; packet: a pcap display filter; endpoint: endpoints in code or a capture; request: capture requests; feature: JS text to native code.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -643,7 +643,7 @@ Structured output: `source`, `container`, `searched`, `items`, `offset`, `total`
 
 **Extract container** (edit, idempotent, long-running)
 
-Extract the .NET assemblies inside a container and load them: single-file bundles, Costura.Fody, .nupkg, Xamarin / MAUI .apk / .aab (per ABI), zips, embedded .NET images, nested containers; Electron .asar, Unity WebGL .data, HAR / mitmproxy captures: every file; pcap: HTTP objects and TCP streams; JS: modules and the source map's original tree. Nothing runs; runnable extensions get .bin.
+Extract the .NET assemblies inside a container and load them: single-file bundles, Costura.Fody, .nupkg, Xamarin / MAUI .apk / .aab (per ABI), zips, embedded .NET images, nested containers; Electron .asar, Unity WebGL .data, HAR / mitmproxy captures: every file; pcap: HTTP objects and TCP streams; JS: modules and the original tree of the source map. Nothing runs; runnable extensions get .bin.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -652,7 +652,7 @@ Extract the .NET assemblies inside a container and load them: single-file bundle
 | `extractOnly` | boolean |  |  | Extract without loading the assemblies; default: loaded, ids in loadedAs. |
 | `offset` | integer |  |  |  |
 | `limit` | integer |  | `100` |  |
-| `keyLog` | string |  |  | A pcap's TLS key log (SSLKEYLOGFILE) to decrypt with. |
+| `keyLog` | string |  |  | TLS key log of a pcap (SSLKEYLOGFILE) to decrypt with. |
 
 Structured output: `source`, `container`, `outputDirectory`, `items`, `offset`, `total`, `next`, `notes`, `limit`, `totalExact`, `hasMore`, `nextOffset`.
 
@@ -660,12 +660,12 @@ Structured output: `source`, `container`, `outputDirectory`, `items`, `offset`, 
 
 **Unity title overview** (read-only, idempotent, open-world)
 
-Overview of a Unity title in seconds, without loading it: engine version per source, scripting backend (il2cpp / mono) with evidence, metadata version and state (readable, encrypted, header_tampered, unsupported_version, missing), toolchain and middleware, platform, architecture, notable folders, and the next calls.
+Overview of a Unity title in seconds, without loading it: engine version per source, scripting backend (il2cpp / mono) with evidence, metadata version and state (readable, encrypted, header_tampered, unsupported_version, missing), toolchain and middleware, platform, architecture, notable folders, next calls.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `path` | string | yes |  | Game folder, executable, *_Data, GameAssembly, global-metadata.dat, .apk, .ipa, zip, WebGL, .app. |
-| `detectItEasy` | boolean |  |  | Also run Detect It Easy (CORVUS_DIE or PATH) on the main binaries; ~1 s per file. |
+| `detectItEasy` | boolean |  |  | Also run Detect It Easy (CORVUS_DIE or PATH) on the main binaries; about 1 s per file. |
 
 Structured output: `input`, `gameDirectory`, `dataDirectory`, `executable`, `company`, `product`, `platform`, `architecture`, `architectureSource`, `engine`, `backend`, `markers`, `folders`, `nextSteps`, `notes`.
 
