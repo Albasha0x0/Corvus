@@ -12,6 +12,7 @@ namespace Corvus.Tests;
 /// lists its imports. Opt-in: CORVUS_FIRMWARE_IMAGES names a folder of images (.gz ones are
 /// ungzipped first) and CORVUS_FS_REFERENCE the program that runs the script as root: sh on Linux, wsl.exe on Windows.
 /// </summary>
+[Trait("Speed", "Slow")]
 public sealed class FirmwareComparisonTests(ITestOutputHelper output)
 {
     /// <summary>Reader kinds and the script's format names.</summary>
