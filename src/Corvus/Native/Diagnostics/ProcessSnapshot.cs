@@ -16,9 +16,9 @@ public static class ProcessSnapshot
     /// A thread held at a stop, its registers named as Frida names them: on Windows they become the dump's exception context, as a
     /// debugger's dump at a break records its last event; in a Linux core they replace the thread's own, with SIGTRAP as its signal.
     /// </summary>
-    public sealed record Stop(int ThreadId, bool X64, IReadOnlyDictionary<string, ulong> Registers)
+    public sealed record Stop(int ThreadId, string Arch, IReadOnlyDictionary<string, ulong> Registers)
     {
-        public ulong Address => Registers.GetValueOrDefault(X64 ? "rip" : "eip");
+        public ulong Address => Registers.GetValueOrDefault(Arch switch { "x64" => "rip", "arm64" => "pc", _ => "eip" });
     }
 
     // MiniDumpWithFullMemory | WithHandleData | WithUnloadedModules | WithFullMemoryInfo | WithThreadInfo
@@ -76,6 +76,21 @@ public static class ProcessSnapshot
         return c;
     }
 
+    /// <summary>An ARM64 CONTEXT (control and integer registers) from register values named as Frida names them.</summary>
+    public static byte[] ContextArm64(IReadOnlyDictionary<string, ulong> registers)
+    {
+        var c = new byte[0x390];
+        // The flags are CONTEXT_ARM64 | CONTROL | INTEGER.
+        BinaryPrimitives.WriteUInt32LittleEndian(c, 0x400003);
+        if (registers.TryGetValue("nzcv", out var nzcv)) BinaryPrimitives.WriteUInt32LittleEndian(c.AsSpan(4), (uint)nzcv);
+        for (int i = 0; i <= 28; i++)
+            if (registers.TryGetValue($"x{i}", out var v)) BinaryPrimitives.WriteUInt64LittleEndian(c.AsSpan(8 + 8 * i), v);
+        string[] order = ["fp", "lr", "sp", "pc"];
+        for (int i = 0; i < order.Length; i++)
+            if (registers.TryGetValue(order[i], out var v)) BinaryPrimitives.WriteUInt64LittleEndian(c.AsSpan(0xF0 + 8 * i), v);
+        return c;
+    }
+
     private static void WriteMinidump(int pid, string path, Stop? stop)
     {
         var process = OpenProcess(ProcessAccess, false, pid);
@@ -92,7 +107,7 @@ public static class ProcessSnapshot
             // one block, in this process (ClientPointers false): MINIDUMP_EXCEPTION_INFORMATION (pack 4), EXCEPTION_POINTERS,
             // an EXCEPTION_RECORD for a breakpoint at the stop, and the CONTEXT 16-byte aligned; a 64-bit writer copies an x64
             // CONTEXT's size whatever the target, so a WoW64 program's x86 CONTEXT is padded to it
-            var stopContext = stop.X64 ? ContextX64(stop.Registers) : ContextX86(stop.Registers);
+            var stopContext = stop.Arch switch { "x64" => ContextX64(stop.Registers), "arm64" => ContextArm64(stop.Registers), _ => ContextX86(stop.Registers) };
             const int Info = 0, Pointers = 16, Record = 32, Context = 192;
             int size = Context + Math.Max(stopContext.Length, 0x4D0) + 16;
             block = Marshal.AllocHGlobal(size);
@@ -251,7 +266,7 @@ public static class ProcessSnapshot
         file.Position = (long)phoff;
         file.ReadExactly(phdrs);
         int word = is64 ? 8 : 4, regAt = is64 ? 112 : 72, pidAt = is64 ? 32 : 24;
-        var order = stop.X64 ? UserRegsX64 : UserRegsX86;
+        var order = stop.Arch == "x64" ? UserRegsX64 : UserRegsX86;
         for (int i = 0; i < phnum; i++)
         {
             var ph = phdrs.AsSpan(i * phentsize, phentsize);

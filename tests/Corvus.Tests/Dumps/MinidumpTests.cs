@@ -320,6 +320,47 @@ public sealed class MinidumpTests
         Assert.Contains(dump.Issues, i => i.Message.Contains("inside.dll"));
     }
 
+    /// <summary>
+    /// An ARM64 thread stopped at a function's first instruction returns through the link register, then follows the frame
+    /// chain; stopped past the start, the chain names the caller and the stale link register is not used.
+    /// </summary>
+    [Fact]
+    public void Arm64_stacks_use_the_link_register_at_a_function_start_then_the_frame_chain()
+    {
+        const ulong Base = 0x7FF6_0000_0000, Stack = 0x1000_0000;
+        var pe = new PeBuilder { Machine = 0xAA64, ImageBase = Base };
+        pe.Add(".text", new byte[0x1000], 0x60000020);
+        var pdata = new byte[8];
+        // Work spans 0x1000-0x1040, with packed unwind data.
+        BinaryPrimitives.WriteUInt32LittleEndian(pdata, 0x1000);
+        BinaryPrimitives.WriteUInt32LittleEndian(pdata.AsSpan(4), 1 | (0x40 >> 2) << 2);
+        var section = pe.Add(".pdata", pdata);
+        pe.Directories[3] = (section.Rva, 8);
+        var image = PeFile.FromBytes(pe.Build());
+        // Work's caller main returns to start; start's record ends the chain.
+        var stack = new byte[0x100];
+        BinaryPrimitives.WriteUInt64LittleEndian(stack.AsSpan(0x20), Stack + 0x40);
+        BinaryPrimitives.WriteUInt64LittleEndian(stack.AsSpan(0x28), Base + 0x1208);
+        BinaryPrimitives.WriteUInt64LittleEndian(stack.AsSpan(0x10), Stack + 0x20);
+        BinaryPrimitives.WriteUInt64LittleEndian(stack.AsSpan(0x18), Base + 0x1104);
+
+        ulong[] Walk(ulong pc, ulong fp, ulong lr)
+        {
+            var d = new MinidumpBuilder { ProcessorArchitecture = 12 };
+            d.Modules.Add(new MinidumpBuilder.Module(Base, 0x3000, 0, @"C:\app\app.exe"));
+            d.Memory.Add((Stack, stack));
+            var context = Corvus.Native.Diagnostics.ProcessSnapshot.ContextArm64(new Dictionary<string, ulong> { ["pc"] = pc, ["sp"] = Stack, ["fp"] = fp, ["lr"] = lr });
+            d.Threads.Add(new MinidumpBuilder.Thread(1, Stack, context));
+            using var dump = MinidumpFile.FromBytes(d.Build());
+            var walk = new StackWalker(dump, _ => image).Walk(dump.ReadContext(dump.Threads[0].Context)!, Stack, Stack + 0x100, 16);
+            Assert.Equal("end_of_stack", walk.Stop);
+            return [.. walk.Frames.Select(f => f.Ip)];
+        }
+
+        Assert.Equal([Base + 0x1000, Base + 0x1104, Base + 0x1208], Walk(Base + 0x1000, Stack + 0x20, Base + 0x1104));
+        Assert.Equal([Base + 0x1010, Base + 0x1104, Base + 0x1208], Walk(Base + 0x1010, Stack + 0x10, Base + 0x1F00));
+    }
+
     /// <summary>x86 frames without a frame pointer are found by the return address whose call targets the function, not lost to the EBP chain.</summary>
     [Fact]
     public async Task X86FramePointerOmittedFramesAreWalked()

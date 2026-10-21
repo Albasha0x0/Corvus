@@ -40,7 +40,7 @@ public sealed class ProcessSnapshotTests
         var p = SyntheticCore.Points(arm64: false);
         // thread 1002 waits elsewhere; the stop saw it at the crash point with thread 1001's stack
         var registers = new Dictionary<string, ulong> { ["rip"] = SyntheticCore.Base + p.Crash, ["rsp"] = SyntheticCore.X, ["rbp"] = SyntheticCore.X + 48, ["r12"] = 0xC12 };
-        ProcessSnapshot.MarkStop(path, new ProcessSnapshot.Stop(1002, true, registers));
+        ProcessSnapshot.MarkStop(path, new ProcessSnapshot.Stop(1002, "x64", registers));
 
         using (var core = CoreFile.FromBytes(File.ReadAllBytes(path), "stop.core"))
         {

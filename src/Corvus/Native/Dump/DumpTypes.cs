@@ -79,6 +79,8 @@ public sealed class DumpContext
 
     public ulong Sp { get => Gpr[4]; set => Gpr[4] = value; }
     public ulong Fp { get => Gpr[5]; set => Gpr[5] = value; }
+    /// <summary>ARM64 only: the link register.</summary>
+    public ulong Lr { get => Gpr[6]; set => Gpr[6] = value; }
 
     public DumpContext Clone()
     {
@@ -128,6 +130,7 @@ public sealed class DumpContext
                 c.ContextFlags = U32(bytes, 0);
                 c.Flags = U32(bytes, 4);
                 c.Gpr[5] = U64(bytes, 0xF0);
+                c.Gpr[6] = U64(bytes, 0xF8);
                 c.Gpr[4] = U64(bytes, 0x100);
                 c.Ip = U64(bytes, 0x108);
                 break;

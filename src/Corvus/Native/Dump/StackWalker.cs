@@ -12,13 +12,13 @@ public static class FrameMethod
     public const string UnwindInfo = "unwind_info";
     /// <summary>x64 unwind of the top frame from inside an epilog (instructions emulated).</summary>
     public const string Epilog = "epilog";
-    /// <summary>x64 function without .pdata (a leaf), or x86 after a call to an address that is not code: the return address at the stack pointer.</summary>
+    /// <summary>A function without .pdata (a leaf), or x86 after a call to an address that is not code: the return address at the stack pointer (ARM64: in the link register).</summary>
     public const string Leaf = "leaf";
     /// <summary>x64 UWOP_PUSH_MACHFRAME: an interrupt or exception frame; x86: the CONTEXT record KiUserExceptionDispatcher received.</summary>
     public const string MachineFrame = "machine_frame";
     /// <summary>x86 frame data from the module's PDB (FRAMEDATA program or FPO_DATA sizes).</summary>
     public const string FrameData = "frame_data";
-    /// <summary>x86 saved frame pointer chain (EBP).</summary>
+    /// <summary>Saved frame pointer chain (x86 EBP, ARM64 x29).</summary>
     public const string FramePointer = "frame_pointer";
     /// <summary>x86 without a frame pointer: the nearest stack slot holding a return address whose call targets this function.</summary>
     public const string CallTarget = "call_target";
@@ -43,7 +43,8 @@ public sealed record WalkResult(IReadOnlyList<WalkFrame> Frames, string Stop, IR
 /// (frames marked heuristic) where no unwind data is available (no image, JIT code) or it leads nowhere. x86: the
 /// module PDB's frame data (FRAMEDATA programs, FPO_DATA), a return address whose call instruction targets the current
 /// function (frames that omit the frame pointer), the EBP chain, then a scan; KiUserExceptionDispatcher continues at
-/// the exception's CONTEXT record. Unwind data and code bytes come from the module images the caller supplies (a matching file
+/// the exception's CONTEXT record. ARM64: the frame chain the Windows ABI keeps (x29 at the saved {x29, x30} pair), the
+/// link register for a top frame that has not written its record yet. Unwind data and code bytes come from the module images the caller supplies (a matching file
 /// from disk, or the image rebuilt from dump memory) and from captured memory. Every loop is bounded.
 /// </summary>
 public sealed class StackWalker
@@ -86,9 +87,9 @@ public sealed class StackWalker
         maxFrames = Math.Clamp(maxFrames, 1, MaxFramesLimit);
         var frames = new List<WalkFrame>();
         var notes = new List<string>();
-        if (_dump.Arch is not (NativeArch.X64 or NativeArch.X86))
+        if (_dump.Arch is not (NativeArch.X64 or NativeArch.X86 or NativeArch.Arm64))
             return new WalkResult([new WalkFrame(start.Ip, start.Sp, FrameMethod.Context, false, false, null)],
-                "unsupported_architecture", [$"stacks are walked for x64 and x86 dumps; this one is {_dump.Arch}"]);
+                "unsupported_architecture", [$"stacks are walked for x64, x86 and ARM64 dumps; this one is {_dump.Arch}"]);
         var ctx = start.Clone();
         (_scanBudget, _callerBudget, _calleeParams) = (MaxScanSlotsPerWalk, MaxScanSlotsPerWalk, 0);
         (_stackLow, _stackHigh) = (stackLow, stackHigh);
@@ -100,7 +101,7 @@ public sealed class StackWalker
         while (frames.Count < maxFrames)
         {
             ct.ThrowIfCancellationRequested();
-            var (next, method, heuristic, note) = _dump.Arch == NativeArch.X64 ? StepX64(ctx, top) : StepX86(ctx, top);
+            var (next, method, heuristic, note) = _dump.Arch switch { NativeArch.X64 => StepX64(ctx, top), NativeArch.Arm64 => StepArm64(ctx, top), _ => StepX86(ctx, top) };
             if (next == null)
             {
                 stop = note ?? "end";
@@ -117,7 +118,9 @@ public sealed class StackWalker
                     break;
                 }
             }
-            if (next.Sp <= ctx.Sp && !(method == FrameMethod.MachineFrame && next.Sp != ctx.Sp))
+            // An ARM64 leaf returns through the link register with the stack
+            // pointer unchanged.
+            if (next.Sp <= ctx.Sp && !(method == FrameMethod.MachineFrame && next.Sp != ctx.Sp) && !(method == FrameMethod.Leaf && _dump.Arch == NativeArch.Arm64 && next.Sp == ctx.Sp))
             {
                 // no progress: try a scan once before giving up
                 var scanned = Scan(ctx.Sp + (ulong)_ptr, stackHigh, ctx);
@@ -189,6 +192,33 @@ public sealed class StackWalker
         string why = module == null ? $"0x{ctx.Ip:X} is not in a module (JIT-compiled or generated code has no unwind data here)"
             : $"no image of {module.FileName} (not found on disk with a matching timestamp and size, not captured in the dump)";
         return fallback != null ? (fallback, FrameMethod.Scan, true, why + "; scanned the stack") : (null, "", false, "no_unwind_data");
+    }
+
+    private const ulong PacMask = 0x0000_FFFF_FFFF_FFFF;
+
+    /// <summary>
+    /// ARM64: a top frame in a function without .pdata (a leaf) or at its first instruction returns to the link register;
+    /// every other frame follows the frame chain.
+    /// </summary>
+    private (DumpContext? Next, string Method, bool Heuristic, string? Note) StepArm64(DumpContext ctx, bool top)
+    {
+        if (top && _dump.ModuleAt(ctx.Ip) is { } module && _image(module) is { Arch: NativeArch.Arm64 } image
+            && Lookup(image.RuntimeFunctions, (uint)(ctx.Ip - module.Base)) is var rf && (rf == null || module.Base + rf.BeginRva == ctx.Ip)
+            && (ctx.Lr & PacMask) is var lr && lr != ctx.Ip && IsCode(lr, ctx.Sp))
+        {
+            var leaf = ctx.Clone();
+            leaf.Ip = lr;
+            return (leaf, FrameMethod.Leaf, false, null);
+        }
+        ulong fp = ctx.Fp;
+        if (fp < ctx.Sp || fp % 8 != 0 || (_stackHigh > _stackLow && fp >= _stackHigh)) return (null, "", false, "no_frame_chain");
+        if (!_dump.TryReadU64(fp, out ulong savedFp) || !_dump.TryReadU64(fp + 8, out ulong ra)) return (null, "", false, "stack_not_captured");
+        var next = ctx.Clone();
+        next.Fp = savedFp;
+        next.Sp = fp + 16;
+        next.Ip = ra & PacMask;
+        next.Lr = 0;
+        return (next, FrameMethod.FramePointer, false, null);
     }
 
     private static RuntimeFunction? Lookup(IReadOnlyList<RuntimeFunction> table, uint rva)

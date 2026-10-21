@@ -186,15 +186,16 @@ public sealed partial class LiveSessionTools(ServerOptions options, LiveSessionS
         // exception, an x86 program's x86 CONTEXT taken as the WoW64 thread's 32-bit side; in a Linux core the thread's own)
         Native.Diagnostics.ProcessSnapshot.Stop? stop = null;
         var held = s.Held.FirstOrDefault();
-        if (s.Arch is "x64" or "ia32" && held != null)
+        // an ARM64 stop is recorded in a Windows dump only (a Linux core's ARM64 NT_PRSTATUS is not rewritten)
+        if (held != null && (s.Arch is "x64" or "ia32" || s.Arch == "arm64" && OperatingSystem.IsWindows()))
         {
             var registers = new Dictionary<string, ulong>(StringComparer.OrdinalIgnoreCase);
             foreach (var (name, value) in held.Registers)
                 if (ulong.TryParse(value.StartsWith("0x", StringComparison.OrdinalIgnoreCase) ? value[2..] : value, NumberStyles.HexNumber, CultureInfo.InvariantCulture, out var v))
                     registers[name] = v;
-            bool x64 = s.Arch == "x64";
-            if (registers.ContainsKey(x64 ? "rip" : "eip") && registers.ContainsKey(x64 ? "rsp" : "esp"))
-                stop = new((int)held.Thread, x64, registers);
+            var (pc, sp) = s.Arch switch { "x64" => ("rip", "rsp"), "arm64" => ("pc", "sp"), _ => ("eip", "esp") };
+            if (registers.ContainsKey(pc) && registers.ContainsKey(sp))
+                stop = new((int)held.Thread, s.Arch, registers);
         }
         var bytes = Native.Diagnostics.ProcessSnapshot.Write(s.ProcessId, path, overwrite, ct, stop);
         var full = Path.GetFullPath(path);
