@@ -6,7 +6,7 @@ namespace Corvus.Native.Live;
 /// <summary>
 /// Statically linked ELF programs: Frida loads its agent through the program's dynamic loader and C library, which a
 /// static program has neither of, so a session can neither start one nor attach to one (Frida 17 reports "loader crashed
-/// with signal 11" or "refused to load frida-agent").
+/// with signal 11" or "refused to load frida-agent"; frida/frida#2533).
 /// </summary>
 internal static class StaticProgram
 {
