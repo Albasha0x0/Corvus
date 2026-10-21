@@ -57,7 +57,7 @@ class Session:
         self.closing = False
         self.exit_released = False  # an exit_status was answered: the process is past the script's last hook
         self.held = set()
-        self.loading = set()  # threads held at the load of a deferred module
+        self.loading = set()  # threads held at the load of a deferred module or the compile of a watched method
         self.lock = threading.Lock()
         self.user_scripts = {}
         self.children = {}  # pid of each held child to its path
@@ -75,7 +75,7 @@ class Session:
                 self.held.add(payload.get("tid"))
             if data:
                 payload["stack"] = data.hex()
-        elif kind == "module" and payload.get("held"):
+        elif kind in ("module", "compiled") and payload.get("held"):
             with self.lock:
                 self.loading.add(payload.get("tid"))
         ack = kind in ("exception", "exit_status") and payload.pop("ack", False)
@@ -398,6 +398,8 @@ def handle(state, op, args):
         return state.require().defer_module(args["name"])
     if op == "undefer_module":
         return state.require().undefer_module(args["name"])
+    if op == "watch_jit":
+        return state.require().watch_jit(args["il"])
     if op == "release_load":
         return state.release_load(args)
     if op == "load_script":

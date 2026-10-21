@@ -124,7 +124,9 @@ In a .NET program on Windows x64, the runtime's own DAC (read through ClrMD from
 and ReadyToRun code: a stop's managed frames read `app.dll!Ns.Type.Method(System.String)+0x1B`, walked by the runtime
 from the stop's registers. A stop point or watch takes a managed method by name (`Ns.Type::Method`, a parameter list
 for an overload, or `app.dll!Ns.Type::Method`); a method without code yet is deferred until the runtime compiles it
-(ReadyToRun code is bound at once), so its first calls may be missed. An assembly bundled into a single-file app, or a
+(ReadyToRun code is bound at once): the compiling thread waits as the JIT returns the code until the point is set, so its
+first call is caught, `Main` included. When tiered compilation compiles the method again, the point is set on the new
+code as well; a compile for a running loop (on-stack replacement) is left unhooked. An assembly bundled into a single-file app, or a
 .NET Framework assembly whose native image (`name.ni.dll`) loads in its place, is named the same way. A runtime of another architecture, or one whose DAC
 cannot be found, leaves managed code unnamed.
 

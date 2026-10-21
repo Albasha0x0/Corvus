@@ -111,6 +111,14 @@ public sealed class LiveClr : IDisposable
         }
     }
 
+    /// <summary>Where the runtime mapped the module loaded from <paramref name="path"/>, and whether as the file (flat) rather than as an image; null before it loads.</summary>
+    public (ulong Base, bool Flat)? ModuleImage(string path)
+    {
+        lock (_decoder.Gate)
+            return _decoder.Runtime?.EnumerateModules().FirstOrDefault(m => m.Name is { } n && SamePath(n, path)) is { ImageBase: > 0 } m
+                ? (m.ImageBase, m.Layout == ModuleLayout.Flat) : null;
+    }
+
     /// <summary>True when the runtime's module <paramref name="name"/> is the file at <paramref name="path"/>; a bundled assembly is named by its bundle-relative path.</summary>
     private static bool SamePath(string name, string path) => Path.IsPathRooted(name)
         ? string.Equals(Path.GetFullPath(name), Path.GetFullPath(path), StringComparison.OrdinalIgnoreCase)

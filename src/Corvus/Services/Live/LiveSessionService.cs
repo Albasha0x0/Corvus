@@ -37,6 +37,14 @@ public sealed record LiveStopPointState(string Id, string Where, ulong Address, 
 public sealed record LiveDeferred(string Id, string Where, string Module, bool Watch, int PerSecond, int RawArguments)
 {
     public bool UntilCompiled { get; init; }
+    /// <summary>Where the method's IL body is mapped, which the backend's JIT hook reports the compile of; empty when unknown.</summary>
+    public IReadOnlyList<ulong> IlBodies { get; init; } = [];
+}
+
+/// <summary>A stop point or watch on a managed method, by the method's IL bodies, and the code it is hooked at.</summary>
+internal sealed record LiveJitBinding(string Id, bool Watch, string Name, IReadOnlyList<ulong> IlBodies)
+{
+    public List<ulong> Code { get; } = [];
 }
 
 /// <summary>A thread held at a stop point until it is resumed: its general registers and return addresses.</summary>
@@ -110,6 +118,31 @@ public sealed class LiveSession
     internal SemaphoreSlim ClrOpen { get; } = new(1, 1);
     /// <summary>Checks the points deferred until their method is compiled.</summary>
     internal Timer? CompileCheck { get; set; }
+    // methods the backend saw the JIT compile, by their code: the runtime reads them only once the thread that compiled them goes on
+    private readonly Dictionary<ulong, LiveFrameName> _compiled = [];
+
+    internal void AddCompiled(LiveFrameName name)
+    {
+        lock (_compiled) _compiled[name.Address] = name;
+    }
+
+    internal LiveFrameName? CompiledName(ulong address)
+    {
+        lock (_compiled) return _compiled.GetValueOrDefault(address);
+    }
+
+    private readonly Dictionary<ulong, LiveJitBinding> _bound = [];
+
+    internal void Bind(LiveJitBinding binding)
+    {
+        lock (_bound)
+            foreach (var il in binding.IlBodies) _bound[il] = binding;
+    }
+
+    internal LiveJitBinding? Bound(ulong il)
+    {
+        lock (_bound) return _bound.GetValueOrDefault(il);
+    }
     internal int CompileChecking;
     public List<LiveModuleState> Modules { get; } = [];
     public Dictionary<string, LiveStopPointState> StopPoints { get; } = new(StringComparer.Ordinal);
@@ -551,6 +584,10 @@ public sealed partial class LiveSessionService(AssemblyWorkspace workspace, Nati
                 if (loaded) _ = SetDeferredAsync(session, m, holder);
                 break;
             }
+            case "compiled":
+                _ = SetCompiledAsync(session, Hex(body.GetProperty("il").GetString()), Hex(body.GetProperty("code").GetString()),
+                    body.TryGetProperty("frames", out var callers) ? [.. callers.EnumerateArray().Select(f => Hex(f.GetString()))] : [], Thread());
+                break;
             case "thread":
                 session.Add("thread", Thread(), null, $"thread {body.GetProperty("action").GetString()}");
                 break;
@@ -759,7 +796,12 @@ public sealed partial class LiveSessionService(AssemblyWorkspace workspace, Nati
     {
         LiveModuleState? module;
         lock (session.Modules) module = session.Modules.FirstOrDefault(m => m.Contains(address));
-        if (module == null) return ManagedName(session, address, null) ?? new(address, null, null, 0, null, 0, null, null);
+        if (module == null)
+        {
+            // until the runtime has recorded a just-compiled method, it names the code after the method before it
+            var managed = ManagedName(session, address, null);
+            return managed is not { Offset: 0 } && session.CompiledName(address) is { } compiled ? compiled : managed ?? new(address, null, null, 0, null, 0, null, null);
+        }
         var rva = (uint)(address - module.Base);
         var native = Match(module);
         if (native == null)
@@ -857,7 +899,7 @@ public sealed partial class LiveSessionService(AssemblyWorkspace workspace, Nati
             foreach (var m in modules)
                 if (Match(m) is { } native && value >= native.Image.ImageBase && value - native.Image.ImageBase < native.Image.SizeOfImage)
                     return m.Base + (value - native.Image.ImageBase);
-            if (data) return value;
+            if (data || session.CompiledName(value) != null) return value;
             throw new ToolError(ErrorCode.NotFound, $"0x{value:X} is in no module of the program, live or as an image address.", "live_session action=status lists module ranges");
         }
         if (data && modules.FirstOrDefault(m => m.Name.Equals(t, StringComparison.OrdinalIgnoreCase)) is { } whole) return whole.Base;
@@ -1160,6 +1202,7 @@ public sealed partial class LiveSessionService(AssemblyWorkspace workspace, Nati
         var point = new LiveStopPointState(id, where.Trim(), address, Name(session, address, ct: ct)) { Followed = followed, Slot = slot };
         lock (session.StopPoints) session.StopPoints[id] = point;
         if (slot is { } pointer) _ = Task.Run(() => FollowRebindAsync(session, id, pointer));
+        await FollowRecompilesAsync(session, where, address, id, false, ct).ConfigureAwait(false);
         return point;
     }
 
@@ -1200,6 +1243,7 @@ public sealed partial class LiveSessionService(AssemblyWorkspace workspace, Nati
             if (e is ToolError t && Unhookable(t)) throw HookRefused(session, address, "watch", ct);
             throw;
         }
+        await FollowRecompilesAsync(session, where, address, id, true, ct).ConfigureAwait(false);
         return w;
     }
 

@@ -103,9 +103,49 @@ function isDeferred(m) {
   return deferredModules.has(name) || (dot > 0 && deferredModules.has(name.substring(0, dot)));
 }
 
+// Managed methods with stop points or watches, by the address of their IL body: the thread that compiles one is held when
+// the JIT returns its code, before that code first runs, until the worker posts load-<tid> once the point is set there.
+const jitWatched = new Set();
+let jitHooked = false;
+
+function hookJit(m, running) {
+  if (jitHooked) return;
+  const getJit = m.findExportByName('getJit');
+  if (getJit === null) return;
+  jitHooked = true;
+  const hookCompiler = jit => Interceptor.attach(jit.readPointer().readPointer(), {
+    // ICorJitCompiler slot 0: compileMethod(this, ICorJitInfo*, CORINFO_METHOD_INFO* {ftn, scope, ILCode, ...}, flags, uint8_t** entry, uint32_t* size)
+    onEnter(a) {
+      this.il = null;
+      if (jitWatched.size === 0) return;
+      const il = a[2].add(2 * Process.pointerSize).readPointer().toString();
+      if (!jitWatched.has(il)) return;
+      this.il = il;
+      this.entry = a[4];
+      // the compiling thread's callers tell a compile at a loop (on-stack replacement) from a new version of the method
+      this.frames = Thread.backtrace(this.context, Backtracer.FUZZY).slice(0, 64).map(p => p.toString());
+    },
+    onLeave(r) {
+      if (this.il === null || r.toInt32() !== 0) return; // CORJIT_OK
+      const tid = Process.getCurrentThreadId();
+      expect('load-' + tid);
+      send({ type: 'compiled', il: this.il, code: this.entry.readPointer().toString(), frames: this.frames, held: true, tid });
+      waitFor('load-' + tid);
+    },
+  });
+  // a running runtime has asked for its JIT already; a starting one asks once, after the library's start-up
+  if (running) hookCompiler(new NativeFunction(getJit, 'pointer', [])());
+  else {
+    const asked = Interceptor.attach(getJit, { onLeave(r) { asked.detach(); hookCompiler(r); } });
+  }
+}
+
+const JIT_LIBRARY = /^(lib)?clrjit\.(dll|so|dylib)$/i;
+
 if (typeof Process.attachModuleObserver === 'function') {
   Process.attachModuleObserver({
     onAdded(m) {
+      if (JIT_LIBRARY.test(m.name)) hookJit(m, !observing);
       if (!observing) return;
       const held = deferredModules.size > 0 && isDeferred(m);
       const tid = Process.getCurrentThreadId();
@@ -332,11 +372,11 @@ function hookAt(p) {
   return { at: stub, undo() { writeCode(p, Array.from(new Uint8Array(original))); } };
 }
 
+// A second watch or stop point of one id adds a hook: the method's code after the runtime compiles it again.
 function watch(id, address, args, perSecond) {
-  const w = { id, rows: [], skipped: 0, tokens: perSecond, last: Date.now() };
+  const w = watches[id] || { id, rows: [], skipped: 0, tokens: perSecond, last: Date.now(), undo() {} };
   const hook = hookAt(ptr(address));
-  w.undo = hook.undo;
-  w.listener = Interceptor.attach(hook.at, {
+  const listener = Interceptor.attach(hook.at, {
     onEnter(a) {
       const now = Date.now();
       w.tokens = Math.min(perSecond, w.tokens + (now - w.last) * perSecond / 1000);
@@ -354,6 +394,8 @@ function watch(id, address, args, perSecond) {
       if (w.rows.length >= BATCH_ROWS) flush(w);
     },
   });
+  const prior = w.undo;
+  w.undo = () => { hook.undo(); listener.detach(); prior(); };
   watches[id] = w;
 }
 
@@ -383,7 +425,8 @@ rpc.exports = {
     const p = ptr(address), hook = hookAt(p), elsewhere = hook.at.equals(p) ? null : p;
     // a probe: the onEnter form takes the stack top for a return address, which past a function's start is a saved register
     const listener = Interceptor.attach(hook.at, function () { stopsIn(id, this.context, elsewhere, bare === true); });
-    points[id] = { detach() { hook.undo(); listener.detach(); } };
+    const prior = points[id];
+    points[id] = { detach() { hook.undo(); listener.detach(); if (prior) prior.detach(); } };
     return true;
   },
   clear(id) {
@@ -403,11 +446,14 @@ rpc.exports = {
   undeferModule(name) {
     return deferredModules.delete(name.toLowerCase());
   },
+  watchJit(il) {
+    jitWatched.add(ptr(il).toString());
+    return true;
+  },
   unwatch(id) {
     const w = watches[id];
     if (!w) return false;
     w.undo();
-    w.listener.detach();
     flush(w);
     delete watches[id];
     return true;

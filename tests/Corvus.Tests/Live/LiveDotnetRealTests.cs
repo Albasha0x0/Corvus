@@ -292,6 +292,59 @@ public sealed class LiveDotnetRealTests(ITestOutputHelper output) : LiveToolCall
         Assert.Contains("closed", await Ok(server, "live_session", new() { ["action"] = "close", ["session"] = "live-1" }));
     }
 
+    /// <summary>Methods called once stop at that call: Main, set before the program starts, and a method compiled later.</summary>
+    [DotnetTargetFact("win-x64")]
+    public async Task First_calls_of_JIT_compiled_methods_stop_on_win_x64()
+    {
+        var exe = DotnetTarget.WinX64.Build(_dir);
+        var input = _dir.File(InputName);
+        File.WriteAllText(input, "x");
+        await using var server = await Server();
+        var pid = await Spawn(server, exe, "live-1", input, "1", "1", "0");
+        await Ok(server, "live_break", new() { ["session"] = "live-1", ["action"] = "set", ["at"] = "Readers::Main" });
+        await Ok(server, "live_break", new() { ["session"] = "live-1", ["action"] = "set", ["at"] = "Readers::ReadOnce" });
+        var main = await Ok(server, "live_break", new() { ["session"] = "live-1", ["action"] = "continue", ["wait"] = true, ["waitSeconds"] = 60 });
+        Assert.Matches(@"stopped at s1 \(readers\.dll!Readers\.Main\(System\.String\[\]\)\)", main);
+        var once = await Ok(server, "live_break", new() { ["session"] = "live-1", ["action"] = "continue", ["wait"] = true, ["waitSeconds"] = 60 });
+        Assert.Matches(@"stopped at s2 \(readers\.dll!Readers\.ReadOnce\(System\.String\)\)\r?\n  #0 0x[0-9A-F]+ readers\.dll!Readers\.ReadOnce\(System\.String\)\r?\n", once);
+        await Ok(server, "live_break", new() { ["session"] = "live-1", ["action"] = "continue" });
+        Assert.Matches(@"exit code 0(?![0-9xX])", await Exited(server, "live-1", pid));
+        Assert.Contains("read 1 bytes in 1 opens", await Events(server, "live-1", kind: "output"));
+        Assert.Contains("closed", await Ok(server, "live_session", new() { ["action"] = "close", ["session"] = "live-1" }));
+    }
+
+    /// <summary>
+    /// A stop point set on a method's first JIT version keeps stopping once the runtime compiles it again (tiered
+    /// compilation); a compile for a running loop (on-stack replacement) adds no stop mid-method.
+    /// </summary>
+    [DotnetTargetFact("win-x64")]
+    public async Task Stop_points_follow_recompiled_methods_on_win_x64()
+    {
+        var exe = DotnetTarget.WinX64.Build(_dir);
+        var input = _dir.File(InputName);
+        File.WriteAllText(input, "x");
+        await using var server = await Server();
+        await Spawn(server, exe, "live-1", input, "1", "100000", "5");
+        await Ok(server, "live_break", new() { ["session"] = "live-1", ["action"] = "set", ["at"] = "Readers::ReadOnce" });
+        // every call stops: past the call count after which the runtime compiles the method again, and three calls more
+        int after = -1;
+        for (int i = 0; i < 200 && after < 3; i++)
+        {
+            Assert.Contains("stopped at s1", await Ok(server, "live_break", new() { ["session"] = "live-1", ["action"] = "continue", ["wait"] = true, ["waitSeconds"] = 30 }));
+            if (after >= 0 || (await Events(server, "live-1", kind: "module", log: false)).Contains("s1 also set at", StringComparison.Ordinal)) after++;
+        }
+        Assert.Equal(3, after);
+        Assert.Contains("closed", await Ok(server, "live_session", new() { ["action"] = "close", ["session"] = "live-1" }));
+
+        var pid = await Spawn(server, exe, "live-2", input, "1", "20000", "0");
+        await Ok(server, "live_break", new() { ["session"] = "live-2", ["action"] = "set", ["at"] = "Readers::ReadLoop" });
+        Assert.Contains("stopped at s1", await Ok(server, "live_break", new() { ["session"] = "live-2", ["action"] = "continue", ["wait"] = true, ["waitSeconds"] = 60 }));
+        Assert.Contains("the program ended before a stop", await Ok(server, "live_break", new() { ["session"] = "live-2", ["action"] = "continue", ["wait"] = true, ["waitSeconds"] = 60 }));
+        Assert.DoesNotContain("also set at", await Events(server, "live-2", kind: "module"));
+        Ended(pid);
+        Assert.Contains("closed", await Ok(server, "live_session", new() { ["action"] = "close", ["session"] = "live-2" }));
+    }
+
     /// <summary>A stop by name in an assembly bundled into a single-file program, which never loads as a module of its own.</summary>
     [DotnetTargetFact("win-x64")]
     public async Task Managed_stop_point_in_a_single_file_program_on_win_x64()

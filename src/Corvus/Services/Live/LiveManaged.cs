@@ -1,3 +1,4 @@
+using System.Text.Json.Nodes;
 using dnlib.DotNet;
 using Corvus.Core;
 
@@ -237,10 +238,151 @@ public sealed partial class LiveSessionService
         var d = new LiveDeferred(id ?? (watch ? session.NextWatchId() : session.NextPointId()), $"{target.File}!{target.Member}", target.Display, watch, perSecond, rawArguments)
         {
             UntilCompiled = true,
+            IlBodies = IlBodies(session, target),
         };
         lock (session.Deferred) session.Deferred.Add(d);
+        // the backend holds the thread that compiles the method, so its first call stops; without the hook the runtime is read until it has code
+        foreach (var il in d.IlBodies)
+            try { await session.Worker.RequestAsync("watch_jit", new JsonObject { ["il"] = $"0x{il:X}" }, RequestTimeout, ct).ConfigureAwait(false); }
+            catch (ToolError) { break; } // a worker without the op
         session.CompileCheck ??= new Timer(_ => _ = CheckCompiledAsync(session), null, CompileCheckPeriod, CompileCheckPeriod);
         return (d, false);
+    }
+
+    /// <summary>
+    /// Where the method's IL body is mapped in the program: in the image the loader mapped, and in the runtime's own mapping
+    /// when that is another (a file-layout or bundled assembly). The JIT reads the body there.
+    /// </summary>
+    private IReadOnlyList<ulong> IlBodies(LiveSession session, LiveManagedTarget target)
+    {
+        var bases = new List<(ulong Base, bool Flat)>();
+        lock (session.Modules)
+            if (session.Modules.FirstOrDefault(m => InputFiles.SamePath(m.Path, target.Path)) is { } module) bases.Add((module.Base, false));
+        if (session.Clr is { Unavailable: null } clr && clr.ModuleImage(target.Path) is { } image && !bases.Contains(image)) bases.Add(image);
+        if (bases.Count == 0) return [];
+        return workspace.Read(() =>
+        {
+            if (workspace.FindByPath(target.Path) is not { } asm || asm.Module.ResolveToken(target.MethodToken) is not MethodDef { RVA: var rva } || rva == 0)
+                return (IReadOnlyList<ulong>)[];
+            var pe = asm.Module.Metadata.PEImage;
+            var offset = pe.ToFileOffset(rva);
+            var reader = pe.CreateReader(offset);
+            var flags = reader.ReadUInt16();
+            // a tiny header is one byte; a fat header gives its size in dwords
+            uint header = (flags & 3) == 2 ? 1u : (uint)(flags >> 12) * 4;
+            return [.. bases.Select(b => b.Base + (b.Flat ? (uint)offset : (uint)rva) + header)];
+        });
+    }
+
+    /// <summary>
+    /// The backend held a thread as the JIT returned <paramref name="code"/> for the IL body at <paramref name="il"/>: the
+    /// point deferred until that method is compiled is set there, then the thread goes on to the method's first call.
+    /// </summary>
+    private async Task SetCompiledAsync(LiveSession session, ulong il, ulong code, IReadOnlyList<ulong> callers, long? thread)
+    {
+        try
+        {
+            LiveDeferred? d;
+            lock (session.Deferred)
+            {
+                d = session.Deferred.FirstOrDefault(x => x.UntilCompiled && x.IlBodies.Contains(il));
+                if (d != null) session.Deferred.Remove(d);
+            }
+            if (d == null)
+            {
+                if (session.Bound(il) is { } bound) await RecompiledAsync(session, bound, code, callers).ConfigureAwait(false);
+                return;
+            }
+            var bang = d.Module.IndexOf('!');
+            session.AddCompiled(new(code, d.Module[..bang], null, 0, d.Module[(bang + 1)..], 0, null, null));
+            try
+            {
+                LiveFrameName at;
+                string plan = "";
+                if (d.Watch)
+                {
+                    var w = await WatchAsync(session, $"0x{code:X}", d.PerSecond, d.RawArguments, CancellationToken.None, d.Id).ConfigureAwait(false);
+                    (at, plan) = (w.At, $": {w.Plan.Prototype} ({w.Plan.Source})");
+                }
+                else
+                {
+                    var p = await SetAsync(session, $"0x{code:X}", CancellationToken.None, d.Id).ConfigureAwait(false);
+                    lock (session.StopPoints) session.StopPoints[d.Id] = p with { Where = d.Where };
+                    at = p.At;
+                }
+                session.Add("module", null, at.Address, $"deferred {(d.Watch ? "watch" : "stop point")} {d.Id} set at {at.Display}{plan} ({d.Module} compiled)");
+                await BindAsync(session, new LiveJitBinding(d.Id, d.Watch, d.Module, d.IlBodies), code, CancellationToken.None).ConfigureAwait(false);
+            }
+            catch (Exception e) when (e is ToolError or TimeoutException or OperationCanceledException)
+            {
+                session.Add("error", null, null, $"deferred {d.Id} at {d.Where} could not be set ({d.Module} compiled): {e.Message}");
+            }
+        }
+        finally
+        {
+            if (thread is { } tid)
+                try { await session.Worker.RequestAsync("release_load", new JsonObject { ["thread"] = tid }, RequestTimeout, CancellationToken.None).ConfigureAwait(false); }
+                catch (Exception e) when (e is ToolError or TimeoutException or OperationCanceledException) { }
+        }
+    }
+
+    /// <summary>A point set at a managed method's code follows the method when the runtime compiles it again: tiered compilation moves calls to new code.</summary>
+    private async Task FollowRecompilesAsync(LiveSession session, string where, ulong address, string id, bool watch, CancellationToken ct)
+    {
+        try
+        {
+            if (await ManagedTargetAsync(session, where, ct).ConfigureAwait(false) is not { } target
+                || await ManagedCodeAsync(session, target, ct).ConfigureAwait(false) is not { } code || code.Code != address) return;
+            await BindAsync(session, new LiveJitBinding(id, watch, target.Display, IlBodies(session, target)), address, ct).ConfigureAwait(false);
+        }
+        catch (ToolError) { } // the point is set; only later versions of the method go unhooked
+    }
+
+    private static async Task BindAsync(LiveSession session, LiveJitBinding binding, ulong code, CancellationToken ct)
+    {
+        if (binding.IlBodies.Count == 0) return;
+        binding.Code.Add(code);
+        session.Bind(binding);
+        foreach (var il in binding.IlBodies)
+            try { await session.Worker.RequestAsync("watch_jit", new JsonObject { ["il"] = $"0x{il:X}" }, RequestTimeout, ct).ConfigureAwait(false); }
+            catch (ToolError) { break; } // a worker without the op
+    }
+
+    /// <summary>
+    /// The runtime compiled a method with a point again: the point gets a hook at the new code as well, since the old code
+    /// keeps running until the runtime switches calls over. A compile for a loop the method is running (on-stack
+    /// replacement), which a thread enters mid-method, is recognized by the method among the compiling thread's callers.
+    /// </summary>
+    private async Task RecompiledAsync(LiveSession session, LiveJitBinding bound, ulong code, IReadOnlyList<ulong> callers)
+    {
+        List<ulong> known;
+        lock (bound.Code) known = [.. bound.Code];
+        if (known.Contains(code)) return;
+        LiveWatchState? w = null;
+        bool live;
+        if (bound.Watch) lock (session.Watches) live = session.Watches.TryGetValue(bound.Id, out w) && !w.Cleared;
+        else lock (session.StopPoints) live = session.StopPoints.ContainsKey(bound.Id);
+        if (!live) return;
+        if (await ClrAsync(session, CancellationToken.None).ConfigureAwait(false) is { Unavailable: null } clr
+            && callers.Any(f => clr.MethodAt(f) is { } m && known.Contains(m.Start))) return;
+        var bang = bound.Name.IndexOf('!');
+        session.AddCompiled(new(code, bound.Name[..bang], null, 0, bound.Name[(bang + 1)..], 0, null, null));
+        try
+        {
+            var args = new JsonObject { ["id"] = bound.Id, ["address"] = $"0x{code:X}" };
+            if (w != null)
+            {
+                args["args"] = new JsonArray(w.Plan.ScriptKinds.Select(k => (JsonNode)k).ToArray());
+                args["perSecond"] = w.PerSecond;
+            }
+            await session.Worker.RequestAsync(w != null ? "watch" : "set", args, RequestTimeout, CancellationToken.None).ConfigureAwait(false);
+            lock (bound.Code) bound.Code.Add(code);
+            session.Add("module", null, code, $"{(w != null ? "watch" : "stop point")} {bound.Id} also set at 0x{code:X}: {bound.Name} compiled again");
+        }
+        catch (Exception e) when (e is ToolError or TimeoutException or OperationCanceledException)
+        {
+            session.Add("error", null, code, $"{bound.Id} could not follow {bound.Name} to its new code at 0x{code:X}: {e.Message}");
+        }
     }
 
     /// <summary>Sets the points deferred until their method is compiled whose method has code now.</summary>
