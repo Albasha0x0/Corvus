@@ -347,6 +347,7 @@ function beforeExit(code) {
   waitFor('exit-' + tid);
   // The exit ends Frida's threads at once; one still busy (sending, or serving a close) can leave the agent's heap lock
   // held, and Frida's hook on the DLL unloads of the shutdown then waits on it forever: give them time to finish
+  // Workaround for frida/frida-gum#1192: hangs on 17.24.0 to 17.24.3, not on 17.23.3 and earlier; no fix release yet.
   if (Process.platform === 'windows') Thread.sleep(EXIT_DRAIN);
 }
 const EXIT_DRAIN = 0.3; // seconds
