@@ -1,6 +1,7 @@
 using System.Buffers.Binary;
 using System.ComponentModel;
 using System.Globalization;
+using System.Runtime.InteropServices;
 using System.Text;
 using ModelContextProtocol.Server;
 using Corvus.Core;
@@ -179,6 +180,10 @@ public sealed partial class LiveSessionTools(ServerOptions options, LiveSessionS
     {
         LiveSessionService.Live(s);
         if (dumps == null) throw new ToolError(ErrorCode.Unsupported, "This server has no dump reader.", "open the dump file with open_minidump");
+        if (OperatingSystem.IsWindows() && RuntimeInformation.OSArchitecture == Architecture.Arm64 && s.Arch is "x64" or "ia32")
+            throw new ToolError(ErrorCode.Unsupported,
+                $"Process {s.ProcessId} is an {(s.Arch == "x64" ? "x64" : "x86")} program emulated on an ARM64 machine: its dump would hold the emulator's ARM64 threads, not the program's registers.",
+                "save a snapshot of an ARM64 build of the program, or of this one on an x64 machine");
         var path = string.IsNullOrWhiteSpace(outputPath)
             ? Path.Combine(Path.GetTempPath(), "corvus-snapshots", $"{s.Id}-{s.ProcessId}-{DateTime.UtcNow:yyyyMMdd-HHmmss-fff}{(OperatingSystem.IsWindows() ? ".dmp" : ".core")}")
             : outputPath;

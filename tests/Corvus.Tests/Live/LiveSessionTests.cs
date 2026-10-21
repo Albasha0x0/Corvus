@@ -889,7 +889,9 @@ public sealed class LiveSessionTests : IDisposable
         using var child = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(Path.Combine(Environment.SystemDirectory, "findstr.exe"), "x")
             { RedirectStandardInput = true, UseShellExecute = false, CreateNoWindow = true })!;
         var dumps = new MinidumpService();
-        var service = new LiveSessionService(_workspace, new NativeCodeService(_workspace, new ServerOptions())) { Backend = new ScriptedLiveBackend(Sqlite, Base, 0x200000) { ProcessId = child.Id } };
+        // findstr runs as the machine's own architecture.
+        var arch = System.Runtime.InteropServices.RuntimeInformation.OSArchitecture == System.Runtime.InteropServices.Architecture.Arm64 ? "arm64" : "x64";
+        var service = new LiveSessionService(_workspace, new NativeCodeService(_workspace, new ServerOptions())) { Backend = new ScriptedLiveBackend(Sqlite, Base, 0x200000) { ProcessId = child.Id, Arch = arch } };
         var tools = new LiveSessionTools(new ServerOptions { AllowLive = true, AllowLiveAttach = true }, service, dumps);
         var dir = Path.Combine(Path.GetTempPath(), "corvus-test-" + Guid.NewGuid().ToString("N"));
         try

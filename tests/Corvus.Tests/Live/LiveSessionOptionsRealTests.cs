@@ -67,11 +67,15 @@ public sealed class LiveSessionOptionsRealTests(ITestOutputHelper output) : Live
 
             var path = _dir.File(target.Windows ? "probe.dmp" : "probe.core");
             var args = new Dictionary<string, object?> { ["action"] = "snapshot", ["session"] = "live-2", ["outputPath"] = path };
-            Assert.Contains($"written to {path}", await Ok(server, "live_session", args));
-            var (again, refused) = await Call(server, "live_session", args);
-            Assert.True(refused && again.Contains("\"code\":\"conflict\""), again);
-            args["overwrite"] = true;
-            Assert.Contains($"written to {path}", await Ok(server, "live_session", args));
+            if (target.Emulated) Assert.Contains("emulated on an ARM64 machine", await Refused(server, "live_session", args, "unsupported"));
+            else
+            {
+                Assert.Contains($"written to {path}", await Ok(server, "live_session", args));
+                var (again, refused) = await Call(server, "live_session", args);
+                Assert.True(refused && again.Contains("\"code\":\"conflict\""), again);
+                args["overwrite"] = true;
+                Assert.Contains($"written to {path}", await Ok(server, "live_session", args));
+            }
 
             await Ok(server, "live_session", new() { ["action"] = "close", ["session"] = "live-2" });
             Thread.Sleep(500);

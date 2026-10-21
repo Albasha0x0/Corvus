@@ -161,17 +161,24 @@ public sealed class LiveTargetRealTests(ITestOutputHelper output) : LiveToolCall
             var order = await FirstArgument(server, target);
             Assert.Matches(@"(?m)^  7$", (await Ok(server, "live_read", new() { ["session"] = "live-1", ["memory"] = order, ["type"] = "int32" })).ReplaceLineEndings("\n"));
 
-            var snapshot = await Ok(server, "live_session", new() { ["action"] = "snapshot", ["session"] = "live-1" });
-            var dump = Regex.Match(snapshot, @"written to (.+?) \(([\d,]+) bytes\), opened as (\S+);");
-            Assert.True(dump.Success, snapshot);
-            Assert.True(File.Exists(dump.Groups[1].Value), snapshot);
-            try
+            if (target.Emulated)
+                Assert.Contains("emulated on an ARM64 machine", await Refused(server, "live_session", new() { ["action"] = "snapshot", ["session"] = "live-1" }, "unsupported"));
+            else
             {
-                var stack = await Ok(server, "dump_stack", new() { ["dump"] = dump.Groups[3].Value, ["thread"] = Regex.Match(stop, @"thread (\d+) stopped").Groups[1].Value });
-                // the stopped thread waits inside the backend; at a function's entry its caller is the first frame of the program
-                Assert.Matches($@"{Regex.Escape(Path.GetFileNameWithoutExtension(target.Exe("orders")))}!main\+", stack);
+                var snapshot = await Ok(server, "live_session", new() { ["action"] = "snapshot", ["session"] = "live-1" });
+                var dump = Regex.Match(snapshot, @"written to (.+?) \(([\d,]+) bytes\), opened as (\S+);");
+                Assert.True(dump.Success, snapshot);
+                Assert.True(File.Exists(dump.Groups[1].Value), snapshot);
+                try
+                {
+                    var stack = await Ok(server, "dump_stack", new() { ["dump"] = dump.Groups[3].Value, ["thread"] = Regex.Match(stop, @"thread (\d+) stopped").Groups[1].Value });
+                    // The stopped thread waits inside the backend; at a
+                    // function's entry its caller is the first frame of the
+                    // program.
+                    Assert.Matches($@"{Regex.Escape(Path.GetFileNameWithoutExtension(target.Exe("orders")))}!main\+", stack);
+                }
+                finally { File.Delete(dump.Groups[1].Value); }
             }
-            finally { File.Delete(dump.Groups[1].Value); }
 
             Assert.Contains("closed", await Ok(server, "live_session", new() { ["action"] = "close", ["session"] = "live-1" }));
             Thread.Sleep(1_000);
@@ -204,6 +211,11 @@ public sealed class LiveTargetRealTests(ITestOutputHelper output) : LiveToolCall
         await Ok(server, "live_break", new() { ["session"] = "live-1", ["action"] = "set", ["at"] = target.FileOpen });
         var stop = await Ok(server, "live_break", new() { ["session"] = "live-1", ["action"] = "continue", ["wait"] = true });
         Assert.Contains("stopped at s1", stop);
+        if (target.Emulated)
+        {
+            Assert.Contains("emulated on an ARM64 machine", await Refused(server, "live_session", new() { ["action"] = "snapshot", ["session"] = "live-1" }, "unsupported"));
+            return;
+        }
         var snapshot = await Ok(server, "live_session", new() { ["action"] = "snapshot", ["session"] = "live-1", ["outputPath"] = _dir.File(dump) });
         var thread = Regex.Match(stop, @"thread (\d+) stopped").Groups[1].Value;
         Assert.Contains("the stop of thread " + thread, snapshot);
