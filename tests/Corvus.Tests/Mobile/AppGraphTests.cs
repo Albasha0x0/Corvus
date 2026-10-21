@@ -86,7 +86,7 @@ public sealed class AppGraphTests(Xunit.Abstractions.ITestOutputHelper output) :
         await McpProtocolTests.AssertMatchesOutputSchema(server.Client, "summarize_file", r);
     }
 
-    /// <summary>The packages under CORVUS_MOBILE_APPS (two levels deep): each graph within 5 s, with the edge kinds their runtimes need.</summary>
+    /// <summary>The packages under CORVUS_MOBILE_APPS (two levels deep): each graph within 5 s on a quiet machine (MachineLoad scales it), with the edge kinds their runtimes need.</summary>
     [Trait("Speed", "Slow")]
     [RequiresRealDataFact(RealData.MobileApps)]
     public void Real_packages_graph_within_five_seconds()
@@ -100,19 +100,14 @@ public sealed class AppGraphTests(Xunit.Abstractions.ITestOutputHelper output) :
             // An Il2Cpp game is read once first, as load_assembly does; the graph joins its methods from the cache.
             if (Il2CppPackages.Extract(apk, null) is { } root && Il2CppGameFiles.Find(root) is { Binary.Length: > 0 } files)
                 loader.Load(files, loadBinary: false, null, default);
+            var before = MachineLoad.Factor();
             var watch = Stopwatch.StartNew();
             var g = Graph(loader).Build(apk, 0, 10, default);
             watch.Stop();
-            if (watch.Elapsed > TimeSpan.FromSeconds(5))
-            {
-                // once more: a loaded machine (a suite running beside) slows one pass
-                watch.Restart();
-                g = Graph(loader).Build(apk, 0, 10, default);
-                watch.Stop();
-            }
-            output.WriteLine($"{Path.GetFileName(apk)} {new FileInfo(apk).Length >> 20} MB: {watch.Elapsed.TotalSeconds:0.00} s; layers {string.Join(", ", g.Layers.Select(l => $"{l.Layer} {l.Items}"))}; " +
+            var (budget, load) = MachineLoad.Budget(TimeSpan.FromSeconds(5), before, MachineLoad.Factor());
+            output.WriteLine($"{Path.GetFileName(apk)} {new FileInfo(apk).Length >> 20} MB: {watch.Elapsed.TotalSeconds:0.00} s ({load}); layers {string.Join(", ", g.Layers.Select(l => $"{l.Layer} {l.Items}"))}; " +
                              string.Join("; ", g.EdgeKinds.Select(k => $"{k.Kind} {k.Edges}/{k.Candidates} {k.Coverage}")));
-            if (watch.Elapsed > TimeSpan.FromSeconds(5)) slow.Add($"{Path.GetFileName(apk)} {watch.Elapsed.TotalSeconds:0.0} s");
+            if (watch.Elapsed > budget) slow.Add($"{Path.GetFileName(apk)} {watch.Elapsed.TotalSeconds:0.0} s, budget {budget.TotalSeconds:0.0} s ({load})");
             foreach (var k in g.EdgeKinds) Assert.True(k.Edges <= k.Candidates || k.Kind == "jni", $"{apk}: {k.Kind}");
         }
         Assert.True(slow.Count == 0, string.Join("\n", slow));

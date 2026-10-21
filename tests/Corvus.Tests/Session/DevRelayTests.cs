@@ -408,8 +408,15 @@ public sealed class DevRelayRealServerTests
 
             await Call("rename_symbol", new() { ["symbol"] = "Account", ["newName"] = "Customer", ["dryRun"] = false });
             Mark("three");
-            await Task.Delay(1000);
-            Assert.Contains("unsaved edit(s) pending", await Call("list_assemblies", []));
+            // The relay notices the build on its next poll; a loaded machine took over 1 s.
+            var clock = System.Diagnostics.Stopwatch.StartNew();
+            var pending = await Call("list_assemblies", []);
+            while (!pending.Contains("unsaved edit(s) pending") && clock.Elapsed < TimeSpan.FromSeconds(30))
+            {
+                await Task.Delay(100);
+                pending = await Call("list_assemblies", []);
+            }
+            Assert.Contains("unsaved edit(s) pending", pending);
             Assert.Contains("now serving build three", await Call(DevRelay.ApplyTool, []));
             Assert.Equal(3, processes.Count);
             Assert.Equal(protocol == "2026-07-28" ? 1 : 0, acks); // the stream moved twice without a second acknowledgement

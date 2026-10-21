@@ -4,7 +4,7 @@ using ModelContextProtocol.Client;
 namespace Corvus.Tests;
 
 /// <summary>
-/// SC-11 latency: initialize ≤ 1 s and tools/list p50 ≤ 50 ms over stdio. CORVUS_SERVER_EXE names a published server to
+/// SC-11 latency: initialize ≤ 1 s and tools/list p50 ≤ 50 ms over stdio on a quiet machine (MachineLoad scales both). CORVUS_SERVER_EXE names a published server to
 /// time (the release figure); without it the test build runs through dotnet and only tools/list is held to its target.
 /// </summary>
 [Trait("Speed", "Slow")]
@@ -18,6 +18,7 @@ public class CatalogTimingTests(Xunit.Abstractions.ITestOutputHelper output)
     {
         var exe = Environment.GetEnvironmentVariable(ServerExeVariable);
         using var dir = new TempDir();
+        var before = MachineLoad.Factor();
         var watch = Stopwatch.StartNew();
         await using var client = await McpClient.CreateAsync(new StdioClientTransport(new StdioClientTransportOptions
         {
@@ -38,8 +39,11 @@ public class CatalogTimingTests(Xunit.Abstractions.ITestOutputHelper output)
             Assert.NotEmpty(tools);
         }
         var p50 = times.Skip(1).Order().ElementAt(10);
-        output.WriteLine($"{exe ?? "dotnet corvus.dll"}: initialize {initialize.TotalMilliseconds:0} ms, first tools/list {times[0]:0} ms, p50 {p50:0.0} ms");
-        Assert.True(p50 <= 50, $"tools/list p50 {p50:0.0} ms, over 50 ms");
-        if (exe != null) Assert.True(initialize <= TimeSpan.FromSeconds(1), $"initialize {initialize.TotalMilliseconds:0} ms, over 1 s");
+        var after = MachineLoad.Factor();
+        var (listBudget, load) = MachineLoad.Budget(TimeSpan.FromMilliseconds(50), before, after);
+        var (initializeBudget, _) = MachineLoad.Budget(TimeSpan.FromSeconds(1), before, after);
+        output.WriteLine($"{exe ?? "dotnet corvus.dll"}: initialize {initialize.TotalMilliseconds:0} ms, first tools/list {times[0]:0} ms, p50 {p50:0.0} ms ({load})");
+        Assert.True(p50 <= listBudget.TotalMilliseconds, $"tools/list p50 {p50:0.0} ms, over {listBudget.TotalMilliseconds:0} ms ({load})");
+        if (exe != null) Assert.True(initialize <= initializeBudget, $"initialize {initialize.TotalMilliseconds:0} ms, over {initializeBudget.TotalMilliseconds:0} ms ({load})");
     }
 }

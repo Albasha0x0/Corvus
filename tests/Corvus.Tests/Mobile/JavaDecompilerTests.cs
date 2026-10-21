@@ -45,12 +45,14 @@ public sealed class JavaDecompilerTests(Xunit.Abstractions.ITestOutputHelper out
             int starts = _fake.ArgumentLists.Count(a => a.Contains("-jar"));
             using var second = new JavaDecompilerService(new DexService()) { Environment = _fake.Environment, Cache = first.Cache };
             await second.Decompile(apk, "com.example.app.Main", true, default); // the JIT's first pass
+            var before = MachineLoad.Factor();
             var watch = System.Diagnostics.Stopwatch.StartNew();
             var warm = await second.Decompile(apk, "com.example.app.Main", true, default);
             watch.Stop();
-            output.WriteLine($"warm {watch.Elapsed.TotalMilliseconds:0.0} ms");
+            var (budget, load) = MachineLoad.Budget(TimeSpan.FromMilliseconds(50), before, MachineLoad.Factor());
+            output.WriteLine($"warm {watch.Elapsed.TotalMilliseconds:0.0} ms, budget {budget.TotalMilliseconds:0} ms ({load})");
             Assert.Equal(cold, warm);
-            Assert.True(watch.ElapsedMilliseconds < 50, $"{watch.ElapsedMilliseconds} ms");
+            Assert.True(watch.Elapsed < budget, $"{watch.ElapsedMilliseconds} ms, budget {budget.TotalMilliseconds:0} ms ({load})");
             Assert.Equal(starts, _fake.ArgumentLists.Count(a => a.Contains("-jar")));
             File.SetLastWriteTimeUtc(apk, DateTime.UtcNow.AddMinutes(1));
             File.AppendAllText(apk, "x");
