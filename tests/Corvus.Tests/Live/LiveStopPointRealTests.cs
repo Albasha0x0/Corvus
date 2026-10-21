@@ -54,8 +54,12 @@ public sealed class LiveStopPointRealTests(ITestOutputHelper output) : LiveToolC
         await Clear(server, "s4");
         var status = await Ok(server, "live_session", new() { ["action"] = "status", ["session"] = "live-1" });
         var moduleBase = Convert.ToUInt64(Regex.Match(status, $@"(0x[0-9A-F]+) {name}").Groups[1].Value[2..], 16);
-        var va = NativeImageLoader.Open(exe).ImageBase + (Convert.ToUInt64(entry[2..], 16) - moduleBase);
-        Assert.Contains($"s5 set at {entry} ", await Set(server, $"0x{va:X}"));
+        var image = NativeImageLoader.Open(exe);
+        var va = image.ImageBase + (Convert.ToUInt64(entry[2..], 16) - moduleBase);
+        // An image address inside the module's live range is a live address:
+        // ASLR can load an x86 image just below its base.
+        bool live = va >= moduleBase && va - moduleBase < image.SizeOfImage;
+        Assert.Contains($"s5 set at {entry} ", await Set(server, live ? entry : $"0x{va:X}"));
 
         // a system module's export
         Assert.Contains("s6 set at", await Set(server, target.FileOpen));
