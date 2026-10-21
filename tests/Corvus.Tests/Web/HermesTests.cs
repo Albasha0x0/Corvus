@@ -176,7 +176,7 @@ public sealed partial class HermesTests(ITestOutputHelper output) : IDisposable
         var builds = File.Exists(configured) ? [configured]
             : Directory.EnumerateFiles(configured, ExternalTools.HbcDisassembler.Files[0], SearchOption.AllDirectories).Order(StringComparer.Ordinal).ToList();
         var files = Directory.EnumerateFiles(Path.GetDirectoryName(Fixture("x"))!, "*.hbc").ToList();
-        if (RealData.Get("CORVUS_HBC_DIR") is { } dir && Directory.Exists(dir)) files.AddRange(Directory.EnumerateFiles(dir, "*.hbc", SearchOption.AllDirectories));
+        if (RealData.Get("CORVUS_HBC_DIR") is { } dir && Directory.Exists(dir)) files.AddRange(Directory.EnumerateFiles(dir, "*", SearchOption.AllDirectories).Where(p => HermesBundles.Applies(p)));
         var perVersion = new SortedDictionary<int, (int Files, long Matched, long Total)>();
         var differ = new List<string>();
         foreach (var file in files)
