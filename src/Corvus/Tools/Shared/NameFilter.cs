@@ -9,7 +9,7 @@ namespace Corvus.Tools;
 /// </summary>
 internal sealed class NameFilter
 {
-    public const string Description = "substring (case-insensitive), glob with * and ?, or /regex/ (flags i, m, s)";
+    public const string Description = "substring (case-insensitive), * ? glob, or /regex/ (flags i, m, s)";
 
     private readonly string? _substring;
     private readonly RegexTimeouts _timeouts = new();

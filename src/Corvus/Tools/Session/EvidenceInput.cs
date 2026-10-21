@@ -11,7 +11,7 @@ namespace Corvus.Tools;
 /// </summary>
 public static class EvidenceInput
 {
-    public const string ReferenceDescription = "a kept result (r-…), last:N (a recent call) or a bundle entry (file.json#r-…)";
+    public const string ReferenceDescription = "a kept result (r-...), last:N (recent call) or bundle entry (file.json#r-...)";
 
     /// <summary>A resolved input: its source, text and structured record (JSON) when it had one.</summary>
     public sealed record Item(EvidenceSource Source, string Text, string? Record);

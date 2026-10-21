@@ -7,10 +7,10 @@ namespace Corvus.Tools;
 internal static class ToolSupport
 {
     public const string SymbolDescription =
-        "Type or member: 'Ns.Type', 'Ns.Outer+Inner', 'Ns.Type::Method(int, string)', a short name or a token (0x06000123).";
+        "Type or member: Ns.Type, Ns.Outer+Inner, Ns.Type::Method(int, string), short name or token (0x06000123).";
 
     public const string SymbolOrNativeDescription =
-        "Type or member ('Ns.Type::Method(int)', short name, token) or native export ('kernel32.dll!CreateFileW', 'native:<image>!<name|#ord|addr>').";
+        "Type or member (Ns.Type::Method(int), short name, token) or native export (kernel32.dll!CreateFileW, native:<image>!<name|#ord|addr>).";
 
     public const string AssemblyFilterDescription =
         "Assembly id, name or path; omit for all loaded.";
@@ -26,7 +26,7 @@ internal static class ToolSupport
     public const string LimitDescription = "Max rows.";
     public const string DryRunDescription = "Preview the change without applying it.";
     /// <summary>The D7 text for editing tools whose dryRun defaults to true.</summary>
-    public const string DryRunDefaultTrueDescription = "Default true: preview; pass dryRun=false to apply.";
+    public const string DryRunDefaultTrueDescription = "true previews; false applies.";
 
     /// <summary>Runs work off the transport thread under the shared read lock.</summary>
     public static Task<string> Read(AssemblyWorkspace ws, Func<string> work, CancellationToken ct) =>
