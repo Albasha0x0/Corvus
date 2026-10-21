@@ -176,7 +176,7 @@ Structured output: `path`, `dryRun`, `targetBuild`, `outcomes`, `offset`, `total
 
 **List namespaces** (read-only, idempotent)
 
-List namespaces with their type counts (nested types under their outer type's namespace).
+List namespaces with their type counts (nested types under the namespace of their outer type).
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -197,9 +197,9 @@ List types, optionally by namespace, name filter and kind.
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `assembly` | string |  |  | Assembly id, name or path; omit for all loaded. |
-| `namespace` | string |  |  | Exact namespace ('' or '<global>' for the global one). |
-| `filter` | string |  |  | Name substring or wildcard (*, ?), or a regex with regex=true. |
-| `regex` | boolean |  |  | Treat filter as a regular expression. |
+| `namespace` | string |  |  | Exact namespace ("" or <global> for the global one). |
+| `filter` | string |  |  | Name substring or wildcard (*, ?), or regex with regex=true. |
+| `regex` | boolean |  |  | filter is a regex. |
 | `kind` | string |  |  | Only this kind. Values: class, struct, interface, enum, delegate. |
 | `topLevelOnly` | boolean |  |  | Leave out nested types. |
 | `offset` | integer |  |  |  |
@@ -212,13 +212,13 @@ Structured output: `items`, `offset`, `total`, `notEvaluated`, `totalExact`, `li
 
 **Type outline** (read-only, idempotent)
 
-Outline of a type without decompiling: declaration, attributes, member counts, the first members of each kind; a section pages one kind (constants, enum values, signatures, tokens, IL sizes, Il2Cpp RVAs). A field: its value or FieldRVA data (file offset, SHA-256, readers, typed elements, hex rows).
+Outline of a type without decompiling: declaration, attributes, member counts, the first members of each kind; section= pages one kind (constants, enum values, signatures, tokens, IL sizes, Il2Cpp RVAs). A field: its value or FieldRVA data (file offset, SHA-256, readers, typed elements, hex rows).
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `type` | string | yes |  | Type or member: Ns.Type, Ns.Outer+Inner, Ns.Type::Method(int, string), short name or token (0x06000123). |
 | `assembly` | string |  |  | Assembly id, name or path; omit for all loaded. |
-| `section` | string |  | `summary` | summary, nested, fields, properties, events, methods or all. Values: summary, nested, fields, properties, events, methods, all. |
+| `section` | string |  | `summary` | A kind to page, or all. Values: summary, nested, fields, properties, events, methods, all. |
 | `includeCompilerGenerated` | boolean |  |  | Include compiler-generated members. |
 | `offset` | integer |  |  |  |
 | `limit` | integer |  | `100` |  |
@@ -230,12 +230,12 @@ Structured output: `type`, `declaration`, `counts`, `section`, `items`, `offset`
 
 **Assembly overview** (read-only, idempotent)
 
-Assembly overview: identity (MVID, SHA-256), framework, entry point, counts, Il2Cpp, invalid IL, protection product, edits; view=references: where references resolve; view=metadata: PE headers, streams, tables, heaps, metadata problems, attributes.
+Assembly overview: identity (MVID, SHA-256), framework, entry point, counts, Il2Cpp, invalid IL, protection product, edits; view=references: where references resolve; metadata: PE headers, streams, tables, heaps, metadata problems, attributes.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `assembly` | string | yes |  | Assembly id, name or path. |
-| `view` | string |  | `summary` | summary, references, metadata or all. Values: summary, references, metadata, all. |
+| `view` | string |  | `summary` | What to show. Values: summary, references, metadata, all. |
 
 Structured output: `id`, `fullName`, `file`, `sha256`, `mvid`, `runtime`, `kind`, `machine`, `targetFramework`, `entryPoint`, `types`, `nestedTypes`, `namespaces`, `methods`, `fields`, `resources`, `referenceAssembly`, `il2CppAddressedMethods`, `invalidBodies`, `invalidExceptionClauses`, `unsavedEdits`, `referenceCount`, `unresolvedReferences`, `metadataIssueCount`, `transformers`, `references`, `attributes`, `tables`, `heaps`, `metadataIssues`.
 
@@ -249,7 +249,7 @@ Custom attributes with arguments on a type or member (parameters and return valu
 |---|---|---|---|---|
 | `symbol` | string |  |  | Type or member: Ns.Type, Ns.Outer+Inner, Ns.Type::Method(int, string), short name or token (0x06000123). Omit for assembly-level attributes. |
 | `assembly` | string |  |  | Assembly id, name or path; omit for all loaded. Required when symbol is omitted. |
-| `filter` | string |  |  | Only attributes whose type name contains this text. |
+| `filter` | string |  |  | Only attributes whose type name contains this. |
 | `format` | string |  | `rows` | rows, or csharp (symbol omitted). Values: rows, csharp. |
 | `offset` | integer |  |  | Rows to skip (characters with format=csharp). |
 | `limit` | integer |  | `200` |  |
@@ -294,14 +294,14 @@ Structured output: `items`, `offset`, `total`, `notEvaluated`, `totalExact`, `li
 
 **Decompile to C#** (read-only, idempotent)
 
-Decompile a type or member to C#: every overload unless a parameter list narrows it; async / iterator state machines and lambdas fold back into their method; a type whole, nested types included. Code the decompiler fails on is shown as IL.
+Decompile a type or member to C#: every overload unless a parameter list narrows it; async and iterator state machines and lambdas fold back into their method; a type whole, nested types included. Code the decompiler fails on shows as IL.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `member` | string | yes |  | Type or member: Ns.Type, Ns.Outer+Inner, Ns.Type::Method(int, string), short name or token (0x06000123). |
 | `assembly` | string |  |  | Assembly id, name or path; omit for all loaded. |
 | `kind` | string |  |  | Restrict to this kind (default any). Values: any, method, field, property, event. |
-| `simplified` | boolean |  |  | Show the code as simplify_methods would leave it, without changing the assembly. |
+| `simplified` | boolean |  |  | Show the code as simplify_methods would leave it, assembly unchanged. |
 | `provenance` | boolean |  |  | Start with build-pinning comments: SHA-256, MVID, tokens, IL hashes. |
 | `offset` | integer |  |  |  |
 | `maxTokens` | integer |  |  |  |
@@ -328,15 +328,15 @@ Structured output: `language`, `code`, `offset`, `nextOffset`, `totalChars`, `sy
 
 **Search symbols by name** (read-only, idempotent)
 
-Find types and members by name across loaded assemblies: a case-insensitive substring, wildcard (Get*Value?) or regex; queries with '.' or '::' also match full names. Exact matches first, then by name length; ties by assembly and token.
+Find types and members by name across loaded assemblies: case-insensitive substring, wildcard (Get*Value?) or regex; queries with . or :: also match full names. Exact matches first, then by name length; ties by assembly and token.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `query` | string | yes |  | Name, substring, wildcard or regex. |
 | `kind` | string |  |  | Restrict to this kind. Values: any, type, method, field, property, event, member. |
 | `assembly` | string |  |  | Assembly id, name or path; omit for all loaded. |
-| `namespace` | string |  |  | Only types in namespaces starting with this. |
-| `regex` | boolean |  |  | Treat query as a regular expression. |
+| `namespace` | string |  |  | Only namespaces starting with this. |
+| `regex` | boolean |  |  | query is a regex. |
 | `limit` | integer |  | `100` |  |
 | `maxTokens` | integer |  |  |  |
 | `offset` | integer |  |  |  |
@@ -347,17 +347,17 @@ Structured output: `items`, `offset`, `total`, `notEvaluated`, `totalExact`, `li
 
 **Search string literals** (read-only, idempotent)
 
-Find string literals (ldstr, string constants) by substring, wildcard or regex, with the method and IL offset using each. Il2Cpp dummy DLLs: the game's literals with slot RVAs and, with the binary, the functions loading them.
+Find string literals (ldstr, string constants) by substring, wildcard or regex, with the method and IL offset using each. Il2Cpp dummy DLLs: the game literals with slot RVAs and, with the binary, the functions loading them.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `query` | string | yes |  | Substring, wildcard or regex. |
 | `assembly` | string |  |  | Assembly id, name or path; omit for all loaded. |
-| `regex` | boolean |  |  | Treat query as a regular expression. |
+| `regex` | boolean |  |  | query is a regex. |
 | `limit` | integer |  | `100` |  |
 | `maxTokens` | integer |  |  |  |
 | `offset` | integer |  |  |  |
-| `usesPerLiteral` | integer |  | `10` | Il2Cpp: max functions listed per literal. |
+| `usesPerLiteral` | integer |  | `10` | Il2Cpp: max functions per literal. |
 
 Structured output: `items`, `offset`, `total`, `notEvaluated`, `totalExact`, `limit`, `hasMore`, `nextOffset`.
 
@@ -381,7 +381,7 @@ Structured output: `value`, `items`, `offset`, `total`, `limit`, `totalExact`, `
 
 **Search IL instruction patterns** (read-only, idempotent)
 
-Find methods containing an IL instruction sequence: ';'-separated 'opcode [operand]' elements with * and ? wildcards (operands match names, strings, numbers); '...' skips up to 16 instructions, e.g. 'ldstr *password*; ...; call *::Hash*'.
+Find methods containing an IL instruction sequence: ;-separated opcode [operand] elements with * and ? wildcards (operands match names, strings, numbers); ... skips up to 16 instructions, e.g. "ldstr *password*; ...; call *::Hash*".
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -398,13 +398,13 @@ Structured output: `items`, `offset`, `total`, `limit`, `totalExact`, `hasMore`,
 
 **Find usages (xrefs to)** (read-only, idempotent)
 
-Every usage of a symbol across loaded assemblies: a method's call sites (also through base / interface methods), a field's reads, writes and address uses, a type's every use (bases, signatures, locals, casts, attributes). A native export: its P/Invoke callers and native call sites.
+Every usage of a symbol across loaded assemblies: call sites of a method (also via base or interface methods), reads, writes and address uses of a field, every use of a type (bases, signatures, locals, casts, attributes). A native export: P/Invoke callers and native call sites.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `symbol` | string | yes |  | Type or member (Ns.Type::Method(int), short name, token) or native export (kernel32.dll!CreateFileW, native:<image>!<name\|#ord\|addr>). |
-| `assembly` | string |  |  | Assembly defining the symbol, to disambiguate; all loaded ones are searched. |
-| `kind` | string |  |  | Symbol kind; overrides: the method's overrides and implementations. Values: type, method, field, property, event, overrides. |
+| `assembly` | string |  |  | Assembly defining the symbol, to disambiguate; all loaded are searched. |
+| `kind` | string |  |  | Symbol kind; overrides: overrides and implementations of the method. Values: type, method, field, property, event, overrides. |
 | `directOnly` | boolean |  |  | Methods: no calls through base / interface declarations. |
 | `limit` | integer |  | `150` |  |
 | `maxTokens` | integer |  |  |  |
@@ -416,13 +416,13 @@ Structured output: `target`, `items`, `offset`, `total`, `limit`, `totalExact`, 
 
 **What a method uses (xrefs from)** (read-only, idempotent)
 
-What a method uses ('Uses'): calls, field reads / writes, types instantiated or cast, and strings, in IL order with offsets. P/Invoke calls show the native code they bind to; for a P/Invoke or native export, its native callees as call-tree rows.
+What a method uses: calls, field reads / writes, types instantiated or cast, strings, in IL order with offsets. P/Invoke calls show the native code they bind to; a P/Invoke or native export gives its native callees as call-tree rows.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `method` | string | yes |  | Type or member (Ns.Type::Method(int), short name, token) or native export (kernel32.dll!CreateFileW, native:<image>!<name\|#ord\|addr>). |
 | `assembly` | string |  |  | Assembly id, name or path; omit for all loaded. |
-| `distinct` | boolean |  |  | Collapse repeated targets into one row with a count. |
+| `distinct` | boolean |  |  | One row per target, with a count. |
 | `offset` | integer |  |  |  |
 | `limit` | integer |  | `200` |  |
 | `maxTokens` | integer |  |  |  |
@@ -433,7 +433,7 @@ Structured output: `method`, `items`, `offset`, `total`, `limit`, `totalExact`, 
 
 **Call tree (callers / callees)** (read-only, idempotent)
 
-Multi-level callers or callees of a method across loaded assemblies, one row per node in tree order; calls through base / interface methods, repeats and recursion are marked. Continues through P/Invokes and C++/CLI into loaded native code; takes a native export too.
+Multi-level callers or callees of a method across loaded assemblies, one row per node in tree order; calls via base / interface methods, repeats and recursion are marked. Continues through P/Invokes and C++/CLI into loaded native code; takes a native export too.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -452,11 +452,11 @@ Structured output: `root`, `direction`, `depth`, `items`, `offset`, `total`, `to
 
 **Call paths to a method** (read-only, idempotent)
 
-How execution reaches a method: call chains from 'from', or from entry points (methods nothing loaded calls), shortest first, direct calls preferred. A native 'to' follows native callers across loaded images and P/Invokes back to managed code.
+How execution reaches a method: call chains from from=, or from entry points (methods nothing loaded calls), shortest first, direct calls preferred. A native to= follows native callers across loaded images and P/Invokes back to managed code.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `to` | string | yes |  | Target. Type or member (Ns.Type::Method(int), short name, token) or native export (kernel32.dll!CreateFileW, native:<image>!<name\|#ord\|addr>). |
+| `to` | string | yes |  | Type or member (Ns.Type::Method(int), short name, token) or native export (kernel32.dll!CreateFileW, native:<image>!<name\|#ord\|addr>). |
 | `from` | string |  |  | Start method, same forms as to (native only when to is native). |
 | `maxDepth` | integer |  | `8` | Max chain length (max 30). |
 | `limit` | integer |  | `10` |  |
@@ -471,7 +471,7 @@ Structured output: `target`, `items`, `offset`, `total`, `from`, `totalExact`, `
 
 **List manifest resources** (read-only, idempotent)
 
-List manifest resources (embedded, .resources with entry counts, linked) with SHA-256 and file offsets; for a native image its Win32 resources as TYPE/NAME/LANGUAGE with file ranges (icon groups paired with their icons, image headers decoded).
+Manifest resources (embedded, .resources with entry counts, linked) with SHA-256 and file offsets; for a native image its Win32 resources as TYPE/NAME/LANGUAGE with file ranges (icon groups paired with their icons, image headers decoded).
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -504,7 +504,7 @@ Structured output: `name`, `kind`, `code`, `offset`, `nextOffset`, `totalChars`,
 
 **Export C# project** (destructive, idempotent, long-running)
 
-Decompile an assembly into a C# project on disk (.cs per type, .csproj, resources) to browse with file tools; an .apk / .aab gives a Gradle project (manifest, resources, Java through JADX or smali). Written whole or not at all.
+Decompile an assembly into a C# project on disk (.cs per type, .csproj, resources) to browse with file tools; an .apk or .aab gives a Gradle project (manifest, resources, Java via JADX or smali). Written whole or not at all.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -518,14 +518,14 @@ Structured output: `applied`, `source`, `outputDirectory`, `files`, `projectFile
 
 **ReadyToRun native code of a method** (read-only, idempotent)
 
-Precompiled native code of a method in a ReadyToRun assembly (the shared framework too): entry, code ranges, fixup cells and x86 / x64 disassembly with cells named by what they resolve to; generics per compiled instantiation, composite images included.
+Precompiled native code of a method in a ReadyToRun assembly (shared framework too): entry, code ranges, fixup cells and x86 / x64 disassembly with cells named by what they resolve to; generics per compiled instantiation, composite images included.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `method` | string | yes |  | Type or member: Ns.Type, Ns.Outer+Inner, Ns.Type::Method(int, string), short name or token (0x06000123). |
 | `assembly` | string |  |  | Assembly id, name or path; omit for all loaded. |
-| `instantiation` | string |  |  | Only bodies whose name contains this text ('Int32', '__Canon'). |
-| `maxBodies` | integer |  | `4` | Max bodies disassembled; the rest are listed with addresses. |
+| `instantiation` | string |  |  | Only bodies whose name contains this text (Int32, __Canon). |
+| `maxBodies` | integer |  | `4` | Max bodies disassembled; the rest listed with addresses. |
 | `maxInstructions` | integer |  | `1500` | Max instructions per body. |
 | `offset` | integer |  |  |  |
 | `maxTokens` | integer |  |  |  |
@@ -682,9 +682,9 @@ Rename a type, method, field, property (and accessors) or event in memory; other
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `symbol` | string | yes |  | Type or member: Ns.Type, Ns.Outer+Inner, Ns.Type::Method(int, string), short name or token (0x06000123). |
-| `newName` | string | yes |  | New name (for a type: the simple name without namespace). |
+| `newName` | string | yes |  | New name (a type: simple name without namespace). |
 | `assembly` | string |  |  | Assembly id, name or path; omit for all loaded. |
-| `kind` | string |  |  | Restrict symbol resolution to this kind. Values: type, method, field, property, event. |
+| `kind` | string |  |  | Only resolve symbols of this kind. Values: type, method, field, property, event. |
 | `dryRun` | boolean |  | `true` | true previews; false applies. |
 
 Structured output: `applied`, `dryRun`, `changes`, `editIds`, `failed`, `digest`.
@@ -698,9 +698,9 @@ Move every type of a namespace (optionally its sub-namespaces) to a new namespac
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `assembly` | string | yes |  | Assembly id, name or path. |
-| `oldNamespace` | string | yes |  | Existing namespace ('' for the global namespace). |
+| `oldNamespace` | string | yes |  | Existing namespace ("" for the global one). |
 | `newNamespace` | string | yes |  | New namespace. |
-| `includeSubNamespaces` | boolean |  |  | Also rewrite namespaces that start with oldNamespace + '.'. |
+| `includeSubNamespaces` | boolean |  |  | Also rewrite the namespaces under oldNamespace. |
 | `dryRun` | boolean |  | `true` | true previews; false applies. |
 
 Structured output: `applied`, `dryRun`, `changes`, `editIds`, `failed`, `digest`.
@@ -709,7 +709,7 @@ Structured output: `applied`, `dryRun`, `changes`, `editIds`, `failed`, `digest`
 
 **Stub method (return constant)** (destructive)
 
-Replace a method's body with 'return <value>;' ('return;' for void) in memory: force a check true, disable a call.
+Replace a method body with "return <value>;" ("return;" for void) in memory: force a check true, disable a call.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -724,14 +724,14 @@ Structured output: `applied`, `dryRun`, `changes`, `editIds`, `failed`, `digest`
 
 **Replace method body with C#** (destructive, long-running)
 
-Replace a method's body (methods, constructors, accessors) with C# compiled against the assembly; private members accessible, lambdas, LINQ, async and yield work. Errors name lines of your code.
+Replace a method body (methods, constructors, accessors) with C# compiled against the assembly; private members accessible, lambdas, LINQ, async and yield work. Errors name lines of your code.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `method` | string | yes |  | Type or member: Ns.Type, Ns.Outer+Inner, Ns.Type::Method(int, string), short name or token (0x06000123). |
-| `code` | string | yes |  | The new body's statements only. |
+| `code` | string | yes |  | Statements of the new body only. |
 | `assembly` | string |  |  | Assembly id, name or path; omit for all loaded. |
-| `dryRun` | boolean |  | `true` | Default true: preview the IL that would be written; pass dryRun=false to apply. |
+| `dryRun` | boolean |  | `true` | true previews the IL to be written; false applies. |
 
 Structured output: `applied`, `dryRun`, `changes`, `editIds`, `failed`, `digest`.
 
@@ -739,7 +739,7 @@ Structured output: `applied`, `dryRun`, `changes`, `editIds`, `failed`, `digest`
 
 **Rewrite method body in IL** (destructive)
 
-Rewrite a method body from IL text (stack-validated): edit get_il's lines and pass them back (syntax: guide edits). replace swaps the body; prepend runs before it and can branch to its IL_xxxx labels.
+Rewrite a method body from IL text (stack-validated): edit the get_il lines and pass them back (syntax: guide edits). replace swaps the body; prepend runs before it and can branch to its IL_xxxx labels.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -759,7 +759,7 @@ Add C# members (methods, fields, properties, events, constructors, nested types)
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `type` | string | yes |  | The type to extend. Type or member: Ns.Type, Ns.Outer+Inner, Ns.Type::Method(int, string), short name or token (0x06000123). |
+| `type` | string | yes |  | Type or member: Ns.Type, Ns.Outer+Inner, Ns.Type::Method(int, string), short name or token (0x06000123). |
 | `code` | string | yes |  | C# member declarations. |
 | `assembly` | string |  |  | Assembly id, name or path; omit for all loaded. |
 | `dryRun` | boolean |  | `true` | true previews; false applies. |
@@ -788,7 +788,7 @@ Clean transformed method bodies: fold (string decoders with constant inputs run 
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `symbol` | string |  |  | Method or type (nested included): 'Ns.Type::M(int)', short name or token; omit: whole assembly. |
+| `symbol` | string |  |  | Method or type (nested included): Ns.Type::M(int), short name or token; omit: whole assembly. |
 | `assembly` | string |  |  | Assembly id, name or path; omit for all loaded. Required when symbol is omitted. |
 | `passes` | string[] |  |  | Passes to run; omit for all three. |
 | `maxDepth` | integer |  | `8` | Max evaluation call depth. |
@@ -808,7 +808,7 @@ Unsaved edits of an assembly in order; each number (editId <assembly>#<n>) stays
 |---|---|---|---|---|
 | `assembly` | string | yes |  | Assembly id, name or path. |
 | `offset` | integer |  |  |  |
-| `limit` | integer |  | `200` | Max rows (default 200). |
+| `limit` | integer |  | `200` |  |
 | `maxTokens` | integer |  |  |  |
 
 Structured output: `assembly`, `items`, `offset`, `total`, `limit`, `totalExact`, `hasMore`, `nextOffset`.
@@ -822,7 +822,7 @@ Unified diff of the decompiled C# of each member the edits (or one edit) touched
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `assembly` | string | yes |  | Assembly id, name or path. |
-| `number` | integer |  |  | Only this edit (number from list_edits). |
+| `number` | integer |  |  | Only this edit (list_edits number). |
 | `offset` | integer |  |  |  |
 | `maxTokens` | integer |  |  |  |
 
@@ -837,7 +837,7 @@ Undo the last edit or one by number: the others are replayed on the original ima
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `assembly` | string | yes |  | Assembly id, name or path. |
-| `number` | integer |  |  | Edit number from list_edits (the #n of its editId); omit for the last. |
+| `number` | integer |  |  | Edit number from list_edits (#n of its editId); omit for the last. |
 
 Structured output: `applied`, `dryRun`, `changes`, `editIds`, `failed`, `digest`.
 
@@ -877,9 +877,9 @@ Replay an export_edits script, each edit with its outcome. Another build needs t
 |---|---|---|---|---|
 | `path` | string | yes |  | The .json edit script. |
 | `assembly` | string |  |  | Target assembly; omit for the one named in the script. |
-| `dryRun` | boolean |  | `true` | Default true: apply every edit, report, roll back; pass dryRun=false to keep them. |
+| `dryRun` | boolean |  | `true` | true: apply every edit, report, roll back; false keeps them. |
 | `continueOnError` | boolean |  |  | Apply the edits that succeed; default: roll all back on the first failure. |
-| `targetBuild` | string |  | `same` | same: the script's build only; other: another build, symbols resolved by name. Values: same, other. |
+| `targetBuild` | string |  | `same` | same: the script build only; other: another build, symbols by name. Values: same, other. |
 
 Structured output: `applied`, `dryRun`, `changes`, `editIds`, `failed`, `items`, `pushedTo`, `digest`.
 
@@ -892,11 +892,11 @@ Write an assembly with its edits to a new file, atomically (replaceOriginal=true
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `assembly` | string | yes |  | Assembly id, name or path. |
-| `outputPath` | string |  |  | Output path (.wasm writes Webcil for Blazor); default '<original>.patched.dll'. |
+| `outputPath` | string |  |  | Output path (.wasm writes Webcil for Blazor); default <original>.patched.dll. |
 | `overwrite` | boolean |  |  | Replace an existing file, not the original. |
-| `strict` | boolean |  |  | Write nothing if the writer would change any member (default: save and list them). |
+| `strict` | boolean |  |  | Write nothing if the writer would change any member (default: save, list them). |
 | `replaceOriginal` | boolean |  |  | Replace the loaded file (needs --allow-replace-original). |
-| `versioned` | boolean |  |  | Write '<name>.N.dll', the first free N. |
+| `versioned` | boolean |  |  | Write <name>.N.dll, the first free N. |
 
 Structured output: `outputPath`, `bytes`, `sha256`, `edits`, `backup`, `editList`.
 

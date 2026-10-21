@@ -22,9 +22,9 @@ public sealed class EditTools(AssemblyWorkspace workspace, EditService edits, Ed
     [Description("Rename a type, method, field, property (and accessors) or event in memory; other assemblies keep the old name.")]
     public Task<string> RenameSymbol(
         [Description(SymbolDescription)] string symbol,
-        [Description("New name (for a type: the simple name without namespace).")] string newName,
+        [Description("New name (a type: simple name without namespace).")] string newName,
         [Description(AssemblyFilterDescription)] string? assembly = null,
-        [Description("Restrict symbol resolution to this kind.")] string? kind = null,
+        [Description("Only resolve symbols of this kind.")] string? kind = null,
         [Description(DryRunDefaultTrueDescription)] bool dryRun = true,
         CancellationToken cancellationToken = default) => Edit(workspace, dryRun, () =>
     {
@@ -37,9 +37,9 @@ public sealed class EditTools(AssemblyWorkspace workspace, EditService edits, Ed
     [Description("Move every type of a namespace (optionally its sub-namespaces) to a new namespace, in memory.")]
     public Task<string> RenameNamespace(
         [Description(AssemblyDescription)] string assembly,
-        [Description("Existing namespace ('' for the global namespace).")] string oldNamespace,
+        [Description("Existing namespace (\"\" for the global one).")] string oldNamespace,
         [Description("New namespace.")] string newNamespace,
-        [Description("Also rewrite namespaces that start with oldNamespace + '.'.")] bool includeSubNamespaces = false,
+        [Description("Also rewrite the namespaces under oldNamespace.")] bool includeSubNamespaces = false,
         [Description(DryRunDefaultTrueDescription)] bool dryRun = true,
         CancellationToken cancellationToken = default) => Edit(workspace, dryRun, () =>
     {
@@ -49,7 +49,7 @@ public sealed class EditTools(AssemblyWorkspace workspace, EditService edits, Ed
     }, cancellationToken);
 
     [McpServerTool(Name = "stub_method", Title = "Stub method (return constant)", UseStructuredContent = true, OutputSchemaType = typeof(EditResult))]
-    [Description("Replace a method's body with 'return <value>;' ('return;' for void) in memory: force a check true, disable a call.")]
+    [Description("Replace a method body with \"return <value>;\" (\"return;\" for void) in memory: force a check true, disable a call.")]
     public Task<string> StubMethod(
         [Description(SymbolDescription)] string method,
         [Description("true/false, integer (decimal or 0x), float, \"string\" or null; omit for void or default(T).")] string? value = null,
@@ -62,13 +62,13 @@ public sealed class EditTools(AssemblyWorkspace workspace, EditService edits, Ed
     }, cancellationToken);
 
     [McpServerTool(Name = "patch_method_csharp", Title = "Replace method body with C#", UseStructuredContent = true, OutputSchemaType = typeof(EditResult))]
-    [Description("Replace a method's body (methods, constructors, accessors) with C# compiled against the assembly; private members accessible, " +
+    [Description("Replace a method body (methods, constructors, accessors) with C# compiled against the assembly; private members accessible, " +
                  "lambdas, LINQ, async and yield work. Errors name lines of your code.")]
     public Task<string> PatchMethodCSharp(
         [Description(SymbolDescription)] string method,
-        [Description("The new body's statements only.")] string code,
+        [Description("Statements of the new body only.")] string code,
         [Description(AssemblyFilterDescription)] string? assembly = null,
-        [Description("Default true: preview the IL that would be written; pass dryRun=false to apply.")] bool dryRun = true,
+        [Description("true previews the IL to be written; false applies.")] bool dryRun = true,
         RequestContext<CallToolRequestParams> context = null!,
         CancellationToken cancellationToken = default) => WithProgress(context, () => Edit(workspace, dryRun, () =>
     {
@@ -84,7 +84,7 @@ public sealed class EditTools(AssemblyWorkspace workspace, EditService edits, Ed
     [Description("Add C# members (methods, fields, properties, events, constructors, nested types) to a class or struct; private members accessible. " +
                  "No field or property initializers.")]
     public Task<string> AddMembersCSharp(
-        [Description("The type to extend. " + SymbolDescription)] string type,
+        [Description(ToolSupport.SymbolDescription)] string type,
         [Description("C# member declarations.")] string code,
         [Description(AssemblyFilterDescription)] string? assembly = null,
         [Description(DryRunDefaultTrueDescription)] bool dryRun = true,
@@ -113,7 +113,7 @@ public sealed class EditTools(AssemblyWorkspace workspace, EditService edits, Ed
     public Task<string> ListEdits(
         [Description(AssemblyDescription)] string assembly,
         [Description(RowOffsetDescription)] int offset = 0,
-        [Description("Max rows (default 200).")] int limit = 200,
+        [Description(ToolSupport.LimitDescription)] int limit = 200,
         [Description(MaxTokensDescription)] int? maxTokens = null,
         CancellationToken cancellationToken = default) => Read(workspace, () =>
     {
@@ -128,7 +128,7 @@ public sealed class EditTools(AssemblyWorkspace workspace, EditService edits, Ed
     [Description("Undo the last edit or one by number: the others are replayed on the original image; a conflict changes nothing.")]
     public Task<string> UndoEdit(
         [Description(AssemblyDescription)] string assembly,
-        [Description("Edit number from list_edits (the #n of its editId); omit for the last.")] int? number = null,
+        [Description("Edit number from list_edits (#n of its editId); omit for the last.")] int? number = null,
         RequestContext<CallToolRequestParams> context = null!,
         CancellationToken cancellationToken = default) => WithProgress(context, () => Write(workspace, () =>
     {
@@ -157,7 +157,7 @@ public sealed class EditTools(AssemblyWorkspace workspace, EditService edits, Ed
     [Description("Unified diff of the decompiled C# of each member the edits (or one edit) touched, before and after; review before save_assembly.")]
     public Task<string> DiffEdits(
         [Description(AssemblyDescription)] string assembly,
-        [Description("Only this edit (number from list_edits).")] int? number = null,
+        [Description("Only this edit (list_edits number).")] int? number = null,
         [Description(CharOffsetDescription)] int offset = 0,
         [Description(MaxTokensDescription)] int? maxTokens = null,
         CancellationToken cancellationToken = default) => Read(workspace, () =>
@@ -181,9 +181,9 @@ public sealed class EditTools(AssemblyWorkspace workspace, EditService edits, Ed
     public Task<string> ApplyEdits(
         [Description("The .json edit script.")] string path,
         [Description("Target assembly; omit for the one named in the script.")] string? assembly = null,
-        [Description("Default true: apply every edit, report, roll back; pass dryRun=false to keep them.")] bool dryRun = true,
+        [Description("true: apply every edit, report, roll back; false keeps them.")] bool dryRun = true,
         [Description("Apply the edits that succeed; default: roll all back on the first failure.")] bool continueOnError = false,
-        [Description("same: the script's build only; other: another build, symbols resolved by name.")] string targetBuild = "same",
+        [Description("same: the script build only; other: another build, symbols by name.")] string targetBuild = "same",
         RequestContext<CallToolRequestParams> context = null!,
         CancellationToken cancellationToken = default) => WithProgress(context, () => Write(workspace, () => // dry runs apply and roll back, so they also need the write lock
     {
@@ -207,8 +207,8 @@ public sealed class EditTools(AssemblyWorkspace workspace, EditService edits, Ed
     }, cancellationToken));
 
     [McpServerTool(Name = "patch_method_il", Title = "Rewrite method body in IL", UseStructuredContent = true, OutputSchemaType = typeof(EditResult))]
-    [Description("Rewrite a method body from IL text (stack-validated): edit get_il's lines and pass them back (syntax: guide edits). " +
-                 "replace swaps the body; prepend runs before it and can branch to its IL_xxxx labels.")]
+    [Description("Rewrite a method body from IL text (stack-validated): edit the get_il lines and pass them back (syntax: guide edits). replace swaps " +
+                 "the body; prepend runs before it and can branch to its IL_xxxx labels.")]
     public Task<string> PatchMethodIL(
         [Description(SymbolDescription)] string method,
         [Description("IL instructions, one per line.")] string il,
@@ -223,10 +223,10 @@ public sealed class EditTools(AssemblyWorkspace workspace, EditService edits, Ed
 
     [McpServerTool(Name = "simplify_methods", Title = "Simplify method bodies", UseStructuredContent = true, OutputSchemaType = typeof(EditResult))]
     [Description("Clean transformed method bodies: fold (string decoders with constant inputs run in a safe IL interpreter), cfg (constant branches, " +
-                 "dead code, flattened control flow), inline (forwarders, delegate call proxies). Bodies are stack-verified; what is left has a reason " +
-                 "code (docs/simplify.md).")]
+                 "dead code, flattened control flow), inline (forwarders, delegate call proxies). Bodies are stack-verified; what is left has a " +
+                 "reason code (docs/simplify.md).")]
     public Task<string> SimplifyMethods(
-        [Description("Method or type (nested included): 'Ns.Type::M(int)', short name or token; omit: whole assembly.")] string? symbol = null,
+        [Description("Method or type (nested included): Ns.Type::M(int), short name or token; omit: whole assembly.")] string? symbol = null,
         [Description(AssemblyFilterDescription + " Required when symbol is omitted.")] string? assembly = null,
         [Description("Passes to run; omit for all three.")] string[]? passes = null,
         [Description("Max evaluation call depth.")] int maxDepth = 8,
@@ -255,15 +255,15 @@ public sealed class EditTools(AssemblyWorkspace workspace, EditService edits, Ed
     }, cancellationToken));
 
     [McpServerTool(Name = "save_assembly", Title = "Save patched assembly", UseStructuredContent = true, OutputSchemaType = typeof(EditService.SavedFile))]
-    [Description("Write an assembly with its edits to a new file, atomically (replaceOriginal=true keeps a .bak; a file changed since load is refused). " +
-                 "Untouched bodies keep their bytes; members the writer changed are listed with reason codes (docs/saving.md).")]
+    [Description("Write an assembly with its edits to a new file, atomically (replaceOriginal=true keeps a .bak; a file changed since load is " +
+                 "refused). Untouched bodies keep their bytes; members the writer changed are listed with reason codes (docs/saving.md).")]
     public Task<string> SaveAssembly(
         [Description(AssemblyDescription)] string assembly,
-        [Description("Output path (.wasm writes Webcil for Blazor); default '<original>.patched.dll'.")] string? outputPath = null,
+        [Description("Output path (.wasm writes Webcil for Blazor); default <original>.patched.dll.")] string? outputPath = null,
         [Description("Replace an existing file, not the original.")] bool overwrite = false,
-        [Description("Write nothing if the writer would change any member (default: save and list them).")] bool strict = false,
+        [Description("Write nothing if the writer would change any member (default: save, list them).")] bool strict = false,
         [Description("Replace the loaded file (needs --allow-replace-original).")] bool replaceOriginal = false,
-        [Description("Write '<name>.N.dll', the first free N.")] bool versioned = false,
+        [Description("Write <name>.N.dll, the first free N.")] bool versioned = false,
         CancellationToken cancellationToken = default) => Read(workspace, () =>
     {
         SaveTarget.RequireReplaceAllowed(replaceOriginal, options);

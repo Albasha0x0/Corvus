@@ -11,11 +11,11 @@ namespace Corvus.Tools;
 public sealed class AssemblyInfoTools(AssemblyWorkspace workspace, AssemblyReport report)
 {
     [McpServerTool(Name = "get_assembly_info", Title = "Assembly overview", UseStructuredContent = true, OutputSchemaType = typeof(AssemblyReport.Summary))]
-    [Description("Assembly overview: identity (MVID, SHA-256), framework, entry point, counts, Il2Cpp, invalid IL, protection product, edits; view=references: where references " +
-                 "resolve; view=metadata: PE headers, streams, tables, heaps, metadata problems, attributes.")]
+    [Description("Assembly overview: identity (MVID, SHA-256), framework, entry point, counts, Il2Cpp, invalid IL, protection product, edits; " +
+                 "view=references: where references resolve; metadata: PE headers, streams, tables, heaps, metadata problems, attributes.")]
     public Task<string> GetAssemblyInfo(
         [Description(AssemblyDescription)] string assembly,
-        [Description("summary, references, metadata or all.")] string view = "summary",
+        [Description("What to show.")] string view = "summary",
         CancellationToken cancellationToken = default) =>
         Read(workspace, () =>
         {

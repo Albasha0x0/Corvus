@@ -17,13 +17,13 @@ public sealed class ReadyToRunTools(AssemblyWorkspace workspace, ReadyToRunServi
 {
 
     [McpServerTool(Name = "get_r2r_code", Title = "ReadyToRun native code of a method", UseStructuredContent = true, OutputSchemaType = typeof(CodePage))]
-    [Description("Precompiled native code of a method in a ReadyToRun assembly (the shared framework too): entry, code ranges, fixup cells and x86 / x64 " +
+    [Description("Precompiled native code of a method in a ReadyToRun assembly (shared framework too): entry, code ranges, fixup cells and x86 / x64 " +
                  "disassembly with cells named by what they resolve to; generics per compiled instantiation, composite images included.")]
     public Task<string> GetR2RCode(
         [Description(SymbolDescription)] string method,
         [Description(AssemblyFilterDescription)] string? assembly = null,
-        [Description("Only bodies whose name contains this text ('Int32', '__Canon').")] string? instantiation = null,
-        [Description("Max bodies disassembled; the rest are listed with addresses.")] int maxBodies = 4,
+        [Description("Only bodies whose name contains this text (Int32, __Canon).")] string? instantiation = null,
+        [Description("Max bodies disassembled; the rest listed with addresses.")] int maxBodies = 4,
         [Description("Max instructions per body.")] int maxInstructions = 1500,
         [Description(CharOffsetDescription)] int offset = 0,
         [Description(MaxTokensDescription)] int? maxTokens = null,

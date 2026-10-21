@@ -19,8 +19,8 @@ public sealed class DecompileTools(AssemblyWorkspace workspace, DecompilerServic
     private const int MaxMembersPerCall = 25;
 
     [McpServerTool(Name = "decompile_member", Title = "Decompile to C#", UseStructuredContent = true, OutputSchemaType = typeof(CodePage))]
-    [Description("Decompile a type or member to C#: every overload unless a parameter list narrows it; async / iterator state machines and lambdas fold " +
-                 "back into their method; a type whole, nested types included. Code the decompiler fails on is shown as IL.")]
+    [Description("Decompile a type or member to C#: every overload unless a parameter list narrows it; async and iterator state machines and lambdas " +
+                 "fold back into their method; a type whole, nested types included. Code the decompiler fails on shows as IL.")]
     public Task<string> DecompileMember(
         [Description(SymbolDescription)] string member,
         [Description(AssemblyFilterDescription)] string? assembly = null,
@@ -152,8 +152,8 @@ public sealed class DecompileTools(AssemblyWorkspace workspace, DecompilerServic
     }
 
     [McpServerTool(Name = "export_project", Title = "Export C# project", UseStructuredContent = true, OutputSchemaType = typeof(ExportOutcome))]
-    [Description("Decompile an assembly into a C# project on disk (.cs per type, .csproj, resources) to browse with file tools; an .apk / .aab gives a " +
-                 "Gradle project (manifest, resources, Java through JADX or smali). Written whole or not at all.")]
+    [Description("Decompile an assembly into a C# project on disk (.cs per type, .csproj, resources) to browse with file tools; an .apk or .aab gives " +
+                 "a Gradle project (manifest, resources, Java via JADX or smali). Written whole or not at all.")]
     public Task<string> ExportProject(
         [Description(AssemblyDescription)] string assembly,
         [Description("Empty or new output directory.")] string outputDirectory,
@@ -216,7 +216,7 @@ public sealed class DecompileTools(AssemblyWorkspace workspace, DecompilerServic
     }
 
     private const string SimplifiedDescription =
-        "Show the code as simplify_methods would leave it, without changing the assembly.";
+        "Show the code as simplify_methods would leave it, assembly unchanged.";
 
     private string TypeSource(ResolvedSymbol sym, bool simplified, CancellationToken ct) =>
         pager.GetOrCreate(CacheKey(simplified ? "type-simplified" : "type", [sym]), () => $"// [{sym.Assembly.Id}] {sym.Label}\n" + (simplified

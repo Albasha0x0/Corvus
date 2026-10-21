@@ -15,7 +15,7 @@ public sealed class BrowseTools(AssemblyWorkspace workspace, ReferenceService re
     private const string CompilerGenerated = "System.Runtime.CompilerServices.CompilerGeneratedAttribute";
 
     [McpServerTool(Name = "list_namespaces", Title = "List namespaces", UseStructuredContent = true, OutputSchemaType = typeof(NamespaceList))]
-    [Description("List namespaces with their type counts (nested types under their outer type's namespace).")]
+    [Description("List namespaces with their type counts (nested types under the namespace of their outer type).")]
     public Task<string> ListNamespaces(
         [Description(AssemblyFilterDescription)] string? assembly = null,
         [Description("Substring (case-insensitive).")] string? filter = null,
@@ -42,9 +42,9 @@ public sealed class BrowseTools(AssemblyWorkspace workspace, ReferenceService re
     [Description("List types, optionally by namespace, name filter and kind.")]
     public Task<string> ListTypes(
         [Description(AssemblyFilterDescription)] string? assembly = null,
-        [Description("Exact namespace ('' or '<global>' for the global one).")] string? @namespace = null,
-        [Description("Name substring or wildcard (*, ?), or a regex with regex=true.")] string? filter = null,
-        [Description("Treat filter as a regular expression.")] bool regex = false,
+        [Description("Exact namespace (\"\" or <global> for the global one).")] string? @namespace = null,
+        [Description("Name substring or wildcard (*, ?), or regex with regex=true.")] string? filter = null,
+        [Description("filter is a regex.")] bool regex = false,
         [Description("Only this kind.")] string? kind = null,
         [Description("Leave out nested types.")] bool topLevelOnly = false,
         [Description(RowOffsetDescription)] int offset = 0,
@@ -80,13 +80,13 @@ public sealed class BrowseTools(AssemblyWorkspace workspace, ReferenceService re
     private static readonly string[] Sections = ["summary", "nested", "fields", "properties", "events", "methods", "all"];
 
     [McpServerTool(Name = "get_type_info", Title = "Type outline", UseStructuredContent = true, OutputSchemaType = typeof(TypeOutline))]
-    [Description("Outline of a type without decompiling: declaration, attributes, member counts, the first members of each kind; a section pages " +
-                 "one kind (constants, enum values, signatures, tokens, IL sizes, Il2Cpp RVAs). A field: its value or FieldRVA data " +
-                 "(file offset, SHA-256, readers, typed elements, hex rows).")]
+    [Description("Outline of a type without decompiling: declaration, attributes, member counts, the first members of each kind; section= pages one " +
+                 "kind (constants, enum values, signatures, tokens, IL sizes, Il2Cpp RVAs). A field: its value or FieldRVA data (file offset, " +
+                 "SHA-256, readers, typed elements, hex rows).")]
     public Task<string> GetTypeInfo(
         [Description(SymbolDescription)] string type,
         [Description(AssemblyFilterDescription)] string? assembly = null,
-        [Description("summary, nested, fields, properties, events, methods or all.")] string section = "summary",
+        [Description("A kind to page, or all.")] string section = "summary",
         [Description("Include compiler-generated members.")] bool includeCompilerGenerated = false,
         [Description(RowOffsetDescription)] int offset = 0,
         [Description(LimitDescription)] int limit = 100,
@@ -234,7 +234,7 @@ public sealed class BrowseTools(AssemblyWorkspace workspace, ReferenceService re
     public Task<string> GetAttributes(
         [Description(SymbolDescription + " Omit for assembly-level attributes.")] string? symbol = null,
         [Description(AssemblyFilterDescription + " Required when symbol is omitted.")] string? assembly = null,
-        [Description("Only attributes whose type name contains this text.")] string? filter = null,
+        [Description("Only attributes whose type name contains this.")] string? filter = null,
         [Description("rows, or csharp (symbol omitted).")] string format = "rows",
         [Description("Rows to skip (characters with format=csharp).")] int offset = 0,
         [Description(LimitDescription)] int limit = 200,

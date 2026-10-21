@@ -14,7 +14,7 @@ namespace Corvus.Tools;
 public sealed partial class ResourceTools(AssemblyWorkspace workspace, ResourceService resources, DecompilerService decompiler, OutputPager pager)
 {
     [McpServerTool(Name = "list_resources", Title = "List manifest resources", UseStructuredContent = true, OutputSchemaType = typeof(ResourceList))]
-    [Description("List manifest resources (embedded, .resources with entry counts, linked) with SHA-256 and file offsets; for a native image its Win32 " +
+    [Description("Manifest resources (embedded, .resources with entry counts, linked) with SHA-256 and file offsets; for a native image its Win32 " +
                  "resources as TYPE/NAME/LANGUAGE with file ranges (icon groups paired with their icons, image headers decoded).")]
     public Task<string> ListResources(
         [Description(AssemblyDescription)] string assembly,
@@ -146,8 +146,8 @@ public sealed partial class ResourceTools(AssemblyWorkspace workspace, ResourceS
     }
 
     [McpServerTool(Name = "get_resource", Title = "Read / extract resource", UseStructuredContent = true, OutputSchemaType = typeof(ResourcePage))]
-    [Description("Read a resource: text as text, binary as hex preview, .resources as an entry list (entry reads one; .baml as XAML); outputPath extracts the raw bytes. " +
-                 "Native images: TYPE/NAME[/LANGUAGE], version info and string tables decoded.")]
+    [Description("Read a resource: text as text, binary as hex preview, .resources as an entry list (entry reads one; .baml as XAML); outputPath " +
+                 "extracts the raw bytes. Native images: TYPE/NAME[/LANGUAGE], version info and string tables decoded.")]
     public Task<string> GetResource(
         [Description(AssemblyDescription)] string assembly,
         [Description("Name from list_resources.")] string name,

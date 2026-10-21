@@ -18,8 +18,9 @@ public sealed class CallGraphTools(AssemblyWorkspace workspace, CallGraphService
     private const int MaxNodes = 20_000;
 
     [McpServerTool(Name = "get_call_tree", Title = "Call tree (callers / callees)", UseStructuredContent = true, OutputSchemaType = typeof(CallTree))]
-    [Description("Multi-level callers or callees of a method across loaded assemblies, one row per node in tree order; calls through base / interface " +
-                 "methods, repeats and recursion are marked. Continues through P/Invokes and C++/CLI into loaded native code; takes a native export too.")]
+    [Description("Multi-level callers or callees of a method across loaded assemblies, one row per node in tree order; calls via base / interface " +
+                 "methods, repeats and recursion are marked. Continues through P/Invokes and C++/CLI into loaded native code; takes a native export " +
+                 "too.")]
     public async Task<string> GetCallTree(
         [Description(SymbolOrNativeDescription)] string method,
         [Description("callers or callees.")] string direction = "callers",
@@ -158,10 +159,10 @@ public sealed class CallGraphTools(AssemblyWorkspace workspace, CallGraphService
     }
 
     [McpServerTool(Name = "find_call_paths", Title = "Call paths to a method", UseStructuredContent = true, OutputSchemaType = typeof(CallPathList))]
-    [Description("How execution reaches a method: call chains from 'from', or from entry points (methods nothing loaded calls), shortest first, direct " +
-                 "calls preferred. A native 'to' follows native callers across loaded images and P/Invokes back to managed code.")]
+    [Description("How execution reaches a method: call chains from from=, or from entry points (methods nothing loaded calls), shortest first, direct " +
+                 "calls preferred. A native to= follows native callers across loaded images and P/Invokes back to managed code.")]
     public async Task<string> FindCallPaths(
-        [Description("Target. " + SymbolOrNativeDescription)] string to,
+        [Description(ToolSupport.SymbolOrNativeDescription)] string to,
         [Description("Start method, same forms as to (native only when to is native).")] string? from = null,
         [Description("Max chain length (max 30).")] int maxDepth = 8,
         [Description(LimitDescription)] int limit = 10,

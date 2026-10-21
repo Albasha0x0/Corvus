@@ -14,13 +14,13 @@ namespace Corvus.Tools;
 public sealed class ReferenceTools(AssemblyWorkspace workspace, ReferenceService references, NativeLinkService? link = null)
 {
     [McpServerTool(Name = "find_references", Title = "Find usages (xrefs to)", UseStructuredContent = true, OutputSchemaType = typeof(ReferenceList))]
-    [Description("Every usage of a symbol across loaded assemblies: a method's call sites (also through base / interface methods), a field's " +
-                 "reads, writes and address uses, a type's every use (bases, signatures, locals, casts, attributes). A native export: its " +
-                 "P/Invoke callers and native call sites.")]
+    [Description("Every usage of a symbol across loaded assemblies: call sites of a method (also via base or interface methods), reads, writes and " +
+                 "address uses of a field, every use of a type (bases, signatures, locals, casts, attributes). A native export: P/Invoke callers and " +
+                 "native call sites.")]
     public async Task<string> FindReferences(
         [Description(SymbolOrNativeDescription)] string symbol,
-        [Description("Assembly defining the symbol, to disambiguate; all loaded ones are searched.")] string? assembly = null,
-        [Description("Symbol kind; overrides: the method's overrides and implementations.")] string? kind = null,
+        [Description("Assembly defining the symbol, to disambiguate; all loaded are searched.")] string? assembly = null,
+        [Description("Symbol kind; overrides: overrides and implementations of the method.")] string? kind = null,
         [Description("Methods: no calls through base / interface declarations.")] bool directOnly = false,
         [Description(LimitDescription)] int limit = 150,
         [Description(MaxTokensDescription)] int? maxTokens = null,
@@ -127,12 +127,12 @@ public sealed class ReferenceTools(AssemblyWorkspace workspace, ReferenceService
     }
 
     [McpServerTool(Name = "find_callees", Title = "What a method uses (xrefs from)", UseStructuredContent = true, OutputSchemaType = typeof(CalleeList))]
-    [Description("What a method uses ('Uses'): calls, field reads / writes, types instantiated or cast, and strings, in IL order with offsets. P/Invoke calls show " +
-                 "the native code they bind to; for a P/Invoke or native export, its native callees as call-tree rows.")]
+    [Description("What a method uses: calls, field reads / writes, types instantiated or cast, strings, in IL order with offsets. P/Invoke calls show " +
+                 "the native code they bind to; a P/Invoke or native export gives its native callees as call-tree rows.")]
     public async Task<string> FindCallees(
         [Description(SymbolOrNativeDescription)] string method,
         [Description(AssemblyFilterDescription)] string? assembly = null,
-        [Description("Collapse repeated targets into one row with a count.")] bool distinct = false,
+        [Description("One row per target, with a count.")] bool distinct = false,
         [Description(RowOffsetDescription)] int offset = 0,
         [Description(LimitDescription)] int limit = 200,
         [Description(MaxTokensDescription)] int? maxTokens = null,
