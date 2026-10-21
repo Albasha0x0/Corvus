@@ -93,6 +93,14 @@ public sealed partial class ElfFile
             if (import && r.Kind is ElfRelocationKind.Absolute or ElfRelocationKind.GlobalData or ElfRelocationKind.JumpSlot && importSlots.Add(rva))
                 imports.Add(new NativeImport(sym!.VersionLibrary ?? "*", sym.Name, null, 0, rva, r.Kind == ElfRelocationKind.JumpSlot && lazy));
         }
+        // MIPS binds imports through the global GOT, not relocations: entry i follows DT_MIPS_LOCAL_GOTNO local ones, from DT_MIPS_GOTSYM
+        if (Machine is ElfNames.EmMips or ElfNames.EmMipsLe && Tag(3) is { } got && Tag(0x7000000A) is { } localGot && Tag(0x70000013) is { } gotSym)
+            for (ulong i = gotSym; i < (ulong)d.Symbols.Count; i++)
+            {
+                var sym = d.Symbols[(int)i];
+                if (sym.IsDefined || sym.Name.Length == 0 || !TryVaToRva(got + (localGot + i - gotSym) * (ulong)word, out uint rva) || !importSlots.Add(rva)) continue;
+                imports.Add(new NativeImport(sym.VersionLibrary ?? "*", sym.Name, null, 0, rva, lazy));
+            }
         rvas.Sort();
         return new RelocationInfo(all, new FixupOverlay(fixups, BigEndian), imports, [.. rvas.Distinct()]);
     }

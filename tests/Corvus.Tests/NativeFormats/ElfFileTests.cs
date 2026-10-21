@@ -47,6 +47,17 @@ public sealed class ElfFileTests(ITestOutputHelper output)
         Assert.Equal(functions.Single(s => s.Name == "_start").Rva, elf.EntryPointRva);
     }
 
+    /// <summary>
+    /// MIPS imports bound through the global GOT, without relocations: each undefined symbol from DT_MIPS_GOTSYM at its slot.
+    /// The fixture: clang -target mips-linux-gnu -O2 -fPIC -shared -nostdlib -fuse-ld=lld of a function calling puts and reading an extern int.
+    /// </summary>
+    [Fact]
+    public void Mips_global_got_entries_are_imports()
+    {
+        var elf = ElfFile.FromBytes(File.ReadAllBytes(Path.Combine(AppContext.BaseDirectory, "Engines", "IsaFixtures", "mips32be-got.elf")), "mips32be-got.elf");
+        Assert.Equal([("puts", 0x20300u), ("shared_counter", 0x20304u)], elf.Imports.Select(i => (i.Name, i.SlotRva)));
+    }
+
     [Fact]
     public void SharedObject_ImageModel()
     {
