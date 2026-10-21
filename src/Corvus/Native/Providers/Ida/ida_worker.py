@@ -321,14 +321,40 @@ def analyze_within(m, seconds):
     # saved database and runs on the next open. True: the queue ran empty.
     end = time.time() + float(seconds) if seconds else None
     m.ida_auto.enable_auto(True)
-    step, bad = m.ida_auto.auto_make_step, m.idautils.ida_idaapi.BADADDR
     while True:
-        for _ in range(500):
-            if not step(0, bad):
-                m.ida_auto.auto_wait()
-                return True
+        if not auto_steps(m):
+            m.ida_auto.auto_wait()
+            return True
         if (end is not None and time.time() >= end) or cancelled():
-            return bool(m.ida_auto.auto_is_ok())
+            if not m.ida_auto.auto_is_ok():
+                bound_auto_wait(m)
+                return False
+            return True
+
+
+def auto_steps(m, count=500):
+    # False when the analysis queue ran empty
+    step, bad = m.ida_auto.auto_make_step, m.idautils.ida_idaapi.BADADDR
+    for _ in range(count):
+        if not step(0, bad):
+            return False
+    return True
+
+
+def bound_auto_wait(m):
+    # on a partial analysis every auto_wait (edits, scripts) runs the queue only until its request's deadline
+    if getattr(m.ida_auto, "_full_wait", None) is not None:
+        return
+    full = m.ida_auto.auto_wait
+
+    def bounded():
+        while auto_steps(m):
+            if cancelled():
+                return False
+        return full()
+
+    m.ida_auto._full_wait = full
+    m.ida_auto.auto_wait = bounded
 
 
 INPUT_STAMP = "input"  # SHA-256 of the input the database was made from

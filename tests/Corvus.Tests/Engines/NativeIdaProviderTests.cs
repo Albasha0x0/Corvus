@@ -618,8 +618,8 @@ public sealed class NativeIdaProviderTests(ITestOutputHelper output, IdaCacheFix
     [IdaFact]
     public async Task An_open_out_of_analysis_time_keeps_a_partial_database_and_the_next_open_completes_it()
     {
-        // 5,000 functions, each calling the next: push rbp; mov rbp, rsp; call next; pop rbp; ret
-        const int count = 5_000;
+        // 12,000 functions, each calling the next: push rbp; mov rbp, rsp; call next; pop rbp; ret
+        const int count = 12_000;
         byte[] function = [0x55, 0x48, 0x89, 0xE5, 0xE8, 0x02, 0, 0, 0, 0x5D, 0xC3];
         byte[] last = [0x55, 0x48, 0x89, 0xE5, 0x90, 0x90, 0x90, 0x90, 0x90, 0x5D, 0xC3];
         var b = new PeBuilder();
@@ -637,6 +637,12 @@ public sealed class NativeIdaProviderTests(ITestOutputHelper output, IdaCacheFix
             output.WriteLine($"first open: {partial} functions, {s.OpenTime.TotalSeconds:0.0} s; {s.DatabaseNote}");
             Assert.False(s.AnalysisComplete);
             Assert.Contains("analysis partial", s.DatabaseNote);
+            // a later request's auto_wait (edits run one) runs the rest only until that request's deadline: it answers, the worker stays
+            var pid = s.WorkerProcessId;
+            var e = await Assert.ThrowsAsync<ToolError>(() => s.CallAsync("python", IdaProvider.Args(("code", "ida_auto.auto_wait()"), ("reset", false)), default,
+                timeout: TimeSpan.FromSeconds(2)));
+            Assert.Equal(ErrorCode.Timeout, e.Code);
+            Assert.Equal(pid, s.WorkerProcessId);
         }
         await using (var s = (IdaSession)await provider.OpenAsync(path, null, Offline))
         {
