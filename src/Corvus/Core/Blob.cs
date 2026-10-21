@@ -58,6 +58,8 @@ public static class Blob
         if (Hermes.HermesFile.Looks(b)) return "hermes bytecode";
         if (UnityWebData.Looks(b)) return "unitywebdata";
         if (GodotPack.Looks(b)) return "godotpck";
+        if (StartsWith(b, "PYZ\0"u8) && b.Length >= 12 && Python.PyVersion.FromMagic(b[4..]) != null) return "pyinstaller pyz";
+        if (Python.PyVersion.LooksLikePyc(b)) return "python bytecode";
         if (LooksLikeText(b)) return "text";
         return "data";
     }

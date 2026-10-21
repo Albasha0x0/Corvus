@@ -73,7 +73,10 @@ public static class Containers
             return UnityWebData.Open(web, name, location, allFiles, limits, ct, kind == "gzip" ? "gzip" : "Brotli");
         if (kind == "text" && Captures.LooksLikeHar(data) && Captures.Open(data, flows: false, allFiles, limits, ct) is { } har) return har;
         if (kind is "text" or "data" && Captures.LooksLikeFlows(data)) return Captures.Open(data, flows: true, allFiles, limits, ct)!;
-        if (kind == "zip") return OpenZip(data, name, limits, ct, allFiles);
+        if (kind == "pyinstaller pyz") return Python.PyInstallerArchive.OpenPyz(data, name, allFiles, limits, ct);
+        if (kind == "python bytecode")
+            return new ContainerContents("none", [], [$"A compiled Python module (.pyc, Python {Python.PyVersion.Label(Python.PyVersion.FromMagic(data)!.Value)}): code, not a container."]);
+        if (kind == "zip") return Python.FrozenPython.OpenLibraryZip(data, name, allFiles, limits, ct) ?? OpenZip(data, name, limits, ct, allFiles);
         if (kind == "jmod") return OpenZip(data[4..], name, limits, ct) with { Kind = "JMOD (Java module)" };
         if (kind == "wasm" && WebAssembly.WasmComponent.Looks(data))
         {
@@ -121,6 +124,8 @@ public static class Containers
             if (bundle != null) return bundle;
             if (NativeAotImageOf(data) is { } aot) return new ContainerContents("NativeAOT executable", [], [NativeAotNote(aot.Describe)]);
         }
+        // frozen Python programs read the files beside them, so they open here with the location rather than as a reader
+        if (kind is "native PE" or "elf" or "mach-o" or "data" && Python.FrozenPython.Open(data, name, location, allFiles, limits, ct) is { } python) return python;
         if (ReaderFor(data, name) is { } reader) return reader.Open(data, name, allFiles, limits, ct);
         if (kind == "data" && Firmware.FirmwareCarve.Open(data, name, limits, ct, allFiles) is { } firmware) return firmware;
         return Carve(data, name, pe != null ? "native PE" : kind, limits, ct);
