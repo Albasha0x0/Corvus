@@ -76,7 +76,7 @@ public sealed class LiveTargetRealTests(ITestOutputHelper output) : LiveToolCall
         Assert.Matches($@"stop thread \d+ 0x[0-9A-F]+ {name}!AddLine: stop point s1 hit 1", stops);
         Assert.Matches($@"stop thread \d+ 0x[0-9A-F]+ {name}!AddLine\+0x[0-9A-F]+: stop point s2 hit 1", stops);
         Assert.Contains("s1 cleared", await Ok(server, "live_break", new() { ["session"] = "live-1", ["action"] = "clear", ["stopPoint"] = "s1" }));
-        Assert.Contains("0 stop point(s)", await Ok(server, "live_break", new() { ["session"] = "live-1", ["action"] = "clear", ["stopPoint"] = "s2" }));
+        Assert.Contains(", 0 stop point(s)", await Ok(server, "live_break", new() { ["session"] = "live-1", ["action"] = "clear", ["stopPoint"] = "s2" }));
 
         var w1 = await Ok(server, "live_watch", new() { ["session"] = "live-1", ["action"] = "set", ["at"] = "AddLine", ["rateLimit"] = 100_000 });
         Assert.Matches($@"w1 .*{name}!AddLine", w1);
@@ -249,7 +249,7 @@ public sealed class LiveTargetRealTests(ITestOutputHelper output) : LiveToolCall
         }
         Assert.Contains($"script: u1: {{\"pid\":{pid},\"arch\":\"{(target.Is64 ? "x64" : "ia32")}\",\"bits\":{(target.Is64 ? 64 : 32)}}}", events);
         Assert.Contains("u1 unloaded", await Ok(server, "live_script", new() { ["session"] = "live-1", ["action"] = "unload", ["script"] = "u1" }));
-        Assert.Contains("0 script(s)", await Ok(server, "live_script", new() { ["session"] = "live-1" }));
+        Assert.Contains(", 0 script(s)", await Ok(server, "live_script", new() { ["session"] = "live-1" }));
 
         // an error in the top-level code, a later one with a message carrying data, and a script from a file
         Assert.Contains("u2 reported error: Error: on purpose",

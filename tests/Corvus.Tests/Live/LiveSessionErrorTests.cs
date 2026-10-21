@@ -179,6 +179,6 @@ public sealed class LiveSessionErrorTests : IDisposable
         File.WriteAllText(dir.File("big.js"), "//" + new string('x', 1 << 20));
         await Refused(ErrorCode.LimitExceeded, () => _tools.LiveScriptCalls("live-1", "load", path: dir.File("big.js")), "over 1 MB");
         await Refused(ErrorCode.LimitExceeded, () => _tools.LiveScriptCalls("live-1", "load", source: "//" + new string('x', 1 << 20)), "over 1 MB");
-        Assert.Contains("1 script(s)", await _tools.LiveScriptCalls("live-1"));
+        Assert.Contains(", 1 script(s)", await _tools.LiveScriptCalls("live-1"));
     }
 }

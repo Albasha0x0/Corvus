@@ -285,7 +285,7 @@ public sealed class LiveSessionTests : IDisposable
 
         var cleared = await _tools.LiveBreak("live-1", "clear", stopPoint: "s1");
         Assert.Contains("s1 cleared", cleared);
-        Assert.Contains("0 stop point(s)", cleared);
+        Assert.Contains(", 0 stop point(s)", cleared);
         var closed = await _tools.LiveSession("close", session: "live-1");
         Assert.Contains("closed", closed);
         Assert.Contains("close", _backend.Ops);
@@ -657,7 +657,7 @@ public sealed class LiveSessionTests : IDisposable
         for (int i = 0; i < 50 && !(await tools.LiveEvents("live-1", kind: "script")).Contains("hello"); i++) await Task.Delay(20);
         Assert.Contains("script: u1: {\"hello\":4242}", await tools.LiveEvents("live-1", kind: "script"));
         Assert.Contains("u1 unloaded", await tools.LiveScriptCalls("live-1", "unload", script: "u1"));
-        Assert.Contains("0 script(s)", await tools.LiveScriptCalls("live-1"));
+        Assert.Contains(", 0 script(s)", await tools.LiveScriptCalls("live-1"));
         Assert.Contains("u2 reported error: Error: on purpose", await tools.LiveScriptCalls("live-1", "load", source: "throw new Error('on purpose');"));
     }
 

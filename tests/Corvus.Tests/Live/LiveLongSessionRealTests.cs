@@ -201,7 +201,7 @@ public sealed class LiveLongSessionRealTests(ITestOutputHelper output) : LiveToo
         Assert.Matches($@"thread \d+ stopped at s1 \({name}!AddLine\)",
             await Ok(server, "live_break", new() { ["session"] = "live-2", ["action"] = "continue", ["wait"] = true, ["waitSeconds"] = 60 }));
         Assert.Matches(@"stop point s1 hit 2\b", await Events(server, "live-2", kind: "stop"));
-        Assert.Contains("0 stop point(s)", await Ok(server, "live_break", new() { ["session"] = "live-2", ["action"] = "clear", ["stopPoint"] = "s1" }));
+        Assert.Contains(", 0 stop point(s)", await Ok(server, "live_break", new() { ["session"] = "live-2", ["action"] = "clear", ["stopPoint"] = "s1" }));
         await Ok(server, "live_break", new() { ["session"] = "live-2", ["action"] = "continue" });
         Assert.Matches(@"exit code 0(?![0-9xX])", await UntilExited(server, "live-2"));
         Assert.Contains("lines 300", await Events(server, "live-2", kind: "output"));
