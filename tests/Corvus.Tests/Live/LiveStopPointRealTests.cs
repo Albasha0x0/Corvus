@@ -171,8 +171,16 @@ public sealed class LiveStopPointRealTests(ITestOutputHelper output) : LiveToolC
         await using var server = await Server();
         var pid = await Spawn(server, exe, "live-1");
         await Set(server, "Ready");
+        static HashSet<string> Names(string status) =>
+            new(Regex.Matches(status, @"^\s+0x[0-9A-F]+ (\S+)", RegexOptions.Multiline).Select(m => m.Groups[1].Value), StringComparer.OrdinalIgnoreCase);
+        var before = Names(await Ok(server, "live_session", new() { ["action"] = "status", ["session"] = "live-1" }));
         Assert.Contains("stopped at s1", await Ok(server, "live_break", new() { ["session"] = "live-1", ["action"] = "continue", ["wait"] = true, ["waitSeconds"] = 60 }));
-        Assert.Matches(new Regex(@"0x[0-9A-F]+ windows\.storage\.dll", RegexOptions.IgnoreCase), await Ok(server, "live_session", new() { ["action"] = "status", ["session"] = "live-1" }));
+        var atStop = Names(await Ok(server, "live_session", new() { ["action"] = "status", ["session"] = "live-1" }));
+        Assert.Contains("windows.storage.dll", atStop);
+        // the loader's list adds system DLLs only; the agent's cloaked modules (frida-agent.dll) stay out of every list
+        var system = Environment.GetFolderPath(target.Is64 ? Environment.SpecialFolder.System : Environment.SpecialFolder.SystemX86);
+        Assert.All(atStop.Except(before), name => Assert.True(File.Exists(Path.Combine(system, name)), $"{name} is not a system DLL"));
+        Assert.DoesNotContain(before.Concat(atStop), name => name.StartsWith("frida-", StringComparison.OrdinalIgnoreCase));
 
         await Ok(server, "live_break", new() { ["session"] = "live-1", ["action"] = "continue" });
         Assert.Matches(@"exit code 0(?![0-9xX])", await UntilExited(server, "live-1"));
