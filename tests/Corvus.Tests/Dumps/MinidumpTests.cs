@@ -428,6 +428,51 @@ public sealed class MinidumpTests
         Assert.Equal("frame_data", walk.Items[2].Method);
     }
 
+    /// <summary>
+    /// ntdll.dll: KiUserExceptionDispatcher calls RtlDispatchException, stopped in its prolog; the kernel copied the
+    /// EXCEPTION_RECORD and CONTEXT above the dispatcher's two arguments.
+    /// </summary>
+    [Fact]
+    public async Task X86_exception_dispatcher_frame_continues_at_the_faulting_context()
+    {
+        const uint Ntdll = 0x7700_0000, S = SyntheticCrashX86.Stack;
+        var ntdll = SyntheticCrashX86.Mapped(SyntheticCrashX86.Pe32("ntdll.dll", Ntdll, _ =>
+        {
+            var text = new byte[0x30];
+            // KiUserExceptionDispatcher: cld; mov ecx, [esp+4]; mov ebx, [esp]; push ecx; push ebx; call RtlDispatchException
+            new byte[] { 0xFC, 0x8B, 0x4C, 0x24, 0x04, 0x8B, 0x1C, 0x24, 0x51, 0x53, 0xE8 }.CopyTo(text, 0);
+            BinaryPrimitives.WriteInt32LittleEndian(text.AsSpan(11), 0x20 - 0x0F);
+            new byte[] { 0x8B, 0xFF, 0xCC, 0xC3 }.CopyTo(text, 0x20); // RtlDispatchException: mov edi, edi; int3; ret
+            return text;
+        }, [("KiUserExceptionDispatcher", 0x1000), ("RtlDispatchException", 0x1020)], null));
+        var synth = SyntheticCrashX86.Mapped(SyntheticCrashX86.FileImage());
+        var stack = new byte[0x200];
+        void Put(int at, uint v) => BinaryPrimitives.WriteUInt32LittleEndian(stack.AsSpan(at), v);
+        Put(0x00, Ntdll + 0x100F);
+        Put(0x04, S + 0x14);
+        Put(0x08, S + 0x64);
+        Put(0x0C, S + 0x14);
+        Put(0x10, S + 0x64);
+        MinidumpBuilder.ContextX86(SyntheticCrashX86.Base + SyntheticCrashX86.LeafRva, S + 0x180).CopyTo(stack, 0x64);
+        var d = new MinidumpBuilder { FullMemory = true, ProcessorArchitecture = 0 };
+        d.Modules.Add(new MinidumpBuilder.Module(Ntdll, (uint)ntdll.Length, 0, @"Z:\nowhere\ntdll.dll"));
+        d.Modules.Add(new MinidumpBuilder.Module(SyntheticCrashX86.Base, (uint)synth.Length, 0, @"Z:\nowhere\synth32.dll"));
+        d.Memory.Add((Ntdll, ntdll));
+        d.Memory.Add((SyntheticCrashX86.Base, synth));
+        d.Memory.Add((S, stack));
+        d.Regions.Add(new MinidumpBuilder.Region(Ntdll, (ulong)ntdll.Length, 0x20));
+        d.Regions.Add(new MinidumpBuilder.Region(SyntheticCrashX86.Base, (ulong)synth.Length, 0x20));
+        d.Regions.Add(new MinidumpBuilder.Region(S, 0x200, 0x04));
+        d.Threads.Add(new MinidumpBuilder.Thread(108, S, MinidumpBuilder.ContextX86(Ntdll + 0x1020, S)));
+        using var dir = new TempDir();
+        var path = dir.File("dispatch32.dmp");
+        File.WriteAllBytes(path, d.Build());
+        using var service = new MinidumpService();
+        var walk = await service.Stack(path, "108", true, 64, 0, 64, null, default);
+        Assert.Equal(["ntdll!RtlDispatchException", "ntdll!KiUserExceptionDispatcher+0xF", "synth32!Leaf"], walk.Items.Take(3).Select(f => f.Symbol));
+        Assert.Equal("machine_frame", walk.Items[2].Method);
+    }
+
     /// <summary>A function that tail-jumps through an import slot (jmp [slot]) leaves its caller's return address on top: the caller is a call target.</summary>
     [Fact]
     public async Task X86_tail_jump_through_an_import_slot_finds_the_caller()

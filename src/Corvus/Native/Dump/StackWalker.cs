@@ -14,7 +14,7 @@ public static class FrameMethod
     public const string Epilog = "epilog";
     /// <summary>x64 function without .pdata (a leaf), or x86 after a call to an address that is not code: the return address at the stack pointer.</summary>
     public const string Leaf = "leaf";
-    /// <summary>x64 UWOP_PUSH_MACHFRAME: an interrupt or exception frame.</summary>
+    /// <summary>x64 UWOP_PUSH_MACHFRAME: an interrupt or exception frame; x86: the CONTEXT record KiUserExceptionDispatcher received.</summary>
     public const string MachineFrame = "machine_frame";
     /// <summary>x86 frame data from the module's PDB (FRAMEDATA program or FPO_DATA sizes).</summary>
     public const string FrameData = "frame_data";
@@ -42,7 +42,8 @@ public sealed record WalkResult(IReadOnlyList<WalkFrame> Frames, string Stop, IR
 /// machine frame, chained info; epilog emulation for the top frame; leaf functions), falling back to a stack scan
 /// (frames marked heuristic) where no unwind data is available (no image, JIT code) or it leads nowhere. x86: the
 /// module PDB's frame data (FRAMEDATA programs, FPO_DATA), a return address whose call instruction targets the current
-/// function (frames that omit the frame pointer), the EBP chain, then a scan. Unwind data and code bytes come from the module images the caller supplies (a matching file
+/// function (frames that omit the frame pointer), the EBP chain, then a scan; KiUserExceptionDispatcher continues at
+/// the exception's CONTEXT record. Unwind data and code bytes come from the module images the caller supplies (a matching file
 /// from disk, or the image rebuilt from dump memory) and from captured memory. Every loop is bounded.
 /// </summary>
 public sealed class StackWalker
@@ -404,6 +405,9 @@ public sealed class StackWalker
     private (DumpContext? Next, string Method, bool Heuristic, string? Note) StepX86(DumpContext ctx, bool top)
     {
         uint calleeParams = _calleeParams;
+        _calleeParams = 0;
+        if (!top && ExceptionContext(ctx) is { } faulted)
+            return (faulted, FrameMethod.MachineFrame, false, "the exception's register context (KiUserExceptionDispatcher)");
         var record = _frameData?.Invoke(top ? ctx.Ip : ctx.Ip - 1);
         _calleeParams = record?.Params ?? 0;
         if (top)
@@ -554,6 +558,30 @@ public sealed class StackWalker
     }
 
     private const int TailWindow = 512;
+
+    /// <summary>
+    /// In ntdll!KiUserExceptionDispatcher, which the kernel enters with no return address: the registers of the code that
+    /// raised the exception, from the CONTEXT record it received; null elsewhere.
+    /// </summary>
+    private DumpContext? ExceptionContext(DumpContext ctx)
+    {
+        if (_functionStart?.Invoke(ctx.Ip - 1) is not { } function || ExportName(function) != "KiUserExceptionDispatcher") return null;
+        // Its arguments, EXCEPTION_RECORD* and CONTEXT*, point at the two records the kernel copied just above them;
+        // the slots below them may still hold the copies it passed to RtlDispatchException.
+        for (ulong slot = ctx.Sp; slot <= ctx.Sp + 16; slot += 4)
+        {
+            if (!_dump.TryReadU32(slot, out uint record) || !_dump.TryReadU32(slot + 4, out uint context)
+                || record != slot + 8 || context != record + ExceptionRecordSize) continue;
+            var bytes = new byte[X86ContextSize];
+            if (_dump.ReadMemory(context, bytes) < bytes.Length || DumpContext.Parse(NativeArch.X86, bytes) is not { } faulted) return null;
+            return faulted.Sp > ctx.Sp && faulted.Ip != 0 ? faulted : null;
+        }
+        return null;
+    }
+
+    private const int ExceptionRecordSize = 0x50;
+    // The integer and control registers of an x86 CONTEXT end at 0xCC; the extended registers after them are not needed.
+    private const int X86ContextSize = 0xCC;
 
     /// <summary>
     /// The caller's registers from the PDB frame data of the current code block, or null when its program fails or gives
