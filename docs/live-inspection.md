@@ -265,6 +265,9 @@ with the dump tools; the program keeps running. The dump goes to `outputPath`, e
 file under the temp folder's `corvus-snapshots`. Saved while a thread is held at a stop, the dump records that stop:
 on Windows as its exception (a breakpoint, as a debugger's `.dump` at a break does), in a Linux core as the stopped
 thread's registers and signal (`SIGTRAP`, `TRAP_BRKPT` at the stop's address). Either way `dump_stack` walks from the stop.
+On Linux GDB stops every thread, and a thread waiting in `vfork` for a child that has not run its program yet cannot
+stop: such a snapshot is refused with `timeout` once that wait has lasted 10 seconds, and a `gcore` that is ended
+(that refusal, cancellation, or 5 minutes) leaves the program running as it found it.
 
 `live_script` loads a script you wrote into the program (Frida's JavaScript API); what it sends arrives as `script`
 events, and a script that does not compile is refused with the compiler's message. A script runs inside the program

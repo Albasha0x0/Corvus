@@ -7,7 +7,8 @@ namespace Corvus.Tests;
 
 /// <summary>
 /// Snapshot writes: one the running program disturbs (it changed a list or a region during the read) is written again; a
-/// Linux core written at a stop gives the stopped thread the stop's registers and signal.
+/// Linux core written at a stop gives the stopped thread the stop's registers and signal; a program waiting in vfork for a
+/// child that has not run its program is refused instead of holding gcore, and is left running.
 /// </summary>
 public sealed class ProcessSnapshotTests
 {
@@ -52,5 +53,81 @@ public sealed class ProcessSnapshotTests
         var r = await service.Stack(path, "exception", true, 64, 0, 64, null, CancellationToken.None);
         Assert.Equal(1002u, r.ThreadId);
         Assert.Equal(["crash::null()", "B", "A", "M"], r.Items.Select(f => f.Function));
+    }
+
+    [Fact]
+    public void A_vfork_wait_is_read_from_the_thread_state_and_wait_channel()
+    {
+        Assert.Equal('D', ProcessSnapshot.StateOf("19 (vf (copy)) D 1 19 1 34816"));
+        Assert.Equal('\0', ProcessSnapshot.StateOf(null));
+        Assert.True(ProcessSnapshot.IsVforkWait("kernel_clone"));
+        Assert.True(ProcessSnapshot.IsVforkWait("_do_fork"));
+        Assert.False(ProcessSnapshot.IsVforkWait("futex_wait_queue"));
+        Assert.False(ProcessSnapshot.IsVforkWait(null));
+    }
+
+    /// <summary>vforker: prints its pid, then vforks a child that stops itself before it runs sleep 3, and waits for it.</summary>
+    private const string Vforker = """
+        #include <signal.h>
+        #include <stdio.h>
+        #include <unistd.h>
+        #include <sys/wait.h>
+        int main(void)
+        {
+            printf("%d\n", getpid());
+            fflush(stdout);
+            pid_t pid = vfork();
+            if (pid == 0) { kill(getpid(), SIGSTOP); execl("/bin/sleep", "sleep", "3", (char*)0); _exit(127); }
+            waitpid(pid, 0, 0);
+            return 0;
+        }
+        """;
+
+    [Trait("Speed", "Slow")]
+    [LiveTargetFact("linux-x64")]
+    public Task A_program_in_vfork_is_refused_and_left_running_on_linux_x64() => VforkRefused(LiveTarget.LinuxX64);
+
+    [Trait("Speed", "Slow")]
+    [LiveTargetFact("linux-x86")]
+    public Task A_program_in_vfork_is_refused_and_left_running_on_linux_x86() => VforkRefused(LiveTarget.LinuxX86);
+
+    private static async Task VforkRefused(LiveTarget target)
+    {
+        using var dir = new TempDir();
+        var exe = target.Build(dir, "vforker", Vforker);
+        using var parent = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(exe) { RedirectStandardOutput = true })!;
+        try
+        {
+            var pid = int.Parse((await parent.StandardOutput.ReadLineAsync())!, System.Globalization.CultureInfo.InvariantCulture);
+            int? waiting = null;
+            for (int i = 0; i < 50 && (waiting = ProcessSnapshot.InVfork(pid)) == null; i++) await Task.Delay(100);
+            Assert.Equal(pid, waiting);
+            int child = int.Parse(File.ReadAllText($"/proc/{pid}/task/{pid}/children").Trim(), System.Globalization.CultureInfo.InvariantCulture);
+
+            var sw = System.Diagnostics.Stopwatch.StartNew();
+            var refused = Assert.Throws<ToolError>(() => ProcessSnapshot.Write(pid, dir.File("held.core"), false, CancellationToken.None));
+            Assert.Equal(ErrorCode.Timeout, refused.Code);
+            Assert.Contains("waits in vfork", refused.Message);
+            Assert.InRange(sw.Elapsed, ProcessSnapshot.VforkWait, ProcessSnapshot.VforkWait + TimeSpan.FromSeconds(20));
+            Assert.Equal('D', ProcessSnapshot.State(pid, pid));
+            Assert.False(File.Exists(dir.File("held.core")));
+
+            // A gcore already attaching when the vfork wait is seen is ended,
+            // and the program is not left in group stop.
+            var ended = Assert.Throws<ToolError>(() => ProcessSnapshot.WriteCore(pid, dir.File("attached.core"), CancellationToken.None, null, waitOutVfork: false));
+            Assert.Contains("waits in vfork", ended.Message);
+            await Task.Delay(500);
+            Assert.Equal('D', ProcessSnapshot.State(pid, pid));
+
+            // A child that runs its program within the wait lets the snapshot
+            // be written.
+            _ = Task.Delay(2000).ContinueWith(_ => System.Diagnostics.Process.Start("kill", ["-CONT", child.ToString(System.Globalization.CultureInfo.InvariantCulture)]));
+            Assert.True(ProcessSnapshot.Write(pid, dir.File("after.core"), false, CancellationToken.None) > 0);
+            Assert.True(parent.WaitForExit(10_000), "the program did not run on after the snapshots");
+        }
+        finally
+        {
+            if (!parent.HasExited) parent.Kill(true);
+        }
     }
 }

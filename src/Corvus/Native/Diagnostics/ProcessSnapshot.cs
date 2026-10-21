@@ -142,16 +142,47 @@ public static class ProcessSnapshot
         }
     }
 
-    /// <summary>gcore names its output &lt;prefix&gt;.&lt;pid&gt;; the file is moved to <paramref name="path"/>.</summary>
-    private static void WriteCore(int pid, string path, CancellationToken ct, Stop? stop)
+    // How long a thread may wait in vfork, before or during the write, until the snapshot is given up.
+    internal static readonly TimeSpan VforkWait = TimeSpan.FromSeconds(10);
+    private static readonly TimeSpan CoreTimeout = TimeSpan.FromMinutes(5);
+
+    /// <summary>
+    /// gcore names its output &lt;prefix&gt;.&lt;pid&gt;; the file is moved to <paramref name="path"/>. Without
+    /// <paramref name="waitOutVfork"/> gcore starts at once, as when a vfork begins while it attaches.
+    /// </summary>
+    internal static void WriteCore(int pid, string path, CancellationToken ct, Stop? stop, bool waitOutVfork = true)
     {
         var gcore = Environment.GetEnvironmentVariable("PATH")?.Split(Path.PathSeparator).Select(d => Path.Combine(d, "gcore")).FirstOrDefault(File.Exists)
                     ?? throw new ToolError(ErrorCode.ProviderUnavailable, "gcore (GDB) is not on PATH.", "install GDB (it ships gcore)");
+        // GDB stops every thread, and a thread in vfork stops only once its
+        // child execs or exits. The child's exec can wait on the stopped
+        // program (a session's child gate hooks exec there), so GDB would
+        // wait forever.
+        for (var waited = Stopwatch.StartNew(); waitOutVfork && InVfork(pid) is { } tid; Thread.Sleep(100))
+            if (waited.Elapsed >= VforkWait) throw VforkRefusal(pid, tid);
+        // A process GDB is killed on stays in group stop; one that was
+        // stopped before the write is left stopped.
+        bool stoppedBefore = State(pid, pid) == 'T';
         var prefix = path + ".core";
         using var p = Process.Start(new ProcessStartInfo(gcore) { ArgumentList = { "-o", prefix, pid.ToString(System.Globalization.CultureInfo.InvariantCulture) }, RedirectStandardOutput = true, RedirectStandardError = true })!;
-        var stderr = p.StandardError.ReadToEndAsync(ct);
-        p.StandardOutput.ReadToEnd();
-        if (!p.WaitForExit(TimeSpan.FromMinutes(5))) { p.Kill(true); throw new ToolError(ErrorCode.Timeout, "gcore did not finish within 5 minutes."); }
+        var stderr = p.StandardError.ReadToEndAsync(CancellationToken.None);
+        var stdout = p.StandardOutput.ReadToEndAsync(CancellationToken.None);
+        var elapsed = Stopwatch.StartNew();
+        TimeSpan? vfork = null;
+        while (!p.WaitForExit(250))
+        {
+            int? waiting = InVfork(pid);
+            vfork = waiting == null ? null : vfork ?? elapsed.Elapsed;
+            ToolError? failure = ct.IsCancellationRequested ? new ToolError(ErrorCode.Cancelled, "The snapshot was cancelled; gcore was ended.")
+                : waiting is { } tid && elapsed.Elapsed - vfork >= VforkWait ? VforkRefusal(pid, tid)
+                : elapsed.Elapsed >= CoreTimeout ? new ToolError(ErrorCode.Timeout, $"gcore did not finish within {CoreTimeout.TotalMinutes:0} minutes.") : null;
+            if (failure == null) continue;
+            p.Kill(true);
+            p.WaitForExit();
+            if (!stoppedBefore) _ = Kill(pid, SigCont);
+            throw failure;
+        }
+        stdout.Wait(CancellationToken.None);
         var written = $"{prefix}.{pid}";
         if (p.ExitCode != 0 || !File.Exists(written))
         {
@@ -162,6 +193,42 @@ public static class ProcessSnapshot
         File.Move(written, path, true);
         if (stop != null) MarkStop(path, stop);
     }
+
+    private static ToolError VforkRefusal(int pid, int tid) => new(ErrorCode.Timeout,
+        $"Thread {tid} of process {pid} waits in vfork for a child that has not run its program yet; GDB cannot stop it, so no snapshot was written.",
+        "take the snapshot again: a vfork child runs its program within moments unless the program is held");
+
+    /// <summary>A thread of <paramref name="pid"/> that waits in vfork for its child; null when none does.</summary>
+    internal static int? InVfork(int pid)
+    {
+        string[] tasks;
+        try { tasks = Directory.GetDirectories($"/proc/{pid}/task"); }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException) { return null; }
+        foreach (var task in tasks)
+            if (int.TryParse(Path.GetFileName(task), out var tid) && State(pid, tid) == 'D' && IsVforkWait(Read($"{task}/wchan")))
+                return tid;
+        return null;
+    }
+
+    /// <summary>Whether a wait channel is the fork path a vfork parent sleeps in until its child execs or exits.</summary>
+    internal static bool IsVforkWait(string? wchan) => wchan is "kernel_clone" or "_do_fork" or "do_fork" or "wait_for_vfork_done";
+
+    /// <summary>The state letter of /proc/&lt;pid&gt;/task/&lt;tid&gt;/stat (after the command name); '\0' when it cannot be read.</summary>
+    internal static char State(int pid, int tid) => StateOf(Read($"/proc/{pid}/task/{tid}/stat"));
+
+    internal static char StateOf(string? stat) => stat?.LastIndexOf(')') is int at and >= 0 && at + 2 < stat.Length ? stat[at + 2] : '\0';
+
+    private static string? Read(string path)
+    {
+        try { return File.ReadAllText(path).Trim(); }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException) { return null; }
+    }
+
+    // SIGCONT on Linux.
+    private const int SigCont = 18;
+
+    [DllImport("libc", EntryPoint = "kill", SetLastError = true)]
+    private static extern int Kill(int pid, int signal);
 
     // user_regs_struct order (x86-64, i386), as NT_PRSTATUS holds it
     private static readonly string[] UserRegsX64 = ["r15", "r14", "r13", "r12", "rbp", "rbx", "r11", "r10", "r9", "r8", "rax", "rcx", "rdx", "rsi", "rdi", "", "rip", "", "", "rsp"];
