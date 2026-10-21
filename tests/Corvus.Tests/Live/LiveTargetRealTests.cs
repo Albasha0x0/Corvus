@@ -36,6 +36,7 @@ public sealed class LiveTargetRealTests(ITestOutputHelper output) : LiveToolCall
     [LiveTargetFact("win-x86")] public Task Sessions_on_win_x86() => Sessions(LiveTarget.WinX86);
     [LiveTargetFact("win-arm64")] public Task Sessions_on_win_arm64() => Sessions(LiveTarget.WinArm64);
     [LiveTargetFact("linux-x64")] public Task Sessions_on_linux_x64() => Sessions(LiveTarget.LinuxX64);
+    [LiveTargetFact("osx-arm64")] public Task Sessions_on_osx_arm64() => Sessions(LiveTarget.MacArm64);
     [LiveTargetFact("linux-x86")] public Task Sessions_on_linux_x86() => Sessions(LiveTarget.LinuxX86);
 
     private async Task Sessions(LiveTarget target)
@@ -136,6 +137,7 @@ public sealed class LiveTargetRealTests(ITestOutputHelper output) : LiveToolCall
     [LiveTargetFact("win-x86")] public Task Attach_on_win_x86() => Attach(LiveTarget.WinX86);
     [LiveTargetFact("win-arm64")] public Task Attach_on_win_arm64() => Attach(LiveTarget.WinArm64);
     [LiveTargetFact("linux-x64", attaches: true)] public Task Attach_on_linux_x64() => Attach(LiveTarget.LinuxX64);
+    [LiveTargetFact("osx-arm64", attaches: true)] public Task Attach_on_osx_arm64() => Attach(LiveTarget.MacArm64);
     [LiveTargetFact("linux-x86", attaches: true)] public Task Attach_on_linux_x86() => Attach(LiveTarget.LinuxX86);
 
     private async Task Attach(LiveTarget target)
@@ -163,6 +165,8 @@ public sealed class LiveTargetRealTests(ITestOutputHelper output) : LiveToolCall
 
             if (target.Emulated)
                 Assert.Contains("emulated on an ARM64 machine", await Refused(server, "live_session", new() { ["action"] = "snapshot", ["session"] = "live-1" }, "unsupported"));
+            else if (target.Mac)
+                Assert.Contains("lldb's process save-core", await Refused(server, "live_session", new() { ["action"] = "snapshot", ["session"] = "live-1" }, "provider_unavailable"));
             else
             {
                 var snapshot = await Ok(server, "live_session", new() { ["action"] = "snapshot", ["session"] = "live-1" });
@@ -282,6 +286,7 @@ public sealed class LiveTargetRealTests(ITestOutputHelper output) : LiveToolCall
     [LiveTargetFact("win-x86")] public Task Scripts_on_win_x86() => Scripts(LiveTarget.WinX86);
     [LiveTargetFact("win-arm64")] public Task Scripts_on_win_arm64() => Scripts(LiveTarget.WinArm64);
     [LiveTargetFact("linux-x64")] public Task Scripts_on_linux_x64() => Scripts(LiveTarget.LinuxX64);
+    [LiveTargetFact("osx-arm64")] public Task Scripts_on_osx_arm64() => Scripts(LiveTarget.MacArm64);
     [LiveTargetFact("linux-x86")] public Task Scripts_on_linux_x86() => Scripts(LiveTarget.LinuxX86);
 
     private async Task Scripts(LiveTarget target)
@@ -333,6 +338,7 @@ public sealed class LiveTargetRealTests(ITestOutputHelper output) : LiveToolCall
     [LiveTargetFact("win-x86")] public Task Coverage_on_win_x86() => Coverage(LiveTarget.WinX86);
     [LiveTargetFact("win-arm64")] public Task Coverage_on_win_arm64() => Coverage(LiveTarget.WinArm64);
     [LiveTargetFact("linux-x64")] public Task Coverage_on_linux_x64() => Coverage(LiveTarget.LinuxX64);
+    [LiveTargetFact("osx-arm64")] public Task Coverage_on_osx_arm64() => Coverage(LiveTarget.MacArm64);
     [LiveTargetFact("linux-x86")] public Task Coverage_on_linux_x86() => Coverage(LiveTarget.LinuxX86);
 
     private async Task Coverage(LiveTarget target)
@@ -363,6 +369,7 @@ public sealed class LiveTargetRealTests(ITestOutputHelper output) : LiveToolCall
     [LiveTargetFact("win-x86")] public Task Threads_on_win_x86() => Threads(LiveTarget.WinX86);
     [LiveTargetFact("win-arm64")] public Task Threads_on_win_arm64() => Threads(LiveTarget.WinArm64);
     [LiveTargetFact("linux-x64")] public Task Threads_on_linux_x64() => Threads(LiveTarget.LinuxX64);
+    [LiveTargetFact("osx-arm64")] public Task Threads_on_osx_arm64() => Threads(LiveTarget.MacArm64);
     [LiveTargetFact("linux-x86")] public Task Threads_on_linux_x86() => Threads(LiveTarget.LinuxX86);
 
     private async Task Threads(LiveTarget target)

@@ -190,12 +190,26 @@ public sealed class LiveChildrenRealTests(ITestOutputHelper output) : LiveToolCa
         Ended(child);
     }
 
+    // ---- macOS: following children is refused before the program starts
+
+    [LiveTargetFact("osx-arm64")]
+    public async Task Following_children_is_refused_on_osx_arm64()
+    {
+        var (launcher, orders) = Build(LiveTarget.MacArm64);
+        await using var server = await Server();
+        Assert.Contains("not supported on macOS", await Refused(server, "live_session", new()
+        {
+            ["action"] = "spawn", ["program"] = launcher, ["arguments"] = new[] { orders, "3", "0" }, ["childNames"] = new[] { "orders" },
+        }, "unsupported"));
+    }
+
     // ---- without childNames the session sees only the launcher
 
     [LiveTargetFact("win-x64")] public Task Not_followed_on_win_x64() => NotFollowed(LiveTarget.WinX64);
     [LiveTargetFact("win-x86")] public Task Not_followed_on_win_x86() => NotFollowed(LiveTarget.WinX86);
     [LiveTargetFact("win-arm64")] public Task Not_followed_on_win_arm64() => NotFollowed(LiveTarget.WinArm64);
     [LiveTargetFact("linux-x64")] public Task Not_followed_on_linux_x64() => NotFollowed(LiveTarget.LinuxX64);
+    [LiveTargetFact("osx-arm64")] public Task Not_followed_on_osx_arm64() => NotFollowed(LiveTarget.MacArm64);
     [LiveTargetFact("linux-x86")] public Task Not_followed_on_linux_x86() => NotFollowed(LiveTarget.LinuxX86);
 
     private async Task NotFollowed(LiveTarget target)

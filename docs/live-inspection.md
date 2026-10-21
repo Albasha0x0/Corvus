@@ -290,8 +290,15 @@ of the same program (3,020 functions, statically linked C runtime): stop points 
 - Processes of another user, elevated processes (from a non-elevated server) and protected processes fail with
   `access_denied`. A process that has exited fails with `not_found` (reason `process_exited`).
 - `inspect_process` identifies managed (JIT) frames without decoding them; sessions name them (see Sessions).
-- Sessions run on Windows and Linux. On macOS `live_session` fails with `provider_unavailable`, so no session opens;
-  minidumps and core files open with `open_minidump` on any OS.
+- Sessions run on Windows, Linux and macOS. Minidumps and core files open with `open_minidump` on any OS.
+- On macOS (tested on Apple silicon, as GitHub's macos-latest machine runs it: Developer Mode on, the user in the
+  `_developer` group), a session observes the programs a debugger may: built on the machine or signed with the
+  `get-task-allow` entitlement. `snapshot` fails with `provider_unavailable` there (lldb's `process save-core` writes a
+  core file), and following child processes (`childNames`) fails with `unsupported`, since Frida's child gating misses a
+  fork there intermittently.
+- On Windows ARM64, ARM64 programs are observed natively. x64 and x86 programs run under emulation: `module!export`
+  resolves to the export the program calls (the x64 or x86 view of a system DLL), and `snapshot` is refused
+  (`unsupported`), since the dump would hold the emulator's ARM64 threads rather than the program's registers.
 - On Linux, a server without CAP_SYS_PTRACE is bound by Yama's `ptrace_scope`: at 1 sessions on programs it starts
   work, while attaching to another program and `snapshot` fail with `access_denied` naming the setting; at 2 every
   session and snapshot fails that way.

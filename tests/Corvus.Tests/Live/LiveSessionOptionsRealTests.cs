@@ -22,6 +22,7 @@ public sealed class LiveSessionOptionsRealTests(ITestOutputHelper output) : Live
     [LiveTargetFact("win-x86")] public Task Options_on_win_x86() => Options(LiveTarget.WinX86);
     [LiveTargetFact("win-arm64")] public Task Options_on_win_arm64() => Options(LiveTarget.WinArm64);
     [LiveTargetFact("linux-x64")] public Task Options_on_linux_x64() => Options(LiveTarget.LinuxX64);
+    [LiveTargetFact("osx-arm64")] public Task Options_on_osx_arm64() => Options(LiveTarget.MacArm64);
     [LiveTargetFact("linux-x86")] public Task Options_on_linux_x86() => Options(LiveTarget.LinuxX86);
 
     private async Task Options(LiveTarget target)
@@ -68,6 +69,7 @@ public sealed class LiveSessionOptionsRealTests(ITestOutputHelper output) : Live
             var path = _dir.File(target.Windows ? "probe.dmp" : "probe.core");
             var args = new Dictionary<string, object?> { ["action"] = "snapshot", ["session"] = "live-2", ["outputPath"] = path };
             if (target.Emulated) Assert.Contains("emulated on an ARM64 machine", await Refused(server, "live_session", args, "unsupported"));
+            else if (target.Mac) Assert.Contains("lldb's process save-core", await Refused(server, "live_session", args, "provider_unavailable"));
             else
             {
                 Assert.Contains($"written to {path}", await Ok(server, "live_session", args));

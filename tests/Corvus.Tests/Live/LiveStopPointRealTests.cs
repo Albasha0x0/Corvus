@@ -28,6 +28,7 @@ public sealed class LiveStopPointRealTests(ITestOutputHelper output) : LiveToolC
     [LiveTargetFact("win-x86")] public Task Locations_on_win_x86() => Locations(LiveTarget.WinX86);
     [LiveTargetFact("win-arm64")] public Task Locations_on_win_arm64() => Locations(LiveTarget.WinArm64);
     [LiveTargetFact("linux-x64")] public Task Locations_on_linux_x64() => Locations(LiveTarget.LinuxX64);
+    [LiveTargetFact("osx-arm64")] public Task Locations_on_osx_arm64() => Locations(LiveTarget.MacArm64);
     [LiveTargetFact("linux-x86")] public Task Locations_on_linux_x86() => Locations(LiveTarget.LinuxX86);
 
     private async Task Locations(LiveTarget target)
@@ -85,6 +86,7 @@ public sealed class LiveStopPointRealTests(ITestOutputHelper output) : LiveToolC
     [LiveTargetFact("win-x86")] public Task One_thread_on_win_x86() => OneThread(LiveTarget.WinX86);
     [LiveTargetFact("win-arm64")] public Task One_thread_on_win_arm64() => OneThread(LiveTarget.WinArm64);
     [LiveTargetFact("linux-x64")] public Task One_thread_on_linux_x64() => OneThread(LiveTarget.LinuxX64);
+    [LiveTargetFact("osx-arm64")] public Task One_thread_on_osx_arm64() => OneThread(LiveTarget.MacArm64);
     [LiveTargetFact("linux-x86")] public Task One_thread_on_linux_x86() => OneThread(LiveTarget.LinuxX86);
 
     private async Task OneThread(LiveTarget target)
@@ -123,6 +125,7 @@ public sealed class LiveStopPointRealTests(ITestOutputHelper output) : LiveToolC
     [LiveTargetFact("win-x86")] public Task Deferred_on_win_x86() => Deferred(LiveTarget.WinX86);
     [LiveTargetFact("win-arm64")] public Task Deferred_on_win_arm64() => Deferred(LiveTarget.WinArm64);
     [LiveTargetFact("linux-x64")] public Task Deferred_on_linux_x64() => Deferred(LiveTarget.LinuxX64);
+    [LiveTargetFact("osx-arm64")] public Task Deferred_on_osx_arm64() => Deferred(LiveTarget.MacArm64);
     [LiveTargetFact("linux-x86")] public Task Deferred_on_linux_x86() => Deferred(LiveTarget.LinuxX86);
 
     private async Task Deferred(LiveTarget target)
@@ -278,6 +281,7 @@ public sealed class LiveStopPointRealTests(ITestOutputHelper output) : LiveToolC
     [LiveTargetFact("win-x86")] public Task Raw_values_on_win_x86() => RawValues(LiveTarget.WinX86);
     [LiveTargetFact("win-arm64")] public Task Raw_values_on_win_arm64() => RawValues(LiveTarget.WinArm64);
     [LiveTargetFact("linux-x64")] public Task Raw_values_on_linux_x64() => RawValues(LiveTarget.LinuxX64);
+    [LiveTargetFact("osx-arm64")] public Task Raw_values_on_osx_arm64() => RawValues(LiveTarget.MacArm64);
     [LiveTargetFact("linux-x86")] public Task Raw_values_on_linux_x86() => RawValues(LiveTarget.LinuxX86);
 
     private async Task RawValues(LiveTarget target)
@@ -285,6 +289,8 @@ public sealed class LiveStopPointRealTests(ITestOutputHelper output) : LiveToolC
         var plugin = target.BuildLibrary(_dir, "plugin", LivePrograms.Plugin, debugInfo: false);
         var exe = target.Build(_dir, "loader", LivePrograms.Loader);
         var module = Path.GetFileNameWithoutExtension(target.Library("plugin"));
+        // A Mach-O symbol keeps the C compiler's underscore.
+        var other = target.Mac ? "_PluginOther" : "PluginOther";
         const int calls = 50;
         await using var server = await Server();
         var pid = await Spawn(server, exe, "live-1", plugin, $"{calls}");
@@ -294,9 +300,9 @@ public sealed class LiveStopPointRealTests(ITestOutputHelper output) : LiveToolC
         Assert.Matches(@"exit code 0(?![0-9xX])", await UntilExited(server, "live-1"));
         await Task.Delay(500); // the last batch
         var list = await Ok(server, "live_watch", new() { ["session"] = "live-1" });
-        Assert.Matches($@"w1 {Regex.Escape(target.Library("plugin"))}!PluginOther: {calls} call\(s\) recorded[^;\n]*; PluginOther\(a0, a1\) \(raw values\)", list);
+        Assert.Matches($@"w1 {Regex.Escape(target.Library("plugin"))}!{other}: {calls} call\(s\) recorded[^;\n]*; {other}\(a0, a1\) \(raw values\)", list);
         // the decoding is known once the library loads: the module event names it
-        Assert.Contains($"deferred watch w1 set at {target.Library("plugin")}!PluginOther: PluginOther(a0, a1) (raw values) (", await Events(server, "live-1", kind: "module"));
+        Assert.Contains($"deferred watch w1 set at {target.Library("plugin")}!{other}: {other}(a0, a1) (raw values) (", await Events(server, "live-1", kind: "module"));
 
         var events = await Events(server, "live-1", from: "w1");
         var rows = Regex.Matches(events, @"PluginOther\(a0=0x([0-9A-F]+), a1=0x[0-9A-F]+\) -> 0x([0-9A-F]+)\r?\n");

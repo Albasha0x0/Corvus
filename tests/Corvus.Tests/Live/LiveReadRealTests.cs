@@ -22,6 +22,7 @@ public sealed class LiveReadRealTests(ITestOutputHelper output) : LiveToolCalls(
     [LiveTargetFact("win-x86")] public Task Reads_on_win_x86() => Reads(LiveTarget.WinX86);
     [LiveTargetFact("win-arm64")] public Task Reads_on_win_arm64() => Reads(LiveTarget.WinArm64);
     [LiveTargetFact("linux-x64")] public Task Reads_on_linux_x64() => Reads(LiveTarget.LinuxX64);
+    [LiveTargetFact("osx-arm64")] public Task Reads_on_osx_arm64() => Reads(LiveTarget.MacArm64);
     [LiveTargetFact("linux-x86")] public Task Reads_on_linux_x86() => Reads(LiveTarget.LinuxX86);
 
     private async Task Reads(LiveTarget target)
@@ -49,8 +50,9 @@ public sealed class LiveReadRealTests(ITestOutputHelper output) : LiveToolCalls(
         Assert.Contains("  -5000000000\n", await Read(server, "g_big", "int64"));
         var bytes = await Read(server, "g_bytes", "uint8[4]");
         for (int i = 0; i < 4; i++) Assert.Contains($"[{i}] {i + 1}\n", bytes);
-        // a module name is its base: the image header
-        Assert.Contains(target.Windows ? "  23117\n" : "  1179403647\n", await Read(server, target.Exe("values"), target.Windows ? "uint16" : "uint32"));
+        // A module name is its base: the image header's magic (MZ, ELF,
+        // MH_MAGIC_64).
+        Assert.Contains(target.Windows ? "  23117\n" : target.Mac ? "  4277009103\n" : "  1179403647\n", await Read(server, target.Exe("values"), target.Windows ? "uint16" : "uint32"));
 
         // At the function's entry the stack pointer holds the return address
         // (ARM64: the link register), the stop's frame #1.

@@ -421,6 +421,9 @@ public sealed partial class LiveSessionService(AssemblyWorkspace workspace, Nati
             throw new ToolError(ErrorCode.LimitExceeded, $"{MaxSessions} sessions are open.", "close one with live_session action=close");
         if (Backend.Unavailable() is { } missing)
             throw new ToolError(ErrorCode.ProviderUnavailable, missing.Reason, missing.Remediation);
+        if (childNames != null && OperatingSystem.IsMacOS() && Backend is FridaBackend)
+            throw new ToolError(ErrorCode.Unsupported, "Following child processes is not supported on macOS: Frida's child gating misses a fork there intermittently, so a child can run unobserved.",
+                "open a session on the child once it runs (action=attach program=<process id or name>)");
         string target = program.Trim();
         if (spawn)
         {

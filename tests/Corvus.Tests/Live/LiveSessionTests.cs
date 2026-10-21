@@ -1046,14 +1046,6 @@ public sealed class LiveSessionTests : IDisposable
     }
 
     [Fact]
-    public void Sessions_on_macOS_are_refused_before_the_backend_is_probed()
-    {
-        Assert.Contains("macOS is not supported", FridaBackend.PlatformProblem(macOS: true)!.Value.Reason);
-        Assert.Null(FridaBackend.PlatformProblem(macOS: false));
-        if (OperatingSystem.IsMacOS()) Assert.Contains("macOS", new FridaBackend().Unavailable()!.Value.Reason);
-    }
-
-    [Fact]
     public void An_open_that_timed_out_points_at_the_program()
     {
         Assert.Contains("did not load the session's agent in time", FridaBackend.Remediation(ErrorCode.Timeout, "open"));

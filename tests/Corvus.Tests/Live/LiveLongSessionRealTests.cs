@@ -135,6 +135,7 @@ public sealed class LiveLongSessionRealTests(ITestOutputHelper output) : LiveToo
     [LiveTargetFact("win-x86")] public Task Deadline_closes_the_session_on_win_x86() => Deadline(LiveTarget.WinX86);
     [LiveTargetFact("win-arm64")] public Task Deadline_closes_the_session_on_win_arm64() => Deadline(LiveTarget.WinArm64);
     [LiveTargetFact("linux-x64")] public Task Deadline_closes_the_session_on_linux_x64() => Deadline(LiveTarget.LinuxX64);
+    [LiveTargetFact("osx-arm64")] public Task Deadline_closes_the_session_on_osx_arm64() => Deadline(LiveTarget.MacArm64);
     [LiveTargetFact("linux-x86")] public Task Deadline_closes_the_session_on_linux_x86() => Deadline(LiveTarget.LinuxX86);
 
     private async Task Deadline(LiveTarget target)
@@ -178,6 +179,7 @@ public sealed class LiveLongSessionRealTests(ITestOutputHelper output) : LiveToo
     [LiveTargetFact("win-x86")] public Task Two_sessions_on_win_x86() => TwoSessions(LiveTarget.WinX86);
     [LiveTargetFact("win-arm64")] public Task Two_sessions_on_win_arm64() => TwoSessions(LiveTarget.WinArm64);
     [LiveTargetFact("linux-x64")] public Task Two_sessions_on_linux_x64() => TwoSessions(LiveTarget.LinuxX64);
+    [LiveTargetFact("osx-arm64")] public Task Two_sessions_on_osx_arm64() => TwoSessions(LiveTarget.MacArm64);
     [LiveTargetFact("linux-x86")] public Task Two_sessions_on_linux_x86() => TwoSessions(LiveTarget.LinuxX86);
 
     private async Task TwoSessions(LiveTarget target)
