@@ -377,9 +377,10 @@ public sealed class LiveTargetRealTests(ITestOutputHelper output) : LiveToolCall
         Assert.True(Regex.Count(threadEvents, "thread ended") >= LivePrograms.WorkerThreads, threadEvents);
         Ended(pid);
 
-        // watch: 16 threads x 2,000 calls, each recorded or counted over the limit; repeated, since a program
-        // could stay in its exit when the last batches were sent during it (1 run in 4 on x86)
-        const int burst = 2_000;
+        // watch: 16 threads x 500 calls, each recorded or counted over the limit; repeated, since a program
+        // could stay in its exit when the last batches were sent during it (1 run in 4 on x86). Each recorded call is a
+        // ring event: kept under the ring's capacity, the calls recorded after the output line cannot push it out.
+        const int burst = 500;
         long Count(Group g) => g.Success ? long.Parse(g.Value.Replace(",", ""), CultureInfo.InvariantCulture) : 0;
         for (int run = 2; run <= 9; run++)
         {
