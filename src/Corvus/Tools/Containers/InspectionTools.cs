@@ -96,7 +96,7 @@ public sealed class InspectionTools(InspectionService inspection, AssemblyWorksp
 
     [McpServerTool(Name = "extract_strings", Title = "Extract typed strings", UseStructuredContent = true, OutputSchemaType = typeof(ValuePage))]
     [Description("Typed values (URLs, domains, IPs, emails, file paths, pipes, registry keys, mutexes, user agents, crypto keys) from assembly " +
-                 "literals, constants, resource text and decoded base64 / hex / compressed text, with count, locations and the APIs receiving them. " +
+                 "literals, constants, resource text and decoded base64 / hex / compressed text, with count, locations and receiving APIs. " +
                  "read_result outputPath exports all (text: CSV).")]
     public async Task<string> ExtractStrings(
         [Description(AssemblyParam)] string? assembly = null,
@@ -118,7 +118,7 @@ public sealed class InspectionTools(InspectionService inspection, AssemblyWorksp
     [McpServerTool(Name = "extract_embedded", Title = "Extract embedded content", UseStructuredContent = true, OutputSchemaType = typeof(EmbeddedPage))]
     [Description("Embedded content of an assembly or of every assembly in a container (resources, byte arrays, long literals), decoded through hex, " +
                  "base64, compression and XOR until a PE, archive, ELF, Mach-O or text appears, plus high-entropy blobs, each with its encoding " +
-                 "chain. save=true writes them (defanged names). Nothing is executed.")]
+                 "chain. save=true writes them (defanged names).")]
     public async Task<string> ExtractEmbedded(
         [Description(AssemblyParam)] string? assembly = null,
         [Description("An assembly or container file, read without loading; pass this or assembly.")] string? path = null,

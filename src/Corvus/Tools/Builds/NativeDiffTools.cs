@@ -297,8 +297,8 @@ public sealed class NativeDiffTools(AssemblyWorkspace workspace, NativeCodeServi
 
     [McpServerTool(Name = "map_address_between_builds", Title = "Map an address to a new build", UseStructuredContent = true, OutputSchemaType = typeof(AddressMappings))]
     [Description("Where addresses of the old build are in the new one: a function start to the matched function, an address inside one to the aligned " +
-                 "instruction, a string to the same string, other data through the references of matched instructions. Each: new address, confidence " +
-                 "and reason, or why not with nearby candidates.")]
+                 "instruction, a string to the same string, other data through references of matched instructions. Each: new address, confidence and " +
+                 "reason, or why not with candidates.")]
     public Task<string> MapAddressBetweenBuilds(
         [Description(OldDescription)] string oldImage,
         [Description(NewDescription)] string newImage,
@@ -343,9 +343,8 @@ public sealed class NativeDiffTools(AssemblyWorkspace workspace, NativeCodeServi
     private const int MaxDiffFunctions = 20;
 
     [McpServerTool(Name = "diff_function", Title = "Diff a function between builds", UseStructuredContent = true, OutputSchemaType = typeof(FunctionDiffReport))]
-    [Description("Changes to one function between two builds. view=asm: aligned instruction rows = (same), ~ (other operands), - or " +
-                 "+, operands made build-independent (labels, callees, strings, data). view=pseudocode: a unified diff. " +
-                 "addresses: one summary each. oldResult / newResult: kept code.")]
+    [Description("Changes to one function between two builds. view=asm: aligned instruction rows = (same), ~ (other operands), - or +, operands made " +
+                 "build-independent. view=pseudocode: a unified diff. addresses: one summary each. oldResult / newResult: kept code.")]
     public Task<string> DiffFunction(
         [Description(OldDescription)] string? oldImage = null,
         [Description(NewDescription)] string? newImage = null,
@@ -537,8 +536,8 @@ public sealed class NativeDiffTools(AssemblyWorkspace workspace, NativeCodeServi
 
     [McpServerTool(Name = "migrate_native_names", Title = "Carry names to a new build", UseStructuredContent = true, OutputSchemaType = typeof(MigrationReport))]
     [Description("Copy names, comments and engine types of the old build to the user annotations of the new one through the function match " +
-                 "(map_address_between_builds). Never replaces a user name, comment or type of the new build; each skipped item has a reason code. " +
-                 "Applied as undoable edits (editIds).")]
+                 "(map_address_between_builds). Never replaces a user name, comment or type of the new build; skipped items have a reason code. " +
+                 "Applied as undoable edits.")]
     public Task<string> MigrateNativeNames(
         [Description(OldDescription)] string oldImage,
         [Description(NewDescription)] string newImage,

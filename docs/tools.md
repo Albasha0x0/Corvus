@@ -586,7 +586,7 @@ Structured output: `assembly`, `methodsScanned`, `features`, `category`, `notes`
 
 **Extract typed strings** (read-only, idempotent)
 
-Typed values (URLs, domains, IPs, emails, file paths, pipes, registry keys, mutexes, user agents, crypto keys) from assembly literals, constants, resource text and decoded base64 / hex / compressed text, with count, locations and the APIs receiving them. read_result outputPath exports all (text: CSV).
+Typed values (URLs, domains, IPs, emails, file paths, pipes, registry keys, mutexes, user agents, crypto keys) from assembly literals, constants, resource text and decoded base64 / hex / compressed text, with count, locations and receiving APIs. read_result outputPath exports all (text: CSV).
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -603,7 +603,7 @@ Structured output: `assembly`, `items`, `offset`, `total`, `byType`, `valuesResu
 
 **Extract embedded content** (edit, idempotent)
 
-Embedded content of an assembly or of every assembly in a container (resources, byte arrays, long literals), decoded through hex, base64, compression and XOR until a PE, archive, ELF, Mach-O or text appears, plus high-entropy blobs, each with its encoding chain. save=true writes them (defanged names). Nothing is executed.
+Embedded content of an assembly or of every assembly in a container (resources, byte arrays, long literals), decoded through hex, base64, compression and XOR until a PE, archive, ELF, Mach-O or text appears, plus high-entropy blobs, each with its encoding chain. save=true writes them (defanged names).
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -660,7 +660,7 @@ Structured output: `source`, `container`, `outputDirectory`, `items`, `offset`, 
 
 **Unity title overview** (read-only, idempotent, open-world)
 
-Overview of a Unity title in seconds, without loading it: engine version per source, scripting backend (il2cpp / mono) with evidence, metadata version and state (readable, encrypted, header_tampered, unsupported_version, missing), toolchain and middleware, platform, architecture, notable folders, next calls.
+Overview of a Unity title in seconds, without loading it: engine version per source, scripting backend (il2cpp / mono) with evidence, metadata version and state (readable, encrypted, header_tampered, unsupported_version, missing), toolchain, middleware, platform, architecture, folders, next calls.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -1798,7 +1798,7 @@ Build-to-build comparison and carrying work to a new build.
 
 **Compare two builds** (read-only, idempotent, long-running)
 
-Compare two builds of an assembly: renamed, moved, added and removed types and members (matched by content in tiers, unique-only; else ambiguous) and how each matched member changed (signature, body by IL hash, metadata, Il2Cpp offset). oldResult / newResult compare two kept results.
+Compare two builds of an assembly: renamed, moved, added and removed types and members (matched by content in tiers, unique-only; else ambiguous) and how each matched member changed (signature, body by IL hash, metadata, Il2Cpp offset). oldResult / newResult compare kept results.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -1821,7 +1821,7 @@ Structured output: `old`, `new`, `oldTypes`, `matchedTypes`, `typeChanges`, `mem
 
 **Find symbol in another build** (read-only, idempotent, long-running)
 
-Where a type or member of the old build went in the new one (by name, then content, unique-only; else candidates): new name and token, tier, confidence, body change. diff=true and il=true add unified diffs of the C# and normalized IL of each pair, renames applied first.
+Where a type or member of the old build went in the new one (by name, then content, unique-only; else candidates): new name and token, tier, confidence, body change. diff=true and il=true add unified C# and normalized IL diffs of each pair, renames applied first.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -1885,7 +1885,7 @@ Structured output: `oldImage`, `newImage`, `oldFunctions`, `newFunctions`, `matc
 
 **Diff a function between builds** (read-only, idempotent, open-world, long-running)
 
-Changes to one function between two builds. view=asm: aligned instruction rows = (same), ~ (other operands), - or +, operands made build-independent (labels, callees, strings, data). view=pseudocode: a unified diff. addresses: one summary each. oldResult / newResult: kept code.
+Changes to one function between two builds. view=asm: aligned instruction rows = (same), ~ (other operands), - or +, operands made build-independent. view=pseudocode: a unified diff. addresses: one summary each. oldResult / newResult: kept code.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -1910,7 +1910,7 @@ Structured output: `oldImage`, `newImage`, `oldFunction`, `newFunction`, `oldAdd
 
 **Map an address to a new build** (read-only, idempotent, long-running)
 
-Where addresses of the old build are in the new one: a function start to the matched function, an address inside one to the aligned instruction, a string to the same string, other data through the references of matched instructions. Each: new address, confidence and reason, or why not with nearby candidates.
+Where addresses of the old build are in the new one: a function start to the matched function, an address inside one to the aligned instruction, a string to the same string, other data through references of matched instructions. Each: new address, confidence and reason, or why not with candidates.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -1963,7 +1963,7 @@ Structured output: `pattern`, `items`, `offset`, `total`, `failed`, `notes`, `li
 
 **Carry names to a new build** (edit, idempotent, long-running)
 
-Copy names, comments and engine types of the old build to the user annotations of the new one through the function match (map_address_between_builds). Never replaces a user name, comment or type of the new build; each skipped item has a reason code. Applied as undoable edits (editIds).
+Copy names, comments and engine types of the old build to the user annotations of the new one through the function match (map_address_between_builds). Never replaces a user name, comment or type of the new build; skipped items have a reason code. Applied as undoable edits.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|

@@ -64,7 +64,7 @@ public sealed class CompareTools(AssemblyWorkspace workspace, AssemblyComparer c
     [McpServerTool(Name = "compare_assemblies", Title = "Compare two builds", UseStructuredContent = true, OutputSchemaType = typeof(AssemblyComparison))]
     [Description("Compare two builds of an assembly: renamed, moved, added and removed types and members (matched by content in tiers, unique-only; " +
                  "else ambiguous) and how each matched member changed (signature, body by IL hash, metadata, Il2Cpp offset). oldResult / newResult " +
-                 "compare two kept results.")]
+                 "compare kept results.")]
     public Task<string> CompareAssemblies(
         [Description("Old build: id, name or path.")] string? oldAssembly = null,
         [Description("New build: id, name or path.")] string? newAssembly = null,
@@ -207,8 +207,8 @@ public sealed class CompareTools(AssemblyWorkspace workspace, AssemblyComparer c
 
     [McpServerTool(Name = "find_counterpart", Title = "Find symbol in another build", UseStructuredContent = true, OutputSchemaType = typeof(CounterpartList))]
     [Description("Where a type or member of the old build went in the new one (by name, then content, unique-only; else candidates): new name and " +
-                 "token, tier, confidence, body change. diff=true and il=true add unified diffs of the C# and normalized IL of each pair, renames " +
-                 "applied first.")]
+                 "token, tier, confidence, body change. diff=true and il=true add unified C# and normalized IL diffs of each pair, renames applied " +
+                 "first.")]
     public Task<string> FindCounterpart(
         [Description("Old build: " + SymbolDescription)] string? symbol,
         [Description("Old build: id, name or path.")] string oldAssembly,
