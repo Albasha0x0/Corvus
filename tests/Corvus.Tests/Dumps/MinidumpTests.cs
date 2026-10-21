@@ -361,6 +361,45 @@ public sealed class MinidumpTests
         Assert.Equal("call_target", walk.Items[1].Method);
     }
 
+    /// <summary>A function that tail-jumps through an import slot (jmp [slot]) leaves its caller's return address on top: the caller is a call target.</summary>
+    [Fact]
+    public async Task X86_tail_jump_through_an_import_slot_finds_the_caller()
+    {
+        const uint Base = 0x1200_0000, CallerRva = 0x1000, WrapperRva = 0x1010;
+        using var dir = new TempDir();
+        var image = SyntheticCrashX86.Mapped(SyntheticCrashX86.Pe32("wrap32.dll", Base, slotVa =>
+        {
+            var text = new byte[0x20];
+            // Caller: call Wrapper; ret.
+            text[0] = 0xE8;
+            BinaryPrimitives.WriteInt32LittleEndian(text.AsSpan(1), (int)WrapperRva - (int)(CallerRva + 5));
+            text[5] = 0xC3;
+            // Wrapper: jmp [halt.dll!Halt].
+            new byte[] { 0xFF, 0x25 }.CopyTo(text, 0x10);
+            BinaryPrimitives.WriteUInt32LittleEndian(text.AsSpan(0x12), slotVa);
+            return text;
+        }, [("Caller", CallerRva), ("Wrapper", WrapperRva)], ("halt.dll", "Halt")));
+        var halt = SyntheticCrashX86.Mapped(SyntheticCrashX86.HaltImage());
+        var stack = new byte[0x100];
+        BinaryPrimitives.WriteUInt32LittleEndian(stack, Base + CallerRva + 5);
+        var d = new MinidumpBuilder { FullMemory = true, ProcessorArchitecture = 0 };
+        d.Modules.Add(new MinidumpBuilder.Module(Base, (uint)image.Length, 0, @"Z:\nowhere\wrap32.dll"));
+        d.Modules.Add(new MinidumpBuilder.Module(SyntheticCrashX86.HaltBase, (uint)halt.Length, 0, @"Z:\nowhere\halt.dll"));
+        d.Memory.Add((Base, image));
+        d.Memory.Add((SyntheticCrashX86.HaltBase, halt));
+        d.Memory.Add((SyntheticCrashX86.Stack, stack));
+        d.Regions.Add(new MinidumpBuilder.Region(Base, (ulong)image.Length, 0x20));
+        d.Regions.Add(new MinidumpBuilder.Region(SyntheticCrashX86.HaltBase, (ulong)halt.Length, 0x20));
+        d.Regions.Add(new MinidumpBuilder.Region(SyntheticCrashX86.Stack, 0x100, 0x04));
+        d.Threads.Add(new MinidumpBuilder.Thread(106, SyntheticCrashX86.Stack, MinidumpBuilder.ContextX86(SyntheticCrashX86.HaltBase + 0x1002, SyntheticCrashX86.Stack)));
+        var path = dir.File("wrap32.dmp");
+        File.WriteAllBytes(path, d.Build());
+        using var service = new MinidumpService();
+        var walk = await service.Stack(path, "106", true, 64, 0, 64, null, default);
+        Assert.Equal(["halt!Halt+0x2", "wrap32!Caller+0x5"], walk.Items.Take(2).Select(f => f.Symbol));
+        Assert.Equal("call_target", walk.Items[1].Method);
+    }
+
     /// <summary>
     /// A thread held in a hook: its EBP points off the stack (not a frame), the scan's guessed frame pointer reads a zero
     /// return address (not the end of the stack), and the scan above reaches the program's frame.

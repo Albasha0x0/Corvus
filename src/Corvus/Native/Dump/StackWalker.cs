@@ -484,7 +484,7 @@ public sealed class StackWalker
     }
 
     /// <summary>
-    /// Whether the import slot an indirect call names holds <paramref name="function"/>. <paramref name="file"/>: the
+    /// Whether the import slot an indirect call or jmp names holds <paramref name="function"/>. <paramref name="file"/>: the
     /// instruction was read from this module image, whose operands hold the slot at the preferred base.
     /// </summary>
     private bool SlotHolds(uint slot, PeFile? file, DumpModule? module, ulong function)
@@ -515,18 +515,21 @@ public sealed class StackWalker
     private readonly Dictionary<(ulong, ulong), bool> _tailJumps = [];
 
     /// <summary>
-    /// Whether the code of the function at <paramref name="start"/> holds a jmp rel32 to <paramref name="target"/> within
-    /// its first <see cref="TailWindow"/> bytes: a tail call, whose frame the callee replaced.
+    /// Whether the code of the function at <paramref name="start"/> holds a jmp rel32 to <paramref name="target"/>, or a jmp
+    /// through an import slot holding it, within its first <see cref="TailWindow"/> bytes: a tail call, whose frame the callee replaced.
     /// </summary>
     private bool TailJumps(ulong start, ulong target)
     {
         if (_tailJumps.TryGetValue((start, target), out var known)) return known;
         var m = _dump.ModuleAt(start);
+        var image = m != null ? _image(m) : null;
         var code = new byte[TailWindow];
-        int n = ReadCode(start, code, m != null ? _image(m) : null, m?.Base ?? 0);
+        int n = ReadCode(start, code, image, m?.Base ?? 0, out bool fromImage);
         bool found = false;
         for (int i = 0; i + 5 <= n && !found; i++)
-            found = code[i] == 0xE9 && (uint)(start + (ulong)i + 5 + (ulong)(long)BinaryPrimitives.ReadInt32LittleEndian(code.AsSpan(i + 1))) == target;
+            found = code[i] == 0xE9 && (uint)(start + (ulong)i + 5 + (ulong)(long)BinaryPrimitives.ReadInt32LittleEndian(code.AsSpan(i + 1))) == target
+                    || code[i] == 0xFF && code[i + 1] == 0x25 && i + 6 <= n
+                    && SlotHolds(BinaryPrimitives.ReadUInt32LittleEndian(code.AsSpan(i + 2)), fromImage ? image : null, m, target);
         return _tailJumps[(start, target)] = found;
     }
 
