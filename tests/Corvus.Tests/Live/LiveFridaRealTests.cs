@@ -259,4 +259,39 @@ public sealed class LiveFridaRealTests(ITestOutputHelper output) : IDisposable
         Assert.Contains("\"code\":\"invalid_argument\"", bad);
         await Call(server, "live_session", new() { ["action"] = "close", ["session"] = "live-1" });
     }
+
+    /// <summary>The stop handler's symbol search is narrowed to the agent's own folder before the first stop (Windows).</summary>
+    [FridaFact]
+    public async Task Symbol_search_goes_to_the_agent_folder()
+    {
+        if (!OperatingSystem.IsWindows()) return;
+        var exe = Build();
+        await using var server = await InProcessServer.StartAsync(options: new ServerOptions
+        {
+            BackgroundIndexing = false, WatchFiles = false, AllowLive = true, AllowLiveSpawn = true, LiveScripting = true,
+        });
+        await Spawn(server, exe, "live-1", "50");
+        var (loaded, failed) = await Call(server, "live_script", new()
+        {
+            ["session"] = "live-1", ["action"] = "load",
+            ["source"] = """
+                const d = Process.enumerateModules().find(m => m.name.toLowerCase() === 'dbghelp.dll' && m.path.toLowerCase().includes('frida-'));
+                const get = new NativeFunction(d.getExportByName('SymGetSearchPathW'), 'int', ['pointer', 'pointer', 'uint32'], Process.arch === 'ia32' ? 'stdcall' : 'default');
+                const b = Memory.alloc(4096);
+                send({ search: get(ptr(Process.pointerSize === 8 ? '0xffffffffffffffff' : '0xffffffff'), b, 2048) ? b.readUtf16String() : null, dbghelp: d.path });
+                """,
+        });
+        Assert.False(failed, loaded);
+        string events = "";
+        for (int i = 0; i < 50 && !events.Contains("search", StringComparison.Ordinal); i++)
+        {
+            (events, _) = await Call(server, "live_events", new() { ["session"] = "live-1", ["kind"] = "script" });
+            await Task.Delay(100);
+        }
+        var m = Regex.Match(events, @"""search"":""([^""]*)"",""dbghelp"":""([^""]*)""");
+        Assert.True(m.Success, events);
+        var dbghelp = m.Groups[2].Value.Replace(@"\\", @"\");
+        Assert.Equal(dbghelp[..(dbghelp.LastIndexOf('\\') + 1)], m.Groups[1].Value.Replace(@"\\", @"\"), ignoreCase: true);
+        await Call(server, "live_session", new() { ["action"] = "close", ["session"] = "live-1" });
+    }
 }

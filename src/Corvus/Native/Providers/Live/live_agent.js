@@ -199,13 +199,18 @@ if (Process.platform === 'linux') {
 function quietSymbols() {
   try {
     Thread.backtrace(); // loads and initializes dbghelp
-    const mods = Process.enumerateModules();
-    const agent = mods.find(m => m.name.toLowerCase() === 'frida-agent.dll');
-    if (!agent) return;
-    const dir = agent.path.substring(0, agent.path.lastIndexOf('\\') + 1).toLowerCase();
-    const dbghelp = mods.find(m => m.name.toLowerCase() === 'dbghelp.dll' && m.path.toLowerCase().startsWith(dir));
-    if (!dbghelp) return;
+    // the agent's module is cloaked: enumerateModules leaves it out, the loader still names it
     const abi = Process.arch === 'ia32' ? 'stdcall' : 'default';
+    const k32 = Process.getModuleByName('kernel32.dll');
+    const handle = new NativeFunction(k32.getExportByName('GetModuleHandleW'), 'pointer', ['pointer'], abi)(Memory.allocUtf16String('frida-agent.dll'));
+    if (handle.isNull()) return;
+    const file = Memory.alloc(2 * 32768);
+    const length = new NativeFunction(k32.getExportByName('GetModuleFileNameW'), 'uint32', ['pointer', 'pointer', 'uint32'], abi)(handle, file, 32768);
+    if (length === 0) return;
+    const agent = file.readUtf16String(length);
+    const dir = agent.substring(0, agent.lastIndexOf('\\') + 1).toLowerCase();
+    const dbghelp = Process.enumerateModules().find(m => m.name.toLowerCase() === 'dbghelp.dll' && m.path.toLowerCase().startsWith(dir));
+    if (!dbghelp) return;
     const getOptions = new NativeFunction(dbghelp.getExportByName('SymGetOptions'), 'uint32', [], abi);
     const setOptions = new NativeFunction(dbghelp.getExportByName('SymSetOptions'), 'uint32', ['uint32'], abi);
     const setPath = new NativeFunction(dbghelp.getExportByName('SymSetSearchPathW'), 'int', ['pointer', 'pointer'], abi);
