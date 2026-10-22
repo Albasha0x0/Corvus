@@ -116,6 +116,8 @@ internal static class SetupCli
           describe <name>       A tool's or prompt's description, parameters and an example (help <name> too).
           batch <file|->        Run steps ({"tool": ..., "args": {...}} as a JSON array or JSON Lines) in one session,
                                 so ids and in-memory edits carry over. --stop-on-error, --json (one line per step).
+          batch --file <path> --json   Read one file with fixed read-only steps (summary, container, strings) into
+                                one corvus.batch/1 document. --time-limit S, --limit containerFiles=N, --limit strings=N.
           prompts               List the prompts; prompt <name> [name=value ...] prints one, ready to pipe.
           resources             List resources and templates; read <uri> prints one.
           completion <shell>    A completion script for bash, zsh or pwsh.

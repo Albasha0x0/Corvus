@@ -109,7 +109,8 @@ internal static class ContainerText
         return sb.ToString();
     }
 
-    private const int MaxHighlights = 25, MaxEntryPoints = 10, MaxNotes = 12;
+    internal const int MaxHighlights = 25;
+    private const int MaxEntryPoints = 10, MaxNotes = 12;
 
     /// <summary>The views of a summary: overview, managed (with assemblies), each provider view that applies, all.</summary>
     public static IReadOnlyList<string> ViewsOf(InspectionService.FileSummary s, bool triage) =>

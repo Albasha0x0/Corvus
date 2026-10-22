@@ -15,6 +15,7 @@ The full tool reference is [tools.md](tools.md); setup commands (`install`, `sta
 | `tools [filter]` | The tools by toolset, with their effect (read-only, edit, destructive; long-running) and first sentence. `--json` prints a table. |
 | `describe <tool\|prompt>` | Description, parameters (type, required, default, values), annotations, structured output and an example call. `help <name>` is the same. `--json` prints the catalog entry. |
 | `batch <file\|->` | Run several calls in one session (below). |
+| `batch --file <path> --json` | Read one file with a fixed set of read-only steps and print one JSON document ([below](#file-batch)). |
 | `prompts` | The prompts and their arguments. |
 | `prompt <name> [name=value ...]` | A prompt's text, ready to pipe into any agent. |
 | `resources` | The resources and resource templates. |
@@ -77,6 +78,42 @@ too), and lines starting with `#` are comments. Every tool name is checked befor
 Each step's output follows a `=== [n/total] tool` header; with `--json`, each step is one line
 `{step, tool, isError, text, structured, error}`. Later steps run after a failed one unless `--stop-on-error` is given.
 The exit code is the first failed step's.
+
+### File batch
+
+`batch --file sample.bin --json` reads one file with a fixed set of read-only steps and prints one JSON document,
+for a pipeline that scans files without an agent. Nothing in the file runs, and Corvus makes no network calls.
+
+| Section | Reads | Runs when |
+|---|---|---|
+| `summary` | `summarize_file`: type, hashes, signature, container, assemblies, highlights | always |
+| `container` | `search_container kind=file`: the files inside, not extracted | the summary names a container |
+| `strings` | `extract_strings`: typed values (URLs, domains, IPs, paths, registry keys) | the file is a .NET assembly |
+| `yara` | YARA rule matches | reported as `unavailable` until YARA support ships |
+
+```json
+{"schema": "corvus.batch/1", "corvus": "2.4.0",
+ "file": {"path": "...", "size": 887, "sha256": "...", "type": "zip"},
+ "complete": false,
+ "limits": {"timeSeconds": 120, "containerFiles": 500, "strings": 500, "summaryHighlights": 25},
+ "sections": [
+   {"name": "summary", "tool": "summarize_file", "status": "complete", "result": {...}},
+   {"name": "container", "tool": "search_container", "status": "partial", "limit": "containerFiles", "result": {...}},
+   {"name": "strings", "tool": "extract_strings", "status": "not_applicable", "reason": "..."},
+   {"name": "yara", "status": "unavailable", "reason": "..."}]}
+```
+
+- `result` is the tool's structured output, as `--structured` prints it; `error` is the tool's error record.
+- `status` is `complete`, `partial` (the section keeps every row it read and `limit` names the limit it reached),
+  `not_applicable`, `unavailable`, `error` or `timeout`. `complete` is true only when every section is `complete` or
+  `not_applicable`.
+- Limits: `--time-limit <seconds>` for the whole run (default 120, at most 86400), `--limit containerFiles=N` and
+  `--limit strings=N` (default 500 each); the summary shows at most 25 highlights. The `limits` record holds the
+  values used.
+- Exit code 0 when the document is written, whatever the section statuses; 124 when the time limit ended the run (the
+  document is still written, with finished sections kept and the rest marked `timeout`); 2 for a missing file or a
+  bad option, with nothing on stdout.
+- The schema name changes to `corvus.batch/2` only when a field is renamed or removed; new fields keep `/1`.
 
 ## Exit codes
 

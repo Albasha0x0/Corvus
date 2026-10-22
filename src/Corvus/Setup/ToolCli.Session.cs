@@ -51,6 +51,8 @@ internal static partial class ToolCli
     /// </summary>
     private static async Task<int> BatchAsync(CliArgs a, CliIo io, CancellationToken cancellationToken)
     {
+        if (a.BatchFile != null)
+            return a.Json ? await FileBatchAsync(a, io, cancellationToken) : throw new UsageException("batch --file writes one JSON document: add --json.");
         if (a.Positionals.Count != 1) throw new UsageException("batch takes one file (- for stdin).");
         var source = a.Positionals[0];
         string text;
