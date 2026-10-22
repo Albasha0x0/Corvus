@@ -490,17 +490,14 @@ function Get-CleanTree {
     if (git -C $root status --porcelain) { return $null }
     return (git -C $root rev-parse 'HEAD^{tree}').Trim()
 }
-# "<tree> <mode>", with " reused" when reused family passes made up part of it; the whole-suite stamp names the last tree
-# an exhaustive run passed on without reuse (release.ps1: a minor release gates on it).
+# "<tree> <mode>", with " reused" when reused family passes made up part of it.
 $treeStamp = Join-Path $gitDir 'corvus-full-suite.stamp'
-$wholeStamp = Join-Path $gitDir 'corvus-whole-suite.stamp'
 # Every whole-suite pass on a clean tree, newest last: release.ps1 ships on the newest one on its history.
 $fullPasses = Join-Path $gitDir 'corvus-full-passes.txt'
 function Write-TreeStamp([string]$tree, [string]$mode, [bool]$reused) {
     $value = "$tree $mode" + $(if ($reused) { ' reused' } else { '' })
     Set-Content -Path $treeStamp -Value $value -NoNewline
     Add-FullPass $fullPasses (git -C $root rev-parse HEAD).Trim() $value
-    if ($mode -eq 'exhaustive' -and -not $reused) { Set-Content -Path $wholeStamp -Value $tree -NoNewline }
     Write-Host "Stamped $value."
 }
 # The last whole-suite run's results and what recording them needs, so -Stamp can record them without a rerun.
