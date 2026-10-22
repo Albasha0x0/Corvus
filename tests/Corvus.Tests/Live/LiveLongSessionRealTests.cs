@@ -30,7 +30,8 @@ public sealed class LiveLongSessionRealTests(ITestOutputHelper output) : LiveToo
     // ---- a watched program observed for minutes
 
     [LiveTargetFact("win-x64")] [Trait(PerfBudget.Trait, PerfBudget.Timing)] public Task Observed_for_minutes_on_win_x64() => Observed(LiveTarget.WinX64);
-    [LiveTargetFact("win-x86")] [Trait(PerfBudget.Trait, PerfBudget.Timing)] public Task Observed_for_minutes_on_win_x86() => Observed(LiveTarget.WinX86);
+    // The server's memory over minutes is the same on both Windows targets; the second runs at release strength.
+    [LiveTargetFact("win-x86")] [Trait(PerfBudget.Trait, PerfBudget.Timing)] [Trait("Tier", "Release")] public Task Observed_for_minutes_on_win_x86() => Observed(LiveTarget.WinX86);
     [LiveTargetFact("win-arm64")] [Trait(PerfBudget.Trait, PerfBudget.Timing)] public Task Observed_for_minutes_on_win_arm64() => Observed(LiveTarget.WinArm64);
     [LiveTargetFact("linux-x64")] [Trait(PerfBudget.Trait, PerfBudget.Timing)] public Task Observed_for_minutes_on_linux_x64() => Observed(LiveTarget.LinuxX64);
     [LiveTargetFact("linux-x86")] [Trait(PerfBudget.Trait, PerfBudget.Timing)] public Task Observed_for_minutes_on_linux_x86() => Observed(LiveTarget.LinuxX86);
@@ -133,7 +134,8 @@ public sealed class LiveLongSessionRealTests(ITestOutputHelper output) : LiveToo
     // ---- the session deadline
 
     [LiveTargetFact("win-x64")] public Task Deadline_closes_the_session_on_win_x64() => Deadline(LiveTarget.WinX64);
-    [LiveTargetFact("win-x86")] public Task Deadline_closes_the_session_on_win_x86() => Deadline(LiveTarget.WinX86);
+    // The deadline is the server's own timer; the second Windows target runs at release strength.
+    [LiveTargetFact("win-x86")] [Trait("Tier", "Release")] public Task Deadline_closes_the_session_on_win_x86() => Deadline(LiveTarget.WinX86);
     [LiveTargetFact("win-arm64")] public Task Deadline_closes_the_session_on_win_arm64() => Deadline(LiveTarget.WinArm64);
     [LiveTargetFact("linux-x64")] public Task Deadline_closes_the_session_on_linux_x64() => Deadline(LiveTarget.LinuxX64);
     [LiveTargetFact("osx-arm64")] public Task Deadline_closes_the_session_on_osx_arm64() => Deadline(LiveTarget.MacArm64);
