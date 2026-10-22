@@ -165,6 +165,17 @@ public sealed partial class MinidumpService(AssemblyWorkspace? workspace = null,
     /// </summary>
     internal Session Open(string dump, string? imageDirectories)
     {
+        var (id, path, directories) = Resolve(dump, imageDirectories);
+        IProcessMemory file = CoreFile.IsCore(path) ? CoreFile.Open(path) : RegionSetFile.IsManifest(path) ? RegionSetFile.Open(path) : MinidumpFile.Open(path);
+        return new Session(this, id, file, Directories(directories, path), LoadedImagePaths());
+    }
+
+    /// <summary>
+    /// The dump a call names, resolved as <see cref="Open"/> does: its id (registered), its file, and the image folders it is
+    /// read with (the call's, else those given for it before, which the call's replace). Reads nothing from the file.
+    /// </summary>
+    internal (string Id, string Path, string? ImageDirectories) Resolve(string dump, string? imageDirectories)
+    {
         if (string.IsNullOrWhiteSpace(dump))
             throw new ToolError(ErrorCode.InvalidArgument, "dump is empty.", "pass a .dmp path or the id open_minidump returned");
         var key = dump.Trim();
@@ -183,12 +194,20 @@ public sealed partial class MinidumpService(AssemblyWorkspace? workspace = null,
                     _ids.IsEmpty ? $"No dump file at '{dump}'." : $"No dump file at '{dump}', and no open dump has that id (open: {string.Join(", ", _ids.Keys.Order())}).",
                     "pass the path of a .dmp file");
         }
-        IProcessMemory file = CoreFile.IsCore(path) ? CoreFile.Open(path) : RegionSetFile.IsManifest(path) ? RegionSetFile.Open(path) : MinidumpFile.Open(path);
         string id = Register(path);
         if (string.IsNullOrWhiteSpace(imageDirectories)) imageDirectories = _imageDirectories.GetValueOrDefault(path);
-        var dirs = Directories(imageDirectories, path);
         if (!string.IsNullOrWhiteSpace(imageDirectories)) _imageDirectories[path] = imageDirectories;
-        return new Session(this, id, file, dirs, LoadedImagePaths());
+        return (id, path, imageDirectories);
+    }
+
+    /// <summary>
+    /// A worker's service: names <paramref name="path"/> with the server's <paramref name="id"/> and image folders, so its
+    /// reports carry the same id and find the same images.
+    /// </summary>
+    internal void Pin(string id, string path, string? imageDirectories)
+    {
+        _ids[id] = path;
+        if (!string.IsNullOrWhiteSpace(imageDirectories)) _imageDirectories[path] = imageDirectories;
     }
 
     private List<string> LoadedImagePaths() =>

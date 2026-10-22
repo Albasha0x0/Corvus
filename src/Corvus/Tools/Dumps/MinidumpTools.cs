@@ -9,7 +9,7 @@ namespace Corvus.Tools;
 
 /// <summary>Windows crash dumps (minidumps): summary, stack walks, captured memory.</summary>
 [McpServerToolType]
-public sealed class MinidumpTools(MinidumpService dumps, LiveSessionService? sessions = null, ServerOptions? options = null)
+public sealed class MinidumpTools(MinidumpService dumps, LiveSessionService? sessions = null, ServerOptions? options = null, AssemblyWorkspace? workspace = null)
 {
     private const string DumpDescription = "A .dmp path or the id open_minidump returned.";
     private const string HeapSourceDescription = "A .dmp path, open_minidump's id, or a session id (live-1): its program, read while it runs.";
@@ -32,27 +32,28 @@ public sealed class MinidumpTools(MinidumpService dumps, LiveSessionService? ses
         CancellationToken cancellationToken = default) => Task.Run(async () =>
     {
         var v = (view ?? "summary").Trim().ToLowerInvariant();
-        switch (v)
-        {
-            case "summary":
-                var report = await dumps.Summarize(path, imageDirectories, new DacRequest(string.IsNullOrWhiteSpace(dacPath) ? null : dacPath, downloadDac), cancellationToken);
-                return ToolOutput.Report(DumpText.Summary(report), report);
-            case "modules":
-                var (mId, modules, mTotal) = dumps.Modules(path, imageDirectories, offset, limit);
-                return Rows(mId, v, modules, offset, limit, mTotal, DumpText.Module, "module");
-            case "threads":
-                var (tId, threads, tTotal) = await dumps.Threads(path, imageDirectories, offset, limit, cancellationToken);
-                return Rows(tId, v, threads, offset, limit, tTotal, DumpText.Thread, "thread");
-            case "memory":
-                var (rId, memory, rTotal) = dumps.Memory(path, offset, limit);
-                return Rows(rId, v, memory, offset, limit, rTotal, DumpText.Memory, "region");
-            case "unloaded":
-                var (uId, unloaded, uTotal) = dumps.Unloaded(path, offset, limit);
-                return Rows(uId, v, unloaded, offset, limit, uTotal, u => $"{u.Base}  {u.Name}  size {u.Size}  stamp {u.TimeDateStamp}", "unloaded module");
-            default:
-                throw new ToolError(ErrorCode.InvalidArgument, $"Unknown view '{view}'.", "pass view as one of " + string.Join(", ", MinidumpService.Views));
-        }
+        if (!MinidumpService.Views.Contains(v))
+            throw new ToolError(ErrorCode.InvalidArgument, $"Unknown view '{view}'.", "pass view as one of " + string.Join(", ", MinidumpService.Views));
+        var args = new FileWork.DumpViewArgs(Target(path, imageDirectories), v, offset, limit, dacPath, downloadDac);
+        var r = await FileIsolation.RunAsync(Isolation, FileWork.DumpView, args, args.Dump.Path, () => FileWork.ViewOf(dumps, args, cancellationToken), cancellationToken);
+        if (r.Summary is { } report) return ToolOutput.Report(DumpText.Summary(report), report);
+        if (r.Modules is { } modules) return Rows(r.Id!, v, modules, offset, limit, r.Total, DumpText.Module, "module");
+        if (r.Threads is { } threads) return Rows(r.Id!, v, threads, offset, limit, r.Total, DumpText.Thread, "thread");
+        if (r.Memory is { } memory) return Rows(r.Id!, v, memory, offset, limit, r.Total, DumpText.Memory, "region");
+        return Rows(r.Id!, v, r.Unloaded ?? [], offset, limit, r.Total, u => $"{u.Base}  {u.Name}  size {u.Size}  stamp {u.TimeDateStamp}", "unloaded module");
     }, cancellationToken);
+
+    /// <summary>
+    /// Options for <see cref="FileIsolation"/>: none while images are loaded, since a dump read then names frames from their
+    /// indexes and in-memory names, which only this process holds.
+    /// </summary>
+    private ServerOptions? Isolation => workspace != null && workspace.Read(() => workspace.Natives.Count > 0 || workspace.Assemblies.Count > 0) ? null : options;
+
+    private FileWork.DumpTarget Target(string dump, string? imageDirectories)
+    {
+        var (id, path, directories) = dumps.Resolve(dump, imageDirectories);
+        return new FileWork.DumpTarget(id, path, directories);
+    }
 
     private static string Rows<T>(string id, string view, IReadOnlyList<T> rows, int offset, int limit, int total, Func<T, string> render, string noun) where T : notnull =>
         ToolOutput.List(rows, offset, limit, total, render,
@@ -98,7 +99,7 @@ public sealed class MinidumpTools(MinidumpService dumps, LiveSessionService? ses
     {
         var r = Session(dump) is { } session
             ? dumps.Heap(session, await sessions!.ClrAsync(session, cancellationToken), mode, type, (ulong)Math.Max(0, minSize), offset, limit, maxObjects, cancellationToken)
-            : await dumps.Heap(dump, mode, type, (ulong)Math.Max(0, minSize), offset, limit, maxObjects, cancellationToken);
+            : await HeapOfDump(dump, mode, type, (ulong)Math.Max(0, minSize), offset, limit, maxObjects, cancellationToken);
         var header = $"{r.Dump}: {r.Walked:N0} objects walked, {r.MatchedBytes:N0} bytes matching{(r.Type != null ? $" type {r.Type}" : "")}{(r.MinSize > 0 ? $" of at least {r.MinSize} bytes" : "")}\n" +
                      string.Concat(r.Notes.Select(n => $"note: {n}\n"));
         return ToolOutput.List(r.Items, r.Offset, limit, r.Total, DumpText.HeapRow, page => r with { Items = page }, r.Mode == "stats" ? "type" : "object", header, r.TotalExact);
@@ -116,7 +117,21 @@ public sealed class MinidumpTools(MinidumpService dumps, LiveSessionService? ses
         CancellationToken cancellationToken = default) =>
         Task.Run(async () => Session(dump) is { } session
             ? dumps.Object(session, await sessions!.ClrAsync(session, cancellationToken), address, depth, maxFields, maxArrayItems)
-            : await dumps.Object(dump, address, depth, maxFields, maxArrayItems, cancellationToken), cancellationToken);
+            : await ObjectOfDump(dump, address, depth, maxFields, maxArrayItems, cancellationToken), cancellationToken);
+
+    private Task<MinidumpService.HeapReport> HeapOfDump(string dump, string? mode, string? type, ulong minSize, int offset, int limit, long maxObjects, CancellationToken ct)
+    {
+        var args = new FileWork.DumpHeapArgs(Target(dump, null), mode, type, minSize, offset, limit, maxObjects);
+        return FileIsolation.RunAsync(Isolation, FileWork.DumpHeap, args, args.Dump.Path,
+            () => dumps.Heap(dump, mode, type, minSize, offset, limit, maxObjects, ct).GetAwaiter().GetResult(), ct);
+    }
+
+    private Task<MinidumpService.ObjectReport> ObjectOfDump(string dump, string address, int depth, int maxFields, int maxArrayItems, CancellationToken ct)
+    {
+        var args = new FileWork.DumpObjectArgs(Target(dump, null), address, depth, maxFields, maxArrayItems);
+        return FileIsolation.RunAsync(Isolation, FileWork.DumpObject, args, args.Dump.Path,
+            () => dumps.Object(dump, address, depth, maxFields, maxArrayItems, ct).GetAwaiter().GetResult(), ct);
+    }
 
     /// <summary>The running session <paramref name="dump"/> names, or null for a dump.</summary>
     private LiveSession? Session(string dump)
@@ -138,7 +153,9 @@ public sealed class MinidumpTools(MinidumpService dumps, LiveSessionService? ses
         [Description(ToolSupport.MaxTokensDescription)] int? maxTokens = null,
         CancellationToken cancellationToken = default) => Task.Run(async () =>
     {
-        var read = await dumps.ReadBytes(dump, address, length, !dumpOnly, cancellationToken);
+        var args = new FileWork.DumpReadArgs(Target(dump, null), address, length, !dumpOnly);
+        var read = await FileIsolation.RunAsync(Isolation, FileWork.DumpRead, args, args.Dump.Path,
+            () => dumps.ReadBytes(dump, address, length, !dumpOnly, cancellationToken).GetAwaiter().GetResult(), cancellationToken);
         return MemoryPage(read, offset);
     }, cancellationToken);
 

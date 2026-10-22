@@ -70,8 +70,20 @@ public sealed class FileIsolationTests(ITestOutputHelper output) : IDisposable
     public async Task Each_file_tool_answers_the_same_bytes_in_the_worker_as_in_process()
     {
         var (zip, package, library, bytes) = Inputs();
+        var dump = SyntheticCrash.Write(_dir);
         var calls = new List<(string Tool, Func<string, Dictionary<string, object?>> Args)>
         {
+            ("open_minidump", _ => new() { ["path"] = dump }),
+            ("open_minidump", _ => new() { ["path"] = "synth.dmp", ["view"] = "modules" }),
+            ("open_minidump", _ => new() { ["path"] = dump, ["view"] = "threads", ["limit"] = 2 }),
+            ("open_minidump", _ => new() { ["path"] = dump, ["view"] = "memory" }),
+            ("open_minidump", _ => new() { ["path"] = dump, ["view"] = "unloaded" }),
+            ("open_minidump", _ => new() { ["path"] = dump, ["view"] = "no_such_view" }),
+            ("open_minidump", _ => new() { ["path"] = Path.Combine(_dir.Path, "absent.dmp") }),
+            ("read_dump_memory", _ => new() { ["dump"] = "synth.dmp", ["address"] = $"0x{SyntheticCrash.Base:X}", ["length"] = 96 }),
+            ("read_dump_memory", _ => new() { ["dump"] = dump, ["address"] = $"0x{SyntheticCrash.Stack:X}", ["length"] = 64, ["dumpOnly"] = true }),
+            ("dump_heap", _ => new() { ["dump"] = dump }),
+            ("dump_object", _ => new() { ["dump"] = dump, ["address"] = "0x1000" }),
             ("summarize_file", _ => new() { ["path"] = zip }),
             ("summarize_file", _ => new() { ["path"] = package }),
             ("summarize_file", _ => new() { ["path"] = library }),
@@ -90,15 +102,16 @@ public sealed class FileIsolationTests(ITestOutputHelper output) : IDisposable
         {
             var mode = inProcess ? "in-process" : "worker";
             await using var session = await Session(inProcess);
+            var exit = Fixture("exit.txt", Corvus.Tools.FileOps.FixtureMarker + "exit");
+            // Both modes make these calls, so both register the same dump ids; only the worker reads the fixture as a crash.
+            var crashes = new[] { await Call(session, "summarize_file", new() { ["path"] = exit }), await Call(session, "open_minidump", new() { ["path"] = exit }) };
+            if (!inProcess)
+                foreach (var crash in crashes) Assert.Contains("provider_unavailable", Whole(crash));
             var results = new List<string>();
             foreach (var (tool, args) in calls)
                 results.Add(Whole(await Call(session, tool, args(mode))).Replace(Path.Combine(_dir.Path, mode), "<out>").Replace(JsonEncodedText.Encode(Path.Combine(_dir.Path, mode)).ToString(), "<out>"));
-            if (!inProcess)
-            {
-                // The worker path was taken: a reader failure there ends the worker, not the call's server.
-                var crash = await Call(session, "summarize_file", new() { ["path"] = Fixture("exit.txt", Corvus.Tools.FileOps.FixtureMarker + "exit") });
-                Assert.Contains("provider_unavailable", Whole(crash));
-            }
+            // The package unpack loaded an assembly: dump reads now name frames from it, so they stay in this process.
+            Assert.DoesNotContain("provider_unavailable", Whole(await Call(session, "open_minidump", new() { ["path"] = exit })));
             return results;
         }
         using var pool = Pool();

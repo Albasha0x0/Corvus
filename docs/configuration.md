@@ -38,7 +38,7 @@ Turn one on with `corvus install --set <switch>` ([examples](#claude-code)), or 
 | `--allow-replace-original` | `CORVUS_ALLOW_REPLACE_ORIGINAL` | `save_assembly` and `save_native` with `replaceOriginal=true` replace the loaded file. Without it they only write new files. |
 | `--allow-device-changes` | `CORVUS_ALLOW_DEVICE_CHANGES` | `install_android_package`, `uninstall_android_package`. The other device tools only read. |
 | `--trace-args` | `CORVUS_TRACE_ARGS` | The `--trace` file records argument values (paths, code); secrets are masked, best effort. |
-| `--in-process-parsing` | `CORVUS_IN_PROCESS_PARSING` | `summarize_file`, `list_assemblies path=`, `search_container` and `unpack_container` read files in the server process, where a file that crashes a reader ends the server. On by default for now; `0` with `CORVUS_WORKER_HOST=1` reads them in a worker process. |
+| `--in-process-parsing` | `CORVUS_IN_PROCESS_PARSING` | `summarize_file`, `list_assemblies path=`, `search_container`, `unpack_container` and the dump reads (`open_minidump`, `read_dump_memory`, `dump_heap`, `dump_object`) read files in the server process, where a file that crashes a reader ends the server. On by default for now; `0` with `CORVUS_WORKER_HOST=1` reads them in a worker process. |
 | | `CORVUS_LIVE_MAX_MINUTES` | Minutes a session stays open before it is closed (default 30). |
 
 ### Writing files

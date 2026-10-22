@@ -6,6 +6,7 @@ using Corvus.Mcp;
 using Corvus.Native.Providers.Worker;
 using Corvus.Services;
 using Corvus.Services.Analysis;
+using Corvus.Native.Dump.Managed;
 
 namespace Corvus.Tools;
 
@@ -85,6 +86,10 @@ internal sealed class FileOps : IWorkerOps
         [FileWork.List.Name] = Op(FileWork.List),
         [FileWork.Search.Name] = Op(FileWork.Search),
         [FileWork.Extract.Name] = Op(FileWork.Extract),
+        [FileWork.DumpView.Name] = Op(FileWork.DumpView),
+        [FileWork.DumpRead.Name] = Op(FileWork.DumpRead),
+        [FileWork.DumpHeap.Name] = Op(FileWork.DumpHeap),
+        [FileWork.DumpObject.Name] = Op(FileWork.DumpObject),
     };
 
     /// <summary>Tests: a file that starts with a <see cref="FixtureMarker"/> line makes the read fail that way.</summary>
@@ -95,7 +100,7 @@ internal sealed class FileOps : IWorkerOps
 
     private static WorkerOp Op<TArgs, TResult>(FileOp<TArgs, TResult> op) => (args, cancellationToken) => Task.Run<JsonNode?>(() =>
     {
-        if (Fixtures && (string?)args["path"] is { } path) Fault(path);
+        if (Fixtures && ((string?)args["path"] ?? (string?)args["dump"]?["path"]) is { } path) Fault(path);
         try
         {
             var result = op.Run(Services.Value, args.Deserialize<TArgs>(FileIsolation.Json)!, cancellationToken);
@@ -190,6 +195,76 @@ public static class FileWork
     /// <summary>unpack_container's reading half: the files written, nothing loaded.</summary>
     public static readonly FileOp<ExtractArgs, UnpackService.Extraction> Extract = new("file_extract",
         (services, a, ct) => services.GetRequiredService<UnpackService>().Extract(a.Path, a.OutputDirectory, AnalysisLimits.Default, ct, null, a.KeyLog));
+
+    /// <summary>A dump the server resolved: the id it gave the file and the image folders it is read with.</summary>
+    public sealed record DumpTarget(string Id, string Path, string? ImageDirectories);
+
+    public sealed record DumpViewArgs(DumpTarget Dump, string View, int Offset, int Limit, string? DacPath, bool DownloadDac);
+
+    public sealed record DumpReadArgs(DumpTarget Dump, string Address, int Length, bool ImageFallback);
+
+    public sealed record DumpHeapArgs(DumpTarget Dump, string? Mode, string? Type, ulong MinSize, int Offset, int Limit, long MaxObjects);
+
+    public sealed record DumpObjectArgs(DumpTarget Dump, string Address, int Depth, int MaxFields, int MaxArrayItems);
+
+    /// <summary>One open_minidump view: the summary, or the id, one page of rows and the total of a list view.</summary>
+    public sealed record DumpViewResult(MinidumpService.DumpReport? Summary, string? Id, int Total)
+    {
+        public IReadOnlyList<MinidumpService.ModuleSummary>? Modules { get; init; }
+        public IReadOnlyList<MinidumpService.ThreadSummary>? Threads { get; init; }
+        public IReadOnlyList<MinidumpService.MemoryRow>? Memory { get; init; }
+        public IReadOnlyList<MinidumpService.UnloadedModuleSummary>? Unloaded { get; init; }
+    }
+
+    /// <summary>open_minidump: one view of a dump.</summary>
+    public static readonly FileOp<DumpViewArgs, DumpViewResult> DumpView = new("dump_view",
+        (services, a, ct) => ViewOf(Pinned(services, a.Dump), a, ct));
+
+    /// <summary>read_dump_memory: the bytes at an address and what is there.</summary>
+    internal static readonly FileOp<DumpReadArgs, MinidumpService.MemoryBytes> DumpRead = new("dump_read",
+        (services, a, ct) => Pinned(services, a.Dump).ReadBytes(a.Dump.Id, a.Address, a.Length, a.ImageFallback, ct).GetAwaiter().GetResult());
+
+    /// <summary>dump_heap on a dump file.</summary>
+    public static readonly FileOp<DumpHeapArgs, MinidumpService.HeapReport> DumpHeap = new("dump_heap",
+        (services, a, ct) => Pinned(services, a.Dump).Heap(a.Dump.Id, a.Mode, a.Type, a.MinSize, a.Offset, a.Limit, a.MaxObjects, ct).GetAwaiter().GetResult());
+
+    /// <summary>dump_object on a dump file.</summary>
+    public static readonly FileOp<DumpObjectArgs, MinidumpService.ObjectReport> DumpObject = new("dump_object",
+        (services, a, ct) => Pinned(services, a.Dump).Object(a.Dump.Id, a.Address, a.Depth, a.MaxFields, a.MaxArrayItems, ct).GetAwaiter().GetResult());
+
+    private static MinidumpService Pinned(IServiceProvider services, DumpTarget dump)
+    {
+        var dumps = services.GetRequiredService<MinidumpService>();
+        dumps.Pin(dump.Id, dump.Path, dump.ImageDirectories);
+        return dumps;
+    }
+
+    /// <summary>One open_minidump view through <paramref name="dumps"/>, which knows the dump by <see cref="DumpTarget.Id"/>.</summary>
+    public static DumpViewResult ViewOf(MinidumpService dumps, DumpViewArgs a, CancellationToken ct)
+    {
+        var id = a.Dump.Id;
+        var directories = a.Dump.ImageDirectories;
+        switch (a.View)
+        {
+            case "summary":
+                var report = dumps.Summarize(id, directories, new DacRequest(string.IsNullOrWhiteSpace(a.DacPath) ? null : a.DacPath, a.DownloadDac), ct).GetAwaiter().GetResult();
+                return new DumpViewResult(report, null, 0);
+            case "modules":
+                var (mId, modules, mTotal) = dumps.Modules(id, directories, a.Offset, a.Limit);
+                return new DumpViewResult(null, mId, mTotal) { Modules = modules };
+            case "threads":
+                var (tId, threads, tTotal) = dumps.Threads(id, directories, a.Offset, a.Limit, ct).GetAwaiter().GetResult();
+                return new DumpViewResult(null, tId, tTotal) { Threads = threads };
+            case "memory":
+                var (rId, memory, rTotal) = dumps.Memory(id, a.Offset, a.Limit);
+                return new DumpViewResult(null, rId, rTotal) { Memory = memory };
+            case "unloaded":
+                var (uId, unloaded, uTotal) = dumps.Unloaded(id, a.Offset, a.Limit);
+                return new DumpViewResult(null, uId, uTotal) { Unloaded = unloaded };
+            default:
+                throw new ToolError(ErrorCode.InvalidArgument, $"Unknown view '{a.View}'.", "pass view as one of " + string.Join(", ", MinidumpService.Views));
+        }
+    }
 
     /// <summary>The summary record of a path, as summarize_file shows it.</summary>
     public static FileSummaryRecord SummarizeWith(InspectionService inspection, Services.Mobile.AppGraph? graph, SummarizeArgs a, CancellationToken ct)
