@@ -61,6 +61,15 @@
   `-MaxBehind` (50) commits back, stops on a background failure after that pass on its history (`-SkipTests` overrides), names the families not
   yet verified on the current inputs, and runs the quick set after the version bump. A failure found later goes into a
   patch release. For release-strength passes, start `./test.ps1 -Full -Background -Exhaustive` (or `-Whole`).
+- **Offloaded classes.** Every push to main also runs the engine-free heavy classes (sweeps, matrices, reference
+  comparisons; the table in `test-remote.psm1`, without the engine and live families or tests that need real data or
+  IDA or Ghidra) on GitHub-hosted runners: the `offload` job of `ci.yml`, dealt to Windows shards, with the
+  cross-platform ones on Linux as a check (`./test.ps1 -RemoteRun -Shard <i>/<n>` runs one shard). A routine whole-suite
+  run here on a commit that has that job (the background push run, or `-Full` on a commit on `origin/main`) leaves
+  those classes out, waits for the run with `gh`, and joins its TRX results, so family passes and the tree stamp need
+  both halves. A run that does not appear within 2 minutes, or whose offload jobs fail or are cancelled, leaves its
+  classes to run here; a class that skipped a test there that ran here in the last whole run runs here again.
+  `-Status` shows one `github` line; `CORVUS_TEST_OFFLOAD=0` runs everything here.
 - **Run times.** Every run but a coverage run records its test times from its TRX results in
   `.git/corvus-test-history.jsonl` (the last 30 runs of each mode: commit gate, push, full, perf and filtered runs; a
   test that passed in under a second is kept in its class's total) and rewrites `.git/corvus-time-report.md`: each

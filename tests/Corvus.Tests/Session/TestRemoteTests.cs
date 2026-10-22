@@ -102,4 +102,55 @@ public sealed class TestRemoteTests : IDisposable
         Assert.Contains("total=4", lines);
         Assert.Contains("status=github: FAILED (exit 1) on abc at now (3 classes, 12.5 s)", lines);
     }
+
+    /// <summary>A script standing in for gh: one CI run whose offload job ended with <paramref name="conclusion"/>.</summary>
+    private string FakeGh(string conclusion, string trx)
+    {
+        var path = _dir.File($"gh-{conclusion}.ps1");
+        File.WriteAllText(path, $$"""
+            $verb = "$($args[0]) $($args[1])"
+            if ($verb -eq 'run list') { '[{"databaseId": 42}]'; exit 0 }
+            if ($verb -eq 'run view') { '{"status": "completed", "jobs": [{"name": "offload (windows-latest 0/2)", "status": "completed", "conclusion": "{{conclusion}}"}, {"name": "offload (windows-latest 1/2)", "status": "completed", "conclusion": "success"}, {"name": "test (windows-latest)", "status": "completed", "conclusion": "failure"}]}'; exit 0 }
+            if ($verb -eq 'run download') {
+                $to = $args[[array]::IndexOf($args, '-D') + 1]
+                foreach ($shard in 0, 1) { New-Item -ItemType Directory -Force "$to/offload-windows-latest-$shard" | Out-Null; Copy-Item {{Quote(trx)}} "$to/offload-windows-latest-$shard/offload.trx" }
+                exit 0
+            }
+            exit 1
+            """);
+        return path;
+    }
+
+    [Fact]
+    [Trait("Speed", "Slow")]
+    public void A_finished_ci_run_brings_its_results_back_and_a_failed_or_missing_one_leaves_the_classes_here()
+    {
+        var trx = _dir.File("shard.trx");
+        File.WriteAllText(trx, Trx(("FormatSweepTests", "Passed")));
+        var none = _dir.File("gh-none.ps1");
+        File.WriteAllText(none, "'[]'; exit 0");
+        var lines = TestReuseTests.Run($$"""
+            Import-Module {{Module}}
+            $env:CORVUS_TEST_GH = {{Quote(FakeGh("success", trx))}}
+            $r = Receive-GitHubRun (Wait-GitHubRun 'owner/repo' 'abc' 0 0) {{Quote(Path.Combine(_dir.Path, "ok"))}}
+            'ok=' + $r.Started + ',' + $r.Copied + ',' + $r.Note + ',' + ([xml](Get-Content $r.Trx -Raw)).TestRun.ResultSummary.Counters.total
+            $env:CORVUS_TEST_GH = {{Quote(FakeGh("failure", trx))}}
+            $r = Receive-GitHubRun (Wait-GitHubRun 'owner/repo' 'abc' 0 0) {{Quote(Path.Combine(_dir.Path, "failed"))}}
+            'failed=' + $r.Started + ',' + $r.Note
+            $env:CORVUS_TEST_GH = {{Quote(none)}}
+            $r = Receive-GitHubRun (Wait-GitHubRun 'owner/repo' 'abc' 0 0) {{Quote(Path.Combine(_dir.Path, "none"))}}
+            'none=' + $r.Started + ',' + $r.Note
+            $env:CORVUS_TEST_OFFLOAD = '0'
+            'off=' + ($null -eq (Get-OffloadTarget {{Quote(DocsTests.RepoRoot())}} $false))
+            Remove-Item Env:CORVUS_TEST_OFFLOAD
+            'release=' + ($null -eq (Get-OffloadTarget {{Quote(DocsTests.RepoRoot())}} $true))
+            """);
+        if (lines is ["skip"]) return;
+        // Both Windows shards joined; the failed quick-set job is not an offload job.
+        Assert.Contains("ok=True,True,run 42,2", lines);
+        Assert.Contains("failed=False,its offload jobs ended failure in run 42", lines);
+        Assert.Contains("none=False,no CI run for the commit after 0 s", lines);
+        Assert.Contains("off=True", lines);
+        Assert.Contains("release=True", lines);
+    }
 }

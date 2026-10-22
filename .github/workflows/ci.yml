@@ -11,9 +11,10 @@ on:
         type: boolean
         default: false
 
-# A live run has a group of its own, so a push and a live run never cancel each other.
+# A live run has a group of its own, so a push and a live run never cancel each other. Each pushed commit has a group
+# of its own too: its offload results are what the push run on the developer's machine waits for (test.ps1).
 concurrency:
-  group: ci-${{ github.ref }}${{ inputs.live && '-live' || '' }}
+  group: ci-${{ github.ref }}${{ inputs.live && '-live' || '' }}${{ github.event_name == 'push' && format('-{0}', github.sha) || '' }}
   cancel-in-progress: true
 
 env:
@@ -101,6 +102,70 @@ jobs:
         with:
           name: test-results-${{ matrix.os }}
           path: "**/TestResults/*.trx"
+          if-no-files-found: ignore
+
+  # The engine-free heavy test classes of a pushed commit (test-remote.psm1), dealt to shards; the push run on the
+  # developer's machine leaves them out and joins these results. Linux runs the cross-platform ones as a check. A manual
+  # run checks a branch.
+  offload:
+    name: offload (${{ matrix.os }} ${{ matrix.shard }}/${{ matrix.shards }})
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: windows-latest, shard: 0, shards: 4 }
+          - { os: windows-latest, shard: 1, shards: 4 }
+          - { os: windows-latest, shard: 2, shards: 4 }
+          - { os: windows-latest, shard: 3, shards: 4 }
+          - { os: ubuntu-latest, shard: 0, shards: 2, cross: true }
+          - { os: ubuntu-latest, shard: 1, shards: 2, cross: true }
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-dotnet@v6
+        with:
+          global-json-file: global.json
+
+      - name: SDK version
+        id: sdk
+        shell: bash
+        run: echo "version=$(dotnet --version)" >> "$GITHUB_OUTPUT"
+
+      - name: Cache NuGet packages and runtime packs
+        uses: actions/cache@v6
+        with:
+          path: ${{ env.NUGET_PACKAGES }}
+          key: nuget-${{ runner.os }}-${{ runner.arch }}-sdk${{ steps.sdk.outputs.version }}-${{ hashFiles('**/*.csproj') }}
+          restore-keys: |
+            nuget-${{ runner.os }}-${{ runner.arch }}-sdk${{ steps.sdk.outputs.version }}-
+            nuget-${{ runner.os }}-${{ runner.arch }}-
+
+      - name: Cache test tools
+        uses: actions/cache@v6
+        with:
+          path: ${{ runner.temp }}/test-tools
+          key: test-tools-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('tests/Corvus.Tests/Support/*-assets.json') }}
+
+      - name: Test tools
+        shell: pwsh
+        run: |
+          $dir = Join-Path $env:RUNNER_TEMP 'test-tools/yara-x'
+          if (-not (Get-ChildItem $dir -File -ErrorAction SilentlyContinue)) { ./tests/Corvus.Tests/Support/fetch-yara-x.ps1 -Destination $dir }
+          "CORVUS_TEST_YARA_X=$dir" >> $env:GITHUB_ENV
+
+      - name: Test
+        shell: pwsh
+        run: ./test.ps1 -RemoteRun -Shard ${{ matrix.shard }}/${{ matrix.shards }} -CrossPlatform:$${{ matrix.cross == true }}
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: offload-${{ matrix.os }}-${{ matrix.shard }}
+          path: TestResults/offload.trx
           if-no-files-found: ignore
 
   # The one-line installers, end to end on a fresh machine: package, install, register, check, reinstall, uninstall.

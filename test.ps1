@@ -15,6 +15,7 @@
 #         ./test.ps1 -Status              # the last background run: passed / failed / running, its log, and run times
 #         ./test.ps1 -Perf                # the speed measurements with their budgets, alone on the machine (nightly, after -Full)
 #         ./test.ps1 -Stamp               # records the last full run's passes when its recording step failed (same tree only)
+#         ./test.ps1 -RemoteRun -Shard 0/4 # CI: one shard of the classes a push run offloads (test-remote.psm1)
 #         ./test.ps1 -Full -Coverage      # also collects line coverage (coverlet) and checks Ratchets/coverage.txt
 #         ./test.ps1 -CoverageMap         # which source files each family's tests (and each slow class) run (a whole background run refreshes it weekly): -Reuse keys on them
 #         ./test.ps1 -Mutation [-Target sqlite,pe]  # mutation testing of the core readers (Stryker.NET; tests/mutation.json),
@@ -38,7 +39,10 @@ param(
     [switch]$Mutation,
     [string[]]$Target,
     [switch]$Stamp,
-    [switch]$Perf
+    [switch]$Perf,
+    [switch]$RemoteRun,
+    [string]$Shard = '0/1',
+    [switch]$CrossPlatform
 )
 
 $ErrorActionPreference = 'Stop'
@@ -73,6 +77,19 @@ if ($Full -or $Background -or $Perf) { Import-UserTestVariables }
 if (-not $Perf) {
     Import-Module (Join-Path $root 'test-reuse.psm1') -Force
     Set-RunPriority
+}
+
+# One shard of the offloaded classes, as the CI offload job runs it: results in TestResults/offload.trx.
+if ($RemoteRun) {
+    Import-Module (Join-Path $root 'test-remote.psm1') -Force
+    $index, $count = $Shard -split '/' | ForEach-Object { [int]$_ }
+    $classes = @(Get-RemoteShard @(Get-RemoteClasses $tests -CrossPlatform:$CrossPlatform) $index $count)
+    if (-not $classes) { Write-Host "Shard $Shard has no class."; exit 0 }
+    Write-Host "Shard $Shard`: $($classes -join ', ')"
+    $env:CORVUS_ALL_TESTS = '1'; $env:CORVUS_SWEEP = if ($Exhaustive) { 'exhaustive' } else { $null }
+    & dotnet test $tests --nologo -c Release --filter (Get-ClassFilter $classes $Exhaustive.IsPresent) --logger 'trx;LogFileName=offload.trx' `
+        --results-directory (Join-Path $root 'TestResults') --blame-hang --blame-hang-timeout 30m --blame-hang-dump-type mini
+    exit $LASTEXITCODE
 }
 
 if ($Status) {
@@ -314,6 +331,7 @@ if ($Background) {
     $script = @"
 Set-Location '$dir'
 `$env:CORVUS_STALL_DIR = '$stalls'
+`$env:CORVUS_TEST_PUSH_RUN = '1'
 & ./test.ps1 $flags *> '$log'
 `$code = `$LASTEXITCODE
 Set-Content -Path '$result' -Value ('$short ' + `$(if (`$code -eq 0) { 'passed' } else { 'FAILED (exit ' + `$code + ')' }) + ' at ' + (Get-Date -Format 'yyyy-MM-dd HH:mm')) -NoNewline
@@ -612,7 +630,7 @@ if ($built) { $arguments += '--no-build' }
 $runFilter = if ($Full -and -not $Exhaustive -and -not $Coverage -and -not $PSBoundParameters.ContainsKey('Filter')) { if ($Filter) { "($Filter)&Tier!=Release" } else { 'Tier!=Release' } } else { $Filter }
 # An offloaded run sends the engine-free heavy classes it would run to another machine (test-remote.psm1) and runs the
 # rest here meanwhile; with no usable target every class runs here.
-$offload = if ($wholeSuite -and -not $Coverage) { Import-Module (Join-Path $root 'test-remote.psm1') -Force; Get-OffloadTarget $root } else { $null }
+$offload = if ($wholeSuite -and -not $Coverage) { Import-Module (Join-Path $root 'test-remote.psm1') -Force; Get-OffloadTarget $root $Exhaustive.IsPresent } else { $null }
 $offloadHandle = $null; $sent = @(); $offloadRecord = $null; $offloadClock = $null
 if ($offload) {
     $candidates = @(Get-RemoteClasses $tests)
@@ -677,7 +695,8 @@ try {
             if ($here) { $offloadRecord.note = "skipped tests there, ran here: $($here -join ', ')" }
             if ($got.Code -ne 0 -and $code -eq 0) { $code = $got.Code }
             Copy-Item $got.Trx (Join-Path $gitDir "corvus-remote/$(Get-TargetFileName $offload.Name).trx") -Force
-            Join-TrxFiles $trx @($trx, $got.Trx) $here
+            # A target may run more classes than this run needed (it does not reuse passes); only the sent ones count.
+            Join-TrxFiles $trx @($trx, $got.Trx) (@($here) + @($candidates | Where-Object { $_ -notin $sent }))
         }
         if ($here) {
             Write-Host "Running here what $($offload.Name) did not: $($here.Count) classes."

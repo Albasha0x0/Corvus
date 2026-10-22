@@ -10,6 +10,20 @@ $script:LocalFolders = 'Engines', 'Live'
 $script:LocalAttributes = 'IdaFact', 'GhidraFact', 'RequiresRealDataFact'
 # Where a run keeps each target's record and results, under the repository's .git.
 $script:RecordFolder = 'corvus-remote'
+# Set to 0 to run every class here.
+$script:OffloadVariable = 'CORVUS_TEST_OFFLOAD'
+# Set by the background push run: its commit is on its way to origin, so its CI run is coming.
+$script:PushRunVariable = 'CORVUS_TEST_PUSH_RUN'
+# Stands in for the gh command line in the tests (a .ps1).
+$script:GhVariable = 'CORVUS_TEST_GH'
+# The workflow and the job name prefix of the CI offload job (.github/workflows/ci.yml); its TRX artifacts share it.
+$script:Workflow = 'ci.yml'
+$script:OffloadJob = 'offload'
+# Seconds to wait for the commit's CI run to appear (a push run starts before its push lands), and minutes for its
+# offload jobs to finish.
+$script:RunAppearSeconds = 120
+$script:RunFinishMinutes = 120
+$script:PollSeconds = 15
 
 # The classes of $testsDir a run sends: names matching the table, outside the local folders, in files that use none of
 # the local attributes; with -CrossPlatform, also no Windows-only fact. Sorted; empty when none match.
@@ -126,20 +140,100 @@ function Get-RemoteStatus([string]$gitDir) {
     }
 }
 
-# The target a whole-suite run offloads to, as @{ Name; Kind; ... }, or $null when none is usable.
-function Get-OffloadTarget([string]$repo) {
-    return $null
+# The target a whole-suite run offloads to, as @{ Name; Kind; ... }, or $null when none is usable. GitHub: a routine
+# run on a commit on origin's main (or the background push run's commit) whose ci.yml has the offload job, with the gh
+# command line present; CORVUS_TEST_OFFLOAD=0 turns it off.
+function Get-OffloadTarget([string]$repo, [bool]$releaseTier) {
+    if ([Environment]::GetEnvironmentVariable($script:OffloadVariable) -in '0', 'false', 'off') { return $null }
+    if ($releaseTier) { return $null }
+    if (-not ([Environment]::GetEnvironmentVariable($script:GhVariable) -or (Get-Command gh -ErrorAction SilentlyContinue))) { return $null }
+    $workflow = git -C $repo show "HEAD:.github/workflows/$script:Workflow" 2>$null
+    if ($LASTEXITCODE -ne 0 -or -not ($workflow -match "^  ${script:OffloadJob}:")) { return $null }
+    if ([Environment]::GetEnvironmentVariable($script:PushRunVariable) -ne '1') {
+        git -C $repo merge-base --is-ancestor HEAD origin/main 2>$null
+        if ($LASTEXITCODE -ne 0) { return $null }
+    }
+    $url = (git -C $repo remote get-url origin 2>$null) -join ''
+    if ($url -notmatch 'github\.com[:/]([^/]+/[^/]+?)(\.git)?/?$') { return $null }
+    @{ Name = 'github'; Kind = 'github'; Repository = $Matches[1] }
 }
 
-# Starts the remote half of $classes on $target; returns a handle for Receive-Offload.
+# Starts the remote half of $classes on $target; returns a handle for Receive-Offload. GitHub runs the offload job on
+# push by itself, so its handle waits for that run.
 function Start-Offload($target, [string]$commit, [string[]]$classes, [bool]$releaseTier, [string]$module) {
-    throw "Unknown offload target kind '$($target.Kind)'."
+    switch ($target.Kind) {
+        'github' {
+            Start-ThreadJob -ArgumentList $module, $target.Repository, $commit -ScriptBlock {
+                param($module, $repository, $commit)
+                Import-Module $module
+                Wait-GitHubRun $repository $commit
+            }
+        }
+        default { throw "Unknown offload target kind '$($target.Kind)'." }
+    }
 }
 
 # Waits for the remote half: @{ Started; Copied; Code; Trx; Note }. Started false means no test ran there and its
 # classes run here; Copied false after a start means its results never came back.
 function Receive-Offload($handle, [string]$folder) {
-    throw "Unknown offload handle."
+    $state = Receive-Job $handle -Wait -AutoRemoveJob | Select-Object -Last 1
+    if ($state.Kind -eq 'github') { return Receive-GitHubRun $state $folder }
+    $state
 }
 
-Export-ModuleMember -Function Get-RemoteClasses, Get-RemoteShard, Get-LocalFilter, Get-ClassFilter, Get-ClassOutcomes, Get-SkippedOnHost, Join-TrxFiles, Get-TargetFileName, Save-RemoteRecord, Get-RemoteStatus, Get-OffloadTarget, Start-Offload, Receive-Offload
+# Runs the gh command line (or the script standing in for it); returns its output, sets $LASTEXITCODE.
+function Invoke-Gh([string[]]$arguments) {
+    $command = [Environment]::GetEnvironmentVariable($script:GhVariable)
+    if ($command) { return & pwsh -NoProfile -File $command @arguments }
+    & gh @arguments
+}
+
+# Waits for the commit's CI run on push and its offload jobs: @{ Kind; Repository; Run; Jobs; Note }, with Run $null
+# (and Note saying why) when the run never appeared, did not finish, or its offload jobs did not all succeed.
+function Wait-GitHubRun([string]$repository, [string]$commit, [int]$appearSeconds = $script:RunAppearSeconds, [int]$pollSeconds = $script:PollSeconds) {
+    $state = @{ Kind = 'github'; Repository = $repository; Run = $null; Jobs = @(); Note = $null }
+    $deadline = (Get-Date).AddSeconds($appearSeconds)
+    $run = $null
+    while ($true) {
+        $found = Invoke-Gh @('run', 'list', '-R', $repository, '--commit', $commit, '--workflow', $script:Workflow, '--event', 'push', '--json', 'databaseId', '--limit', '1') 2>$null
+        if ($LASTEXITCODE -eq 0 -and $found) { $run = (($found -join '') | ConvertFrom-Json | Select-Object -First 1).databaseId }
+        if ($run) { break }
+        if ((Get-Date) -gt $deadline) { $state.Note = "no CI run for the commit after $appearSeconds s"; return $state }
+        Start-Sleep -Seconds $pollSeconds
+    }
+    $deadline = (Get-Date).AddMinutes($script:RunFinishMinutes)
+    while ($true) {
+        $view = Invoke-Gh @('run', 'view', "$run", '-R', $repository, '--json', 'status,jobs') 2>$null
+        if ($LASTEXITCODE -eq 0 -and $view) {
+            $info = ($view -join '') | ConvertFrom-Json
+            $jobs = @($info.jobs | Where-Object { $_.name -like "$script:OffloadJob*" })
+            if ($jobs -and -not ($jobs | Where-Object status -ne 'completed')) {
+                $failed = @($jobs | Where-Object conclusion -ne 'success')
+                if ($failed) { $state.Note = "its offload jobs ended $(($failed | ForEach-Object conclusion | Sort-Object -Unique) -join ', ') in run $run"; return $state }
+                $state.Run = $run; $state.Jobs = $jobs
+                return $state
+            }
+            if (-not $jobs -and $info.status -eq 'completed') { $state.Note = "run $run has no offload job"; return $state }
+        }
+        if ((Get-Date) -gt $deadline) { $state.Note = "run $run did not finish in $script:RunFinishMinutes min"; return $state }
+        Start-Sleep -Seconds $pollSeconds
+    }
+}
+
+# Downloads a finished run's TRX artifacts into $folder and joins the Windows shards into one file; the other
+# platforms' shards gate the run (they had to succeed) and their expected skips stay out.
+function Receive-GitHubRun($state, [string]$folder) {
+    $result = [pscustomobject]@{ Started = $false; Copied = $false; Code = 0; Trx = $null; Note = $state.Note }
+    if (-not $state.Run) { return $result }
+    New-Item -ItemType Directory -Force $folder | Out-Null
+    $null = Invoke-Gh @('run', 'download', "$($state.Run)", '-R', $state.Repository, '-p', "$script:OffloadJob-*", '-D', $folder) 2>$null
+    $files = @(Get-ChildItem $folder -Recurse -Filter *.trx -ErrorAction SilentlyContinue | Where-Object { $_.FullName -match "$script:OffloadJob-windows" } | Sort-Object FullName)
+    $windows = @($state.Jobs | Where-Object { $_.name -match 'windows' })
+    if (-not $files -or $files.Count -lt $windows.Count) { $result.Note = "the TRX artifacts of run $($state.Run) did not all download"; return $result }
+    $joined = Join-Path $folder 'offload.trx'
+    Join-TrxFiles $joined @($files.FullName)
+    $result.Started = $true; $result.Copied = $true; $result.Trx = $joined; $result.Note = "run $($state.Run)"
+    $result
+}
+
+Export-ModuleMember -Function Invoke-Gh, Wait-GitHubRun, Receive-GitHubRun, Get-RemoteClasses, Get-RemoteShard, Get-LocalFilter, Get-ClassFilter, Get-ClassOutcomes, Get-SkippedOnHost, Join-TrxFiles, Get-TargetFileName, Save-RemoteRecord, Get-RemoteStatus, Get-OffloadTarget, Start-Offload, Receive-Offload
