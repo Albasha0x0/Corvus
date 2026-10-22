@@ -101,13 +101,17 @@ public sealed class AppGraphTests(Xunit.Abstractions.ITestOutputHelper output) :
             if (Il2CppPackages.Extract(apk, null) is { } root && Il2CppGameFiles.Find(root) is { Binary.Length: > 0 } files)
                 loader.Load(files, loadBinary: false, null, default);
             var before = MachineLoad.Factor();
+            var paused = GC.GetTotalPauseDuration();
             var watch = Stopwatch.StartNew();
             var g = Graph(loader).Build(apk, 0, 10, default);
             watch.Stop();
+            // The calibration before and after misses what only the work's span saw: the process's
+            // collection pauses (other tests allocate in it too) and the machine's memory load.
+            var span = $"collection pauses {(GC.GetTotalPauseDuration() - paused).TotalSeconds:0.00} s, memory load {GC.GetGCMemoryInfo().MemoryLoadBytes * 100 / Math.Max(1, GC.GetGCMemoryInfo().HighMemoryLoadThresholdBytes)} % of the high threshold";
             var (budget, load) = MachineLoad.Budget(TimeSpan.FromSeconds(5), before, MachineLoad.Factor());
-            output.WriteLine($"{Path.GetFileName(apk)} {new FileInfo(apk).Length >> 20} MB: {watch.Elapsed.TotalSeconds:0.00} s ({load}); layers {string.Join(", ", g.Layers.Select(l => $"{l.Layer} {l.Items}"))}; " +
+            output.WriteLine($"{Path.GetFileName(apk)} {new FileInfo(apk).Length >> 20} MB: {watch.Elapsed.TotalSeconds:0.00} s ({load}; {span}); layers {string.Join(", ", g.Layers.Select(l => $"{l.Layer} {l.Items}"))}; " +
                              string.Join("; ", g.EdgeKinds.Select(k => $"{k.Kind} {k.Edges}/{k.Candidates} {k.Coverage}")));
-            if (watch.Elapsed > budget) slow.Add($"{Path.GetFileName(apk)} {watch.Elapsed.TotalSeconds:0.0} s, budget {budget.TotalSeconds:0.0} s ({load})");
+            if (watch.Elapsed > budget) slow.Add($"{Path.GetFileName(apk)} {watch.Elapsed.TotalSeconds:0.0} s, budget {budget.TotalSeconds:0.0} s ({load}; {span})");
             foreach (var k in g.EdgeKinds) Assert.True(k.Edges <= k.Candidates || k.Kind == "jni", $"{apk}: {k.Kind}");
         }
         Assert.True(slow.Count == 0, string.Join("\n", slow));
