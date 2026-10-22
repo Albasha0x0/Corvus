@@ -22,4 +22,13 @@ public class FolderTallyTests(ITestOutputHelper output)
         Assert.Equal((7, 70L), FolderTally.Of(folder, () => (0, 0)));
         Assert.Equal("results being counted", FolderTally.Text(-1, -1, b => $"{b} B", "results"));
     }
+
+    [Fact]
+    public void A_count_runs_on_a_thread_of_its_own_rather_than_queued_on_the_pool()
+    {
+        bool? onPool = null;
+        var counted = FolderTally.Of("tally-" + Guid.NewGuid().ToString("N"), () => { onPool = Thread.CurrentThread.IsThreadPoolThread; return (3, 30); });
+        Assert.Equal((3, 30L), counted);
+        Assert.False(onPool);
+    }
 }

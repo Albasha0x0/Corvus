@@ -23,6 +23,8 @@ internal static class FolderTally
         if (!Measuring.TryGetValue(folder, out var task))
         {
             Task? created = null;
+            // A thread of its own: queued behind busy pool threads, even a small
+            // folder's count missed the first wait.
             created = new Task(() =>
             {
                 try
@@ -34,7 +36,7 @@ internal static class FolderTally
                     if (!Measuring.TryGetValue(folder, out var current) || current != created) Last.TryRemove(new(folder, counted));
                 }
                 finally { Measuring.TryRemove(new(folder, created!)); }
-            });
+            }, TaskCreationOptions.LongRunning);
             task = Measuring.GetOrAdd(folder, created);
             if (task == created) created.Start(TaskScheduler.Default);
         }
