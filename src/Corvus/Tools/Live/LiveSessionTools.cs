@@ -326,13 +326,11 @@ public sealed partial class LiveSessionTools(ServerOptions options, LiveSessionS
                     stop = Stop(s, held, head, named, cancellationToken);
                 }
             }
-            var next = Dropped(s, head);
+            var next = Dropped(s, head, watch: false, out var failedPoints);
             List<LiveStopPointState> points;
             lock (s.StopPoints) points = s.StopPoints.Values.OrderBy(p => int.Parse(p.Id[1..], CultureInfo.InvariantCulture)).ToList();
             List<LiveDeferred> deferredPoints;
             lock (s.Deferred) deferredPoints = s.Deferred.Where(d => !d.Watch).ToList();
-            List<LiveFailedPoint> failedPoints;
-            lock (s.Failed) failedPoints = s.Failed.Where(d => !d.Watch).ToList();
             head.AppendLine($"{s.Id}: {s.State}, {points.Count} stop point(s){(deferredPoints.Count > 0 ? $", {deferredPoints.Count} deferred" : "")}{(failedPoints.Count > 0 ? $", {failedPoints.Count} failed" : "")}");
             foreach (var p in points) head.AppendLine($"  {p.Id} {p.Where} at {Hex(p.Address)} {p.At.Display}, {p.Hits} hit(s)");
             foreach (var d in deferredPoints) head.AppendLine($"  {d.Id} {d.Where}: {Until(d)}");
@@ -370,7 +368,7 @@ public sealed partial class LiveSessionTools(ServerOptions options, LiveSessionS
             Require(spawn: false);
             var s = live.Get(session);
             var head = new StringBuilder();
-            var next = Dropped(s, head);
+            var next = Dropped(s, head, watch: true, out var failedWatches);
             switch (action.Trim().ToLowerInvariant())
             {
                 case "list":
@@ -411,8 +409,6 @@ public sealed partial class LiveSessionTools(ServerOptions options, LiveSessionS
             List<LiveDeferred> deferredWatches;
             lock (s.Deferred) deferredWatches = s.Deferred.Where(d => d.Watch).ToList();
             foreach (var d in deferredWatches) head.AppendLine($"  {d.Id} {d.Where}: {Until(d)}");
-            List<LiveFailedPoint> failedWatches;
-            lock (s.Failed) failedWatches = s.Failed.Where(d => d.Watch).ToList();
             foreach (var d in failedWatches) head.AppendLine($"  {d.Id} {d.Where}: failed ({d.Because}): {d.Reason}");
             if (rows.Count > 0) head.AppendLine($"calls: live_events from={rows[0].Id}");
             if (next != null) head.AppendLine($"Next: {next}");
@@ -749,17 +745,24 @@ public sealed partial class LiveSessionTools(ServerOptions options, LiveSessionS
             : $"{d.Point.Id} deferred: {d.Point.Module} is not loaded; it is set when {d.Point.Module} loads" +
               (d.Held ? ", before the module's code runs (a module whose entry point writes its code: once that returns)" : " (calls before then are missed)");
 
-    /// <summary>Says once which deferred points and watches could not be set since the last call; returns the first one's next step.</summary>
-    private static string? Dropped(Services.LiveSession s, StringBuilder text)
+    /// <summary>
+    /// Says once which deferred points and watches could not be set since the last call; returns the first one's next step,
+    /// and in <paramref name="failed"/> the failed points (or watches) to list.
+    /// </summary>
+    private static string? Dropped(Services.LiveSession s, StringBuilder text, bool watch, out List<LiveFailedPoint> failed)
     {
         string? next = null;
+        // Read the list under the same lock, so a point listed as failed has had its next step said.
         lock (s.Failed)
+        {
+            failed = s.Failed.Where(d => d.Watch == watch).ToList();
             foreach (var d in s.Failed.Where(d => !d.Reported))
             {
                 d.Reported = true;
                 text.AppendLine($"deferred {(d.Watch ? "watch" : "stop point")} {d.Id} at {d.Where} was dropped ({d.Because}): {d.Reason}");
                 next ??= d.Next;
             }
+        }
         return next;
     }
 
