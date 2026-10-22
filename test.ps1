@@ -16,7 +16,7 @@
 #         ./test.ps1 -Perf                # the speed measurements with their budgets, alone on the machine (nightly, after -Full)
 #         ./test.ps1 -Stamp               # records the last full run's passes when its recording step failed (same tree only)
 #         ./test.ps1 -Full -Coverage      # also collects line coverage (coverlet) and checks Ratchets/coverage.txt
-#         ./test.ps1 -CoverageMap         # which source files each family's tests (and each slow class) run (weekly): -Reuse keys on them
+#         ./test.ps1 -CoverageMap         # which source files each family's tests (and each slow class) run (a whole background run refreshes it weekly): -Reuse keys on them
 #         ./test.ps1 -Mutation [-Target sqlite,pe]  # mutation testing of the core readers (Stryker.NET; tests/mutation.json),
 #                                         #   surviving mutants checked against Ratchets/mutation-survivors.txt (gates and releases)
 #Requires -Version 7.0
@@ -282,7 +282,8 @@ if ($Background) {
     Set-Content -Path $result -Value "$short running since $(Get-Date -Format 'yyyy-MM-dd HH:mm')" -NoNewline
     # Thread dumps of engine workers stopped for time stay next to the log.
     $stalls = Join-Path $gitDir 'corvus-stalls'
-    # Below-normal priority, inherited by the test hosts and engine workers, keeps the machine responsive meanwhile.
+    # Below-normal priority, inherited by the test hosts and engine workers, keeps the machine responsive meanwhile. A
+    # whole run also refreshes a coverage map 6 days old (-Reuse drops one at 7), while its record keeps pushes queued.
     $script = @"
 (Get-Process -Id `$PID).PriorityClass = 'BelowNormal'
 Set-Location '$dir'
@@ -291,6 +292,8 @@ Set-Location '$dir'
 `$code = `$LASTEXITCODE
 Set-Content -Path '$result' -Value ('$short ' + `$(if (`$code -eq 0) { 'passed' } else { 'FAILED (exit ' + `$code + ')' }) + ' at ' + (Get-Date -Format 'yyyy-MM-dd HH:mm')) -NoNewline
 if (`$code -eq 0) { Set-Content -Path '$lastPassed' -Value '$commit' -NoNewline }
+`$map = '$(Join-Path $gitDir 'corvus-coverage-map.json')'
+if ('$strength' -eq 'whole' -and (-not (Test-Path `$map) -or (Get-Item `$map).LastWriteTime -lt (Get-Date).AddDays(-6))) { & ./test.ps1 -CoverageMap *> '$log.coverage' }
 if ((Get-Content '$running' -Raw -ErrorAction SilentlyContinue | ConvertFrom-Json).pid -eq `$PID) { Remove-Item '$running' }
 Set-Location '$root'
 if (Test-Path '$queued') {
