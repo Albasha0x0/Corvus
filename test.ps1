@@ -12,7 +12,7 @@
 #                                         #   (-Exhaustive: release strength, the passes a patch release takes;
 #                                         #   -Whole: exhaustive without reuse, the pass a minor release gates on)
 #         ./test.ps1 -SecondGhidra        # the Engines tests with CORVUS_SECOND_GHIDRA_DIR, unless they passed on these inputs
-#         ./test.ps1 -Status              # the last background run: passed / failed / running, and its log
+#         ./test.ps1 -Status              # the last background run: passed / failed / running, its log, and run times
 #         ./test.ps1 -Stamp               # records the last full run's passes when its recording step failed (same tree only)
 #         ./test.ps1 -Full -Coverage      # also collects line coverage (coverlet) and checks Ratchets/coverage.txt
 #         ./test.ps1 -CoverageMap         # which source files each family's tests (and each slow class) run (weekly): -Reuse keys on them
@@ -40,12 +40,16 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+$runClock = [Diagnostics.Stopwatch]::StartNew()
 $root = $PSScriptRoot
 $tests = Join-Path $root 'tests/Corvus.Tests'
 # The repository's own .git (shared by its worktrees): stamps and background results land there and are never committed.
 $gitDir = [IO.Path]::GetFullPath((git -C $root rev-parse --git-common-dir).Trim(), $root)
 $result = Join-Path $gitDir 'corvus-background.result'
 $log = Join-Path $gitDir 'corvus-background.log'
+# Every run's test times (test-time.psm1): the last runs of each mode, and the report built from them.
+$timeHistory = Join-Path $gitDir 'corvus-test-history.jsonl'
+$timeReport = Join-Path $gitDir 'corvus-time-report.md'
 # Test homes of earlier runs leave their deleted tools folders in an inherited PATH; past cmd's limit it finds no dotnet.
 $tempRoot = [IO.Path]::GetTempPath()
 $env:PATH = ($env:PATH -split [IO.Path]::PathSeparator | Where-Object {
@@ -82,7 +86,33 @@ if ($Status) {
         Write-Host "Previous: $(($before | Select-Object -Last 1) -replace '^Result: ', '')"
         $before | Where-Object { $_ -match '\[FAIL\]|Failed!' } | Select-Object -First 10 | ForEach-Object { Write-Host "  $_" }
     }
+    Import-Module (Join-Path $root 'test-time.psm1') -Force
+    $times = @(Get-TimeSummary $timeHistory)
+    if ($times) { Write-Host "Run times ($timeReport):"; $times | ForEach-Object { Write-Host "  $_" } }
     exit 0
+}
+
+# Starts timing a test run: the machine's load is sampled on a thread meanwhile.
+function Start-RunTiming {
+    Import-Module (Join-Path $root 'test-time.psm1') -Force
+    $script:loadJob = try { Start-MachineLoad } catch { $null }
+}
+
+# Records a run's TRX times in the history and the time report and prints the report's one line. Timing never fails
+# a run: an error is printed and the run's exit code stands.
+function Save-RunTimes([string]$trx, [string]$mode, [int]$code, [hashtable]$extra = @{}) {
+    try {
+        # The wait for the heavy lock is recorded on its own, not as run time.
+        $wall = $runClock.Elapsed.TotalSeconds - $(if ($extra.heavyWait) { $extra.heavyWait } else { 0 })
+        $endJob = try { Start-MachineLoad } catch { $null }
+        $context = [ordered]@{ mode = $mode; commit = (git -C $root rev-parse --short HEAD).Trim(); at = (Get-Date -Format 'yyyy-MM-dd HH:mm'); code = $code; wall = [math]::Round($wall, 1) }
+        $context.loadStart = if ($script:loadJob) { Receive-Job $script:loadJob -Wait -AutoRemoveJob } else { $null }
+        $context.loadEnd = if ($endJob) { Receive-Job $endJob -Wait -AutoRemoveJob } else { $null }
+        $context.heavyWait = $null; $context.permits = $null
+        foreach ($name in $extra.Keys) { $context[$name] = $extra[$name] }
+        Write-Host (Save-TestTimes $trx $context $timeHistory $timeReport)
+    }
+    catch { Write-Host "Recording the run times failed: $_" -ForegroundColor Yellow }
 }
 
 # Mutation testing: one Stryker.NET run (CORVUS_STRYKER, else dotnet-stryker on PATH) over the files and tests of the
@@ -253,8 +283,13 @@ if (-not ($Full -or $All -or $Affected -or $Filter -or $Coverage -or $CoverageMa
         $quickFilter = 'Speed!=Slow&(' + (($classes | ForEach-Object { "FullyQualifiedName~.$_" }) -join '|') + ')'
         if ($quickFilter.Length -lt 24000) {
             Write-Host "Changed since ${Base}: $($changed.Count) files; quick tests of $($families -join ', ')."
-            & dotnet test $tests --nologo --filter $quickFilter
-            exit $LASTEXITCODE
+            $results = Join-Path $tempRoot "corvus-trx-$PID"
+            Start-RunTiming
+            & dotnet test $tests --nologo --filter $quickFilter --logger 'trx;LogFileName=full.trx' --results-directory $results
+            $code = $LASTEXITCODE
+            Save-RunTimes (Join-Path $results 'full.trx') 'quick' $code
+            if (Test-Path $results) { Remove-Item -Recurse -Force $results }
+            exit $code
         }
     }
     Write-Host "Changed since ${Base}: $($changed.Count) files, shared code among them: the whole quick set runs."
@@ -452,11 +487,14 @@ $arguments = @('test', $tests, '--nologo')
 $runFilter = if ($Full -and -not $Exhaustive -and -not $Coverage -and -not $PSBoundParameters.ContainsKey('Filter')) { if ($Filter) { "($Filter)&Tier!=Release" } else { 'Tier!=Release' } } else { $Filter }
 if ($runFilter) { $arguments += @('--filter', $runFilter) }
 $results = Join-Path ([IO.Path]::GetTempPath()) "corvus-trx-$PID"
-if ($familyKeys) { $arguments += @('--logger', 'trx;LogFileName=full.trx', '--results-directory', $results) }
+$arguments += @('--logger', 'trx;LogFileName=full.trx', '--results-directory', $results)
+# The history keeps each mode apart: the commit gate, a push's reusing run, a whole run, and runs of a chosen filter.
+$runMode = if ($Affected -or $PSBoundParameters.ContainsKey('Filter')) { 'filter' } elseif (-not $Full) { 'quick' } elseif ($Reuse) { 'push' } else { 'full' }
+$timing = @{}
+if ($Reuse -and $familyKeys) { $timing.reused = @($kept).Count; $timing.families = $classMap.Count }
 # Coverage floors are set by whole-suite runs, so a partial run is never checked against them.
 if ($Coverage) {
     if (-not $Full -or $Filter -or $Reuse) { Write-Host 'Coverage needs the whole suite: -Full without -Filter, -Affected or -Reuse.' -ForegroundColor Red; exit 2 }
-    if (-not $familyKeys) { $arguments += @('--results-directory', $results) }
     $familyKeys = $null   # an instrumented run records no family passes and stamps no tree
     $arguments += @('--collect', 'XPlat Code Coverage', '--',
         'DataCollectionRunSettings.DataCollectors.DataCollector.Configuration.Include=[corvus]*')
@@ -468,10 +506,18 @@ try {
     $tree = if ($wholeSuite -and -not $Coverage) { Get-CleanTree } else { $null }
     # A whole-suite run waits for a quiet machine and keeps it quiet until it ends.
     $heavyLock = "corvus-full-$PID"
-    if ($wholeSuite) { Import-Module (Join-Path $root 'test-reuse.psm1') -Force; $heavy = Enter-HeavyLock $heavyLock }
+    if ($wholeSuite) {
+        Import-Module (Join-Path $root 'test-reuse.psm1') -Force
+        $lockClock = [Diagnostics.Stopwatch]::StartNew()
+        $heavy = Enter-HeavyLock $heavyLock
+        if ($heavy) { $timing.heavyWait = [math]::Round($lockClock.Elapsed.TotalSeconds, 1) }
+    }
+    Start-RunTiming
     & dotnet @arguments
     $code = $LASTEXITCODE
     $trx = Join-Path $results 'full.trx'
+    # Instrumented runs are slower throughout and are not timed.
+    if (-not $Coverage) { Save-RunTimes $trx $runMode $code $timing }
     $recordFailed = $false
     if ($familyKeys -and (Test-Path $trx)) {
         $commit = (git -C $root rev-parse --short HEAD).Trim()

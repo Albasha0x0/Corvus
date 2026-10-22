@@ -1,0 +1,143 @@
+using System.Diagnostics;
+using System.Globalization;
+using System.Text;
+
+namespace Corvus.Tests;
+
+/// <summary>test-time.psm1: a run's test times, the history of the last runs per mode, and the time report.</summary>
+public class TestTimeTests
+{
+    private static readonly DateTimeOffset Origin = new(2026, 10, 1, 8, 0, 0, TimeSpan.FromHours(3));
+
+    [Fact]
+    [Trait("Speed", "Slow")]
+    public void The_history_keeps_the_last_runs_of_each_mode_and_slow_or_failed_tests_by_name()
+    {
+        var dir = NewFolder();
+        var trx = Path.Combine(dir, "run.trx");
+        File.WriteAllText(trx, Trx(("A", "Slow", 0, 2, "Passed"), ("A", "Next", 2, 3, "Passed"), ("B", "Fast", 0, 0.5, "Passed"), ("B", "Broken", 0.5, 0.75, "Failed")));
+        var history = Path.Combine(dir, "history.jsonl");
+        try
+        {
+            var lines = Run($$"""
+                Import-Module '{{Module}}'
+                $times = Read-TestTimes '{{trx}}'
+                'wall=' + $times.Wall
+                foreach ($mode in 'quick', 'quick', 'quick', 'push') { $null = Add-TestHistory '{{history}}' $times ([ordered]@{ mode = $mode; wall = 4.0 }) 2 }
+                $h = Read-TestHistory '{{history}}' 'quick'
+                'runs=' + (($h.Runs | ForEach-Object mode) -join ',')
+                'tests=' + (($h.Tests.Keys | Sort-Object | ForEach-Object { $_ + ':' + $h.Tests[$_].Count }) -join ',')
+                'classes=' + (($h.Classes.Keys | Sort-Object | ForEach-Object { $_ + ':' + $h.Classes[$_][0] }) -join ',')
+                """);
+            if (lines is ["skip"]) return; // no pwsh on this machine
+            Assert.Equal("3", Line(lines, "wall"));
+            Assert.Equal("quick,quick,push", Line(lines, "runs"));
+            // The fast test that passed is kept only in its class's line.
+            Assert.Equal("\"Corvus.Tests.A.Next\":2,\"Corvus.Tests.A.Slow\":2,\"Corvus.Tests.B.Broken\":2", Line(lines, "tests"));
+            Assert.Equal("\"A\":3,\"B\":0.75", Line(lines, "classes"));
+        }
+        finally { Directory.Delete(dir, true); }
+    }
+
+    [Fact]
+    [Trait("Speed", "Slow")]
+    public void The_critical_path_is_the_chain_of_tests_that_sets_the_end_time()
+    {
+        var dir = NewFolder();
+        var trx = Path.Combine(dir, "run.trx");
+        File.WriteAllText(trx, Trx(("A", "Long", 0, 10, "Passed"), ("A", "Short", 0, 3, "Passed"), ("B", "Tail", 10, 12, "Passed"), ("B", "Last", 12, 15, "Passed")));
+        try
+        {
+            var lines = Run($$"""
+                Import-Module '{{Module}}'
+                $times = Read-TestTimes '{{trx}}'
+                'path=' + ((Get-CriticalPath $times | ForEach-Object Name) -join ',')
+                'running=' + ((Get-Concurrency $times 5 | ForEach-Object { $_.Running.ToString('0.0', [cultureinfo]::InvariantCulture) }) -join ',')
+                """);
+            if (lines is ["skip"]) return; // no pwsh on this machine
+            Assert.Equal("Corvus.Tests.B.Last,Corvus.Tests.B.Tail,Corvus.Tests.A.Long", Line(lines, "path"));
+            Assert.Equal("1.6,1.0,1.0", Line(lines, "running"));
+        }
+        finally { Directory.Delete(dir, true); }
+    }
+
+    [Fact]
+    [Trait("Speed", "Slow")]
+    public void The_report_names_a_missed_target_and_a_regression_and_keeps_other_modes_sections()
+    {
+        var dir = NewFolder();
+        var usual = Path.Combine(dir, "usual.trx");
+        var slower = Path.Combine(dir, "slower.trx");
+        File.WriteAllText(usual, Trx(("Engine", "Open", 0, 6, "Passed"), ("Engine", "Read", 0, 0.5, "Passed")));
+        File.WriteAllText(slower, Trx(("Engine", "Open", 0, 20, "Passed"), ("Engine", "Read", 0, 0.5, "Passed")));
+        var history = Path.Combine(dir, "history.jsonl");
+        var report = Path.Combine(dir, "report.md");
+        try
+        {
+            var lines = Run($$"""
+                Import-Module '{{Module}}'
+                foreach ($trx in '{{usual}}', '{{usual}}', '{{usual}}', '{{slower}}', '{{slower}}') {
+                    $last = Save-TestTimes $trx ([ordered]@{ mode = 'full'; commit = 'abc'; at = '2026-10-01 08:00'; code = 0; wall = 2000.0 }) '{{history}}' '{{report}}'
+                }
+                'line=' + $last
+                $null = Save-TestTimes '{{usual}}' ([ordered]@{ mode = 'quick'; commit = 'abc'; at = '2026-10-01 09:00'; code = 0; wall = 30.0 }) '{{history}}' '{{report}}'
+                foreach ($line in Get-TimeSummary '{{history}}') { 'summary=' + $line }
+                """);
+            if (lines is ["skip"]) return; // no pwsh on this machine
+            Assert.StartsWith("Time: 2 tests, 33.3 min wall", Line(lines, "line"));
+            Assert.Equal(
+                ["quick: 30.0 s (target 2.0 min: met), 2 tests, at 2026-10-01 09:00 on abc", "full: 33.3 min (target 30.0 min: not met), 2 tests, at 2026-10-01 08:00 on abc"],
+                lines.Where(l => l.StartsWith("summary=")).Select(l => l["summary=".Length..]));
+            var text = File.ReadAllText(report);
+            Assert.Contains("| full | under 30.0 min | 33.3 min | 2026-10-01 08:00 on abc | no | Corvus.Tests.Engine.Open 20.0 s |", text);
+            Assert.Contains("- Corvus.Tests.Engine.Open: 20.0 s, median 6.0 s", text);
+            Assert.Contains("<!-- mode: full -->", text);
+            Assert.Contains("<!-- mode: quick -->", text);
+        }
+        finally { Directory.Delete(dir, true); }
+    }
+
+    private static string Module => Path.Combine(DocsTests.RepoRoot(), "test-time.psm1").Replace("'", "''");
+
+    private static string NewFolder()
+    {
+        var dir = Path.Combine(Path.GetTempPath(), $"corvus-time-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(dir);
+        return dir;
+    }
+
+    // Results with start and end times in seconds from Origin.
+    private static string Trx(params (string Class, string Name, double Start, double End, string Outcome)[] tests)
+    {
+        StringBuilder results = new(), definitions = new();
+        for (var i = 0; i < tests.Length; i++)
+        {
+            var (cls, name, start, end, outcome) = tests[i];
+            var from = Origin.AddSeconds(start).ToString("o", CultureInfo.InvariantCulture);
+            var to = Origin.AddSeconds(end).ToString("o", CultureInfo.InvariantCulture);
+            results.Append($"""<UnitTestResult testId="{i}" testName="Corvus.Tests.{cls}.{name}" startTime="{from}" endTime="{to}" outcome="{outcome}" />""");
+            definitions.Append($"""<UnitTest id="{i}"><TestMethod className="Corvus.Tests.{cls}" name="{name}" /></UnitTest>""");
+        }
+        return $"""<TestRun xmlns="http://microsoft.com/schemas/VisualStudio/TeamTest/2010"><Results>{results}</Results><TestDefinitions>{definitions}</TestDefinitions></TestRun>""";
+    }
+
+    private static string Line(string[] lines, string name) => lines.Single(l => l.StartsWith(name + "=")).Substring(name.Length + 1);
+
+    private static string[] Run(string script)
+    {
+        ProcessStartInfo start = new("pwsh") { RedirectStandardOutput = true, RedirectStandardError = true };
+        foreach (var arg in new[] { "-NoProfile", "-NonInteractive", "-Command", script })
+            start.ArgumentList.Add(arg);
+        Process? process;
+        try { process = Process.Start(start); }
+        catch (System.ComponentModel.Win32Exception) { return ["skip"]; }
+        using (process)
+        {
+            var output = process!.StandardOutput.ReadToEnd();
+            var error = process.StandardError.ReadToEnd();
+            process.WaitForExit();
+            Assert.True(process.ExitCode == 0, error);
+            return output.Split('\n', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
+        }
+    }
+}

@@ -44,6 +44,15 @@
   release commit or an ancestor, stops on a known background failure (`-SkipTests` overrides), names the families not
   yet verified on the current inputs, and runs the quick set after the version bump. A failure found later goes into a
   patch release. For release-strength passes, start `./test.ps1 -Full -Background -Exhaustive` (or `-Whole`).
+- **Run times.** Every run but a coverage run records its test times from its TRX results in
+  `.git/corvus-test-history.jsonl` (the last 30 runs of each mode: commit gate, push, full, perf and filtered runs; a
+  test that passed in under a second is kept in its class's total) and rewrites `.git/corvus-time-report.md`: each
+  mode's latest run against its target (the commit gate under 2 minutes with its build, a push's background run under
+  15 minutes, a whole run under 30 minutes) with the tests that keep a missed target out of reach, and per mode the wall
+  and summed time, the tests running in each 5-minute bucket, the critical path, the 20 slowest classes and tests with
+  their median and 90th percentile, regressions (over 5 s and 1.5 times the median in each of the last two runs), heavy
+  lock and permit waits, and the failed tests. A run prints one line from it; `./test.ps1 -Status` shows each mode's
+  latest run against its target.
 - **Shared engine analyses.** IDA and Ghidra tests on the System32 sample start from a copy of one saved analysis per
   engine, engine install and server build (`Support/EngineSeed.cs`, kept under `corvus-test-data/engine-seed` in the
   temporary folder), instead of analysing it again in every empty cache: about half the time of those classes. Tests
