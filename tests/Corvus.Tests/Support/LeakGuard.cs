@@ -44,6 +44,10 @@ internal static class LeakGuard
         Directory.CreateDirectory(RunTemp);
         foreach (var name in new[] { "TMP", "TEMP", "TMPDIR" })
             Environment.SetEnvironmentVariable(name, RunTemp + (OperatingSystem.IsWindows() ? "" : "/"));
+        // Ghidra workers of every test share one folder and a spare, so a test opens on a started JVM and the worker is
+        // compiled once per run, not per cache root.
+        Environment.SetEnvironmentVariable(Corvus.Native.Providers.Ghidra.GhidraOptions.WorkerDirectoryVariable, DeleteAtEnd(Path.Combine(RunTemp, "ghidra-workers")));
+        Environment.SetEnvironmentVariable(Corvus.Native.Providers.Ghidra.GhidraOptions.SpareWorkerVariable, "on");
         // A discovery-only run never reaches the check.
         AppDomain.CurrentDomain.ProcessExit += (_, _) =>
         {
@@ -96,6 +100,8 @@ internal static class LeakGuard
     public static string? Check()
     {
         var problems = new List<string>();
+        // The spares hold files in the shared worker folder: end them before it is deleted.
+        Corvus.Native.Providers.Ghidra.GhidraSpareWorkers.EndAll(TimeSpan.FromSeconds(10));
         foreach (var path in RunScoped)
         {
             try { if (Directory.Exists(path)) Directory.Delete(path, true); }

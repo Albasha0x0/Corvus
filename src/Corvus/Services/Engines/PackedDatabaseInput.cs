@@ -34,7 +34,7 @@ internal static class PackedDatabaseInput
         if (!Directory.Exists(rep))
             throw new ToolError(ErrorCode.NotFound, $"{Path.GetFileName(gpr)} has no {name}.rep folder beside it: the project's data is missing.", "pass the .gpr of a complete project");
         var wanted = string.IsNullOrWhiteSpace(program) ? null : program.Trim();
-        var dir = Path.Combine(ghidra.Directories.Root, "gpr", ProjectFingerprint(gpr, rep, wanted)[..16]);
+        var dir = Path.Combine(ghidra.CacheDirectory, "gpr", ProjectFingerprint(gpr, rep, wanted)[..16]);
         var gzf = Path.Combine(dir, "program.gzf");
         var chosen = Path.Combine(dir, "program.txt");
         if (!File.Exists(gzf) || !File.Exists(chosen))
@@ -96,7 +96,7 @@ internal static class PackedDatabaseInput
             throw new ToolError(ErrorCode.ProviderUnavailable, "Reading a Ghidra archive (.gzf) needs Ghidra, which this server has not set up.", "set CORVUS_GHIDRA_DIR, or load the original file");
         var sha = Hash(gzf);
         // unpacked once per archive content
-        var dir = Path.Combine(ghidra.Directories.Root, "gzf", sha[..16]);
+        var dir = Path.Combine(ghidra.CacheDirectory, "gzf", sha[..16]);
         var manifest = Path.Combine(dir, "original.json");
         Native.Providers.Ghidra.GhidraProvider.ArchiveOriginal original;
         if (File.Exists(manifest) && JsonSerializer.Deserialize<Native.Providers.Ghidra.GhidraProvider.ArchiveOriginal>(File.ReadAllText(manifest)) is { } known

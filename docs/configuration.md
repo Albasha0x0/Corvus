@@ -175,6 +175,8 @@ Variables of the options above are listed with them. A program variable takes th
 | `CORVUS_GHIDRA_ANALYSIS` | `standard` | Analysis profile: `standard`, `full`, `minimal`. |
 | `CORVUS_GHIDRA_COMPLETION` | on | `off`: no background pass that completes a `standard` analysis. |
 | `CORVUS_GHIDRA_MAXMEM` | | JVM heap of each Ghidra worker. |
+| `CORVUS_GHIDRA_WORKER_DIR` | `<analysis cache>/ghidra` | Folder of the Ghidra workers' settings, temporary files and built worker; one subfolder per extension set. |
+| `CORVUS_GHIDRA_SPARE_WORKER` | off | `on`: keep one started Ghidra worker ready, so the next open skips the JVM start; it holds an idle JVM of 1-2 GB. |
 | `CORVUS_GHIDRA_OPTIONS` | | Extra analyzer options, `Name=value;...`. |
 | `CORVUS_GHIDRA_EXTENSIONS` | | Folder of Ghidra extension zips installed into the workers; nothing is downloaded. |
 | `CORVUS_GHIDRA_DECOMPILE_TIMEOUT` | 60 | Seconds per decompiled function (1-600). |

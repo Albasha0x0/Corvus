@@ -39,6 +39,10 @@ public sealed record GhidraProviderOptions
     public int JournalSaveThreshold { get; init; } = 50;
     /// <summary>Memory cap of each worker tree in bytes (0: none); null: <see cref="EngineMemoryLimit.Variable"/>, else three quarters of the memory available.</summary>
     public long? MemoryLimitBytes { get; init; }
+    /// <summary>Root of the workers' settings, home, temporary files and built jars; null: <see cref="GhidraOptions.WorkerDirectoryVariable"/>, else the ghidra folder of the cache root.</summary>
+    public string? WorkerRoot { get; init; }
+    /// <summary>Keep one started worker ready for the next open; null: <see cref="GhidraOptions.SpareWorkerVariable"/>, else off.</summary>
+    public bool? SpareWorker { get; init; }
     /// <summary>Decompiler processes per session.</summary>
     public int Decompilers { get; init; } = Math.Clamp(Environment.ProcessorCount / 2, 1, 4);
 }
@@ -62,7 +66,14 @@ public sealed class GhidraProvider(GhidraProviderOptions? options = null) : INat
     public string DisplayName => "Ghidra";
     internal GhidraProviderOptions Options => _options;
     internal AnalysisCache Cache { get; } = new((options ?? new GhidraProviderOptions()).CacheRoot ?? AnalysisCache.DefaultRoot);
-    internal GhidraDirectories Directories => new(Path.Combine(Cache.Root, ProviderId));
+    /// <summary>The worker directories: under <see cref="GhidraProviderOptions.WorkerRoot"/>, one folder per extension set, else the cache folder.</summary>
+    internal GhidraDirectories Directories => new((_options.WorkerRoot ?? Environment.GetEnvironmentVariable(GhidraOptions.WorkerDirectoryVariable)) is { Length: > 0 } root
+        ? Path.Combine(Path.GetFullPath(root), ExtensionSet())
+        : CacheDirectory);
+    /// <summary>This provider's folder of the analysis cache: projects and unpacked archives, per input.</summary>
+    internal string CacheDirectory => Path.Combine(Cache.Root, ProviderId);
+    internal bool KeepsSpareWorker => _options.SpareWorker ?? GhidraOptions.SpareWorker(Environment.GetEnvironmentVariable(GhidraOptions.SpareWorkerVariable));
+    private readonly HashSet<string> _spareCommands = [];
     /// <summary>One first analysis at a time: a cold analysis of a large image takes several GB.</summary>
     internal SemaphoreSlim ColdAnalysis { get; } = new(1, 1);
 
@@ -307,8 +318,12 @@ public sealed class GhidraProvider(GhidraProviderOptions? options = null) : INat
         return Directory.Exists(dir) && Directory.EnumerateDirectories(dir, "p-*").Where(p => GhidraSession.OfOverrides(p, overrides)).Any(GhidraSession.HasProject);
     }
 
-    /// <summary>Builds the worker when needed and starts a JVM (inside a job on Windows); Ghidra initializes before the ready event.</summary>
-    internal async Task<WorkerConnection> StartWorkerAsync(GhidraInstallation ghidra, JavaRuntime java, long imageBytes, CancellationToken cancellationToken)
+    /// <summary>
+    /// Builds the worker when needed and starts a JVM (inside a job on Windows), or adopts the spare started with the same
+    /// command; Ghidra initializes before the ready event. <paramref name="refill"/> starts the next spare once this
+    /// worker is ready, when spares are on.
+    /// </summary>
+    internal async Task<WorkerConnection> StartWorkerAsync(GhidraInstallation ghidra, JavaRuntime java, long imageBytes, CancellationToken cancellationToken, bool refill = false)
     {
         var dirs = Directories;
         try { dirs.Create(); }
@@ -342,21 +357,31 @@ public sealed class GhidraProvider(GhidraProviderOptions? options = null) : INat
             MemoryLimitBytes = EngineMemoryLimit.Resolve(_options.MemoryLimitBytes),
         };
         Interlocked.Increment(ref _workersStarted);
-        try
+        WorkerConnection Launch()
         {
-            return WorkerConnection.Start("Ghidra worker", start, Remediation,
-                new WorkerConnectionOptions
-                {
-                    Concurrent = true,
-                    CancelGrace = _options.CancelGrace,
-                    StallReport = pids => JavaThreadDump.Report(java.Java, pids, Path.Combine(dirs.Root, "stalls")),
-                });
+            try
+            {
+                return WorkerConnection.Start("Ghidra worker", start, Remediation,
+                    new WorkerConnectionOptions
+                    {
+                        Concurrent = true,
+                        CancelGrace = _options.CancelGrace,
+                        StallReport = pids => JavaThreadDump.Report(java.Java, pids, Path.Combine(dirs.Root, "stalls")),
+                    });
+            }
+            catch (Exception ex) when (ex is System.ComponentModel.Win32Exception or IOException or UnauthorizedAccessException)
+            {
+                throw new ToolError(ErrorCode.ProviderUnavailable, $"The Ghidra worker could not be started with {java.Java}: {ex.Message}",
+                    $"Check the JDK or set {GhidraOptions.JavaVariable}.");
+            }
         }
-        catch (Exception ex) when (ex is System.ComponentModel.Win32Exception or IOException or UnauthorizedAccessException)
-        {
-            throw new ToolError(ErrorCode.ProviderUnavailable, $"The Ghidra worker could not be started with {java.Java}: {ex.Message}",
-                $"Check the JDK or set {GhidraOptions.JavaVariable}.");
-        }
+        if (!KeepsSpareWorker) return Launch();
+        var command = GhidraSpareWorkers.Command(start, _options.CancelGrace);
+        lock (_spareCommands)
+            if (_disposed == 0 && _spareCommands.Add(command)) GhidraSpareWorkers.Use(command);
+        var worker = GhidraSpareWorkers.Take(command) ?? Launch();
+        if (refill) GhidraSpareWorkers.Refill(command, Launch, worker, _options.StartTimeout);
+        return worker;
     }
 
     /// <summary>
@@ -404,5 +429,15 @@ public sealed class GhidraProvider(GhidraProviderOptions? options = null) : INat
         if (Interlocked.Exchange(ref _disposed, 1) != 0) return;
         foreach (var s in _sessions.Keys) s.Dispose();
         _sessions.Clear();
+        lock (_spareCommands)
+        {
+            foreach (var command in _spareCommands) GhidraSpareWorkers.Release(command);
+            _spareCommands.Clear();
+        }
     }
+
+    /// <summary>The extension set's folder name under a worker root: its own settings, so sets do not replace each other's extensions.</summary>
+    private string ExtensionSet() => Extensions.Count == 0 ? "base"
+        : "x-" + Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(
+            string.Join('\n', Extensions.OrderBy(e => e.Name, StringComparer.Ordinal).Select(e => e.Name + "=" + e.Hash)))))[..12];
 }

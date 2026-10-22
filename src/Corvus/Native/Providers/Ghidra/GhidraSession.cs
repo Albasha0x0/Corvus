@@ -227,7 +227,7 @@ internal sealed class GhidraSession(GhidraProvider provider, GhidraInstallation 
     {
         var clock = Stopwatch.StartNew();
         Options.Progress?.Report(new NativeProviderProgress("start", clock.Elapsed));
-        var worker = await provider.StartWorkerAsync(ghidra, java, new FileInfo(Entry!.InputCopy).Length, cancellationToken).ConfigureAwait(false);
+        var worker = await provider.StartWorkerAsync(ghidra, java, new FileInfo(Entry!.InputCopy).Length, cancellationToken, refill: true).ConfigureAwait(false);
         SetWorker(worker);
         worker.EventReceived += e =>
         {

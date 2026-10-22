@@ -24,6 +24,10 @@ public static class GhidraOptions
     public const string DirectoryVariable = "CORVUS_GHIDRA_DIR";
     public const string JavaVariable = "CORVUS_GHIDRA_JAVA";
     public const string MaxMemoryVariable = "CORVUS_GHIDRA_MAXMEM";
+    /// <summary>Folder of the workers' settings, home, temporary files and built jars, apart from the analysis cache.</summary>
+    public const string WorkerDirectoryVariable = "CORVUS_GHIDRA_WORKER_DIR";
+    /// <summary>`on` keeps one started worker ready for the next open (an idle JVM of 1-2 GB); off by default.</summary>
+    public const string SpareWorkerVariable = "CORVUS_GHIDRA_SPARE_WORKER";
     public const string ProfileVariable = "CORVUS_GHIDRA_ANALYSIS";
     /// <summary>off: no completion pass after a standard-profile analysis (the worker's CompletionPass).</summary>
     public const string CompletionVariable = "CORVUS_GHIDRA_COMPLETION";
@@ -134,6 +138,9 @@ public static class GhidraOptions
         }
         return list;
     }
+
+    /// <summary>Whether a spare worker is kept: on, 1, true or yes; anything else is off.</summary>
+    public static bool SpareWorker(string? value) => value?.Trim().ToLowerInvariant() is "on" or "1" or "true" or "yes";
 
     public static bool Completion(string? value) => value?.Trim().ToLowerInvariant() is not ("off" or "0" or "false" or "no");
 

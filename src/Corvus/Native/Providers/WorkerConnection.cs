@@ -156,6 +156,8 @@ public sealed class WorkerConnection : IDisposable
     internal long Requests => Interlocked.Read(ref _requests);
     public IReadOnlyList<int> TreeProcessIds() => _process.TreeProcessIds();
     public Task Closed => _closed.Task;
+    /// <summary>Completes with the worker's "ready" event; never faults.</summary>
+    internal Task Ready => _ready.Task;
 
     /// <summary>
     /// Waits for the worker's "ready" event. With <paramref name="idle"/>, the start also stops once the worker's processes
