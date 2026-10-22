@@ -384,9 +384,11 @@ public sealed class WorkerConnection : IDisposable
         }
         catch (Exception ex) when (ex is IOException or ObjectDisposedException) { }
         _stdoutDone.TrySetResult();
-        // The exit message is read on its own thread: give it a moment, so the
-        // error carries it.
+        // The exit message is read on its own thread, and the exit is reaped
+        // after the pipes close (macOS): give both a moment, so the error
+        // carries the message and the exit code.
         _stderrDone.Task.Wait(1000);
+        Task.WhenAny(_process.Exited, Task.Delay(1000)).Wait();
         OnClosed();
     }
 
