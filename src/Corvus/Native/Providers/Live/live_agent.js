@@ -36,23 +36,22 @@ function stackFrom(sp) {
   }
 }
 
-// A bare point (a coverage count) sends only where it stopped: no stack, no registers. at is the point's address when the
-// hook runs elsewhere (a detour's stub, see hookAt), where the registers are the same.
+// A bare point (a coverage count) sends only where it stopped: no stack, no registers. at is the point's address: the
+// hook may run elsewhere, where the registers are the same (a detour's stub, see hookAt, or behind another agent's hook
+// on the same function, whose trampoline Gum on ia32 reports as the pc).
 function stopsIn(id, context, at, bare) {
   // The point was cleared while this thread was in the hook: a stop reported
   // now would hold it after the clear.
   if (!points[id]) return;
   const tid = Process.getCurrentThreadId();
   hits[id] = (hits[id] || 0) + 1;
-  const pc = (at || context.pc).toString();
+  const pc = at.toString();
   expect('resume-' + tid);
   if (bare) send({ type: 'stop', point: id, tid, hits: hits[id], registers: {}, frames: [pc] });
   else {
     const registers = JSON.parse(JSON.stringify(context));
-    if (at) {
-      registers.pc = pc;
-      registers[Process.arch === 'x64' ? 'rip' : 'eip'] = pc;
-    }
+    registers.pc = pc;
+    if (Process.arch === 'x64' || Process.arch === 'ia32') registers[Process.arch === 'x64' ? 'rip' : 'eip'] = pc;
     const frames = [pc].concat(Thread.backtrace(context, BACKTRACER).slice(0, 31).map(p => p.toString()));
     send({ type: 'stop', point: id, tid, hits: hits[id], registers, frames }, stackFrom(context.sp));
   }
@@ -61,11 +60,11 @@ function stopsIn(id, context, at, bare) {
 
 // A counted point reports each hit without holding the thread and clears
 // itself at its hit limit, so the program does not wait on the server.
-function countsIn(id, context, at, limit) {
+function countsIn(id, at, limit) {
   const p = points[id];
   if (!p || p.spent) return;
   hits[id] = (hits[id] || 0) + 1;
-  send({ type: 'stop', point: id, tid: Process.getCurrentThreadId(), hits: hits[id], registers: {}, frames: [(at || context.pc).toString()], counted: true });
+  send({ type: 'stop', point: id, tid: Process.getCurrentThreadId(), hits: hits[id], registers: {}, frames: [at.toString()], counted: true });
   if (hits[id] < limit) return;
   p.spent = true;
   // The hook is undone once this thread has left it, from the script's own
@@ -572,12 +571,12 @@ rpc.exports = {
   },
   // A bare point with a hit limit is counted rather than held (countsIn).
   set(id, address, bare, limit) {
-    const p = ptr(address), hook = hookAt(p), elsewhere = hook.at.equals(p) ? null : p;
+    const p = ptr(address), hook = hookAt(p);
     const counted = bare === true && limit > 0;
     // a probe: the onEnter form takes the stack top for a return address, which past a function's start is a saved register
     const listener = Interceptor.attach(hook.at, counted
-      ? function () { countsIn(id, this.context, elsewhere, limit); }
-      : function () { stopsIn(id, this.context, elsewhere, bare === true); });
+      ? function () { countsIn(id, p, limit); }
+      : function () { stopsIn(id, this.context, p, bare === true); });
     const prior = points[id];
     points[id] = { detach() { hook.undo(); listener.detach(); if (prior) prior.detach(); } };
     return true;
