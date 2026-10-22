@@ -173,12 +173,13 @@ public sealed class PdbIdaTypesTests(ITestOutputHelper output) : IDisposable
     /// <summary>
     /// A real image shipped with its PDB, named by CORVUS_PDB_SAMPLE ("image path|function name|function name..."; skipped when
     /// unset): each function decompiled without the PDB's types (a copy of the image away from its PDB), then through IDA's
-    /// PDB loader and through the own reader. Prints the snippets and timings.
+    /// PDB loader and through the own reader. Prints the snippets and timings, so it runs only in the perf run.
     /// </summary>
-    [Trait("Speed", "Slow")]
+    [Trait("Speed", "Slow"), Trait(PerfBudget.Trait, PerfBudget.Timing)]
     [IdaFact]
     public async Task Real_image_with_its_pdb()
     {
+        if (!PerfBudget.Enforced) { output.WriteLine($"{PerfBudget.Variable} is not 1"); return; }
         if (Environment.GetEnvironmentVariable("CORVUS_PDB_SAMPLE") is not { Length: > 0 } sample) { output.WriteLine("CORVUS_PDB_SAMPLE is not set"); return; }
         var parts = sample.Split('|');
         var original = parts[0];
