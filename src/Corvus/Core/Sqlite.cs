@@ -155,6 +155,9 @@ public sealed partial class SqliteDatabase
     private int _usable;
     private long _visits;
 
+    /// <summary>Whole pages read from the file (cache misses); leaf counts read from a page header are not counted.</summary>
+    internal long PagesRead { get; private set; }
+
     private SqliteDatabase(SqliteSource db) => _db = db;
 
     public static bool Looks(ReadOnlySpan<byte> b) => b.Length >= 100 && b[..16].SequenceEqual("SQLite format 3\0"u8);
@@ -423,6 +426,7 @@ public sealed partial class SqliteDatabase
     internal byte[]? Raw(long number)
     {
         if (_cache.TryGetValue(number, out var hit)) return hit;
+        PagesRead++;
         var data = new byte[PageSize];
         if (_wal != null && WalLog!.Latest.TryGetValue(number, out long at))
         {

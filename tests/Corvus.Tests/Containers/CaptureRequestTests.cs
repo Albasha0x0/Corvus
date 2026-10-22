@@ -210,6 +210,7 @@ public sealed class CaptureRequestTests : IDisposable
     /// <summary>The batch target: a 500 MB HAR streamed in under 10 s and 300 MB of memory.</summary>
     [Fact]
     [Trait("Speed", "Slow")]
+    [Trait(PerfBudget.Trait, PerfBudget.Timing)]
     public async Task A_500_MB_har_is_streamed_within_its_budget()
     {
         var path = _dir.File("big.har");
@@ -247,7 +248,7 @@ public sealed class CaptureRequestTests : IDisposable
         await sampler;
         Console.WriteLine($"{written / 1e6:N0} MB HAR, {found.Searched:N0} requests in {sw.Elapsed.TotalSeconds:0.00} s, private memory +{(peak - before) / 1e6:N0} MB");
         Assert.Equal(found.Searched, found.Total);
-        Assert.True(sw.Elapsed.TotalSeconds < 10, $"{sw.Elapsed.TotalSeconds:0.00} s");
+        PerfBudget.Check(sw.Elapsed.TotalSeconds < 10, $"{sw.Elapsed.TotalSeconds:0.00} s");
         Assert.True(peak - before < 300L * 1024 * 1024, $"{(peak - before) / 1e6:N0} MB");
     }
 }

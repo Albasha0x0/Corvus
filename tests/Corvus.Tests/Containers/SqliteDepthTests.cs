@@ -318,6 +318,7 @@ public sealed class SqlitePagingTimingTests(ITestOutputHelper output) : IDisposa
 
     [Fact]
     [Trait("Speed", "Slow")]
+    [Trait(PerfBudget.Trait, PerfBudget.Timing)]
     public void Hundred_megabyte_database_pages_quickly()
     {
         var path = _dir.File("big.db");
@@ -342,6 +343,15 @@ public sealed class SqlitePagingTimingTests(ITestOutputHelper output) : IDisposa
             Assert.Equal(800_000, page.Total);
         }
         output.WriteLine($"{length:N0} bytes; pages at offsets 0, 400,000, 799,950 in {string.Join(", ", times.Select(t => $"{t:F0} ms"))}");
-        Assert.True(times.Max() < 250, string.Join(", ", times)); // about 50 ms on a desktop; the margin is for loaded machines
+        // The last page skips whole subtrees by their header counts, so it reads a few pages, not every leaf before it.
+        using (var source = SqliteSource.Map(path)!)
+        {
+            var db = SqliteDatabase.Open(source, null)!;
+            Assert.Equal(50, db.Rows(db.Table("big")!.RootPage, 799_950, 50).Count);
+            output.WriteLine($"{db.PagesRead:N0} of {db.PageCount:N0} pages read for the last page");
+            Assert.InRange(db.PagesRead, 1, db.PageCount / 20);
+        }
+        // About 50 ms on a desktop.
+        PerfBudget.Check(times.Max() < 250, string.Join(", ", times), output);
     }
 }

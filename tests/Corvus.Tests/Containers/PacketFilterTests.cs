@@ -89,6 +89,7 @@ public sealed class PacketFilterSpeedTests(ITestOutputHelper output) : IDisposab
 
     [Fact]
     [Trait("Speed", "Slow")]
+    [Trait(PerfBudget.Trait, PerfBudget.Timing)]
     public void One_gigabyte_pcapng_filters_at_200_megabytes_per_second()
     {
         // one round: the 8 frames of a DNS lookup, a split ClientHello and an HTTP request, then 40 bulk segments of 1,400 bytes
@@ -114,6 +115,6 @@ public sealed class PacketFilterSpeedTests(ITestOutputHelper output) : IDisposab
         double rate = length / clock.Elapsed.TotalSeconds / (1 << 20);
         output.WriteLine($"{length:N0} bytes, {rounds * frames.Count:N0} frames in {clock.Elapsed.TotalSeconds:F2} s: {rate:F0} MB/s, {search.Total:N0} matches");
         Assert.Equal(rounds * 4, search.Total);
-        Assert.True(rate >= 200, $"{rate:F0} MB/s");
+        PerfBudget.Check(rate >= 200, $"{rate:F0} MB/s", output);
     }
 }

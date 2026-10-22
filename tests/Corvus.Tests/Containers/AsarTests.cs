@@ -236,6 +236,7 @@ public sealed class AsarTests : IDisposable
     }
 
     [Fact]
+    [Trait(PerfBudget.Trait, PerfBudget.Timing)]
     public void ThirtyMegabyteArchiveListsQuicklyAndCompactly()
     {
         var rng = new Random(7);
@@ -254,7 +255,7 @@ public sealed class AsarTests : IDisposable
         allocated = GC.GetAllocatedBytesForCurrentThread() - allocated;
         Assert.Equal(3000 + 300 * 2 + 1, listing.FileTotal);
         Assert.Contains(listing.Notes, n => n.StartsWith("File integrity: 3000 ok", StringComparison.Ordinal));
-        Assert.True(took < TimeSpan.FromSeconds(1), $"listing took {took.TotalMilliseconds:0} ms of CPU");
+        PerfBudget.Check(took < TimeSpan.FromSeconds(1), $"listing took {took.TotalMilliseconds:0} ms of CPU");
         Assert.True(allocated < 100L * 1024 * 1024, $"listing allocated {allocated / 1048576.0:0.0} MiB");
     }
 

@@ -275,6 +275,7 @@ public sealed class UnityOverviewTests : IDisposable
 public sealed class UnityOverviewRealTests(ITestOutputHelper output)
 {
     [Fact]
+    [Trait(PerfBudget.Trait, PerfBudget.Timing)]
     public void Installed_titles_are_overviewed_in_seconds()
     {
         var titles = Titles().Distinct(StringComparer.OrdinalIgnoreCase).ToList();
@@ -297,7 +298,7 @@ public sealed class UnityOverviewRealTests(ITestOutputHelper output)
             output.WriteLine($"    markers: {string.Join("; ", r.Markers.Select(m => $"{m.Category}:{m.Name}"))}");
             output.WriteLine($"    next: {string.Join(" -> ", r.NextSteps.Select(s => s.Action + (s.Arguments.TryGetValue("path", out var p) ? $"({p})" : "")))}");
             foreach (var note in r.Notes) output.WriteLine($"    note: {note}");
-            Assert.True(watch.Elapsed < TimeSpan.FromSeconds(r.Markers.Any(m => m.Source == "detect_it_easy") ? 30 : 10), $"{title}: {watch.Elapsed}");
+            PerfBudget.Check(watch.Elapsed < TimeSpan.FromSeconds(r.Markers.Any(m => m.Source == "detect_it_easy") ? 30 : 10), $"{title}: {watch.Elapsed}", output);
             Assert.NotEqual("unknown", r.Backend.Kind);
             Assert.NotNull(r.Engine.Version);
             Assert.NotEmpty(r.NextSteps);
