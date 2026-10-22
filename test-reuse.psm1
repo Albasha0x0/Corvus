@@ -239,6 +239,66 @@ function Get-FailedTests([string]$trxPath) {
         ForEach-Object { $nameOf[$_.Node.testId] } | Sort-Object -Unique)
 }
 
+# The tests that passed in a TRX file (every result of the name passed), named as Get-FailedTests names them.
+function Get-PassedTests([string]$trxPath) {
+    [xml]$trx = Get-Content $trxPath -Raw
+    $ns = @{ t = 'http://microsoft.com/schemas/VisualStudio/TeamTest/2010' }
+    $nameOf = @{}
+    foreach ($test in Select-Xml -Xml $trx -XPath '//t:UnitTest' -Namespace $ns) {
+        $nameOf[$test.Node.id] = "$($test.Node.TestMethod.className).$($test.Node.TestMethod.name)"
+    }
+    $results = @(Select-Xml -Xml $trx -XPath '//t:UnitTestResult' -Namespace $ns | ForEach-Object { [pscustomobject]@{ Name = $nameOf[$_.Node.testId]; Outcome = $_.Node.outcome } })
+    @($results | Group-Object Name | Where-Object { -not ($_.Group | Where-Object Outcome -ne 'Passed') } | ForEach-Object Name | Sort-Object)
+}
+
+# Whether a TRX run ended normally: no aborted, timed-out or errored result and no aborted run (a crashed or hung host).
+function Test-RunCompleted([string]$trxPath) {
+    [xml]$trx = Get-Content $trxPath -Raw
+    $summary = $trx.TestRun.ResultSummary
+    $counters = $summary.Counters
+    $summary.outcome -ne 'Aborted' -and [int]$counters.aborted -eq 0 -and [int]$counters.timeout -eq 0 -and [int]$counters.error -eq 0
+}
+
+# The label of each failed test after one rerun: "failed", "failed, passed on rerun (suspected flaky)", or, when the
+# rerun did not complete ($passedAgain is $null), "failed (rerun did not complete)". The labels never change a verdict.
+function Get-FailureLabels([string[]]$failed, [string[]]$passedAgain) {
+    @($failed | ForEach-Object {
+        if ($null -eq $passedAgain) { "$_`: failed (rerun did not complete)" }
+        elseif ($_ -in $passedAgain) { "$_`: failed, passed on rerun (suspected flaky)" }
+        else { "$_`: failed" }
+    })
+}
+
+# The quarantine list: one "test | owner | issue | yyyy-MM-dd" line per test (the date by which it is fixed or
+# removed), lines starting with '#' are comments. Returns no entries for a missing file; throws on a malformed line.
+function Read-Quarantine([string]$path) {
+    if (-not (Test-Path $path)) { return @() }
+    $number = 0
+    @(foreach ($line in Get-Content $path) {
+        $number++
+        $text = $line.Trim()
+        if (-not $text -or $text.StartsWith('#')) { continue }
+        $fields = @($text -split '\|' | ForEach-Object { $_.Trim() })
+        $until = [datetime]::MinValue
+        if ($fields.Count -ne 4 -or @($fields | Where-Object { -not $_ }).Count -gt 0 -or
+            -not [datetime]::TryParseExact($fields[3], 'yyyy-MM-dd', [cultureinfo]::InvariantCulture, [Globalization.DateTimeStyles]::None, [ref]$until)) {
+            throw "$path line ${number}: expected 'test | owner | issue | yyyy-MM-dd', got '$text'"
+        }
+        [pscustomobject]@{ Test = $fields[0]; Owner = $fields[1]; Issue = $fields[2]; Until = $until }
+    })
+}
+
+# Splits failed tests into those that fail the run (Blocking) and those a quarantine entry dated $today or later
+# covers (Quarantined); an expired entry covers nothing.
+function Split-Quarantined([string[]]$failed, $entries, [datetime]$today) {
+    $covered = @{}
+    foreach ($entry in $entries) { if ($entry.Until -ge $today.Date) { $covered[$entry.Test] = $true } }
+    [pscustomobject]@{
+        Blocking = @($failed | Where-Object { -not $covered.ContainsKey($_) })
+        Quarantined = @($failed | Where-Object { $covered.ContainsKey($_) })
+    }
+}
+
 # Takes the machine-wide heavy lock a whole-suite run holds, so lanes' engine loops and load generators wait for it.
 # CORVUS_HEAVY_LOCK names a script taking `heavy <name> -OwnerPid <pid>` (waits, then holds the lock exclusively) and
 # `release <name>`; unset, there is no lock. Returns whether the lock was taken.
@@ -254,4 +314,4 @@ function Exit-HeavyLock([string]$name) {
     if ($env:CORVUS_HEAVY_LOCK) { & $env:CORVUS_HEAVY_LOCK release $name | Out-Host }
 }
 
-Export-ModuleMember -Function Enter-HeavyLock, Exit-HeavyLock, Get-RunEnvironment, Get-ReuseScope, Get-ClassMap, Get-SlowClasses, Test-AlwaysRunFolder, Read-ClassCoverage, Split-ClassMap, Add-ClassTestScopes, Get-RootReaders, Get-FamilyKeys, Read-CoverageMap, Get-CoveredFiles, Get-StaleFamilies, Get-ReuseFilter, Get-PassedFamilies, Save-FamilyPasses, Test-DocsOnly, Get-FailedTests
+Export-ModuleMember -Function Enter-HeavyLock, Exit-HeavyLock, Get-RunEnvironment, Get-ReuseScope, Get-ClassMap, Get-SlowClasses, Test-AlwaysRunFolder, Read-ClassCoverage, Split-ClassMap, Add-ClassTestScopes, Get-RootReaders, Get-FamilyKeys, Read-CoverageMap, Get-CoveredFiles, Get-StaleFamilies, Get-ReuseFilter, Get-PassedFamilies, Save-FamilyPasses, Test-DocsOnly, Get-FailedTests, Get-PassedTests, Test-RunCompleted, Get-FailureLabels, Read-Quarantine, Split-Quarantined

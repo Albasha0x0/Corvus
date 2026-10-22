@@ -263,6 +263,55 @@ public class TestReuseTests
         finally { Directory.Delete(dir, true); }
     }
 
+    [Fact]
+    [Trait("Speed", "Slow")]
+    public void Quarantined_failures_pass_until_their_date_and_reruns_only_label_failures()
+    {
+        var module = Path.Combine(DocsTests.RepoRoot(), "test-reuse.psm1");
+        var dir = Path.Combine(Path.GetTempPath(), $"corvus-quarantine-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(dir);
+        try
+        {
+            File.WriteAllText(Path.Combine(dir, "run.trx"), Trx.Replace("<Results>", """<ResultSummary outcome="Failed"><Counters total="4" aborted="0" timeout="0" error="0" /></ResultSummary><Results>"""));
+            File.WriteAllText(Path.Combine(dir, "aborted.trx"), Trx.Replace("<Results>", """<ResultSummary outcome="Aborted"><Counters total="4" aborted="1" timeout="0" error="0" /></ResultSummary><Results>"""));
+            File.WriteAllText(Path.Combine(dir, "quarantine.txt"), """
+                # comment
+                Corvus.Tests.EngineB+Nested.M | test-audit | #7 | 2026-10-22
+                Corvus.Tests.EngineC.M | test-audit | #8 | 2026-10-21
+                """);
+            File.WriteAllText(Path.Combine(dir, "bad.txt"), "Corvus.Tests.EngineC.M | test-audit | 2026-10-21" + Environment.NewLine);
+            var lines = Run($$"""
+                Import-Module '{{module.Replace("'", "''")}}'
+                $q = Read-Quarantine '{{Path.Combine(dir, "quarantine.txt")}}'
+                $today = [datetime]'2026-10-22'
+                $one = Split-Quarantined @('Corvus.Tests.EngineB+Nested.M') $q $today
+                'covered=' + ($one.Blocking -join ',') + '/' + ($one.Quarantined -join ',')
+                $two = Split-Quarantined @('Corvus.Tests.EngineB+Nested.M', 'Corvus.Tests.EngineC.M') $q $today
+                'expired=' + ($two.Blocking -join ',')
+                'later=' + ((Split-Quarantined @('Corvus.Tests.EngineB+Nested.M') $q ([datetime]'2026-10-23')).Blocking -join ',')
+                'missing=' + @(Read-Quarantine '{{Path.Combine(dir, "none.txt")}}').Count
+                try { Read-Quarantine '{{Path.Combine(dir, "bad.txt")}}' | Out-Null; 'bad=accepted' } catch { 'bad=refused' }
+                'completed=' + (Test-RunCompleted '{{Path.Combine(dir, "run.trx")}}') + ',' + (Test-RunCompleted '{{Path.Combine(dir, "aborted.trx")}}')
+                'passed=' + ((Get-PassedTests '{{Path.Combine(dir, "run.trx")}}') -join ',')
+                $labels = Get-FailureLabels @('A.M', 'B.M') @('B.M')
+                'labels=' + ($labels -join ';')
+                'unknown=' + ((Get-FailureLabels @('A.M') $null) -join ';')
+                """);
+            if (lines is ["skip"]) return; // no pwsh on this machine
+            string Line(string name) => lines.Single(l => l.StartsWith(name + "=")).Substring(name.Length + 1);
+            Assert.Equal("/Corvus.Tests.EngineB+Nested.M", Line("covered"));
+            Assert.Equal("Corvus.Tests.EngineC.M", Line("expired"));   // an entry past its date covers nothing
+            Assert.Equal("Corvus.Tests.EngineB+Nested.M", Line("later"));
+            Assert.Equal("0", Line("missing"));
+            Assert.Equal("refused", Line("bad"));                       // three fields
+            Assert.Equal("True,False", Line("completed"));              // an aborted run is never let through
+            Assert.Equal("Corvus.Tests.DotnetA.M,Corvus.Tests.EngineC.M", Line("passed")); // NotExecuted is not a pass
+            Assert.Equal("A.M: failed;B.M: failed, passed on rerun (suspected flaky)", Line("labels"));
+            Assert.Equal("A.M: failed (rerun did not complete)", Line("unknown"));
+        }
+        finally { Directory.Delete(dir, true); }
+    }
+
     private static string[] Run(string script)
     {
         ProcessStartInfo start = new("pwsh") { RedirectStandardOutput = true, RedirectStandardError = true };

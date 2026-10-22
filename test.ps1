@@ -492,6 +492,11 @@ $arguments += @('--logger', 'trx;LogFileName=full.trx', '--results-directory', $
 $runMode = if ($Affected -or $PSBoundParameters.ContainsKey('Filter')) { 'filter' } elseif (-not $Full) { 'quick' } elseif ($Reuse) { 'push' } else { 'full' }
 $timing = @{}
 if ($Reuse -and $familyKeys) { $timing.reused = @($kept).Count; $timing.families = $classMap.Count }
+# A test that runs past its hang limit ends the run with a dump (kept in .git/corvus-hang-<time>). The limits hold
+# today's slowest tests with room: 2 min for a quick test (slowest 41 s) and 30 min in a full run (slowest 27 min).
+$hangLimit = if ($Full) { '30m' } else { '120s' }
+$arguments += @('--blame-hang', '--blame-hang-timeout', $hangLimit, '--blame-hang-dump-type', 'mini')
+$quarantineFile = Join-Path $tests 'Ratchets/quarantine.txt'
 # Coverage floors are set by whole-suite runs, so a partial run is never checked against them.
 if ($Coverage) {
     if (-not $Full -or $Filter -or $Reuse) { Write-Host 'Coverage needs the whole suite: -Full without -Filter, -Affected or -Reuse.' -ForegroundColor Red; exit 2 }
@@ -534,6 +539,35 @@ try {
             $recordFailed = $true
             Write-Host "Recording the passes failed ($_); the results are kept: ./test.ps1 -Stamp records them without a rerun." -ForegroundColor Red
         }
+    }
+    if (Test-Path $trx) {
+        Import-Module (Join-Path $root 'test-reuse.psm1') -Force
+        $failed = @(Get-FailedTests $trx)
+        # Quarantined tests run and are reported, but their failures alone do not fail a run that completed.
+        $split = Split-Quarantined $failed (Read-Quarantine $quarantineFile) (Get-Date)
+        if ($split.Quarantined) { Write-Host "Quarantined tests that failed ($quarantineFile): $($split.Quarantined -join ', ')." -ForegroundColor Yellow }
+        if ($code -ne 0 -and $failed -and -not $split.Blocking -and (Test-RunCompleted $trx)) { $code = 0 }
+        # A full run reruns each failed test once, only to label it; the run stays failed.
+        if ($Full -and $code -ne 0 -and $split.Blocking -and -not $Coverage) {
+            $again = @($split.Blocking | Select-Object -First 25)
+            $rerun = Join-Path $results 'rerun'
+            & dotnet test $tests --nologo --no-build --filter (($again | ForEach-Object { "FullyQualifiedName~$_" }) -join '|') `
+                --logger 'trx;LogFileName=rerun.trx' --results-directory $rerun | Out-Host
+            $rerunTrx = Join-Path $rerun 'rerun.trx'
+            $passedAgain = $null
+            if ((Test-Path $rerunTrx) -and (Test-RunCompleted $rerunTrx)) { $passedAgain = @(Get-PassedTests $rerunTrx) }
+            $labels = @(Get-FailureLabels $again $passedAgain)
+            if ($split.Blocking.Count -gt $again.Count) { $labels += "$($split.Blocking.Count - $again.Count) more failed test(s) not rerun (the rerun takes 25)" }
+            Set-Content -Path (Join-Path $gitDir 'corvus-last-run-labels.txt') -Value $labels
+            Write-Host "Failures after one rerun (the run stays failed):`n  $($labels -join "`n  ")" -ForegroundColor Red
+        }
+    }
+    $dumps = @(Get-ChildItem $results -Recurse -Include '*.dmp', 'Sequence_*.xml' -ErrorAction SilentlyContinue)
+    if ($dumps) {
+        $kept = Join-Path $gitDir "corvus-hang-$(Get-Date -Format 'yyyyMMdd-HHmmss')"
+        New-Item -ItemType Directory -Force $kept | Out-Null
+        $dumps | Copy-Item -Destination $kept
+        Write-Host "A test ran past its hang limit ($hangLimit): dump and test sequence in $kept." -ForegroundColor Red
     }
     if ($Coverage) {
         $reports = @(Get-ChildItem $results -Recurse -Filter coverage.cobertura.xml -ErrorAction SilentlyContinue)

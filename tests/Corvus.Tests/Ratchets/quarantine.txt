@@ -1,0 +1,3 @@
+# Quarantined tests: they run and are reported, but their failures alone do not fail a run (test.ps1).
+# One line per test: Class.Method | owner | issue | yyyy-MM-dd, the date by which the test is fixed or removed.
+# An entry past its date no longer quarantines its test. Remove an entry in a commit that names why it is fixed.
