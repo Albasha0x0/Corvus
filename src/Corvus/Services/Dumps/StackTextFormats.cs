@@ -53,7 +53,6 @@ internal static class StackTextFormats
 {
     public static readonly string[] Families = ["unity", "dotnet", "wer", "eventlog", "windbg", "android"];
     private const RegexOptions Options = RegexOptions.CultureInvariant | RegexOptions.ExplicitCapture;
-    private static readonly TimeSpan Limit = TimeSpan.FromMilliseconds(200);
 
     private delegate bool Rule(Match m, int line, string raw, ParsedStackText into, State state);
 
@@ -66,7 +65,9 @@ internal static class StackTextFormats
 
     private sealed record Entry(string Family, Regex Pattern, Rule Apply);
 
-    private static Regex R(string pattern) => new(pattern, Options, Limit);
+    // Lines come from pasted text of any length: NonBacktracking matches in
+    // linear time, so the patterns take no match timeout.
+    private static Regex R(string pattern) => new(pattern, Options | RegexOptions.NonBacktracking);
 
     private static ulong Hex(Group g) => ulong.Parse(g.Value, NumberStyles.HexNumber, CultureInfo.InvariantCulture);
     private static ulong? HexOrNull(Group g) => g.Success ? Hex(g) : null;
@@ -111,7 +112,9 @@ internal static class StackTextFormats
             (m, _, _, into, s) => Header(into, s, m.Groups["text"].Value)),
         // Android tombstone / logcat: #00 pc 0000000000510134  /data/app/.../lib/arm64/libil2cpp.so (offset 0x1000) (sym+12) (BuildId: 3c5c...)
         // pc is the address in the ELF's own layout; an APK-embedded library reads base.apk!libil2cpp.so.
-        new("android", R(@"^(?:.*?DEBUG\s*:)?\s*#\d+\s+pc\s+(?<pc>[0-9a-fA-F]+)\s+(?<path>[^\s(][^(]*?)(?:\s+\(offset 0x[0-9a-fA-F]+\))?(?:\s+\((?!BuildId:)(?<sym>.+?)(?:\+(?<off>\d+))?\))?(?:\s+\(BuildId: (?<id>[0-9a-fA-F]+)\))?\s*$"),
+        // The symbol never starts "BuildId:": its proper prefixes, shortest first,
+        // then a first difference, which NonBacktracking takes for a lookahead.
+        new("android", R(@"^(?:.*?DEBUG\s*:)?\s*#\d+\s+pc\s+(?<pc>[0-9a-fA-F]+)\s+(?<path>[^\s(][^(]*?)(?:\s+\(offset 0x[0-9a-fA-F]+\))?(?:\s+\((?<sym>B|Bu|Bui|Buil|Build|BuildI|BuildId|(?:[^B\n]|B[^u\n]|Bu[^i\n]|Bui[^l\n]|Buil[^d\n]|Build[^I\n]|BuildI[^d\n]|BuildId[^:\n]).*?)(?:\+(?<off>\d+))?\))?(?:\s+\(BuildId: (?<id>[0-9a-fA-F]+)\))?\s*$"),
             (m, line, raw, into, _) =>
             {
                 var path = m.Groups["path"].Value.Trim();
@@ -190,9 +193,7 @@ internal static class StackTextFormats
             bool taken = false;
             foreach (var e in entries)
             {
-                Match m;
-                try { m = e.Pattern.Match(line); }
-                catch (RegexMatchTimeoutException) { continue; }
+                var m = e.Pattern.Match(line);
                 if (!m.Success || !e.Apply(m, number, line.Trim(), result, state)) continue;
                 result.Formats[e.Family] = result.Formats.GetValueOrDefault(e.Family) + 1;
                 taken = true;
@@ -264,6 +265,9 @@ internal static class StackTextFormats
         return true;
     }
 
+    private static readonly Regex UnitySource = R(@"^\[(?<file>[^\]]+?):(?<line>\d+)\]\s*(?<rest>.*)$");
+    private static readonly Regex UnityManaged = R(@"^\(?(?:wrapper [^)]+\) )?(?<type>[\w.<>`+/]+):(?<method>[\w.<>`|$]+) ?\((?<args>[^)]*)\)");
+
     private static bool UnityNative(Match m, int line, string raw, ParsedStackText into)
     {
         var module = m.Groups["module"].Value.Trim();
@@ -271,7 +275,7 @@ internal static class StackTextFormats
         ulong address = Hex(m.Groups["addr"]);
         string? file = null;
         int? sourceLine = null;
-        var src = Regex.Match(rest, @"^\[(?<file>[^\]]+?):(?<line>\d+)\]\s*(?<rest>.*)$", Options, Limit);
+        var src = UnitySource.Match(rest);
         if (src.Success)
         {
             file = src.Groups["file"].Value;
@@ -280,7 +284,7 @@ internal static class StackTextFormats
         }
         if (module.Equals("Mono JIT Code", StringComparison.OrdinalIgnoreCase))
         {
-            var managed = Regex.Match(rest, @"^\(?(?:wrapper [^)]+\) )?(?<type>[\w.<>`+/]+):(?<method>[\w.<>`|$]+) ?\((?<args>[^)]*)\)", Options, Limit);
+            var managed = UnityManaged.Match(rest);
             return Add(into, new TextFrame(line, raw, "unity", "managed")
             {
                 Address = address, Symbol = managed.Success ? $"{managed.Groups["type"].Value}.{managed.Groups["method"].Value}" : rest,

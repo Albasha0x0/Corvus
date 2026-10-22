@@ -172,6 +172,18 @@ public sealed class StackTextTests : IDisposable
         Assert.Contains("BuildId 0f00ba44", r.Items[2].NextStep);
     }
 
+    [Fact]
+    public void An_android_symbol_that_starts_like_a_build_id_stays_the_symbol()
+    {
+        var frames = StackTextFormats.Parse("""
+            #00 pc 0000000000001004  /system/lib64/libgame.so (Build+4) (BuildId: 0f00ba44)
+            #01 pc 0000000000001008  /system/lib64/libgame.so (BuildIdTable+8)
+            #02 pc 000000000000100c  /system/lib64/libgame.so (BuildId: 0f00ba44)
+            """, "android").Frames;
+        Assert.Equal([("Build", 4ul, "0f00ba44"), ("BuildIdTable", 8ul, null), (null, null, "0f00ba44")],
+            frames.Select(f => (f.Symbol, f.SymbolOffset, f.BuildId)));
+    }
+
     /// <summary>Il2Cpp builds print an all-zero MVID: no build identity, so the frame is matched by name and its build is unknown.</summary>
     [Fact]
     public async Task Il2CppZeroMvidIsUnknownNotAnotherBuild()
