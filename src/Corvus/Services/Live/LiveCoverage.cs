@@ -1,10 +1,12 @@
 using System.Collections.Concurrent;
 using System.Globalization;
 using System.Runtime.InteropServices;
+using System.Text.Json;
 using System.Text.Json.Nodes;
 using Corvus.Core;
 using Corvus.Native;
 using Corvus.Native.Code;
+using Corvus.Native.Providers;
 
 namespace Corvus.Services;
 
@@ -171,6 +173,8 @@ public sealed partial class LiveSessionService
     public const int MaxCoveragePoints = 5_000;
     /// <summary>The cap a run checks; tests lower it.</summary>
     internal int CoverageLimit { get; set; } = MaxCoveragePoints;
+    /// <summary>Stop points one set_many request carries; well within the request timeout at a few ms per point.</summary>
+    internal const int SetBatch = 256;
     private readonly ConcurrentDictionary<string, LiveCoverageRun> _coverage = new(StringComparer.OrdinalIgnoreCase);
     private int _nextCoverage;
 
@@ -323,8 +327,16 @@ public sealed partial class LiveSessionService
         foreach (var p in points)
             if (occupied.FirstOrDefault(o => o.Address > moduleBase + p.Rva && o.Address < moduleBase + p.Rva + WatchPatchBytes) is { Id: { } inside } o)
                 refused[p.Rva] = $"{inside} sits {o.Address - (moduleBase + p.Rva)} bytes in, inside the bytes a hook at the start rewrites";
+        // A point the backend refuses is left out of the run; any other error ends it.
+        void Refuse(string id, uint rva, ToolError e)
+        {
+            if (Unhookable(e)) run.Refused(id, rva, "the stop point was refused: " + HookReason(session, moduleBase + rva, ct));
+            else if (e.Code is ErrorCode.Failed or ErrorCode.InvalidArgument or ErrorCode.Unsupported or ErrorCode.NotFound) run.Refused(id, rva, "the stop point was refused: " + e.Message);
+            else throw e;
+        }
         try
         {
+            var due = new List<(string Id, uint Rva)>(points.Count);
             for (int i = 0; i < points.Count; i++)
             {
                 var id = $"{run.Id}.{i + 1}";
@@ -335,9 +347,39 @@ public sealed partial class LiveSessionService
                 }
                 run.Arm(id, points[i].Rva);
                 session.CoveragePoints[id] = run;
-                try { await session.Worker.RequestAsync("set", new JsonObject { ["id"] = id, ["address"] = $"0x{moduleBase + points[i].Rva:X}", ["bare"] = true }, RequestTimeout, ct).ConfigureAwait(false); }
-                catch (ToolError e) when (Unhookable(e)) { run.Refused(id, points[i].Rva, "the stop point was refused: " + HookReason(session, moduleBase + points[i].Rva, ct)); }
-                catch (ToolError e) when (e.Code is ErrorCode.Failed or ErrorCode.InvalidArgument or ErrorCode.Unsupported or ErrorCode.NotFound) { run.Refused(id, points[i].Rva, "the stop point was refused: " + e.Message); }
+                due.Add((id, points[i].Rva));
+            }
+            // A held load waits for every point, so they go in batches rather than a request each: under a busy
+            // thread pool each request costs a scheduling delay, which hundreds of requests turn into minutes.
+            int next = 0;
+            for (; next < due.Count; next += SetBatch)
+            {
+                var batch = due.Skip(next).Take(SetBatch).ToList();
+                JsonElement reply;
+                try
+                {
+                    reply = await session.Worker.RequestAsync("set_many", new JsonObject
+                    {
+                        ["points"] = new JsonArray([.. batch.Select(p => (JsonNode)new JsonObject { ["id"] = p.Id, ["address"] = $"0x{moduleBase + p.Rva:X}", ["bare"] = true })]),
+                    }, RequestTimeout, ct).ConfigureAwait(false);
+                }
+                catch (ToolError e) when (e.Code is ErrorCode.InvalidArgument or ErrorCode.NotFound && e.Message.StartsWith("unknown op", StringComparison.Ordinal))
+                {
+                    break;
+                }
+                foreach (var item in reply.GetProperty("results").EnumerateArray())
+                {
+                    if (item.GetProperty("ok").GetBoolean()) continue;
+                    var id = item.GetProperty("id").GetString()!;
+                    var error = item.GetProperty("error");
+                    Refuse(id, batch.First(p => p.Id == id).Rva, new ToolError(WorkerProtocol.MapCode(error.GetProperty("code").GetString()), error.GetProperty("message").GetString() ?? "error"));
+                }
+            }
+            // A backend without batches sets the rest a request each.
+            foreach (var (id, rva) in due.Skip(next))
+            {
+                try { await session.Worker.RequestAsync("set", new JsonObject { ["id"] = id, ["address"] = $"0x{moduleBase + rva:X}", ["bare"] = true }, RequestTimeout, ct).ConfigureAwait(false); }
+                catch (ToolError e) { Refuse(id, rva, e); }
             }
         }
         catch

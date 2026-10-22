@@ -453,6 +453,20 @@ class Session:
         return {"ended": ended}
 
 
+def set_each(agent, points):
+    """Sets each point in turn; a refused point reports its error, as a set request would, and the rest go on."""
+    results = []
+    for p in points:
+        try:
+            agent.set(p["id"], p["address"], bool(p.get("bare", False)))
+            results.append({"id": p["id"], "ok": True})
+        except Failure as e:
+            results.append({"id": p["id"], "ok": False, "error": {"code": e.code, "message": str(e)}})
+        except Exception as e:  # frida errors carry their own message
+            results.append({"id": p["id"], "ok": False, "error": {"code": "failed", "message": "%s: %s" % (type(e).__name__, e)}})
+    return results
+
+
 def handle(state, op, args):
     if op == "hello":
         if frida is None:
@@ -466,6 +480,8 @@ def handle(state, op, args):
         return state.require().info()
     if op == "set":
         return state.require().set(args["id"], args["address"], bool(args.get("bare", False)))
+    if op == "set_many":
+        return {"results": set_each(state.require(), args["points"])}
     if op == "clear":
         return state.require().clear(args["id"])
     if op == "watch":

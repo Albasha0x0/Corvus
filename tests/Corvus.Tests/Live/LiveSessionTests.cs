@@ -49,6 +49,8 @@ internal sealed class ScriptedLiveBackend(string mainPath, ulong mainBase, uint 
     public readonly List<int> ChildResumes = [];
     /// <summary>The platform the program runs on, as Frida names it; null leaves it out of the open reply.</summary>
     public string? Platform { get; init; }
+    /// <summary>Whether set_many is known; false answers it as an unknown op, as a backend without batches.</summary>
+    public bool Batches { get; init; } = true;
     /// <summary>The version the hello reply names.</summary>
     public string FridaVersion { get; init; } = FridaVersions.TestedFrom.ToString();
 
@@ -144,6 +146,16 @@ internal sealed class ScriptedLiveBackend(string mainPath, ulong mainBase, uint 
                 _points[(string)args["id"]!] = Convert.ToUInt64(((string)args["address"]!)[2..], 16);
                 if (args["bare"] is { } bare && (bool)bare) lock (Bare) Bare.Add((string)args["id"]!);
                 return true;
+            case "set_many" when !Batches: return null;
+            case "set_many":
+                // Each point counts as a set, as one request each did.
+                var results = new JsonArray();
+                foreach (var p in args["points"]!.AsArray().Select(p => (JsonObject)p!))
+                {
+                    try { Handle("set", p); results.Add(new JsonObject { ["id"] = (string)p["id"]!, ["ok"] = true }); }
+                    catch (InvalidOperationException e) { results.Add(new JsonObject { ["id"] = (string)p["id"]!, ["ok"] = false, ["error"] = new JsonObject { ["code"] = "failed", ["message"] = e.Message } }); }
+                }
+                return new JsonObject { ["results"] = results };
             case "clear": return _points.Remove((string)args["id"]!);
             case "watch":
                 WatchedKinds[(string)args["id"]!] = args["args"]!.AsArray().Select(k => (string)k!).ToList();

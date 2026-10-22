@@ -246,6 +246,22 @@ public sealed class LiveCoverageTests : IDisposable
     [Fact]
     public async Task Points_too_short_after_their_landing_pad_or_refused_name_their_instructions()
     {
+        await ShortAndRefused(_backend);
+        Assert.Equal(1, Count("set_many"));
+    }
+
+    /// <summary>A backend without set_many is asked for each point alone, and a refused point reads the same.</summary>
+    [Fact]
+    public async Task A_backend_without_batches_sets_each_point_alone()
+    {
+        var backend = new ScriptedLiveBackend(Sqlite, Base, 0x200000) { Batches = false };
+        _service.Backend = backend;
+        await ShortAndRefused(backend);
+        lock (backend.Ops) Assert.Equal(2, backend.Ops.Count(o => o == "set"));
+    }
+
+    private async Task ShortAndRefused(ScriptedLiveBackend backend)
+    {
         byte[] zero = [0xF3, 0x0F, 0x1E, 0xFA, 0x31, 0xC0, 0xC3];
         byte[] frame = [0xF3, 0x0F, 0x1E, 0xFA, 0x55, 0x48, 0x89, 0xE5, 0xB8, 0x01, 0x00, 0x00, 0x00, 0x5D, 0xC3];
         var text = Enumerable.Repeat((byte)0xCC, 0x30).ToArray();
@@ -262,9 +278,9 @@ public sealed class LiveCoverageTests : IDisposable
         }.Build());
         const ulong LibBase = 0x7ff8_0000_0000;
         await _tools.LiveSession("attach", program: "4242");
-        _backend.Load("libplug.so", lib, LibBase, 0x30000);
+        backend.Load("libplug.so", lib, LibBase, 0x30000);
         await Until(() => _service.Get("live-1").Modules.Any(m => m.Name == "libplug.so"));
-        _backend.Unhookable.Add(LibBase + T + 0x20);
+        backend.Unhookable.Add(LibBase + T + 0x20);
 
         var start = await _tools.LiveCoverage("live-1", "start", match: "libplug.so!fn_");
         Assert.Contains("cov-1 counting 1 function of libplug.so", start);
@@ -309,6 +325,7 @@ public sealed class LiveCoverageTests : IDisposable
         _backend.Load("plugin.dll", plugin, 0x7ff7_0000_0000, 0x200000, heldBy: 77);
         await Until(() => Count("release_load") == 1);
         Assert.Equal(counted, _service.GetCoverage("cov-1").Placed.Count);
+        Assert.Equal((counted + LiveSessionService.SetBatch - 1) / LiveSessionService.SetBatch, Count("set_many"));
     }
 
     /// <summary>A run of every function sets a stop point per function, one request each: thousands of them.</summary>

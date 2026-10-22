@@ -64,25 +64,99 @@ public sealed class LiveWorkerTests : IDisposable
             return _Device()
         """;
 
-    [PosixFact("The worker lists the processes it started with ps.")]
-    public void A_start_Frida_timed_out_on_is_ended_and_tried_once_more()
+    // The stand-in attaches to any process and refuses a stop point at 0xbad, as
+    // Frida refuses an instruction too short to hook.
+    private const string RefusingFrida = """
+        __version__ = "17.24.3"
+
+
+        class ProcessNotFoundError(Exception): pass
+        class PermissionDeniedError(Exception): pass
+        class InvalidOperationError(Exception): pass
+
+
+        class _Exports:
+            def info(self):
+                return {"pid": 4242, "arch": "x64", "platform": "windows", "modules": []}
+            def set(self, id, address, bare):
+                if address == "0xbad":
+                    raise InvalidOperationError("unable to intercept instruction at 0xbad; please file a bug")
+                return True
+
+
+        class _Script:
+            exports_sync = _Exports()
+            def on(self, *args): pass
+            def load(self): pass
+
+
+        class _Session:
+            def on(self, *args): pass
+            def create_script(self, source): return _Script()
+            def detach(self): pass
+
+
+        class _Device:
+            def on(self, *args): pass
+            def attach(self, pid): return _Session()
+
+
+        def get_local_device():
+            return _Device()
+        """;
+
+    /// <summary>The worker on <paramref name="frida"/>, a stand-in frida module beside it.</summary>
+    private Process StartWorker(string frida)
     {
         var python = PythonLocator.Find([], []) ?? throw new InvalidOperationException("no Python 3");
         var worker = _dir.File("live_worker.py");
         File.WriteAllBytes(worker, EmbeddedScript.Read("Corvus.Native.Providers.Live.live_worker.py"));
-        File.WriteAllText(_dir.File("frida.py"), StandInFrida);
+        File.WriteAllText(_dir.File("frida.py"), frida);
         var agent = _dir.File("live_agent.js");
         File.WriteAllText(agent, "");
         // Without -I, so the stand-in beside the worker is the frida it imports.
-        using var p = Process.Start(new ProcessStartInfo(python.Executable, new[] { "-u", worker, agent })
+        return Process.Start(new ProcessStartInfo(python.Executable, new[] { "-u", worker, agent })
             { RedirectStandardInput = true, RedirectStandardOutput = true, UseShellExecute = false })!;
+    }
+
+    /// <summary>The reply to request <paramref name="id"/>; null when the worker ended first.</summary>
+    private static string? Request(Process p, int id, string op, string args)
+    {
+        p.StandardInput.WriteLine($$"""{"id":{{id}},"op":"{{op}}","args":{{args}}}""");
+        p.StandardInput.Flush();
+        string? reply;
+        while ((reply = p.StandardOutput.ReadLine()) != null && !reply.Contains($"\"id\":{id},", StringComparison.Ordinal)) { }
+        return reply;
+    }
+
+    [Fact]
+    public void Set_many_reports_a_refused_point_and_sets_the_rest()
+    {
+        using var p = StartWorker(RefusingFrida);
+        try
+        {
+            Assert.Contains("\"ok\":true", Request(p, 1, "open", """{"attach":"4242"}"""));
+            var reply = Request(p, 2, "set_many", """{"points":[{"id":"a","address":"0x10","bare":true},{"id":"b","address":"0xbad","bare":true},{"id":"c","address":"0x20","bare":true}]}""");
+            Assert.NotNull(reply);
+            Assert.Contains("""{"id":"a","ok":true}""", reply);
+            Assert.Contains("""{"id":"b","ok":false,"error":{"code":"failed","message":"InvalidOperationError: unable to intercept instruction at 0xbad; please file a bug"}}""", reply);
+            Assert.Contains("""{"id":"c","ok":true}""", reply);
+        }
+        finally
+        {
+            p.Kill();
+            p.WaitForExit(10_000);
+        }
+    }
+
+    [PosixFact("The worker lists the processes it started with ps.")]
+    public void A_start_Frida_timed_out_on_is_ended_and_tried_once_more()
+    {
+        using var p = StartWorker(StandInFrida);
         int[] started = [];
         try
         {
-            p.StandardInput.WriteLine("""{"id":1,"op":"open","args":{"spawn":"/bin/true"}}""");
-            p.StandardInput.Flush();
-            string? reply;
-            while ((reply = p.StandardOutput.ReadLine()) != null && !reply.Contains("\"id\":1", StringComparison.Ordinal)) { }
+            var reply = Request(p, 1, "open", """{"spawn":"/bin/true"}""");
             started = [.. File.ReadAllLines(_dir.File("started.txt")).Select(l => int.Parse(l, CultureInfo.InvariantCulture))];
             Assert.NotNull(reply);
             Assert.Contains("\"ok\":true", reply);
