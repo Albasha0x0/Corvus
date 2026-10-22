@@ -131,6 +131,8 @@ internal static class YaraX
     [DllImport(Library)] public static extern int yrx_scanner_on_matching_rule(IntPtr scanner, RuleCallback callback, IntPtr user);
     [DllImport(Library)] public static extern int yrx_scanner_scan(IntPtr scanner, byte[] data, nuint length);
     [DllImport(Library)] public static extern int yrx_scanner_scan_file(IntPtr scanner, byte[] path);
+    [DllImport(Library)] public static extern int yrx_scanner_scan_block(IntPtr scanner, nuint @base, byte[] data, nuint length);
+    [DllImport(Library)] public static extern int yrx_scanner_finish(IntPtr scanner);
     [DllImport(Library)] public static extern int yrx_rule_identifier(IntPtr rule, out IntPtr ident, out nuint length);
     [DllImport(Library)] public static extern int yrx_rule_namespace(IntPtr rule, out IntPtr ns, out nuint length);
     [DllImport(Library)] public static extern int yrx_rule_iter_tags(IntPtr rule, TagCallback callback, IntPtr user);

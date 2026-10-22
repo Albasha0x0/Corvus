@@ -172,13 +172,26 @@ internal sealed class YaraScanner : IDisposable
     /// <summary>The rules matching the file at <paramref name="path"/> (read by the library, mapped where it can).</summary>
     public List<YaraRuleMatch> ScanFile(string path) => Run(() => YaraX.yrx_scanner_scan_file(_scanner, YaraX.Utf8(path)));
 
+    /// <summary>
+    /// Adds <paramref name="length"/> bytes at <paramref name="address"/> to a block scan; from the first block on, this
+    /// scanner serves block scans only.
+    /// </summary>
+    public void ScanBlock(ulong address, byte[] data, int length) => Check(YaraX.yrx_scanner_scan_block(_scanner, (nuint)address, data, (nuint)length));
+
+    /// <summary>The rules matching the blocks added since the last finish, their pattern offsets as block addresses.</summary>
+    public List<YaraRuleMatch> Finish() => Run(() => YaraX.yrx_scanner_finish(_scanner));
+
     private List<YaraRuleMatch> Run(Func<int> scan)
     {
         _found.Clear();
-        var result = scan();
+        Check(scan());
+        return [.. _found];
+    }
+
+    private static void Check(int result)
+    {
         if (result == YaraX.ScanTimeout) throw new ToolError(ErrorCode.Timeout, "YARA-X stopped the scan at its time limit.");
         if (result != YaraX.Success) throw new ToolError(ErrorCode.Failed, $"YARA-X scan failed: {YaraX.LastError()}");
-        return [.. _found];
     }
 
     private static YaraRuleMatch Describe(IntPtr rule)

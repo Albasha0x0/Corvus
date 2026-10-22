@@ -35,8 +35,8 @@ internal sealed class YaraSearchKind : IContainerSearchKind
         var result = answer.Deserialize<YaraScanResult>(YaraOps.Json)
                      ?? throw new ToolError(ErrorCode.Failed, "The yara worker answered without a result.");
         var rows = result.Hits.SelectMany(h => h.Rules.Select(r => Row(h.Path, r))).ToList();
-        var files = (Directory.Exists(source) ? 0 : 1) + result.Members;
-        return new UnpackService.ContainerSearch(source, "file", files, rows.Skip(Math.Max(0, offset)).Take(limit).ToList(), Math.Max(0, offset), rows.Count,
+        var files = result.Regions > 0 ? result.Regions : (Directory.Exists(source) ? 0 : 1) + result.Members;
+        return new UnpackService.ContainerSearch(source, result.Regions > 0 ? "dump" : "file", files, rows.Skip(Math.Max(0, offset)).Take(limit).ToList(), Math.Max(0, offset), rows.Count,
             Notes(result));
     }
 
@@ -60,6 +60,7 @@ internal sealed class YaraSearchKind : IContainerSearchKind
     {
         var notes = new List<string>(result.Notes);
         var summary = new StringBuilder($"YARA-X {YaraX.Version}: {result.Rules:N0} rules from {result.RuleFiles:N0} file{(result.RuleFiles == 1 ? "" : "s")}");
+        if (result.Regions > 0) summary.Append($"; {result.Regions:N0} memory regions scanned");
         if (result.Members > 0) summary.Append($"; {result.Members:N0} container members scanned");
         if (result.Errors.Count > 0) summary.Append($"; {result.Errors.Count:N0} errors, their rules not run");
         notes.Insert(0, summary.Append($"; at most {YaraRules.MaxMatchesPerPattern} matches kept per pattern; {result.ElapsedMs:N0} ms").ToString());

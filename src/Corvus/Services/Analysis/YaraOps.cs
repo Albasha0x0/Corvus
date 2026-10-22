@@ -19,6 +19,9 @@ public sealed record YaraScanResult(int Rules, int RuleFiles, IReadOnlyList<Yara
 {
     /// <summary>Container members scanned besides the file itself.</summary>
     public int Members { get; init; }
+
+    /// <summary>A dump file's memory regions scanned; the file itself is then not scanned as a file.</summary>
+    public int Regions { get; init; }
 }
 
 /// <summary>The worker ops of YARA scanning; their arguments are paths, as bytes never cross the worker pipe.</summary>
@@ -37,7 +40,7 @@ internal sealed class YaraOps : IWorkerOps
     /// <summary>
     /// Scans the file <c>path</c> with the rules at <c>rules</c> (a file or folder), then each member of the container it
     /// is, nested containers opened and compressed members decompressed; a folder (a Blazor or ClickOnce deployment) is
-    /// scanned by its members only.
+    /// scanned by its members only, and a dump file by its captured memory (<see cref="YaraMemoryScan"/>).
     /// </summary>
     public static Task<JsonNode?> Scan(JsonObject args, CancellationToken cancellationToken)
     {
@@ -50,6 +53,13 @@ internal sealed class YaraOps : IWorkerOps
         var hits = new List<YaraHit>();
         var notes = new List<string>(rules.Notes);
         var folder = Directory.Exists(target);
+        if (!folder && YaraMemoryScan.IsDump(target))
+        {
+            var (regionHits, regions, memoryNotes) = YaraMemoryScan.Scan(rules, target, TimeSpan.FromMinutes(10), cancellationToken);
+            notes.AddRange(memoryNotes);
+            var dump = new YaraScanResult(rules.Count, rules.Files, rules.Errors, regionHits, notes, started.ElapsedMilliseconds) { Regions = regions };
+            return Task.FromResult(JsonSerializer.SerializeToNode(dump, Json));
+        }
         if (!folder && scanner.ScanFile(target) is { Count: > 0 } matched) hits.Add(new YaraHit(target, matched));
         var members = 0;
         if (!folder && new FileInfo(target).Length > MaxWalkBytes)

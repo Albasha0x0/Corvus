@@ -142,6 +142,52 @@ public sealed class YaraSearchTests : IDisposable
         Assert.Contains(found.Notes, n => n.Contains("; 3 container members scanned;", StringComparison.Ordinal));
     }
 
+    [YaraFact]
+    public void A_dump_is_scanned_by_region_with_virtual_addresses_and_module_rules()
+    {
+        // Two adjacent ranges at 0x20000000 that join into one region, one range at 0x30000000, and a module's image.
+        var b = new PeBuilder();
+        b.EntryPoint = b.Add(".text", [0xC3], 0x60000020).Rva;
+        b.Add(".rdata", [1, 2, 3, 4]);
+        var image = b.Build();
+        var heap = new byte[0x1000];
+        Encoding.ASCII.GetBytes("alpha-marker").CopyTo(heap, 0x10);
+        var other = new byte[0x1000];
+        Encoding.ASCII.GetBytes("beta-marker").CopyTo(other, 0x20);
+        var dump = new MinidumpBuilder { FullMemory = true };
+        dump.Modules.Add(new MinidumpBuilder.Module(0x7FF6_0000_0000, 0x10000, 0x5F000000, @"C:\app\fixture.dll"));
+        dump.Memory.Add((0x2000_0000, new byte[0x1000]));
+        dump.Memory.Add((0x2000_1000, heap));
+        dump.Memory.Add((0x3000_0000, other));
+        dump.Memory.Add((0x7FF6_0000_0000, image));
+        var path = _dir.File("process.dmp");
+        File.WriteAllBytes(path, dump.Build());
+        var rules = _dir.File("memory.yar");
+        File.WriteAllText(rules, """
+            import "pe"
+            rule split_pair { strings: $a = "alpha-marker" $b = "beta-marker" condition: $a and $b }
+            rule module_pe { condition: pe.is_pe and pe.number_of_sections == 2 }
+            rule at_mz { condition: uint16(0) == 0x5A4D }
+            rule alpha_alone { strings: $a = "alpha-marker" condition: $a and filesize > 0 }
+            """);
+        using var pool = Pool();
+        using var shared = WorkerPool.UseShared(pool);
+
+        var found = new UnpackService(_ws).Search(path, rules, "yara", 20, AnalysisLimits.Default, default);
+        var imageEnd = 0x7FF6_0000_0000 + image.Length;
+        Assert.Equal(
+        [
+            "0x20000000-0x20002000 alpha_alone $a at 0x20001010+12",
+            "0x20000000-0x20002000 split_pair $a at 0x20001010+12",
+            "0x30000000-0x30001000 split_pair $b at 0x30000020+11",
+            $"0x7FF600000000-0x{imageEnd:X} fixture.dll at_mz ",
+            $"0x7FF600000000-0x{imageEnd:X} fixture.dll module_pe ",
+        ], found.Items.Select(i => $"{i.Path} {i.Name} {i.Detail}").Order(StringComparer.Ordinal));
+        Assert.Equal("dump", found.Container);
+        Assert.Equal(3, found.Searched);
+        Assert.Contains(found.Notes, n => n.StartsWith("Process memory: 3 regions", StringComparison.Ordinal) && n.Contains("cross a region boundary are not matched"));
+    }
+
     private static void Add(ZipArchive zip, string name, byte[] bytes)
     {
         using var entry = zip.CreateEntry(name, CompressionLevel.Optimal).Open();
