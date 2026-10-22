@@ -159,7 +159,7 @@ public sealed partial class ResultStore
             int entries = 0;
             long bytes = 0;
             if (Directory.Exists(folder))
-                foreach (var (_, size, _) in DiskEntries())
+                foreach (var (_, size, _) in DiskEntries(Listing()))
                 {
                     entries++;
                     bytes += size;
@@ -171,29 +171,40 @@ public sealed partial class ResultStore
                 _memory.Count, _memoryChars, MemoryLimit, MaxResultChars, _kept, _reads, _evicted, _lastError);
     }
 
-    /// <summary>Deletes disk entries unused for longer than the age limit, then the least recently used beyond the size limit.</summary>
+    /// <summary>
+    /// Deletes disk entries unused for longer than the age limit, then, past the size limit, the least recently used down
+    /// to <see cref="LowWater"/> of it.
+    /// </summary>
     public void Evict()
     {
         if (Options.Root is not { } root || !Directory.Exists(root)) return;
         Interlocked.Increment(ref Walks);
         FolderTally.Forget(root);
         var now = DateTime.UtcNow;
+        var files = Listing();
         var live = new List<(string Id, long Size, DateTime Used)>();
-        foreach (var entry in DiskEntries())
+        foreach (var entry in DiskEntries(files))
         {
             if (now - entry.Used > Options.MaxAge) EvictFromDisk(entry.Id);
             else live.Add(entry);
         }
         long total = live.Sum(e => e.Size);
+        // Down to the low-water mark, not to the limit: a store at its limit would otherwise walk the folder on every write.
+        var target = total > Options.MaxBytes ? (long)(Options.MaxBytes * LowWater) : Options.MaxBytes;
+        var evicted = new HashSet<string>(StringComparer.Ordinal);
         foreach (var entry in live.OrderBy(e => e.Used))
         {
-            if (total <= Options.MaxBytes) break;
+            if (total <= target) break;
             EvictFromDisk(entry.Id);
+            evicted.Add(entry.Id);
             total -= entry.Size;
         }
         lock (_memory) (_diskBytes, _walked) = (total, now);
-        PruneTombstones(root, now);
+        PruneTombstones(root, now, files, live.Select(e => e.Id).Where(id => !evicted.Contains(id)).ToHashSet(StringComparer.Ordinal));
     }
+
+    /// <summary>The share of the size limit a walk past the limit evicts down to.</summary>
+    internal const double LowWater = 0.75;
 
     private LinkedListNode<KeptResult>? Find(string id)
     {
@@ -294,12 +305,15 @@ public sealed partial class ResultStore
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException) { return null; }
     }
 
-    private IEnumerable<(string Id, long Size, DateTime Used)> DiskEntries()
+    /// <summary>The entry files of the folder in one pass: the sizes and times come with the listing (no call per file).</summary>
+    private List<FileInfo> Listing()
     {
-        // one pass over the folder: the sizes and times come with the listing (no call per file)
-        List<FileInfo> files;
-        try { files = new DirectoryInfo(Options.Root!).EnumerateFiles("r-*").ToList(); }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { yield break; }
+        try { return new DirectoryInfo(Options.Root!).EnumerateFiles("r-*").ToList(); }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { return []; }
+    }
+
+    private static IEnumerable<(string Id, long Size, DateTime Used)> DiskEntries(List<FileInfo> files)
+    {
         var records = files.Where(f => f.Name.EndsWith(".record.json", StringComparison.Ordinal))
             .ToDictionary(f => f.Name[..^".record.json".Length], f => f.Length, StringComparer.Ordinal);
         foreach (var f in files.Where(f => f.Name.EndsWith(".txt", StringComparison.Ordinal)))
@@ -318,17 +332,15 @@ public sealed partial class ResultStore
         lock (_memory) _evicted++;
     }
 
-    /// <summary>Side records without content beyond twice the age limit, or beyond <see cref="MaxTombstones"/>, oldest first.</summary>
-    private void PruneTombstones(string root, DateTime now)
+    /// <summary>
+    /// Side records without content beyond twice the age limit, or beyond <see cref="MaxTombstones"/>, oldest first.
+    /// <paramref name="live"/> names the entries the walk kept, so no side record costs a call of its own.
+    /// </summary>
+    private void PruneTombstones(string root, DateTime now, List<FileInfo> files, HashSet<string> live)
     {
-        List<FileInfo> orphans;
-        try
-        {
-            orphans = [.. new DirectoryInfo(root).EnumerateFiles("r-*.meta.json")
-                .Where(f => !File.Exists(TextPath(f.Name[..^".meta.json".Length])))
-                .OrderByDescending(f => f.LastWriteTimeUtc)];
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { return; }
+        List<FileInfo> orphans = [.. files
+            .Where(f => f.Name.EndsWith(".meta.json", StringComparison.Ordinal) && !live.Contains(f.Name[..^".meta.json".Length]))
+            .OrderByDescending(f => f.LastWriteTimeUtc)];
         for (int i = 0; i < orphans.Count; i++)
             if (i >= MaxTombstones || now - orphans[i].LastWriteTimeUtc > 2 * Options.MaxAge)
                 TryDelete(orphans[i].FullName);

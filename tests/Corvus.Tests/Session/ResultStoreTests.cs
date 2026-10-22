@@ -94,6 +94,32 @@ public sealed class ResultStoreTests : IDisposable
     }
 
     [Fact]
+    public void Writes_past_the_size_limit_walk_the_folder_once_per_quarter_of_it()
+    {
+        var store = new ResultStore(Disk(maxBytes: 10_000));
+        for (int i = 0; i < 100; i++) store.Keep($"{i:000}" + new string('x', 497), Origin());
+        // 50,000 bytes written: one walk to start, then one per 2,500 bytes past the limit, not one per write.
+        Assert.InRange(store.Walks, 2, 1 + 50_000 / 2_500);
+        Assert.True(store.Status().Bytes <= 10_000);
+    }
+
+    [Fact]
+    public void Side_records_without_content_past_twice_the_age_limit_are_pruned()
+    {
+        var store = new ResultStore(Disk());
+        var kept = store.Keep("kept", Origin());
+        var old = Path.Combine(_dir.Path, "r-0123456789ab.meta.json");
+        var recent = Path.Combine(_dir.Path, "r-ba9876543210.meta.json");
+        File.WriteAllText(old, "{}");
+        File.WriteAllText(recent, "{}");
+        File.SetLastWriteTimeUtc(old, DateTime.UtcNow.AddDays(-15));
+        store.Evict();
+        Assert.False(File.Exists(old));
+        Assert.True(File.Exists(recent));
+        Assert.True(File.Exists(Path.Combine(_dir.Path, kept + ".meta.json")));
+    }
+
+    [Fact]
     public void EntriesUnusedPastTheAgeLimitAreEvicted()
     {
         var store = new ResultStore(Disk());
