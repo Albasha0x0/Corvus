@@ -78,7 +78,7 @@ public sealed class EngineRealDataTests(ITestOutputHelper output) : IDisposable
         await Log(c, "ghidra_script", script);
         Assert.True(File.Exists(source), source);
         Assert.Equal(compiled, File.GetLastWriteTimeUtc(source));
-        PerfBudget.Check(clock.Elapsed < first / 2, $"script repeat {clock.Elapsed.TotalMilliseconds:0} ms, first {first.TotalMilliseconds:0} ms, budget half the first", output);
+        PerfBudget.AtMost("engines/ghidra-script-repeat-share", clock.Elapsed / first, 0.5, "of-first", output, $"repeat {clock.Elapsed.TotalMilliseconds:0} ms, first {first.TotalMilliseconds:0} ms");
         // installed scripts: one of Ghidra's, and one from the user folder with arguments
         await Log(c, "ghidra_script", new() { ["image"] = image, ["name"] = "CountSymbolsScript.java", ["engine"] = "ghidra" });
         var userScripts = Directory.CreateDirectory(Path.Combine(Corvus.Native.Providers.DataFolder.Root, "ghidra_scripts")).FullName;

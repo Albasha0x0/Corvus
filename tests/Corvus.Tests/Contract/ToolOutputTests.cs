@@ -5,12 +5,13 @@ using ModelContextProtocol.Protocol;
 using Corvus.Core;
 using Corvus.Mcp;
 using Corvus.Tools;
+using Xunit.Abstractions;
 
 namespace Corvus.Tests;
 
 /// <summary>The result builder and the filter's fitting: budgets per part, one continuation, the same rows in both parts.</summary>
 [Collection(ProcessEnvironmentCollection.Name)]
-public class ToolOutputTests
+public class ToolOutputTests(ITestOutputHelper output)
 {
     private static ServiceProvider Services(ServerOptions? options = null) =>
         new ServiceCollection().AddSingleton(options ?? new ServerOptions()).AddSingleton(new ResultStore(ResultCacheOptions.MemoryOnly)).AddSingleton(new OutputPager(options ?? new ServerOptions()))
@@ -207,7 +208,7 @@ public class ToolOutputTests
             call = OutputCall.Current;
             return new CallToolResult { Content = [new TextContentBlock { Text = ToolOutput.Report("tree", new { root = "f", frontier = nodes, other = nodes.Take(500).ToList() }) }] };
         }, new() { ["maxTokens"] = 2_000 });
-        PerfBudget.Check(watch.Elapsed < TimeSpan.FromSeconds(5), $"cut took {watch.Elapsed.TotalSeconds:F1} s, budget 5 s");
+        PerfBudget.Time("session/huge-record-cut", watch.Elapsed, TimeSpan.FromSeconds(5), output);
         // Each pass takes off half the estimated excess: a few dozen passes, not one per dropped row.
         Assert.InRange(call!.CutPasses, 1, 64);
         var record = Record(r);

@@ -2,12 +2,13 @@ using System.Buffers.Binary;
 using System.Text;
 using Corvus.Core;
 using Corvus.Services.Analysis;
+using Xunit.Abstractions;
 
 namespace Corvus.Tests.NativeFormats;
 
 /// <summary>Dart AOT snapshot headers and the Dart VM version string; summarize_file view=flutter.</summary>
 [Collection(nameof(SerialTimingTests))] // the pool scan has a CPU budget
-public sealed class FlutterViewTests
+public sealed class FlutterViewTests(ITestOutputHelper output)
 {
     private const string Hash = "0123456789abcdef0123456789abcdef";
     private const string Features = "product no-code_comments no-dwarf_stack_traces_mode dedup_instructions no-tsan arm64 android compressed-pointers";
@@ -270,6 +271,6 @@ public sealed class FlutterViewTests
         var took = ThreadCpuClock.Now() - cpu;
         Assert.Equal(50, pool.Packages.Count);
         // the target is 1 s in a Release build (about 0.5 s measured); the Debug test build runs about 3x slower
-        PerfBudget.Check(took < TimeSpan.FromSeconds(3), $"{took.TotalMilliseconds:0} ms of CPU");
+        PerfBudget.Time("mobile/flutter-pool-scan-cpu", took, TimeSpan.FromSeconds(3), output);
     }
 }

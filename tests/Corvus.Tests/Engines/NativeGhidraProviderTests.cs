@@ -233,7 +233,7 @@ public sealed class NativeGhidraProviderTests(ITestOutputHelper output, GhidraCa
         // the worker stops the request before the time limit and answers with what it has
         var r = await s.CallAsync("sleep", new JsonObject { ["seconds"] = 60 }, default);
         Assert.Contains(r.GetProperty("partial").GetString(), (string[])["deadline", "cancelled"]);
-        PerfBudget.Check(clock.Elapsed < TimeSpan.FromSeconds(10), $"the partial answer took {clock.Elapsed}", Output);
+        PerfBudget.Time("engines/ghidra-partial-answer", clock.Elapsed, TimeSpan.FromSeconds(10), Output);
         Assert.Equal(pid, s.WorkerProcessId);
         Assert.NotEmpty(await s.ListFunctionsAsync());
         Assert.Equal(pid, s.WorkerProcessId);
@@ -314,7 +314,7 @@ public sealed class NativeGhidraColdOpenTests(ITestOutputHelper output, GhidraCa
         await using var s = (GhidraSession)await provider.OpenAsync(path, null, Offline with { Analysis = EngineAnalysis.None });
         Assert.False(s.AnalysisComplete);
         Assert.Contains("no auto-analysis", ((INativeDecompilerSession)s).DatabaseNote);
-        PerfBudget.Check(s.OpenTime < TimeSpan.FromSeconds(120), $"open {s.OpenTime}", Output);
+        PerfBudget.Time("engines/ghidra-open-no-analysis", s.OpenTime, TimeSpan.FromSeconds(120), Output);
         var decompiled = await s.DecompileAsync(rva);
         Assert.Equal(rva, decompiled.StartRva);
         var project = Directory.GetFiles(dir.Path, "*.gpr", SearchOption.AllDirectories).Single();
@@ -415,7 +415,7 @@ public sealed class NativeGhidraColdOpenTests(ITestOutputHelper output, GhidraCa
             Output.WriteLine($"cold open {cold.TotalSeconds:0.0} s, first decompile {firstDecompile.TotalMilliseconds:0} ms; warm open {warm.TotalSeconds:0.0} s, " +
                 $"first decompile {clock.ElapsedMilliseconds} ms; warm stages: {stages}");
         }
-        PerfBudget.Check(warm < cold, $"warm open {warm} not faster than cold {cold}", Output);
+        PerfBudget.AtMost("engines/ghidra-warm-open-share", warm / cold, 1, "of-cold", Output, $"warm {warm.TotalSeconds:0.0} s, cold {cold.TotalSeconds:0.0} s");
         var changed = UserGhidraFiles().Where(f => !userFiles.TryGetValue(f.Key, out var t) || t != f.Value).Select(f => f.Key).ToList();
         Assert.True(changed.Count == 0, "written under the user's Ghidra directories:\n" + string.Join("\n", changed.Take(10)));
         Assert.True(Directory.Exists(provider.Directories.Settings));

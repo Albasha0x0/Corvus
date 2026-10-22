@@ -5,8 +5,8 @@ namespace Corvus.Tests;
 
 /// <summary>
 /// How much slower this machine runs now than the quiet machine the timing budgets were set on: a fixed calibration
-/// workload (hashing, random memory reads, small allocations) timed against its quiet time. Timing tests scale their
-/// budgets by it, so a loaded machine (a suite or another build beside) stretches them and a quiet one keeps them as written.
+/// workload (hashing, random memory reads, small allocations) timed against its quiet time. Timing tests report it beside
+/// a measurement, so a slow sample taken on a loaded machine is read as load.
 /// </summary>
 internal static class MachineLoad
 {
@@ -47,18 +47,6 @@ internal static class MachineLoad
     {
         var factor = Math.Max(before, after);
         return (quiet * factor, factor == 1 ? "quiet machine" : $"machine load x{before:0.00} before, x{after:0.00} after");
-    }
-
-    /// <summary>
-    /// Whether <paramref name="elapsed"/> is within <paramref name="quiet"/> scaled by the load: the load is measured
-    /// only when the quiet budget is exceeded, and <paramref name="before"/> is the factor taken before the work. Note
-    /// names the budget and the load, for the failure message.
-    /// </summary>
-    public static (bool Within, string Note) Check(TimeSpan elapsed, TimeSpan quiet, double before)
-    {
-        if (elapsed < quiet) return (true, $"{elapsed.TotalMilliseconds:0} ms, budget {quiet.TotalMilliseconds:0} ms");
-        var (budget, load) = Budget(quiet, before, Factor());
-        return (elapsed < budget, $"{elapsed.TotalMilliseconds:0} ms, budget {budget.TotalMilliseconds:0} ms ({load})");
     }
 
     private static object Work()

@@ -115,6 +115,6 @@ public sealed class PacketFilterSpeedTests(ITestOutputHelper output) : IDisposab
         double rate = length / clock.Elapsed.TotalSeconds / (1 << 20);
         output.WriteLine($"{length:N0} bytes, {rounds * frames.Count:N0} frames in {clock.Elapsed.TotalSeconds:F2} s: {rate:F0} MB/s, {search.Total:N0} matches");
         Assert.Equal(rounds * 4, search.Total);
-        PerfBudget.Check(rate >= 200, $"{rate:F0} MB/s", output);
+        PerfBudget.AtLeast("containers/pcapng-filter-rate", rate, 200, "MB/s", output);
     }
 }

@@ -310,7 +310,7 @@ public sealed class NativeIdaProviderTests(ITestOutputHelper output, IdaCacheFix
         var clock = Stopwatch.StartNew();
         var r = await s.CallAsync("sleep", new JsonObject { ["seconds"] = 60 }, default);
         Assert.Contains(r.GetProperty("partial").GetString(), (string[])["deadline", "cancelled"]);
-        PerfBudget.Check(clock.Elapsed < TimeSpan.FromSeconds(10), $"the partial answer took {clock.Elapsed}", output);
+        PerfBudget.Time("engines/ida-partial-answer", clock.Elapsed, TimeSpan.FromSeconds(10), output);
         Assert.Equal(pid, s.WorkerProcessId);
 
         // a script stops at the deadline as well
@@ -381,7 +381,7 @@ public sealed class NativeIdaProviderTests(ITestOutputHelper output, IdaCacheFix
             var e = await Assert.ThrowsAsync<ToolError>(() => s.RunScriptAsync("x = 0\nwhile True:\n    try:\n        x += 1\n    except Exception:\n        pass"));
             output.WriteLine($"tight loop: {e.Code} after {clock.Elapsed.TotalSeconds:0.0} s: {e.Message}");
             Assert.Equal(ErrorCode.Timeout, e.Code);
-            PerfBudget.Check(clock.Elapsed < TimeSpan.FromSeconds(15), $"took {clock.Elapsed}", output);
+            PerfBudget.Time("engines/ida-script-loop-stop", clock.Elapsed, TimeSpan.FromSeconds(15), output);
             Assert.Equal(pid, s.WorkerProcessId);
             Assert.Equal("2", (await s.RunScriptAsync("1 + 1")).Result);
         }
@@ -406,7 +406,7 @@ public sealed class NativeIdaProviderTests(ITestOutputHelper output, IdaCacheFix
         var e = await Assert.ThrowsAsync<ToolError>(() => s.CallAsync("sleep", new JsonObject { ["seconds"] = 60, ["ignore_cancel"] = true }, default));
         Assert.Equal(ErrorCode.Timeout, e.Code);
         Assert.Contains("stopped", e.Message);
-        PerfBudget.Check(clock.Elapsed < TimeSpan.FromSeconds(15), $"timeout took {clock.Elapsed}", output);
+        PerfBudget.Time("engines/ida-ignored-cancel-timeout", clock.Elapsed, TimeSpan.FromSeconds(15), output);
         Assert.True(process.WaitForExit(5000), "the worker that ignored the cancel is still running");
 
         Assert.Contains(await s.ListFunctionsAsync(), f => f.StartRva == rva && f.Name == "sample_before_kill");
@@ -465,7 +465,7 @@ public sealed class NativeIdaProviderTests(ITestOutputHelper output, IdaCacheFix
         await Task.Delay(500);
         var clock = Stopwatch.StartNew();
         var state = Assert.Single(Provider.SessionStates(), x => x.ImagePath == System64);
-        PerfBudget.Check(clock.ElapsedMilliseconds < 100, $"state took {clock.ElapsedMilliseconds} ms", output);
+        PerfBudget.Time("engines/ida-state-while-busy", clock.Elapsed, TimeSpan.FromMilliseconds(100), output);
         Assert.Equal(("ida", "busy", "sleep", s.WorkerProcessId), (state.Engine, state.State, state.BusyOp, state.WorkerPid));
         Assert.Equal(s.DatabasePath, state.Database);
         await running;
@@ -486,7 +486,7 @@ public sealed class NativeIdaProviderTests(ITestOutputHelper output, IdaCacheFix
             Assert.Contains("no auto-analysis", ((INativeDecompilerSession)s).DatabaseNote);
             var decompiled = await s.DecompileAsync(rva);
             Assert.Equal(rva, decompiled.StartRva);
-            PerfBudget.Check(s.OpenTime < TimeSpan.FromSeconds(60), $"open {s.OpenTime}, budget 60 s", output);
+            PerfBudget.Time("engines/ida-open-no-analysis", s.OpenTime, TimeSpan.FromSeconds(60), output);
         }
         // the full-analysis database of the same bytes is untouched (never made here)
         var sha = AnalysisCache.HashFile(path);

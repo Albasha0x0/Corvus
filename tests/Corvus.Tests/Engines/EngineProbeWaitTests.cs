@@ -1,10 +1,11 @@
 using Corvus.Core;
 using Corvus.Native.Providers.Ida;
+using Xunit.Abstractions;
 
 namespace Corvus.Tests;
 
 /// <summary>A call waiting for an engine's availability check (it locates Python or Java by running them) stops when the call is cancelled (D4).</summary>
-public sealed class EngineProbeWaitTests
+public sealed class EngineProbeWaitTests(ITestOutputHelper output)
 {
     [Fact]
     [Trait(PerfBudget.Trait, PerfBudget.Timing)]
@@ -30,7 +31,7 @@ public sealed class EngineProbeWaitTests
             return provider.CheckAvailability();
         });
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => waiter);
-        PerfBudget.Check(clock.Elapsed < TimeSpan.FromSeconds(5), $"the cancelled call returned after {clock.Elapsed}, budget 5 s");
+        PerfBudget.Time("engines/probe-wait-cancelled", clock.Elapsed, TimeSpan.FromSeconds(5), output);
         release.Set();
         await holder;
         Assert.False(provider.CheckAvailability().IsAvailable);

@@ -45,6 +45,6 @@ public sealed class CompletionPassTests(ITestOutputHelper output) : IDisposable
         Assert.Contains("profile standard→full", status);
         // Reads share the program with a running slice instead of waiting for it.
         Assert.True(beside > 0, "no request ran beside a slice of the pass");
-        PerfBudget.Check(slowest < 5, $"slowest find_xrefs during the pass {slowest:0.00} s, budget 5 s; {beside} requests beside a slice", output);
+        PerfBudget.AtMost("engines/completion-pass-request", slowest, 5, "s", output, $"{beside} requests beside a slice");
     }
 }

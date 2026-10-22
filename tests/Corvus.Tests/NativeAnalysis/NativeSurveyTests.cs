@@ -182,7 +182,7 @@ public class NativeSurveyTests(ITestOutputHelper output)
             foreach (var f in report.Features) hits[f.Name] = hits.GetValueOrDefault(f.Name) + 1;
             output.WriteLine($"{path}: {report.Features.Count} features, {report.MethodsScanned} functions, {sw.Elapsed.TotalSeconds:0.00} s" +
                              (report.Features.Count > 0 ? ": " + string.Join(", ", report.Features.Select(f => f.Name).Take(8)) : ""));
-            PerfBudget.Check(sw.Elapsed < TimeSpan.FromMinutes(2), $"{path} took {sw.Elapsed}", output);
+            PerfBudget.Time("native/survey-file", sw.Elapsed, TimeSpan.FromMinutes(2), output);
         }
         output.WriteLine($"{files} files in {total.Elapsed.TotalSeconds:0.0} s (slowest {slowest:0.0} s: {slowestFile})");
         foreach (var (name, n) in hits.OrderByDescending(kv => kv.Value)) output.WriteLine($"  {n,4}  {name}");

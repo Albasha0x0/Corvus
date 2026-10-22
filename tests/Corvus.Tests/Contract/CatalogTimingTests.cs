@@ -42,11 +42,10 @@ public class CatalogTimingTests(Xunit.Abstractions.ITestOutputHelper output)
         }
         var p50 = times.Skip(1).Order().ElementAt(10);
         var after = MachineLoad.Factor();
-        var (listBudget, load) = MachineLoad.Budget(TimeSpan.FromMilliseconds(50), before, after);
-        var (initializeBudget, _) = MachineLoad.Budget(TimeSpan.FromSeconds(1), before, after);
+        var (_, load) = MachineLoad.Budget(TimeSpan.FromMilliseconds(50), before, after);
         output.WriteLine($"{exe ?? "dotnet corvus.dll"}: initialize {initialize.TotalMilliseconds:0} ms, first tools/list {times[0]:0} ms, p50 {p50:0.0} ms ({load})");
-        PerfBudget.Check(p50 <= listBudget.TotalMilliseconds, $"tools/list p50 {p50:0.0} ms, budget {listBudget.TotalMilliseconds:0} ms ({load})", output);
-        if (exe != null) PerfBudget.Check(initialize <= initializeBudget, $"initialize {initialize.TotalMilliseconds:0} ms, budget {initializeBudget.TotalMilliseconds:0} ms ({load})", output);
+        PerfBudget.AtMost("catalog/tools-list-p50", p50, 50, "ms", output, load);
+        if (exe != null) PerfBudget.Time("catalog/initialize", initialize, TimeSpan.FromSeconds(1), output, load);
 
         // tools/list is answered from one serialized listing built at start, not from the tools on each request.
         await using var server = await InProcessServer.StartAsync();

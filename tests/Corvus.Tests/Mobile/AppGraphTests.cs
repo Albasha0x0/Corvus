@@ -94,7 +94,6 @@ public sealed class AppGraphTests(Xunit.Abstractions.ITestOutputHelper output) :
     {
         var apks = Directory.EnumerateFiles(RealData.Get(RealData.MobileApps)!, "*.apk", new EnumerationOptions { RecurseSubdirectories = true, MaxRecursionDepth = 2 }).ToList();
         Assert.NotEmpty(apks);
-        var slow = new List<string>();
         var loader = new Il2CppRawLoader(_workspace);
         foreach (var apk in apks.OrderByDescending(a => new FileInfo(a).Length))
         {
@@ -109,14 +108,13 @@ public sealed class AppGraphTests(Xunit.Abstractions.ITestOutputHelper output) :
             // The calibration before and after misses what only the work's span saw: the process's
             // collection pauses (other tests allocate in it too) and the machine's memory load.
             var span = $"collection pauses {(GC.GetTotalPauseDuration() - paused).TotalSeconds:0.00} s, memory load {GC.GetGCMemoryInfo().MemoryLoadBytes * 100 / Math.Max(1, GC.GetGCMemoryInfo().HighMemoryLoadThresholdBytes)} % of the high threshold";
-            var (budget, load) = MachineLoad.Budget(TimeSpan.FromSeconds(5), before, MachineLoad.Factor());
+            var (_, load) = MachineLoad.Budget(TimeSpan.FromSeconds(5), before, MachineLoad.Factor());
             output.WriteLine($"{Path.GetFileName(apk)} {new FileInfo(apk).Length >> 20} MB: {watch.Elapsed.TotalSeconds:0.00} s ({load}; {span}); layers {string.Join(", ", g.Layers.Select(l => $"{l.Layer} {l.Items}"))}; " +
                              string.Join("; ", g.EdgeKinds.Select(k => $"{k.Kind} {k.Edges}/{k.Candidates} {k.Coverage}")));
-            if (watch.Elapsed > budget) slow.Add($"{Path.GetFileName(apk)} {watch.Elapsed.TotalSeconds:0.0} s, budget {budget.TotalSeconds:0.0} s ({load}; {span})");
+            PerfBudget.Time("mobile/app-graph", watch.Elapsed, TimeSpan.FromSeconds(5), output, $"{load}; {span}");
             foreach (var k in g.EdgeKinds) Assert.True(k.Edges <= k.Candidates || k.Kind == "jni", $"{apk}: {k.Kind}");
             // The graph joins the game's methods from the cache the load filled; it reads no metadata itself.
             if (files != null) Assert.True(g.Layers.Single(l => l.Layer == "il2cpp").Items > 0, $"{apk}: the Il2Cpp layer was not joined from the cache");
         }
-        PerfBudget.Check(slow.Count == 0, slow.Count == 0 ? $"{apks.Count} packages within their budgets" : string.Join("\n", slow), output);
     }
 }

@@ -4,6 +4,7 @@ using System.Text;
 using System.Text.Json;
 using Corvus.Core;
 using Corvus.Services.Analysis;
+using Xunit.Abstractions;
 
 namespace Corvus.Tests;
 
@@ -12,7 +13,7 @@ namespace Corvus.Tests;
 /// WebSocket messages, SSE and NDJSON shapes), and kind=endpoint comparing two captures.
 /// </summary>
 [Collection(nameof(SerialTimingTests))] // the 500 MB budget measures the whole process
-public sealed class CaptureRequestTests : IDisposable
+public sealed class CaptureRequestTests(ITestOutputHelper output) : IDisposable
 {
     private readonly TempDir _dir = new();
     private readonly AssemblyWorkspace _ws = new();
@@ -248,7 +249,7 @@ public sealed class CaptureRequestTests : IDisposable
         await sampler;
         Console.WriteLine($"{written / 1e6:N0} MB HAR, {found.Searched:N0} requests in {sw.Elapsed.TotalSeconds:0.00} s, private memory +{(peak - before) / 1e6:N0} MB");
         Assert.Equal(found.Searched, found.Total);
-        PerfBudget.Check(sw.Elapsed.TotalSeconds < 10, $"{sw.Elapsed.TotalSeconds:0.00} s");
+        PerfBudget.Time("containers/har-stream", sw.Elapsed, TimeSpan.FromSeconds(10), output);
         Assert.True(peak - before < 300L * 1024 * 1024, $"{(peak - before) / 1e6:N0} MB");
     }
 }

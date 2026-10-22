@@ -2,11 +2,12 @@ using System.Security.Cryptography;
 using System.Text;
 using Corvus.Core;
 using Corvus.Services.Analysis;
+using Xunit.Abstractions;
 
 namespace Corvus.Tests;
 
 /// <summary>ASAR archives built by <see cref="AsarWriter"/>: listing, integrity at header, file and block level, unpacked entries, links, hostile headers.</summary>
-public sealed class AsarTests : IDisposable
+public sealed class AsarTests(ITestOutputHelper output) : IDisposable
 {
     private readonly TempDir _dir = new();
     private readonly AssemblyWorkspace _workspace = new(new ServerOptions());
@@ -255,7 +256,7 @@ public sealed class AsarTests : IDisposable
         allocated = GC.GetAllocatedBytesForCurrentThread() - allocated;
         Assert.Equal(3000 + 300 * 2 + 1, listing.FileTotal);
         Assert.Contains(listing.Notes, n => n.StartsWith("File integrity: 3000 ok", StringComparison.Ordinal));
-        PerfBudget.Check(took < TimeSpan.FromSeconds(1), $"listing took {took.TotalMilliseconds:0} ms of CPU");
+        PerfBudget.Time("containers/asar-list-cpu", took, TimeSpan.FromSeconds(1), output);
         Assert.True(allocated < 100L * 1024 * 1024, $"listing allocated {allocated / 1048576.0:0.0} MiB");
     }
 

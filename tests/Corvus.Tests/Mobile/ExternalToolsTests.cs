@@ -1,10 +1,11 @@
 using Corvus.Native.Providers;
+using Xunit.Abstractions;
 
 namespace Corvus.Tests;
 
 /// <summary>The external tool table: location by variable, folder and PATH, version probes, minimal environment, output and time budgets.</summary>
 [Collection(ExternalToolEnvironmentCollection.Name)]
-public class ExternalToolsTests
+public class ExternalToolsTests(ITestOutputHelper output)
 {
     [Fact]
     public void Locate_TakesTheVariableAsFileOrFolder_AndNeverFallsBackFromABadOne()
@@ -99,7 +100,7 @@ public class ExternalToolsTests
         Assert.True(slow.TimedOut);
         // The child prints only after its 20 s sleep, so no output means it was ended at the timeout.
         Assert.DoesNotContain("late", slow.Text);
-        PerfBudget.Check(watch.Elapsed < TimeSpan.FromSeconds(10), $"timed out after {watch.Elapsed}");
+        PerfBudget.Time("mobile/external-tool-timeout", watch.Elapsed, TimeSpan.FromSeconds(10), output);
 
         using var cts = new CancellationTokenSource(TimeSpan.FromMilliseconds(300));
         Assert.ThrowsAny<OperationCanceledException>(() => ExternalTools.Run(FakeTool.Executable, ["slow"], TimeSpan.FromSeconds(30), 1000, cts.Token, fake.Environment));

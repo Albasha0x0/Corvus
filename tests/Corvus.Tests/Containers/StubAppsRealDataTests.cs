@@ -44,9 +44,9 @@ public class StubAppsRealDataTests(ITestOutputHelper output)
             await Call("get_attributes", new() { ["assembly"] = assembly, ["format"] = "csharp" });
             await Call("decompile_member", new() { ["member"] = member, ["assembly"] = assembly });
             await Call("patch_method_csharp", new() { ["method"] = method, ["code"] = "throw null;", ["assembly"] = assembly, ["dryRun"] = true });
-            PerfBudget.Check(await Call("verify_native_imports", new() { ["assembly"] = assembly }) < WarmBudget, "await Call('verify_native_imports', new() { ['assembly'] = assembly }) < WarmBudget", output);
-            PerfBudget.Check(await Call("find_references", new() { ["symbol"] = type, ["assembly"] = assembly, ["kind"] = "type" }) < WarmBudget, "await Call('find_references', new() { ['symbol'] = type, ['assembly'] = assembly, ['kind'] = 'type' }) < WarmBudget", output);
-            PerfBudget.Check(await Call("decompile_member", new() { ["member"] = type, ["assembly"] = assembly }) < WarmBudget, "await Call('decompile_member', new() { ['member'] = type, ['assembly'] = assembly }) < WarmBudget", output);
+            PerfBudget.Time("containers/stub-app-verify-imports", await Call("verify_native_imports", new() { ["assembly"] = assembly }), WarmBudget, output);
+            PerfBudget.Time("containers/stub-app-find-references", await Call("find_references", new() { ["symbol"] = type, ["assembly"] = assembly, ["kind"] = "type" }), WarmBudget, output);
+            PerfBudget.Time("containers/stub-app-decompile-type", await Call("decompile_member", new() { ["member"] = type, ["assembly"] = assembly }), WarmBudget, output);
             await Call("add_types_csharp", new() { ["assembly"] = assembly, ["code"] = "namespace Probe { public static class Added { public static int Answer() { return 42; } } }", ["dryRun"] = false });
             await Call("add_members_csharp", new() { ["type"] = type, ["assembly"] = assembly, ["code"] = "public static int ProbeMember() { return 7; }", ["dryRun"] = false });
             await Call("diff_edits", new() { ["assembly"] = assembly });

@@ -2,10 +2,11 @@ using System.Diagnostics;
 using System.IO.Compression;
 using Corvus.Core;
 using Corvus.Services.Analysis;
+using Xunit.Abstractions;
 
 namespace Corvus.Tests;
 
-public sealed class FolderCompareTests : IDisposable
+public sealed class FolderCompareTests(ITestOutputHelper output) : IDisposable
 {
     private readonly TempDir _dir = new();
     private readonly FolderCompare _service = new();
@@ -291,7 +292,7 @@ public sealed class FolderCompareTests : IDisposable
         Assert.Equal(first.Counts, second.Counts);
         // The warm pass hashes nothing: every hash is kept from the first.
         Assert.Equal((0, 0), (second.Old.Hashed, second.New.Hashed));
-        PerfBudget.Check(warm.Elapsed < TimeSpan.FromSeconds(10), $"warm {warm.Elapsed.TotalSeconds:0.00} s (cold {cold.Elapsed.TotalSeconds:0.00} s), budget 10 s");
+        PerfBudget.Time("builds/folder-compare-warm", warm.Elapsed, TimeSpan.FromSeconds(10), output, $"cold {cold.Elapsed.TotalSeconds:0.00} s");
         File.AppendAllText(TestReports.File("folder-compare-speed.txt"), $"10k pair: cold {cold.Elapsed.TotalSeconds:0.00} s, warm {warm.Elapsed.TotalSeconds:0.00} s\n");
     }
 

@@ -2,6 +2,7 @@ using System.Diagnostics;
 using dnlib.DotNet;
 using Corvus.Core;
 using Corvus.Services;
+using Xunit.Abstractions;
 
 namespace Corvus.Tests;
 
@@ -11,7 +12,7 @@ public class SerialTimingCollection;
 
 [Trait("Speed", "Slow")]
 [Collection(nameof(SerialTimingTests))]
-public class SerialTimingTests
+public class SerialTimingTests(ITestOutputHelper output)
 {
     /// <summary>Path search stays fast on a cyclic real call graph (target: CORVUS_CALLPATH_TARGET or auto-picked).</summary>
     [RequiresRealDataFact(RealData.AssemblyDir)]
@@ -36,7 +37,7 @@ public class SerialTimingTests
         // The backward search is linear: the direct and the virtual pass each take a method off the queue at most once.
         int methods = ws.Read(() => ws.Assemblies.Sum(a => a.Module.GetTypes().Sum(t => t.Methods.Count)));
         Assert.InRange(graph.SearchVisits - visits, 1, 2L * methods);
-        PerfBudget.Check(took < TimeSpan.FromSeconds(10), $"path search {took.TotalSeconds:0.0} s, budget 10 s");
+        PerfBudget.Time("dotnet/call-path-search", took, TimeSpan.FromSeconds(10), output);
         Assert.All(paths, p => Assert.Equal(target, p.Last()));
         Assert.NotEmpty(paths);
         foreach (var p in paths) // every step is a real call edge, direct or virtual

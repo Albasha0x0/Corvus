@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using ModelContextProtocol.Protocol;
 using Corvus.Core;
+using Xunit.Abstractions;
 
 namespace Corvus.Tests;
 
@@ -8,7 +9,7 @@ namespace Corvus.Tests;
 /// A client with a short deadline and a cold Ghidra open longer than it: the call answers timeout before the deadline
 /// with the open going on, and a retry joins that open instead of starting another.
 /// </summary>
-public class ClientDeadlineRealTests
+public class ClientDeadlineRealTests(ITestOutputHelper output)
 {
     [GhidraFact, Trait("Speed", "Slow")]
     [Trait(PerfBudget.Trait, PerfBudget.Timing)]
@@ -25,7 +26,7 @@ public class ClientDeadlineRealTests
 
         var clock = Stopwatch.StartNew();
         var first = await server.Client.CallToolAsync("decompile_native", args);
-        PerfBudget.Check(clock.Elapsed < TimeSpan.FromSeconds(20), $"answered after {clock.Elapsed.TotalSeconds:0} s");
+        PerfBudget.Time("engines/cold-open-client-deadline", clock.Elapsed, TimeSpan.FromSeconds(20), output);
         Assert.True(first.IsError == true, Text(first));
         Assert.Contains("still finishing in the background", Text(first));
         Assert.Contains("\"stillRunning\":true", Text(first));

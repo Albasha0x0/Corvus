@@ -1,13 +1,14 @@
 using System.Collections.Concurrent;
 using Corvus.Core;
 using Corvus.Services;
+using Xunit.Abstractions;
 
 namespace Corvus.Tests;
 
 /// <summary>Readers and writers hammer one workspace at the same time; nothing may throw or observe a half-applied edit.</summary>
 // Cancellation latency is measured, so the class runs alone: on small CI runners parallel classes starve the thread pool.
 [Collection(nameof(SerialTimingTests))]
-public class ConcurrencyTests
+public class ConcurrencyTests(ITestOutputHelper output)
 {
     [Trait("Speed", "Slow")]
     [Fact]
@@ -140,7 +141,7 @@ public class ConcurrencyTests
             cts.Cancel();
             await Assert.ThrowsAnyAsync<OperationCanceledException>(() => explicitToken);
             await Assert.ThrowsAnyAsync<OperationCanceledException>(() => ambient);
-            PerfBudget.Check(watch.Elapsed < TimeSpan.FromSeconds(5), $"cancelled waits took {watch.Elapsed}");
+            PerfBudget.Time("session/cancelled-lock-waits", watch.Elapsed, TimeSpan.FromSeconds(5), output);
         }
         finally
         {

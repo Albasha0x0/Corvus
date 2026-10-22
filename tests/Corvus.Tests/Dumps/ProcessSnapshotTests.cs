@@ -3,6 +3,7 @@ using Corvus.Core;
 using Corvus.Native.Diagnostics;
 using Corvus.Native.Dump;
 using Corvus.Services;
+using Xunit.Abstractions;
 
 namespace Corvus.Tests;
 
@@ -12,7 +13,7 @@ namespace Corvus.Tests;
 /// stop's registers and signal; a program waiting in vfork for a child that has not run its program is refused instead of
 /// holding gcore, and is left running.
 /// </summary>
-public sealed class ProcessSnapshotTests
+public sealed class ProcessSnapshotTests(ITestOutputHelper output)
 {
     [Fact]
     public void A_write_the_program_changed_is_tried_again()
@@ -95,7 +96,7 @@ public sealed class ProcessSnapshotTests
     [Trait(PerfBudget.Trait, PerfBudget.Timing)]
     public Task A_program_in_vfork_is_refused_and_left_running_on_linux_x86() => VforkRefused(LiveTarget.LinuxX86);
 
-    private static async Task VforkRefused(LiveTarget target)
+    private async Task VforkRefused(LiveTarget target)
     {
         using var dir = new TempDir();
         var exe = target.Build(dir, "vforker", Vforker);
@@ -113,7 +114,7 @@ public sealed class ProcessSnapshotTests
             Assert.Equal(ErrorCode.Timeout, refused.Code);
             Assert.Contains("waits in vfork", refused.Message);
             Assert.True(sw.Elapsed >= ProcessSnapshot.VforkWait, $"refused after {sw.Elapsed}");
-            PerfBudget.Check(sw.Elapsed <= ProcessSnapshot.VforkWait + TimeSpan.FromSeconds(20), $"refused after {sw.Elapsed}");
+            PerfBudget.Time("dumps/vfork-refusal", sw.Elapsed, ProcessSnapshot.VforkWait + TimeSpan.FromSeconds(20), output);
             Assert.Equal('D', ProcessSnapshot.State(pid, pid));
             Assert.False(File.Exists(dir.File("held.core")));
 

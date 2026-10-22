@@ -1,6 +1,7 @@
 using System.Text;
 using Corvus.Core;
 using Corvus.Services.Mobile;
+using Xunit.Abstractions;
 
 namespace Corvus.Tests;
 
@@ -11,11 +12,13 @@ public sealed class DexNamesTests : IDisposable
     private readonly TempDir _dir = new();
     private readonly string _dex;
     private readonly string _mapping;
+    private readonly ITestOutputHelper _output;
 
     private const string Login = "La/a;", Session = "Lb/a;", Compute = Login + "->a(I)I", Bind = Login + "->a(Lb/a;)V", User = Login + "->a:Ljava/lang/String;";
 
-    public DexNamesTests()
+    public DexNamesTests(ITestOutputHelper output)
     {
+        _output = output;
         var b = new DexBuilder();
         var login = b.Class(Login, 1, "Landroid/app/Activity;", "SourceFile").Field("a", "Ljava/lang/String;", 2);
         login.Method("a", "I", ["I"], 1, Asm.Return(0x0f, 2)).Registers = 3;
@@ -101,7 +104,7 @@ public sealed class DexNamesTests : IDisposable
         var names = DexNames.Read(path, index, default);
         var took = ThreadCpuClock.Now() - cpu;
         Assert.Equal("com.example.p0.Class100.method3(com.example.p0.Class0, int) : int", names.Display("La100/a;->m3(La0/a;I)I"));
-        PerfBudget.Check(took < TimeSpan.FromSeconds(3), $"{took.TotalMilliseconds:0} ms of CPU");
+        PerfBudget.Time("mobile/dex-mapping-cpu", took, TimeSpan.FromSeconds(3), _output);
     }
 
     [Fact]

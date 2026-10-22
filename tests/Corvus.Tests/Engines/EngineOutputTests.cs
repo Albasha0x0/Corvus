@@ -96,7 +96,7 @@ public abstract class EngineOutputTests(ITestOutputHelper output) : IDisposable
             Assert.Equal(1, second.Engines.OutputCache!.Hits);
             Assert.Empty(second.Engines.ImageSessions(NativeOf(second)));
             // An engine open takes seconds even on a saved database; the cache answers in well under one (1.6 s seen under full load).
-            PerfBudget.Check(clock.Elapsed < TimeSpan.FromSeconds(3), $"second process {clock.Elapsed.TotalMilliseconds:0} ms, budget 3 s", Output);
+            PerfBudget.Time("engines/largest-function-second-process", clock.Elapsed, TimeSpan.FromSeconds(3), Output);
         }
     }
 

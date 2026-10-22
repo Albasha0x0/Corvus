@@ -268,7 +268,7 @@ public sealed class NativeIdaEngineTests(ITestOutputHelper output) : IDisposable
         var after = clock.Elapsed;
         Assert.Contains("CheckSumMappedFile", text);
         Assert.Same(prewarmed, rig.Engines.OpenSession(first, "ida"));
-        PerfBudget.Check(after < TimeSpan.FromSeconds(20), $"first decompile_native after prewarm {after.TotalMilliseconds:0} ms, budget 20 s", output);
+        PerfBudget.Time("engines/ida-decompile-after-prewarm", after, TimeSpan.FromSeconds(20), output);
     }
 
     /// <summary>The Il2Cpp header and method prototypes reach the pseudocode, persist in the database and are not pushed again.</summary>

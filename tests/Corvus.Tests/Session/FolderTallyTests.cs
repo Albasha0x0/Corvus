@@ -1,9 +1,10 @@
 using Corvus.Core;
+using Xunit.Abstractions;
 
 namespace Corvus.Tests;
 
 /// <summary>Status reports never wait long for a folder's size: a slow first count is reported as being counted.</summary>
-public class FolderTallyTests
+public class FolderTallyTests(ITestOutputHelper output)
 {
     [Fact]
     [Trait(PerfBudget.Trait, PerfBudget.Timing)]
@@ -15,7 +16,7 @@ public class FolderTallyTests
         var first = FolderTally.Of(folder, () => { release.Wait(); return (7, 70); });
         Assert.Equal((-1, -1L), first);
         Assert.True(clock.Elapsed.TotalSeconds >= 1.5, $"answered after {clock.Elapsed}");
-        PerfBudget.Check(clock.Elapsed.TotalSeconds <= 10, $"answered after {clock.Elapsed}");
+        PerfBudget.Time("session/folder-tally-slow-count", clock.Elapsed, TimeSpan.FromSeconds(10), output);
         release.Set();
         SpinWait.SpinUntil(() => FolderTally.Of(folder, () => (0, 0)) != (-1, -1L), TimeSpan.FromSeconds(10));
         Assert.Equal((7, 70L), FolderTally.Of(folder, () => (0, 0)));

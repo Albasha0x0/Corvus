@@ -3,11 +3,12 @@ using System.Text.Json.Nodes;
 using Corvus.Core;
 using Corvus.Native.Providers;
 using Corvus.Native.Providers.Ida;
+using Xunit.Abstractions;
 
 namespace Corvus.Tests;
 
 /// <summary>Provider plumbing that needs no IDA: framing, install detection, the analysis cache and process ownership.</summary>
-public class NativeProviderTests
+public class NativeProviderTests(ITestOutputHelper output)
 {
     [Fact]
     public void Requests_are_one_line_and_escape_line_breaks()
@@ -240,7 +241,7 @@ public class NativeProviderTests
         var clock = Stopwatch.StartNew();
         while ((Running(child.Id) || Running(grandchild)) && clock.ElapsedMilliseconds < 5_000) Thread.Sleep(20);
         Assert.False(Running(child.Id) || Running(grandchild), "a process outlived the one it watched");
-        PerfBudget.Check(clock.ElapsedMilliseconds <= 1_000, $"the tree ended {clock.ElapsedMilliseconds} ms after the watched process");
+        PerfBudget.Time("engines/child-tree-end", clock.Elapsed, TimeSpan.FromSeconds(1), output);
         Assert.True(child.Exited.Wait(10_000));
     }
 

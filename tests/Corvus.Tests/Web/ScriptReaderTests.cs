@@ -1,10 +1,11 @@
 using System.Text;
 using Corvus.Services.Web.Scripts;
+using Xunit.Abstractions;
 
 namespace Corvus.Tests;
 
 /// <summary>Script readers: transformation layers peeled to plain text by a bounded evaluator, nothing executed.</summary>
-public sealed class ScriptReaderTests
+public sealed class ScriptReaderTests(ITestOutputHelper output)
 {
     internal static string Fixture(string language, string name) => Path.Combine(AppContext.BaseDirectory, "Web", "ScriptFixtures", language, name);
 
@@ -172,7 +173,7 @@ public sealed class ScriptReaderTests
         var watch = System.Diagnostics.Stopwatch.StartNew();
         var r = ScriptReader.Read("$i = 0; while ($true) { $i++ }", "powershell", milliseconds: 500);
         Assert.False(r.Complete);
-        PerfBudget.Check(watch.ElapsedMilliseconds < 5_000, $"{watch.ElapsedMilliseconds} ms");
+        PerfBudget.Time("web/script-reader-loop-budget", watch.Elapsed, TimeSpan.FromSeconds(5), output);
     }
 
     [Fact]

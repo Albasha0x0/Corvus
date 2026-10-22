@@ -256,7 +256,7 @@ public sealed partial class HermesTests(ITestOutputHelper output) : IDisposable
                              $"({index.Instructions:N0} instructions, {index.Modules.Count:N0} modules); {f.Functions.Count:N0} functions decompiled in " +
                              $"{clock.Elapsed.TotalSeconds:N1} s, {gotos:N0} with a goto ({100.0 * gotos / Math.Max(1, f.Functions.Count):N1} %)");
             Assert.Empty(f.Issues);
-            if (bytes.Length <= 16 << 20) PerfBudget.Check(indexed < TimeSpan.FromSeconds(1), $"{file}: read and indexed in {indexed.TotalMilliseconds:N0} ms", output);
+            if (bytes.Length <= 16 << 20) PerfBudget.Time("web/hermes-read-and-index", indexed, TimeSpan.FromSeconds(1), output);
         }
     }
 }

@@ -154,6 +154,6 @@ public sealed class WasmIndexSpeedTests(ITestOutputHelper output)
                          $"{index.VirtualEdges.Count:N0} call_indirect edges: {clock.Elapsed.TotalSeconds:F2} s");
         Assert.True(bytes.Length >= 60_000_000, $"{bytes.Length:N0} bytes");
         Assert.Equal(210_000, index.Functions.Count);
-        PerfBudget.Check(clock.Elapsed < TimeSpan.FromSeconds(5), $"{clock.Elapsed.TotalSeconds:F2} s", output);
+        PerfBudget.Time("web/wasm-60mb-index", clock.Elapsed, TimeSpan.FromSeconds(5), output);
     }
 }

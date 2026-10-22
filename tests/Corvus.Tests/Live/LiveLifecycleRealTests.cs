@@ -67,7 +67,7 @@ public sealed class LiveLifecycleRealTests(ITestOutputHelper output) : LiveToolC
             var sw = Stopwatch.StartNew();
             var ended = await Ok(server, "live_break", new() { ["session"] = session, ["action"] = "continue", ["wait"] = true, ["waitSeconds"] = 120 });
             Output.WriteLine($"run {run}: the wait returned {sw.ElapsedMilliseconds} ms after the start");
-            PerfBudget.Check(sw.Elapsed < TimeSpan.FromSeconds(60), $"the wait took {sw.Elapsed}", Output);
+            PerfBudget.Time($"live/exit-with-calls-queued-wait/{target.Name}", sw.Elapsed, TimeSpan.FromSeconds(60), Output);
             Assert.Contains("the program ended before a stop", ended);
             Assert.Matches(@"exit code 5(?![0-9xX])", await UntilExited(server, session, seconds: 30));
             Assert.Equal(calls, await Watched(server, session));
@@ -177,7 +177,7 @@ public sealed class LiveLifecycleRealTests(ITestOutputHelper output) : LiveToolC
             var (ended, failed) = await wait;
             Output.WriteLine($"run {run}: the wait returned {sw.ElapsedMilliseconds} ms after the kill");
             Assert.False(failed, ended);
-            PerfBudget.Check(sw.Elapsed < TimeSpan.FromSeconds(15), $"the wait returned {sw.Elapsed} after the kill", Output);
+            PerfBudget.Time($"live/wait-after-kill/{target.Name}", sw.Elapsed, TimeSpan.FromSeconds(15), Output);
             Assert.Contains("the program ended before a stop", ended);
             var exited = await UntilExited(server, session, seconds: 30);
             if (target.Windows) Assert.Contains("exit code 0xFFFFFFFF", exited);
@@ -198,7 +198,6 @@ public sealed class LiveLifecycleRealTests(ITestOutputHelper output) : LiveToolC
         var exe = Build(target);
         var name = Regex.Escape(target.Exe("lifecycle"));
         await using var server = await Server();
-        var load = MachineLoad.Factor();
         // odd runs close while the exiting thread is held at AtExit, even runs release it and close at once
         for (int run = 1; run <= 2 * Runs; run++)
         {
@@ -217,8 +216,7 @@ public sealed class LiveLifecycleRealTests(ITestOutputHelper output) : LiveToolC
                 var closeMs = sw.ElapsedMilliseconds;
                 Assert.True(program.WaitForExit(20_000), $"run {run}: the program did not finish its exit after the close");
                 Output.WriteLine($"run {run}: close {closeMs} ms, program ended {sw.ElapsedMilliseconds} ms after the close began");
-                var closeTime = MachineLoad.Check(TimeSpan.FromMilliseconds(closeMs), TimeSpan.FromSeconds(15), load);
-                PerfBudget.Check(closeTime.Within, $"close took {closeTime.Note}", Output);
+                PerfBudget.Time($"live/close-during-exit/{target.Name}", TimeSpan.FromMilliseconds(closeMs), TimeSpan.FromSeconds(15), Output);
                 Assert.Equal(5, program.ExitCode);
                 Assert.Contains("lines 50", program.StandardOutput.ReadToEnd());
                 var s = server.Services.GetRequiredService<LiveSessionService>().Get(session);
@@ -284,7 +282,7 @@ public sealed class LiveLifecycleRealTests(ITestOutputHelper output) : LiveToolC
                     Ended(pid);
                 }
                 Assert.True(sw.Elapsed.TotalSeconds >= 9.5, $"exited {sw.Elapsed} after the start");
-                PerfBudget.Check(sw.Elapsed.TotalSeconds <= 40, $"exited {sw.Elapsed} after the start", Output);
+                PerfBudget.Time($"live/stuck-exit-end/{target.Name}", sw.Elapsed, TimeSpan.FromSeconds(40), Output);
                 foreach (var (session, pid, _) in sessions) await CloseReleased(server, session, pid);
             }
             finally

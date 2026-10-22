@@ -378,6 +378,6 @@ public class MsvcRttiSweepTests(ITestOutputHelper output)
         output.WriteLine($"slowest: {slowest.File} {slowest.Time.TotalSeconds:F2} s");
         Assert.True(failures.Count == 0, string.Join("\n", failures.Take(50)));
         Assert.True(images > 100, $"only {images} images");
-        PerfBudget.Check(slow.Count == 0, $"{slow.Count} images over 20 s: {string.Join(", ", slow.Take(10))}", output);
+        PerfBudget.Time("native/msvc-rtti-slowest-image", slowest.Time, TimeSpan.FromSeconds(20), output, $"{slow.Count} images over budget");
     }
 }

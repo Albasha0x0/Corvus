@@ -1,10 +1,11 @@
 using System.Diagnostics;
 using Corvus.Core;
+using Xunit.Abstractions;
 
 namespace Corvus.Tests;
 
 /// <summary>Locked JSON records: updates re-read under a lock, so concurrent writers keep each other's records.</summary>
-public class LockedJsonFileTests : IDisposable
+public class LockedJsonFileTests(ITestOutputHelper output) : IDisposable
 {
     private readonly TempDir _dir = new();
     public void Dispose() => _dir.Dispose();
@@ -48,7 +49,7 @@ public class LockedJsonFileTests : IDisposable
             Assert.Null(written);
             Assert.Contains("timed out", problem);
             Assert.True(clock.Elapsed >= TimeSpan.FromMilliseconds(250), $"gave up after {clock.Elapsed}");
-            PerfBudget.Check(clock.Elapsed <= TimeSpan.FromSeconds(10), $"gave up after {clock.Elapsed}");
+            PerfBudget.Time("session/json-lock-give-up", clock.Elapsed, TimeSpan.FromSeconds(10), output);
         }
         Assert.Equal(before, File.ReadAllBytes(Records));
         Assert.Null(LockedJsonFile.Update<Dictionary<string, int>>(Records, d => d).Problem); // released: usable again

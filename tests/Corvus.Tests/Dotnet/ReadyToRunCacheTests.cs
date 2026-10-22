@@ -1,9 +1,10 @@
 using Corvus.Core;
+using Xunit.Abstractions;
 
 namespace Corvus.Tests;
 
 /// <summary>Build-once caches (ReadyToRun, dumps, Il2Cpp, NativeAOT): a caller waiting for another's build stops when its call is cancelled.</summary>
-public class ReadyToRunCacheTests
+public class ReadyToRunCacheTests(ITestOutputHelper output)
 {
     [Fact]
     [Trait(PerfBudget.Trait, PerfBudget.Timing)]
@@ -18,7 +19,7 @@ public class ReadyToRunCacheTests
         using var cts = new CancellationTokenSource(TimeSpan.FromMilliseconds(100));
         var clock = System.Diagnostics.Stopwatch.StartNew();
         Assert.ThrowsAny<OperationCanceledException>(() => once.Get(() => throw new InvalidOperationException("built twice"), cts.Token));
-        PerfBudget.Check(clock.Elapsed < TimeSpan.FromSeconds(5), $"waited {clock.Elapsed}");
+        PerfBudget.Time("dotnet/once-cancelled-waiter", clock.Elapsed, TimeSpan.FromSeconds(5), output);
 
         release.Set();
         Assert.Equal(42, await builder);

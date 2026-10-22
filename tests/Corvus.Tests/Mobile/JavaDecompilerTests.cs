@@ -62,11 +62,11 @@ public sealed class JavaDecompilerTests(Xunit.Abstractions.ITestOutputHelper out
                 best = TimeSpan.FromTicks(Math.Min(best.Ticks, watch.Elapsed.Ticks));
                 Assert.Equal(cold, warm);
             }
-            var (budget, load) = MachineLoad.Budget(TimeSpan.FromMilliseconds(50), before, MachineLoad.Factor());
+            var (_, load) = MachineLoad.Budget(TimeSpan.FromMilliseconds(50), before, MachineLoad.Factor());
             Assert.Equal(starts, _fake.ArgumentLists.Count(a => a.Contains("-jar")));
             Assert.Equal(hashed, first.Cache.InputsHashed);
             Assert.Empty(dex.Cached());
-            PerfBudget.Check(best < budget, $"warm {best.TotalMilliseconds:0.0} ms, budget {budget.TotalMilliseconds:0} ms ({load})", output);
+            PerfBudget.Time("mobile/java-disk-cache-warm", best, TimeSpan.FromMilliseconds(50), output, load);
             File.SetLastWriteTimeUtc(apk, DateTime.UtcNow.AddMinutes(1));
             File.AppendAllText(apk, "x");
             _fake.Set("crashOnLoad", true);

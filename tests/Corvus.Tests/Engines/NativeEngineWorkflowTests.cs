@@ -67,7 +67,7 @@ public sealed class NativeEngineWorkflowTests(ITestOutputHelper output) : IDispo
         Assert.Contains("CheckSumMappedFile", await rig.Analysis.DecompileNative(native.Id, "CheckSumMappedFile", engine: engine));
         var single = clock.Elapsed;
         Assert.Equal(requests, worker.Requests);
-        PerfBudget.Check(single < TimeSpan.FromSeconds(2), $"{engine}: cached single call {single.TotalMilliseconds:0} ms, budget 2 s", output);
+        PerfBudget.Time($"engines/cached-single-decompile/{engine}", single, TimeSpan.FromSeconds(2), output);
     }
 
     private async Task DossierPseudocode(string engine)

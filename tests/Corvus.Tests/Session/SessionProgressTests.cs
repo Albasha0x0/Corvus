@@ -3,11 +3,12 @@ using System.Diagnostics;
 using System.Text.Json;
 using ModelContextProtocol;
 using ModelContextProtocol.Protocol;
+using Xunit.Abstractions;
 
 namespace Corvus.Tests;
 
 /// <summary>load_session over the protocol: progress from its first step, and its text and record pages.</summary>
-public sealed class SessionProgressTests : IDisposable
+public sealed class SessionProgressTests(ITestOutputHelper output) : IDisposable
 {
     private readonly TempDir _dir = new();
 
@@ -34,7 +35,7 @@ public sealed class SessionProgressTests : IDisposable
         // Handlers may run concurrently, so arrival order is not send order: the first step is the lowest progress.
         var first = updates.OrderBy(u => u.Value.Progress.Progress).ThenBy(u => u.Ms).FirstOrDefault();
         Assert.Equal("Reading work.session.json", first.Value?.Progress.Message);
-        PerfBudget.Check(first.Ms <= 5_000, $"first progress after {first.Ms} ms");
+        PerfBudget.AtMost("session/load-session-first-progress", first.Ms, 5_000, "ms", output);
 
         var text = string.Concat(result.Content.OfType<TextContentBlock>().Select(b => b.Text));
         // The per-user note store is shared by the test run, so a notes row may follow the file's.

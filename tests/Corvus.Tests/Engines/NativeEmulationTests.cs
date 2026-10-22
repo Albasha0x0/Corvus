@@ -277,7 +277,7 @@ public sealed class NativeEmulationGhidraTests(ITestOutputHelper output, NativeE
         Assert.Contains("100 argument sets, 100 returned", text);
         for (int i = 0; i < inputs.Count; i++) Assert.Contains($"#{i + 1} (\"{inputs[i]}\"): returned 0x{Fnv1a(inputs[i]):x},", text);
         // One emulator for the batch, reset between sets: about 6 ms a set against about 10-20 ms for a call of its own.
-        PerfBudget.Check(all.Elapsed < 100 * one.Elapsed, $"100 sets took {all.ElapsedMilliseconds} ms, one call {one.ElapsedMilliseconds} ms", output);
+        PerfBudget.AtMost("engines/emulation-batch-in-calls", all.Elapsed / one.Elapsed, 100, "calls", output, $"100 sets {all.ElapsedMilliseconds} ms, one call {one.ElapsedMilliseconds} ms");
     }
 
     [GhidraFact]

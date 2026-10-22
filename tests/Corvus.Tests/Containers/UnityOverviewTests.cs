@@ -299,7 +299,8 @@ public sealed class UnityOverviewRealTests(ITestOutputHelper output)
             output.WriteLine($"    markers: {string.Join("; ", r.Markers.Select(m => $"{m.Category}:{m.Name}"))}");
             output.WriteLine($"    next: {string.Join(" -> ", r.NextSteps.Select(s => s.Action + (s.Arguments.TryGetValue("path", out var p) ? $"({p})" : "")))}");
             foreach (var note in r.Notes) output.WriteLine($"    note: {note}");
-            PerfBudget.Check(watch.Elapsed < TimeSpan.FromSeconds(r.Markers.Any(m => m.Source == "detect_it_easy") ? 30 : 10), $"{title}: {watch.Elapsed}", output);
+            if (r.Markers.Any(m => m.Source == "detect_it_easy")) PerfBudget.Time("containers/unity-overview-with-die", watch.Elapsed, TimeSpan.FromSeconds(30), output);
+            else PerfBudget.Time("containers/unity-overview", watch.Elapsed, TimeSpan.FromSeconds(10), output);
             Assert.NotEqual("unknown", r.Backend.Kind);
             Assert.NotNull(r.Engine.Version);
             Assert.NotEmpty(r.NextSteps);

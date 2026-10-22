@@ -352,6 +352,6 @@ public sealed class SqlitePagingTimingTests(ITestOutputHelper output) : IDisposa
             Assert.InRange(db.PagesRead, 1, db.PageCount / 20);
         }
         // About 50 ms on a desktop.
-        PerfBudget.Check(times.Max() < 250, string.Join(", ", times), output);
+        PerfBudget.AtMost("containers/sqlite-deep-page", times.Max(), 250, "ms", output);
     }
 }

@@ -55,7 +55,7 @@ public class NativeCodeSweepTests(ITestOutputHelper output)
         output.WriteLine(index.Stats.ToString());
         foreach (var t in index.Truncations) output.WriteLine("truncated: " + t);
         if (image.Arch == NativeArch.X64) Assert.Empty(PdataStartsMissing(image, index).Missing);
-        PerfBudget.Check(sw.Elapsed < TimeSpan.FromMinutes(5), $"took {sw.Elapsed}", output);
+        PerfBudget.Time("native/large-image-index", sw.Elapsed, TimeSpan.FromMinutes(5), output);
         GC.KeepAlive(index);
     }
 

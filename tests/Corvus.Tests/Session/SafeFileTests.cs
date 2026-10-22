@@ -1,11 +1,12 @@
 using Corvus.Core;
 using Corvus.Services;
 using Corvus.Services.Analysis;
+using Xunit.Abstractions;
 
 namespace Corvus.Tests;
 
 /// <summary>Output files: atomic, no-clobber unless asked, never through links, never to a device name.</summary>
-public class SafeFileTests : IDisposable
+public class SafeFileTests(ITestOutputHelper output) : IDisposable
 {
     private readonly TempDir _dir = new();
     public void Dispose() => _dir.Dispose();
@@ -180,6 +181,6 @@ public class SafeFileTests : IDisposable
         var clock = System.Diagnostics.Stopwatch.StartNew();
         Assert.Throws<IOException>(() => SafeFile.WhenReleased(() => { calls++; throw new IOException("target exists"); }, lost: () => true));
         Assert.Equal(1, calls);
-        PerfBudget.Check(clock.ElapsedMilliseconds < 1000, $"{clock.ElapsedMilliseconds} ms");
+        PerfBudget.Time("session/safe-file-lost-race", clock.Elapsed, TimeSpan.FromSeconds(1), output);
     }
 }

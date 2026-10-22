@@ -220,7 +220,7 @@ public sealed class JsFlowTests(Xunit.Abstractions.ITestOutputHelper output) : I
                   "\n}\nconst req = new Request(globalThis.init);\n" + string.Join("\n", names.Select(n => $"fetch(req.{n});"));
         var sw = System.Diagnostics.Stopwatch.StartNew();
         var r = Flow(cls, "sinks", back: true);
-        PerfBudget.Check(sw.Elapsed.TotalSeconds < 5, $"{sw.Elapsed.TotalSeconds:0.0} s", output);
+        PerfBudget.Time("web/js-flow-computed-getters", sw.Elapsed, TimeSpan.FromSeconds(5), output);
         // About seven steps per getter; an expansion through the getter chain grows with its square or worse.
         Assert.InRange(r.Steps, 1, 20 * names.Count);
         Assert.Null(r.Partial);
@@ -302,7 +302,7 @@ public sealed class JsFlowRealTests(Xunit.Abstractions.ITestOutputHelper output)
                 output.WriteLine($"    literal flows ending '{g.Key}': {g.Count()}, e.g. {g.First().Steps[^1].Text}");
             if (Path.GetFileName(file) == "openjpeg_nowasm_fallback.js")
             {
-                PerfBudget.Check(seconds < 2, $"{seconds:0.00} s", output);
+                PerfBudget.AtMost("web/js-flow-pdfjs-openjpeg", seconds, 2, "s", output);
                 Assert.True(mb < 200, $"{mb:0} MB");
                 Assert.Null(r.Partial ?? literals.Partial ?? module?.Partial);
             }

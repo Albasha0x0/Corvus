@@ -91,7 +91,6 @@ public sealed class LiveFridaRealTests(ITestOutputHelper output) : IDisposable
             BackgroundIndexing = false, WatchFiles = false, AllowLive = true, AllowLiveSpawn = true,
         });
 
-        var load = MachineLoad.Factor();
         var sw = Stopwatch.StartNew();
         var (open, failed) = await Call(server, "live_session", new() { ["action"] = "spawn", ["program"] = exe, ["arguments"] = new[] { "400" } });
         var openMs = sw.ElapsedMilliseconds;
@@ -101,8 +100,7 @@ public sealed class LiveFridaRealTests(ITestOutputHelper output) : IDisposable
         Assert.Matches(@"0x[0-9A-F]+ orders\.exe  = orders\.exe", open);
         var pid = int.Parse(Regex.Match(open, @"pid (\d+)").Groups[1].Value);
         output.WriteLine($"session open {openMs} ms (target 2,000)");
-        var openTime = MachineLoad.Check(TimeSpan.FromMilliseconds(openMs), TimeSpan.FromSeconds(10), load);
-        PerfBudget.Check(openTime.Within, $"open took {openTime.Note}", output);
+        PerfBudget.Time("live/frida-spawn-open", TimeSpan.FromMilliseconds(openMs), TimeSpan.FromSeconds(10), output);
 
         var (byName, e1) = await Call(server, "live_break", new() { ["session"] = "live-1", ["action"] = "set", ["at"] = "AddLine" });
         Assert.False(e1, byName);
@@ -136,8 +134,7 @@ public sealed class LiveFridaRealTests(ITestOutputHelper output) : IDisposable
         var namedMs = sw.ElapsedMilliseconds;
         Assert.Matches(@"stopped at s2 \(orders\.exe!AddLine\+0x[0-9A-F]+\)", second);
         output.WriteLine($"held stop to named stack {namedMs} ms (target 300)");
-        var namedTime = MachineLoad.Check(TimeSpan.FromMilliseconds(namedMs), TimeSpan.FromSeconds(2), load);
-        PerfBudget.Check(namedTime.Within, $"naming took {namedTime.Note}", output);
+        PerfBudget.Time("live/frida-held-stop-named", TimeSpan.FromMilliseconds(namedMs), TimeSpan.FromSeconds(2), output);
 
         var (summary, e5) = await Call(server, "inspect_process", new() { ["process"] = "live-1" });
         Assert.False(e5, summary);
@@ -203,7 +200,7 @@ public sealed class LiveFridaRealTests(ITestOutputHelper output) : IDisposable
         Assert.Contains("w1 orders.exe!AddLine: 20,000 call(s) recorded", list);
         var rate = double.Parse(Regex.Match(list, @"w1 [^:]+: [\d,]+ call\(s\) recorded \(([\d,]+)/s\)").Groups[1].Value.Replace(",", ""));
         output.WriteLine($"recorded {rate:N0} calls/s (target 5,000)");
-        PerfBudget.Check(rate >= 5_000, $"{rate} calls/s", output);
+        PerfBudget.AtLeast("live/frida-watched-call-rate", rate, 5_000, "calls/s", output);
 
         var (calls, _) = await Call(server, "live_events", new() { ["session"] = "live-1", ["kind"] = "call", ["limit"] = 3 });
         var m = Regex.Match(calls, @"call thread \d+ 0x[0-9A-F]+ orders\.exe!main\+0x[0-9A-F]+: AddLine\(o=0x[0-9A-F]+, qty=(\d+)\) -> (\d+)");

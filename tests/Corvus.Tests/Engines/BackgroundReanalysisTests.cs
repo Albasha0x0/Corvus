@@ -26,7 +26,7 @@ public sealed class BackgroundReanalysisTests(ITestOutputHelper output) : IDispo
         var clock = Stopwatch.StartNew();
         var (started, _) = await Call(c, "reanalyze_native", new() { ["image"] = "jitinterface_x64.dll", ["engine"] = "ghidra", ["preset"] = "full", ["background"] = true });
         output.WriteLine($"{clock.Elapsed.TotalSeconds:0.0} s: {started}");
-        PerfBudget.Check(clock.Elapsed < TimeSpan.FromSeconds(2), $"wait=false took {clock.Elapsed.TotalSeconds:0.0} s", output);
+        PerfBudget.Time("engines/reanalyze-no-wait", clock.Elapsed, TimeSpan.FromSeconds(2), output);
         Assert.Contains("WindowsResourceReference=true", started);
         var busy = await c.CallToolAsync("find_xrefs", new Dictionary<string, object?> { ["image"] = "jitinterface_x64.dll", ["address"] = function, ["engine"] = "ghidra" });
         var text = string.Concat(busy.Content.OfType<ModelContextProtocol.Protocol.TextContentBlock>().Select(b => b.Text));

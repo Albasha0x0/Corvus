@@ -489,6 +489,6 @@ public class MsvcEhTests(ITestOutputHelper output)
                          $"children {totals[6]}, fragments {totals[7]}, rejects {rejects}");
         foreach (var f in failures.Take(40)) output.WriteLine("FAIL " + f);
         Assert.Empty(failures);
-        PerfBudget.Check(slow.Count == 0, $"{slow.Count} files over 10 s: {string.Join(", ", slow.Take(10))}", output);
+        PerfBudget.Time("native/msvc-eh-slowest-file", slowest.Item2, TimeSpan.FromSeconds(10), output, $"{slow.Count} files over budget");
     }
 }

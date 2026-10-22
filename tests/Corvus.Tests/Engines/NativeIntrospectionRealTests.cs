@@ -76,7 +76,7 @@ public sealed class NativeIntrospectionRealTests(ITestOutputHelper output) : IDi
         Assert.True(set.GetProcAddressSites > 200 && set.Imports.Count > 20);
         // The two calling functions have no direct callers, so no wrapper slice is taken.
         Assert.Equal(0, sites.WrapperSlices);
-        PerfBudget.Check(late < build + TimeSpan.FromSeconds(0.5), $"late-bound imports {late.TotalSeconds:0.0} s, the index {build.TotalSeconds:0.0} s, budget the index + 0.5 s", output);
+        PerfBudget.Time("native/arm64-late-bound-over-index", late - build, TimeSpan.FromSeconds(0.5), output, $"index {build.TotalSeconds:0.0} s");
     }
 
     [Trait("Speed", "Slow")]
