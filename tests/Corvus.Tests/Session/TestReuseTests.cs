@@ -371,6 +371,48 @@ public class TestReuseTests
         Assert.Contains("none=0", lines);
     }
 
+    [Fact]
+    [Trait("Speed", "Slow")]
+    public void A_release_finds_the_newest_full_pass_on_its_history_and_skips_one_on_another_branch()
+    {
+        var module = Path.Combine(DocsTests.RepoRoot(), "test-reuse.psm1");
+        var dir = Path.Combine(Path.GetTempPath(), $"corvus-reuse-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(dir);
+        try
+        {
+            var lines = Run($$"""
+                Import-Module '{{module.Replace("'", "''")}}'
+                Set-Location '{{dir}}'
+                git init -q; git config user.email t@t; git config user.name t
+                function Commit($m) { git commit -q --allow-empty -m $m; (git rev-parse HEAD).Trim() }
+                $a = Commit a; $b = Commit b
+                git checkout -q -b side $a; $side = Commit side
+                git checkout -q -; $c = Commit c
+                $ledger = Join-Path '{{dir}}' 'passes.txt'
+                $legacy = Join-Path '{{dir}}' 'legacy.txt'
+                'none=' + (Get-FullPass '{{dir}}' $ledger $legacy)
+                Set-Content $legacy $a
+                'legacy=' + ((Get-FullPass '{{dir}}' $ledger $legacy) -eq $a)
+                Add-FullPass $ledger $b 'tree sampled'
+                Add-FullPass $ledger $side 'tree sampled'
+                'newest=' + ((Get-FullPass '{{dir}}' $ledger $legacy) -eq $b)
+                1..250 | ForEach-Object { Add-FullPass $ledger $side 'tree sampled' }
+                'bounded=' + @(Get-Content $ledger).Count
+                """);
+            if (lines is ["skip"]) return; // no pwsh on this machine
+            Assert.Contains("none=", lines);
+            Assert.Contains("legacy=True", lines);
+            // The pass on the other branch is newer, but not on HEAD's history.
+            Assert.Contains("newest=True", lines);
+            Assert.Contains("bounded=200", lines);
+        }
+        finally
+        {
+            foreach (var f in Directory.EnumerateFiles(dir, "*", SearchOption.AllDirectories)) File.SetAttributes(f, FileAttributes.Normal);
+            Directory.Delete(dir, true);
+        }
+    }
+
     private static string[] Run(string script)
     {
         ProcessStartInfo start = new("pwsh") { RedirectStandardOutput = true, RedirectStandardError = true };

@@ -2,7 +2,7 @@
 # quick set, commits and tags. With -Push it pushes main and the tag, waits for release.yml, verifies every asset
 # (archives, MCP bundles, the NuGet tool package) against SHA256SUMS, sets the GitHub release body from the notes and
 # prints the manual channel checklist.
-# Usage:  ./release.ps1 -Version 1.2.0              # check (the last background full run passed on this history),
+# Usage:  ./release.ps1 -Version 1.2.0              # check (a full run passed on this history, -MaxBehind 50),
 #                                                   #   bump, quick set, commit, tag
 #         ./release.ps1 -Version 1.2.0 -Push        # ... then push, wait for the workflow and verify the release
 #         ./release.ps1 -Version 1.2.0 -VerifyOnly  # verify an existing release and print the checklist
@@ -14,6 +14,8 @@ param(
     [switch]$Push,
     [switch]$VerifyOnly,
     [switch]$SkipTests,
+    # The most commits a release may be ahead of its last full pass.
+    [int]$MaxBehind = 50,
     [string]$Bundle,
     [string]$Repo = 'Albasha0x0/Corvus'
 )
@@ -115,21 +117,25 @@ if (-not $VerifyOnly) {
         $null = Get-Notes
 
         # The suite runs behind the work, never in front of a release: the pre-push hook starts a background full run on
-        # every push. A release ships when the newest background pass is on this commit or an ancestor; a known failure
-        # stops it; families not yet verified on these inputs are named. The quick set after the bump still runs.
+        # every push, the nightly run and ./test.ps1 -Full run it too. A release ships when a full pass is on this commit or
+        # an ancestor at most -MaxBehind commits back; a failure on this history after that pass stops it; families not
+        # yet verified on these inputs are named. The quick set after the bump still runs.
         $gitDir = [IO.Path]::GetFullPath((git rev-parse --git-common-dir).Trim())
         $result = Join-Path $gitDir 'corvus-background.result'
         $last = if (Test-Path $result) { (Get-Content $result -Raw).Trim() } else { '' }
-        $passedFile = Join-Path $gitDir 'corvus-background.passed'
-        $passedAt = if (Test-Path $passedFile) { (Get-Content $passedFile -Raw).Trim() } else { $null }
         if (-not $SkipTests) {
-            if ($last -match 'FAILED') { Fail "the last background run failed ($last); fix it first (./test.ps1 -Status), or pass -SkipTests" }
-            if (-not $passedAt) { Fail 'no background full run has passed yet: push, or start ./test.ps1 -Full -Background, and release once it passes' }
-            git merge-base --is-ancestor $passedAt HEAD 2>$null
-            if ($LASTEXITCODE -ne 0) { Fail "the last background pass ($($passedAt.Substring(0, 8))) is not on this branch's history" }
-            $behind = [int](git rev-list --count "$passedAt..HEAD")
-            Write-Host "The background full suite passed on $($passedAt.Substring(0, 8))$(if ($behind) { ", $behind commits back" } else { ', this commit' })$(if ($last -match 'running') { "; a run is going: $last" })."
             Import-Module (Join-Path $root 'test-reuse.psm1') -Force
+            $passedAt = Get-FullPass $root (Join-Path $gitDir 'corvus-full-passes.txt') (Join-Path $gitDir 'corvus-background.passed')
+            if (-not $passedAt) { Fail 'no full run has passed on this history: push, or run ./test.ps1 -Full, and release once it passes' }
+            $behind = [int](git rev-list --count "$passedAt..HEAD")
+            if ($behind -gt $MaxBehind) { Fail "the last full pass on this history ($($passedAt.Substring(0, 8))) is $behind commits back, more than ${MaxBehind}: run ./test.ps1 -Full" }
+            # A failed background run on a commit after the pass, on this history, is a known failure.
+            if ($last -match '^(\w+) FAILED' -and ($failed = git rev-parse --verify --quiet "$($Matches[1])^{commit}")) {
+                git merge-base --is-ancestor $passedAt $failed 2>$null; $afterPass = $LASTEXITCODE -eq 0 -and $failed -ne $passedAt
+                git merge-base --is-ancestor $failed HEAD 2>$null; $onHistory = $LASTEXITCODE -eq 0
+                if ($afterPass -and $onHistory) { Fail "the last background run failed after the last pass ($last); fix it first (./test.ps1 -Status), or pass -SkipTests" }
+            }
+            Write-Host "The full suite passed on $($passedAt.Substring(0, 8))$(if ($behind) { ", $behind commits back" } else { ', this commit' })$(if ($last -match 'running') { "; a run is going: $last" })."
             $stampsFile = Join-Path $gitDir 'corvus-family-stamps.json'
             if (Test-Path $stampsFile) {
                 $tests = Join-Path $root 'tests/Corvus.Tests'

@@ -346,9 +346,28 @@ function Enter-RunLock([string]$name, [bool]$reuse) {
     Enter-HeavyLock $name
 }
 
+# Appends a whole-suite pass ("<commit> <tree> <mode>[ reused] <time>") to the ledger, keeping its last 200 lines.
+function Add-FullPass([string]$ledger, [string]$commit, [string]$stamp) {
+    $lines = @(if (Test-Path $ledger) { Get-Content $ledger }) + "$commit $stamp $(Get-Date -Format 'yyyy-MM-ddTHH:mm')"
+    Set-Content -Path $ledger -Value ($lines | Select-Object -Last 200)
+}
+
+# The newest full pass on HEAD's history in a repository: the ledger's newest line whose commit is HEAD or an ancestor,
+# else the commit a legacy file names (the last background pass) when it is one. $null when there is none.
+function Get-FullPass([string]$repo, [string]$ledger, [string]$legacyFile) {
+    $candidates = @(if (Test-Path $ledger) { Get-Content $ledger | Where-Object { $_ } | ForEach-Object { ($_ -split ' ')[0] } })
+    [array]::Reverse($candidates)
+    if (Test-Path $legacyFile) { $candidates += (Get-Content $legacyFile -Raw).Trim() }
+    foreach ($commit in $candidates) {
+        git -C $repo merge-base --is-ancestor $commit HEAD 2>$null
+        if ($LASTEXITCODE -eq 0) { return $commit }
+    }
+    return $null
+}
+
 # Releases the heavy lock taken by Enter-HeavyLock.
 function Exit-HeavyLock([string]$name) {
     if ($env:CORVUS_HEAVY_LOCK) { & $env:CORVUS_HEAVY_LOCK release $name | Out-Host }
 }
 
-Export-ModuleMember -Function Enter-RunLock, Get-SelectionMisses, Get-PathStamp, Enter-HeavyLock, Exit-HeavyLock, Get-RunEnvironment, Get-ReuseScope, Get-ClassMap, Get-SlowClasses, Test-AlwaysRunFolder, Read-ClassCoverage, Split-ClassMap, Add-ClassTestScopes, Get-RootReaders, Get-FamilyKeys, Read-CoverageMap, Get-CoveredFiles, Get-StaleFamilies, Get-ReuseFilter, Get-PassedFamilies, Save-FamilyPasses, Test-DocsOnly, Get-FailedTests, Get-PassedTests, Test-RunCompleted, Get-FailureLabels, Read-Quarantine, Split-Quarantined
+Export-ModuleMember -Function Add-FullPass, Get-FullPass, Enter-RunLock, Get-SelectionMisses, Get-PathStamp, Enter-HeavyLock, Exit-HeavyLock, Get-RunEnvironment, Get-ReuseScope, Get-ClassMap, Get-SlowClasses, Test-AlwaysRunFolder, Read-ClassCoverage, Split-ClassMap, Add-ClassTestScopes, Get-RootReaders, Get-FamilyKeys, Read-CoverageMap, Get-CoveredFiles, Get-StaleFamilies, Get-ReuseFilter, Get-PassedFamilies, Save-FamilyPasses, Test-DocsOnly, Get-FailedTests, Get-PassedTests, Test-RunCompleted, Get-FailureLabels, Read-Quarantine, Split-Quarantined

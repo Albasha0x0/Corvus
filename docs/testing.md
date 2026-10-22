@@ -53,8 +53,9 @@
   `Class.Method | owner | issue | yyyy-MM-dd` line each, the date by which the test is fixed or removed: a quarantined
   test still runs and its failure is reported, but it alone does not fail a run that completed; past its date the
   entry no longer applies, and `QuarantineListTests` fails until it is removed.
-- **Releases.** `release.ps1` runs no suite in the foreground: it ships when the newest background pass is on the
-  release commit or an ancestor, stops on a known background failure (`-SkipTests` overrides), names the families not
+- **Releases.** `release.ps1` runs no suite in the foreground: it ships when a full pass (background, nightly or
+  `./test.ps1 -Full`, each recorded in `.git/corvus-full-passes.txt`) is on the release commit or an ancestor at most
+  `-MaxBehind` (50) commits back, stops on a background failure after that pass on its history (`-SkipTests` overrides), names the families not
   yet verified on the current inputs, and runs the quick set after the version bump. A failure found later goes into a
   patch release. For release-strength passes, start `./test.ps1 -Full -Background -Exhaustive` (or `-Whole`).
 - **Run times.** Every run but a coverage run records its test times from its TRX results in
