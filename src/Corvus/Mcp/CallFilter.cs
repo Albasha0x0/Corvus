@@ -56,12 +56,15 @@ internal static partial class CallFilter
                 ? ws.Read(() => ToolOutput.Inputs(request?.Arguments, ws)) : [] }, result);
         if (options != null && services!.GetService<ResultStore>() is { } store)
             result = ResponseBudget.Enforce(result, tool, output.Tokens > 0 ? output.Tokens : Budget(tool, null, client), store, request);
+        string? answerSha256 = null;
         if (services?.GetService<AssemblyWorkspace>()?.DrainNotices() is { Count: > 0 } notices)
         {
             // An error's own text stays first; on a success the notices are the last block and notices[] in the record.
             if (result.IsError == true) ErrorResult.AddNotices(result, notices);
             else
             {
+                // Hashed before the notices join it: the newline added to the block before them is no part of the answer.
+                answerSha256 = ToolOutput.ResultSha256(result);
                 if (result.Content.LastOrDefault() is TextContentBlock last && !last.Text.EndsWith('\n')) last.Text += "\n";
                 result.Content.Add(new TextContentBlock { Text = string.Join("\n", notices.Select(n => ToolOutput.NoticePrefix + Format.EscapeInvisible(n))) });
                 if (result.StructuredContent is { } s && JsonNode.Parse(s.GetRawText()) is JsonObject record)
@@ -74,7 +77,7 @@ internal static partial class CallFilter
         if (tool != null)
         {
             result.Meta ??= new JsonObject();
-            result.Meta[ToolOutput.ProvenanceKey] = ToolOutput.Provenance(tool, request?.Arguments, services?.GetService<AssemblyWorkspace>(), log.Engine, result, output);
+            result.Meta[ToolOutput.ProvenanceKey] = ToolOutput.Provenance(tool, request?.Arguments, services?.GetService<AssemblyWorkspace>(), log.Engine, result, output, answerSha256);
         }
         log.Completed(result);
         return result;

@@ -377,7 +377,15 @@ public class ToolOutputTests(ITestOutputHelper output)
         Assert.Contains(ToolOutput.NoticePrefix, Text(noticedText));
         Assert.Equal(ToolOutput.ResultSha256(quiet), ToolOutput.ResultSha256(noticed));
         Assert.Equal((string)quiet.Meta![ToolOutput.ProvenanceKey]!["resultSha256"]!, (string)noticed.Meta![ToolOutput.ProvenanceKey]!["resultSha256"]!);
-        Assert.Equal(ToolOutput.ResultSha256(quietText), ToolOutput.ResultSha256(noticedText));
+        Assert.Equal((string)quietText.Meta![ToolOutput.ProvenanceKey]!["resultSha256"]!, (string)noticedText.Meta![ToolOutput.ProvenanceKey]!["resultSha256"]!);
+    }
+
+    [Fact]
+    public void A_text_result_ending_in_a_newline_keeps_the_hash_earlier_versions_saved()
+    {
+        // Notes saved by 2.4.0 carry this hash; their evidence must still match after the notice fix (b4715960).
+        var result = new CallToolResult { Content = [new TextContentBlock { Text = "two blocks\n" }, new TextContentBlock { Text = "summary\n" }] };
+        Assert.Equal("2c2a3138e55eac946fd3a733aae2935248e72f985b27778faad67afeaa55b2f1", ToolOutput.ResultSha256(result));
     }
 
     /// <summary>MM-9 and E6: a record's stop flag makes coverage partial; facets reach the provenance, the record and the text.</summary>

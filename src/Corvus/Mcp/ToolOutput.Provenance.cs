@@ -24,7 +24,7 @@ public static partial class ToolOutput
     /// version and, on a success, a hash of the result and its coverage. Costs the model nothing; at most about 1 KB.
     /// </summary>
     internal static JsonObject Provenance(string tool, IDictionary<string, JsonElement>? args, AssemblyWorkspace? workspace, string? engine,
-        CallToolResult result, OutputCall call)
+        CallToolResult result, OutputCall call, string? resultSha256 = null)
     {
         var inputs = new JsonArray();
         void Collect()
@@ -53,7 +53,7 @@ public static partial class ToolOutput
         }
         // An error is no result to verify: what was asked of which inputs is its provenance.
         if (result.IsError == true) return p;
-        p["resultSha256"] = ResultSha256(result);
+        p["resultSha256"] = resultSha256 ?? ResultSha256(result);
         ResultHashes.Remember(tool, ResultHashes.Sha256(ResultHashes.Canonical(args == null ? new JsonObject() : JsonSerializer.SerializeToNode(args))), (string)p["resultSha256"]!);
         p["coverage"] = call.Coverage?.Status ?? "complete";
         if (call.Facets is { Count: > 0 } facets) p["facets"] = Facets(facets);
@@ -64,8 +64,8 @@ public static partial class ToolOutput
     }
 
     /// <summary>
-    /// SHA-256 of the canonical structured JSON (sorted keys, compact), else of the text blocks; workspace notices are
-    /// left out, so the same answer hashes the same whether or not a notice rode on it.
+    /// SHA-256 of the canonical structured JSON (sorted keys, compact), else of the text blocks, leaving out the
+    /// workspace notices (notices[] and the final notice block); without notices the hash is the one earlier versions gave.
     /// </summary>
     public static string ResultSha256(CallToolResult result)
     {
@@ -75,9 +75,9 @@ public static partial class ToolOutput
             if (record is JsonObject o) o.Remove("notices");
             return Sha256(Canonical(record));
         }
-        // CallFilter may end the block before a notice with a newline, so trailing newlines are not part of the answer.
-        return Sha256(string.Concat(result.Content.OfType<TextContentBlock>().Where(b => !b.Text.StartsWith(NoticePrefix, StringComparison.Ordinal))
-            .Select(b => b.Text)).TrimEnd('\n'));
+        var blocks = result.Content.OfType<TextContentBlock>().ToList();
+        if (blocks.Count > 0 && blocks[^1].Text.StartsWith(NoticePrefix, StringComparison.Ordinal)) blocks.RemoveAt(blocks.Count - 1);
+        return Sha256(string.Concat(blocks.Select(b => b.Text)));
     }
 
     /// <summary>The prefix of the text block that carries a call's workspace notices.</summary>
