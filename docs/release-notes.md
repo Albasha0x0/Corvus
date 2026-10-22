@@ -59,6 +59,9 @@
 - **Child processes:** `live_session childNames` holds children at their start; `action=children`, `attach_child`,
   `release_child`. Verified on Windows 11 x64 and Linux x64 (fork and exec, `posix_spawn`, `/proc/self/exe`).
   [957d6fb1](https://github.com/Albasha0x0/Corvus/commit/957d6fb1) [49e33e73](https://github.com/Albasha0x0/Corvus/commit/49e33e73) [c6efa8b5](https://github.com/Albasha0x0/Corvus/commit/c6efa8b5)
+- **Child processes on Linux:** a child session closed before its first continue leaves the child held again, as on
+  Windows (it used to run), and a parent session closed first keeps its worker until the child sessions it handed over
+  close. [f77c615c](https://github.com/Albasha0x0/Corvus/commit/f77c615c)
 - **Sandboxed processes:** children under a restricted token or AppContainer load the agent; a refusal names the token.
   Verified with Chromium child processes on Windows 11 x64. [cc0c3501](https://github.com/Albasha0x0/Corvus/commit/cc0c3501) [5480446f](https://github.com/Albasha0x0/Corvus/commit/5480446f)
 - **Stop points and watches:** points defer until a module loads or a method compiles and report `state`; `name+0xN`;
@@ -264,6 +267,10 @@
 - **Stuck exits:** a program held in its exit is ended by the stuck exit check even when Frida reports it terminated
   before the exit finished, including a report that comes before the agent's exit status. Verified with Frida 17.24.3
   on Windows. [ab58b956](https://github.com/Albasha0x0/Corvus/commit/ab58b956) [7519c6cd](https://github.com/Albasha0x0/Corvus/commit/7519c6cd) [914ca460](https://github.com/Albasha0x0/Corvus/commit/914ca460)
+- **attach_child on Linux:** the child is held at the first thread that runs its main module's code and its session
+  attaches to the running process, so an attach under load no longer fails and leaves the child running; a child that
+  reaches none of its code within 5 s runs unheld and its session says so. Verified on Ubuntu 22.04 and 24.04
+  (linux-x64, linux-x86) with Frida 17.24.3. [f77c615c](https://github.com/Albasha0x0/Corvus/commit/f77c615c)
 - **Coverage runs:** stop points are set in batches of up to 256, so a run that waits for its module no longer times
   out on a busy machine; a refused point is reported and the rest are set.
   [178ab701](https://github.com/Albasha0x0/Corvus/commit/178ab701)
