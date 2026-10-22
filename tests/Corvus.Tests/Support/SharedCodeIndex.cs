@@ -1,12 +1,11 @@
-using System.Security.Cryptography;
 using Corvus.Core;
 using Corvus.Native.Code;
 
 namespace Corvus.Tests;
 
 /// <summary>
-/// A code index cache shared by tests and test runs of one server build: an image is indexed once, and later tests load
-/// the saved index, as the server does by default. Tests about building an index keep the cache off.
+/// A code index cache shared by tests and test runs: an image is indexed once, and later tests load the saved index, as
+/// the server does by default. Tests about building an index keep the cache off.
 /// </summary>
 internal static class SharedCodeIndex
 {
@@ -16,21 +15,21 @@ internal static class SharedCodeIndex
     /// <summary>Server options with the shared cache; every index is saved, however fast it built.</summary>
     public static ServerOptions Options() => new() { CodeIndexCache = Cache.Value };
 
-    // The key is the server build: the index is built by its code, so another build indexes again.
+    // Keyed as the server keys its own cache (input hash, build options, index format version), so it stays warm across
+    // server builds.
     private static CodeIndexCacheOptions Create()
     {
-        var build = Convert.ToHexStringLower(SHA256.HashData(File.ReadAllBytes(typeof(NativeCodeIndex).Assembly.Location)))[..12];
-        RemoveOtherBuilds(build);
-        return new(Path.Combine(Folder, build), 1L << 30, TimeSpan.FromDays(1), TimeSpan.Zero);
+        RemoveBuildFolders();
+        return new(Folder, 1L << 30, TimeSpan.FromDays(1), TimeSpan.Zero);
     }
 
-    /// <summary>Caches of other builds unused for a day.</summary>
-    private static void RemoveOtherBuilds(string build)
+    /// <summary>Per-build folders an earlier layout kept, unused for a day.</summary>
+    private static void RemoveBuildFolders()
     {
         if (!Directory.Exists(Folder)) return;
         foreach (var dir in Directory.EnumerateDirectories(Folder))
         {
-            if (Path.GetFileName(dir) == build || Directory.GetLastWriteTimeUtc(dir) > DateTime.UtcNow.AddDays(-1)) continue;
+            if (Directory.GetLastWriteTimeUtc(dir) > DateTime.UtcNow.AddDays(-1)) continue;
             try { Directory.Delete(dir, true); }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
         }
