@@ -469,7 +469,7 @@ public sealed partial class NativeCodeTools(AssemblyWorkspace workspace, NativeC
         Regex? pattern = null;
         if (regex && !string.IsNullOrEmpty(query))
         {
-            try { pattern = new Regex(query, RegexOptions.IgnoreCase | RegexOptions.CultureInvariant, RegexTimeouts.Limit); }
+            try { pattern = RegexTimeouts.Create(query, RegexOptions.IgnoreCase | RegexOptions.CultureInvariant); }
             catch (ArgumentException ex) { throw new ToolError(ErrorCode.InvalidArgument, $"Invalid regex: {ex.Message}"); }
         }
         var mode = Mode(engine);

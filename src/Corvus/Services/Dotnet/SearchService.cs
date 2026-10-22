@@ -343,7 +343,7 @@ public sealed class SearchService(ServerOptions? options = null)
     private static Func<string, bool> Glob(string glob)
     {
         var re = new Regex("^" + Regex.Escape(glob.Trim('"')).Replace("\\*", ".*").Replace("\\?", ".") + "$",
-            RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Singleline, TimeSpan.FromSeconds(1));
+            RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Singleline | RegexOptions.NonBacktracking);
         return s => re.IsMatch(s);
     }
 
@@ -415,7 +415,7 @@ public sealed class SearchService(ServerOptions? options = null)
         if (!regex)
             return s => s.Contains(query, StringComparison.OrdinalIgnoreCase);
         Regex re;
-        try { re = new Regex(query, RegexOptions.IgnoreCase | RegexOptions.CultureInvariant, RegexTimeouts.Limit); }
+        try { re = RegexTimeouts.Create(query, RegexOptions.IgnoreCase | RegexOptions.CultureInvariant); }
         catch (ArgumentException ex) { throw new ToolError(ErrorCode.InvalidArgument, $"Invalid regex: {ex.Message}"); }
         timeouts ??= new RegexTimeouts();
         return s => timeouts.IsMatch(re, s);

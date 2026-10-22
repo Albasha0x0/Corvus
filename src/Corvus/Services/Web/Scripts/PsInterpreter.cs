@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Runtime.CompilerServices;
 using System.Text;
 using System.Text.RegularExpressions;
+using Corvus.Core;
 using static Corvus.Services.Web.Scripts.PsConvert;
 
 namespace Corvus.Services.Web.Scripts;
@@ -694,14 +695,14 @@ internal sealed partial class PsInterpreter
     private static bool WildcardMatch(string text, string pattern, bool ci)
     {
         var rx = "^" + Regex.Escape(pattern).Replace(@"\*", ".*").Replace(@"\?", ".").Replace(@"\[", "[").Replace(@"\]", "]") + "$";
-        try { return Regex.IsMatch(text, rx, (ci ? RegexOptions.IgnoreCase : 0) | RegexOptions.CultureInvariant | RegexOptions.Singleline, TimeSpan.FromMilliseconds(100)); }
+        try { return RegexTimeouts.Create(rx, (ci ? RegexOptions.IgnoreCase : 0) | RegexOptions.CultureInvariant | RegexOptions.Singleline, TimeSpan.FromMilliseconds(100)).IsMatch(text); }
         catch (ArgumentException) { return false; }
         catch (RegexMatchTimeoutException) { return false; }
     }
 
     private static Regex? SafeRegex(string pattern, bool ci, RegexOptions extra = 0)
     {
-        try { return new Regex(pattern, (ci ? RegexOptions.IgnoreCase : 0) | RegexOptions.CultureInvariant | extra, TimeSpan.FromMilliseconds(200)); }
+        try { return RegexTimeouts.Create(pattern, (ci ? RegexOptions.IgnoreCase : 0) | RegexOptions.CultureInvariant | extra, TimeSpan.FromMilliseconds(200)); }
         catch (ArgumentException) { return null; }
     }
 

@@ -93,7 +93,7 @@ public sealed class FeatureTrace
         else if (regex)
         {
             Regex pattern;
-            try { pattern = new Regex(query, RegexOptions.IgnoreCase | RegexOptions.CultureInvariant, RegexTimeouts.Limit); }
+            try { pattern = RegexTimeouts.Create(query, RegexOptions.IgnoreCase | RegexOptions.CultureInvariant); }
             catch (ArgumentException ex) { throw new ToolError(ErrorCode.InvalidArgument, $"Invalid regex: {ex.Message}"); }
             var timeouts = new RegexTimeouts();
             match = t => timeouts.IsMatch(pattern, t);

@@ -41,12 +41,12 @@ internal sealed class NameFilter
                     _ => throw new ToolError(ErrorCode.InvalidArgument, $"Unknown regex flag '{f}' in {t}.", "use i, m or s after the closing /"),
                 };
             if (flags.Length == 0) options |= RegexOptions.IgnoreCase;
-            try { return new NameFilter(t, new Regex(t[1..last], options, RegexTimeouts.Limit), null); }
+            try { return new NameFilter(t, RegexTimeouts.Create(t[1..last], options), null); }
             catch (ArgumentException ex) { throw new ToolError(ErrorCode.InvalidArgument, $"Invalid regex {t}: {ex.Message}", "fix the pattern between the slashes"); }
         }
         if (t.Contains('*') || t.Contains('?'))
             return new NameFilter(t, new Regex("^" + Regex.Escape(t).Replace(@"\*", ".*").Replace(@"\?", ".") + "$",
-                RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Singleline, RegexTimeouts.Limit), null);
+                RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Singleline | RegexOptions.NonBacktracking), null);
         return new NameFilter(t, null, t);
     }
 

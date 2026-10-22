@@ -110,15 +110,15 @@ internal static class ReadResultView
     {
         next = null;
         Func<string, bool> matches;
+        Regex? regex = null;
         if (query.Length > 2 && query.StartsWith('/') && query.EndsWith('/'))
         {
-            Regex regex;
-            try { regex = new Regex(query[1..^1], RegexOptions.CultureInvariant, TimeSpan.FromSeconds(2)); }
+            try { regex = RegexTimeouts.Create(query[1..^1], RegexOptions.CultureInvariant); }
             catch (ArgumentException e)
             {
                 throw new ToolError(ErrorCode.InvalidArgument, $"query is not a valid regular expression: {e.Message}", "fix the pattern, or drop the slashes to search for the text");
             }
-            matches = line => regex.IsMatch(line);
+            matches = regex.IsMatch;
         }
         else matches = line => line.Contains(query, StringComparison.OrdinalIgnoreCase);
 
@@ -132,10 +132,7 @@ internal static class ReadResultView
             var line = body[at..lineEnd];
             bool hit;
             try { hit = matches(line); }
-            catch (RegexMatchTimeoutException)
-            {
-                throw new ToolError(ErrorCode.Timeout, $"the pattern took over 2 s on the line at offset {at}.", "simplify the pattern");
-            }
+            catch (RegexMatchTimeoutException) { throw RegexTimeouts.TimedOut(regex!, $"the line at offset {at}"); }
             if (hit)
             {
                 var shown = line.Length > MaxMatchChars ? line[..MaxMatchChars] + "..." : line;

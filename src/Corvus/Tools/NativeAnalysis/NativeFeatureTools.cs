@@ -116,18 +116,20 @@ public sealed class NativeFeatureTools(AssemblyWorkspace workspace, NativeCodeSe
         var needle = query.Trim('"');
         System.Text.RegularExpressions.Regex? pattern = null;
         if (regex)
-            try { pattern = new System.Text.RegularExpressions.Regex(query, System.Text.RegularExpressions.RegexOptions.IgnoreCase, RegexTimeouts.Limit); }
+            try { pattern = RegexTimeouts.Create(query, System.Text.RegularExpressions.RegexOptions.IgnoreCase); }
             catch (ArgumentException) { return r; }
+        var timeouts = new RegexTimeouts();
         var functions = r.Functions.ToList();
         for (int i = 0; i < top.Count && i < outcomes.Count; i++)
         {
             if (outcomes[i].Function is not { } d) continue;
-            var lines = d.Text.Split('\n').Select(l => l.Trim()).Where(l => l.Length > 0 && (pattern?.IsMatch(l) ?? l.Contains(needle, StringComparison.OrdinalIgnoreCase))).Take(10)
+            var lines = d.Text.Split('\n').Select(l => l.Trim()).Where(l => l.Length > 0 && (pattern != null ? timeouts.IsMatch(pattern, l) : l.Contains(needle, StringComparison.OrdinalIgnoreCase))).Take(10)
                 .Select(l => new FeatureEvidence(top[i].Function.Start, "pseudocode", $"{Format.Clip(l, 200)} ({session.ProviderId})", -1)).ToList();
             if (lines.Count == 0) continue;
             functions[i] = top[i] with { Evidence = [.. top[i].Evidence, .. lines], EvidenceTotal = top[i].EvidenceTotal + lines.Count };
         }
-        return r with { Functions = functions };
+        var note = timeouts.Note("pseudocode line").TrimEnd();
+        return r with { Functions = functions, Notes = note.Length > 0 ? [.. r.Notes, note] : r.Notes };
     }
 
     private static FeatureKinds Kinds(string? list)

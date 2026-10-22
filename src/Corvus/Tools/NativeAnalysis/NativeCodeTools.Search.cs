@@ -212,7 +212,7 @@ public sealed partial class NativeCodeTools
         if (string.IsNullOrWhiteSpace(text)) return null;
         try
         {
-            return new Regex(text.Trim(), RegexOptions.IgnoreCase | RegexOptions.CultureInvariant, TimeSpan.FromSeconds(1));
+            return RegexTimeouts.Create(text.Trim(), RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
         }
         catch (ArgumentException e)
         {
@@ -261,10 +261,10 @@ public sealed partial class NativeCodeTools
             var mnem = words.Length > 0 ? words[0] : "";
             var ops = words.Length > 1 ? words[1].Trim() : "";
             // ARM width qualifiers (b.w, IDA's TBB.W) do not change the instruction: tbb matches TBB.W
-            if (mnemonic != null && !mnemonic.IsMatch(mnem)
-                && !(mnem.Length > 2 && mnem[^2] == '.' && mnem[^1] is 'w' or 'W' or 'n' or 'N' && mnemonic.IsMatch(mnem[..^2]))) return false;
-            if (operands != null && !operands.IsMatch(ops)) return false;
-            if (text != null && !text.IsMatch(line)) return false;
+            if (mnemonic != null && !RegexTimeouts.IsMatchOrThrow(mnemonic, mnem)
+                && !(mnem.Length > 2 && mnem[^2] == '.' && mnem[^1] is 'w' or 'W' or 'n' or 'N' && RegexTimeouts.IsMatchOrThrow(mnemonic, mnem[..^2]))) return false;
+            if (operands != null && !RegexTimeouts.IsMatchOrThrow(operands, ops)) return false;
+            if (text != null && !RegexTimeouts.IsMatchOrThrow(text, line)) return false;
             if (value is { } v)
             {
                 bool In(ulong x) => x >= v.Lo && x <= v.Hi;

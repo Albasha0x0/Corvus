@@ -66,8 +66,9 @@ public sealed class NativeSearchDecompiledTools(AssemblyWorkspace workspace, Nat
     {
         if (string.IsNullOrWhiteSpace(pattern)) throw new ToolError(ErrorCode.InvalidArgument, "pattern is empty.", "pass a regular expression, e.g. 'memcpy|strcpy'");
         Regex regex;
-        try { regex = new Regex(pattern, RegexOptions.IgnoreCase | RegexOptions.CultureInvariant, TimeSpan.FromMilliseconds(200)); }
+        try { regex = RegexTimeouts.Create(pattern, RegexOptions.IgnoreCase | RegexOptions.CultureInvariant, TimeSpan.FromMilliseconds(200)); }
         catch (ArgumentException e) { throw new ToolError(ErrorCode.InvalidArgument, $"pattern is not a valid regular expression: {e.Message}"); }
+        var timeouts = new RegexTimeouts();
         var nameFilter = NameFilter.Parse(filter);
         int cursor = offset;
         if (cursor < 0) throw new ToolError(ErrorCode.InvalidArgument, $"offset must be 0 or more, not {cursor}.");
@@ -136,7 +137,7 @@ public sealed class NativeSearchDecompiledTools(AssemblyWorkspace workspace, Nat
                 }
             }
             for (int i = first; i < last; i++)
-                if (texts[i] is { } t) hitsSoFar += CountHits(regex, t, hitLimit);
+                if (texts[i] is { } t) hitsSoFar += CountHits(regex, t, hitLimit, timeouts);
             progress.Report(new ProgressNotificationValue { Progress = last, Total = window.Count, Message = $"searching pseudocode: {last}/{window.Count}" });
         }
 
@@ -154,10 +155,7 @@ public sealed class NativeSearchDecompiledTools(AssemblyWorkspace workspace, Nat
             for (int l = 0; l < lines.Length; l++)
             {
                 var line = lines[l].TrimEnd('\r');
-                bool match;
-                try { match = regex.IsMatch(line); }
-                catch (RegexMatchTimeoutException) { match = false; }
-                if (match) hits.Add(new DecompiledHit(NativeAddress.Va(pe, window[i].StartRva), Display(window[i]), l + 1, Format.Clip(line.Trim(), 240)));
+                if (timeouts.IsMatch(regex, line)) hits.Add(new DecompiledHit(NativeAddress.Va(pe, window[i].StartRva), Display(window[i]), l + 1, Format.Clip(line.Trim(), 240)));
             }
             if (hits.Count >= hitLimit && i + 1 < window.Count) { stoppedBy = "hits"; break; }
         }
@@ -169,7 +167,8 @@ public sealed class NativeSearchDecompiledTools(AssemblyWorkspace workspace, Nat
         var sb = new StringBuilder($"// {native.Id}: /{pattern}/ over the {session.ProviderId} pseudocode of {Plural(scope.Count, "function")}" +
                                    (nameFilter != null ? $" matching '{nameFilter.Text}'" : "") + $"; searched {cursor + (searched > 0 ? 1 : 0)}-{end} " +
                                    $"(requests of {chunk} over a decompiler pool of {lanes})\n");
-        sb.Append($"{Plural(hits.Count, "hit")} in {Plural(hits.Select(h => h.Function).Distinct().Count(), "function")}:\n");
+        sb.Append(timeouts.Note("line"));
+        sb.Append($"{Plural(hits.Count, "hit")} in{Plural(hits.Select(h => h.Function).Distinct().Count(), "function")}:\n");
         var rows = hits.Select(h => $"  {h.Function}  {h.Name}:{h.Line}  {h.Text}").ToList();
         int fit = pager.FitRows(rows, 2_000);
         foreach (var row in rows.Take(fit)) sb.Append(row).Append('\n');
@@ -184,20 +183,21 @@ public sealed class NativeSearchDecompiledTools(AssemblyWorkspace workspace, Nat
             sb.Append($"Stopped ({stoppedBy switch { "hits" => $"limit={hitLimit} hits", "time" => $"timeoutSeconds={(int)budget.TotalSeconds} used", _ => $"maxFunctions={max}" }}); " +
                       $"[More: offset={nc}]\n");
         else sb.Append("Every function in scope was searched.\n");
-        if (nextCursor != null) ToolOutput.Coverage("partial", $"{end - cursor} of the {scope.Count - cursor} functions from offset {cursor} were searched", Limitations.Id(stoppedBy == "time" ? Limitation.TimeLimit : Limitation.RowCap));
+        string[] regexLimit = timeouts.Count > 0 ? [Limitations.Id(Limitation.RegexTimeouts)] : [];
+        if (nextCursor != null)
+            ToolOutput.Coverage("partial", $"{end - cursor} of the {scope.Count - cursor} functions from offset {cursor} were searched",
+                [Limitations.Id(stoppedBy == "time" ? Limitation.TimeLimit : Limitation.RowCap), .. regexLimit]);
+        else if (timeouts.Count > 0) ToolOutput.Coverage("partial", $"the regex timed out on {timeouts.Count:N0} lines, left out", regexLimit);
         return ToolOutput.With(sb.ToString(), new SearchDecompiledReport(native.Id, session.ProviderId, pattern, hits, scope.Count, cursor, searched,
             failures.Count, nextCursor, nextCursor != null, nextCursor == null, nextCursor != null ? stoppedBy : null)
             { ElapsedSeconds = Math.Round(_time.GetElapsedTime(started).TotalSeconds, 1), EngineNote = choice.Note });
     });
 
-    private static int CountHits(Regex regex, string text, int cap)
+    private static int CountHits(Regex regex, string text, int cap, RegexTimeouts timeouts)
     {
         int n = 0;
         foreach (var line in text.Split('\n'))
-        {
-            try { if (regex.IsMatch(line) && ++n >= cap) break; }
-            catch (RegexMatchTimeoutException) { }
-        }
+            if (timeouts.IsMatch(regex, line) && ++n >= cap) break;
         return n;
     }
 

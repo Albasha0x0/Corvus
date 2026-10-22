@@ -3,6 +3,7 @@ using System.Text;
 using System.Text.RegularExpressions;
 using Acornima;
 using Acornima.Ast;
+using Corvus.Core;
 
 namespace Corvus.Services.Web.Scripts;
 
@@ -473,7 +474,7 @@ internal sealed class JsConstants(ScriptBudget budget)
                 if (sep is JsUndefined) return new object?[] { s };
                 if (sep is JsRegex rx)
                 {
-                    var parts = new Regex(rx.Pattern, RegexOptions.None, TimeSpan.FromMilliseconds(200)).Split(s);
+                    var parts = RegexTimeouts.Create(rx.Pattern, RegexOptions.None, TimeSpan.FromMilliseconds(200)).Split(s);
                     return parts.Cast<object?>().ToArray();
                 }
                 var str = ToStr(sep);
@@ -527,7 +528,7 @@ internal sealed class JsConstants(ScriptBudget budget)
                 if (A(args, 0) is JsRegex rx)
                 {
                     var options = (rx.Flags.Contains('i') ? RegexOptions.IgnoreCase : 0) | (rx.Flags.Contains('m') ? RegexOptions.Multiline : 0) | (rx.Flags.Contains('s') ? RegexOptions.Singleline : 0);
-                    var regex = new Regex(rx.Pattern, options, TimeSpan.FromMilliseconds(200));
+                    var regex = RegexTimeouts.Create(rx.Pattern, options, TimeSpan.FromMilliseconds(200));
                     var net = rep.Replace("$&", "$0");
                     return rx.Flags.Contains('g') || name == "replaceAll" ? regex.Replace(s, net) : regex.Replace(s, net, 1);
                 }

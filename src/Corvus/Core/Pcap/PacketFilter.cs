@@ -76,7 +76,7 @@ public sealed class PacketFilter
                         ">=" => l.Order(x) >= 0,
                         "<=" => l.Order(x) <= 0,
                         "contains" => x.Text is { } s && s.Contains(l.Text!, StringComparison.Ordinal),
-                        "matches" => x.Text is { } s && l.Regex!.IsMatch(s),
+                        "matches" => x.Text is { } s && RegexTimeouts.IsMatchOrThrow(l.Regex!, s),
                         _ => false,
                     }) return true;
             return false;
@@ -237,7 +237,7 @@ public sealed class PacketFilter
                 l.Text = t.Text;
                 if (op == "matches")
                 {
-                    try { l.Regex = new Regex(t.Text, RegexOptions.IgnoreCase | RegexOptions.CultureInvariant, TimeSpan.FromSeconds(1)); }
+                    try { l.Regex = RegexTimeouts.Create(t.Text, RegexOptions.IgnoreCase | RegexOptions.CultureInvariant); }
                     catch (ArgumentException ex) { throw new PacketFilterException($"bad regular expression '{t.Text}': {ex.Message}"); }
                 }
                 return l;

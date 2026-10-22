@@ -1,5 +1,6 @@
 using System.Buffers.Binary;
 using System.Text;
+using System.Text.RegularExpressions;
 using Corvus.Core;
 using Corvus.Mcp;
 using Corvus.Services;
@@ -10,8 +11,11 @@ namespace Corvus.Tests;
 /// <summary>Searches whose regex timed out on some inputs, and reads cut short, say so instead of looking complete.</summary>
 public class IncompleteResultTests
 {
-    /// <summary>Exponential backtracking on <see cref="Slow"/>: times out; every short input fails fast.</summary>
-    private const string Catastrophic = "^(a|aa)+$";
+    /// <summary>
+    /// Exponential backtracking on <see cref="Slow"/>: times out; every short input fails fast. The lookbehind keeps it
+    /// off NonBacktracking, which would match it in linear time.
+    /// </summary>
+    private const string Catastrophic = "^(a|aa)+(?<!b)$";
 
     private static readonly string Slow = new string('a', 60) + "Z";
 
@@ -43,6 +47,28 @@ public class IncompleteResultTests
         Assert.False(match(Slow));
         Assert.Equal(1, timeouts.Count);
         Assert.StartsWith("Incomplete: the regex timed out on 1 string (50 ms limit each)", timeouts.Note("string"));
+    }
+
+    [Fact]
+    public void A_pattern_without_lookarounds_matches_in_linear_time_with_no_timeout()
+    {
+        using var limit = RegexTimeouts.UseLimit(TimeSpan.FromMilliseconds(50));
+        var timeouts = new RegexTimeouts();
+        var match = SearchService.CreateMatcher("^(a|aa)+$", regex: true, timeouts);
+        Assert.False(match(Slow));
+        Assert.True(match(new string('a', 61)));
+        Assert.Equal(0, timeouts.Count);
+        Assert.Equal(Regex.InfiniteMatchTimeout, RegexTimeouts.Create("^(a|aa)+$").MatchTimeout);
+        Assert.Equal(TimeSpan.FromMilliseconds(50), RegexTimeouts.Create(Catastrophic).MatchTimeout);
+    }
+
+    [Fact]
+    public void A_pattern_that_runs_out_of_time_is_named_in_a_timeout_error()
+    {
+        using var limit = RegexTimeouts.UseLimit(TimeSpan.FromMilliseconds(50));
+        var e = Assert.Throws<ToolError>(() => RegexTimeouts.IsMatchOrThrow(RegexTimeouts.Create(Catastrophic), Slow));
+        Assert.Equal((ErrorCode.Timeout, false), (e.Code, e.Retryable));
+        Assert.Contains($"'{Catastrophic}' ran out of time on an input (50 ms limit)", e.Message);
     }
 
     [Fact]
