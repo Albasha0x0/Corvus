@@ -8,8 +8,9 @@ using Xunit.Abstractions;
 namespace Corvus.Tests;
 
 /// <summary>
-/// The NuGet packages of a published app, listed by view=dependencies and by a reference SBOM tool. Opt-in:
-/// CORVUS_DEPENDENCY_LISTER names the tool's program; the app is published as a single-file bundle and as a folder.
+/// The packages of a published app and of an Android package, listed by view=dependencies and by a reference SBOM
+/// tool. Opt-in: CORVUS_DEPENDENCY_LISTER names the tool's program; the app is published as a single-file bundle and as
+/// a folder.
 /// </summary>
 [Trait("Speed", "Slow")]
 public sealed class DependencyListerComparisonTests(ITestOutputHelper output) : IDisposable
@@ -77,7 +78,30 @@ public sealed class DependencyListerComparisonTests(ITestOutputHelper output) : 
             ? [.. facts.All.Where(c => c.Purl?.StartsWith("pkg:nuget/", StringComparison.Ordinal) == true).Select(c => c.Purl!)]
             : [];
 
-    private static HashSet<string> ReferencePurls(string tool, string input)
+    [Fact]
+    public void An_android_package_lists_every_package_the_reference_tool_lists()
+    {
+        if (Environment.GetEnvironmentVariable(Reference.Variable) is not { Length: > 0 } tool) return;
+        var bytes = AndroidDependencyTests.JavaApp();
+        var apk = _dir.File("app.apk");
+        File.WriteAllBytes(apk, bytes);
+        // The reference tool reads Maven properties in Java archives only; the same bytes as a .jar give it the
+        // libraries to compare with.
+        var jar = _dir.File("app.jar");
+        File.WriteAllBytes(jar, bytes);
+        var ours = new InspectionService(_workspace).Summarize(null, apk, default, new FileViewOptions("dependencies")).Views["dependencies"].Detail is DependencyFacts facts
+            ? facts.All.Where(c => c.Purl != null).Select(c => c.Purl!).ToHashSet(StringComparer.Ordinal) : [];
+        var asApk = ReferencePurls(tool, apk, "pkg:");
+        var asJar = ReferencePurls(tool, jar, "pkg:maven/");
+        output.WriteLine($"ours {ours.Count} ({string.Join(", ", ours)}); reference on the .apk {asApk.Count}, on the .jar {asJar.Count} ({string.Join(", ", asJar)})");
+        Assert.Empty(asApk.Except(ours));
+        Assert.NotEmpty(asJar);
+        Assert.Empty(asJar.Except(ours));
+    }
+
+    private static HashSet<string> ReferencePurls(string tool, string input) => ReferencePurls(tool, input, "pkg:nuget/");
+
+    private static HashSet<string> ReferencePurls(string tool, string input, string prefix)
     {
         var run = ExternalTools.Run(tool, [.. Reference.Arguments.Select(a => a.Replace("{input}", input))], TimeSpan.FromMinutes(5), 64L << 20, default);
         Assert.True(run.StartError == null && !run.TimedOut && !run.Truncated, $"{Reference.Variable}: {run.StartError ?? run.Stderr}");
@@ -85,8 +109,8 @@ public sealed class DependencyListerComparisonTests(ITestOutputHelper output) : 
         var purls = new HashSet<string>(StringComparer.Ordinal);
         if (doc.RootElement.TryGetProperty("components", out var components))
             foreach (var c in components.EnumerateArray())
-                if (c.TryGetProperty("purl", out var p) && p.GetString() is { } purl && purl.StartsWith("pkg:nuget/", StringComparison.Ordinal)
-                    && !purl.StartsWith("pkg:nuget/App@", StringComparison.Ordinal))
+                if (c.TryGetProperty("purl", out var p) && p.GetString() is { } purl && purl.StartsWith(prefix, StringComparison.Ordinal)
+                    && !purl.StartsWith("pkg:nuget/App@", StringComparison.Ordinal) && purl.Contains('@'))
                     purls.Add(purl);
         return purls;
     }

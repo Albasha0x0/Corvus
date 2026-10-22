@@ -35,8 +35,8 @@ public sealed record DependencyEdge(string From, IReadOnlyList<string> To);
 
 /// <summary>
 /// view=dependencies: the components a file ships (NuGet packages from deps.json or assembly metadata, the .NET runtime,
-/// Go modules, Rust crates, Python packages and the interpreter) with their package URLs and evidence, the edges between
-/// them, and what was read.
+/// Go modules, Rust crates, Python packages and the interpreter, Android Java and native libraries, Il2Cpp assemblies)
+/// with their package URLs and evidence, the edges between them, and what was read.
 /// </summary>
 public sealed record DependencyFacts(DependencyComponent? Subject, int ComponentTotal, int WithPurl, IReadOnlyList<DependencyComponent> Components,
     int EdgeTotal, IReadOnlyList<string> Sources, IReadOnlyList<string> Notes)
@@ -92,8 +92,10 @@ internal static partial class DependencyInventory
         FromAssemblies(b, input.Path, assemblies.Where(a => !claimed.Contains(a)).ToList(), ct);
         if (views.ContainsKey("go") || views.ContainsKey("rust")) FromNative(b, input, views);
         if (views.GetValueOrDefault("python")?.Detail is PythonFileView.Facts { App: { } python }) FromPython(b, python, input.Path, ct);
+        FromAndroid(b, input, views, ct);
         // Reading Il2Cpp metadata takes seconds on a large game, so it waits until the view is asked for.
-        if (input.Options.Wants("dependencies")) FromIl2Cpp(b, input.Path, ct);
+        if (input.Options.Wants("dependencies"))
+            FromIl2Cpp(b, input.Path, Il2CppPackages.IsPackage(input.Path) && input.Kind == "zip" && input.HasZipEntry(n => n.EndsWith("/global-metadata.dat", StringComparison.Ordinal)), ct);
         if (b.Components.Count == 0) return null;
         var edges = b.Edges.Select(e => new DependencyEdge(e.Key, e.Value)).ToList();
         if (b.Components.Count > MaxListed) b.Notes.Add($"components: the first {MaxListed} of {b.Components.Count:N0} listed; sbomPath writes all");
@@ -288,10 +290,15 @@ internal static partial class DependencyInventory
     private static string FileName(string path) => path[(path.LastIndexOfAny(['/', '\\']) + 1)..];
 
     /// <summary>An Il2Cpp game's metadata: the file itself or the one its binary names.</summary>
-    private static void FromIl2Cpp(Builder b, string path, CancellationToken ct)
+    private static void FromIl2Cpp(Builder b, string path, bool package, CancellationToken ct)
     {
         Il2CppGameFiles? files;
-        try { files = Il2CppGameFiles.Find(path, metadataOnly: true); }
+        try
+        {
+            // A package's game is read from the files the Il2Cpp tools extract from it (metadata and Unity version files).
+            var at = package ? Il2CppPackages.Extract(path, null, ct: ct) : path;
+            files = at != null ? Il2CppGameFiles.Find(at, metadataOnly: true) : null;
+        }
         catch (Core.ToolError) { return; }
         if (files?.Metadata is not { Length: > 0 } || Il2CppMetadataOnly.Assemblies(files, ct) is not { } read) return;
         FromIl2CppAssemblies(b, read.Assemblies, read.UnityVersion, $"Il2Cpp metadata {files.Metadata} ({read.Source})", Product(files.DataDirectory));

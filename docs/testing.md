@@ -174,7 +174,9 @@ their tool is missing:
   skipped; each installer must match at least 99% of the reference rows.
 - **Dependencies against a reference SBOM tool** (`DependencyListerComparisonTests`): with `CORVUS_DEPENDENCY_LISTER`
   naming syft, an app with two NuGet packages is published as a framework-dependent single-file bundle and as a folder;
-  `view=dependencies` must list every NuGet package URL the tool lists, and both packages on each.
+  `view=dependencies` must list every NuGet package URL the tool lists, and both packages on each. A built Android
+  package must list every package URL the tool lists for it, and every Maven URL the tool lists for the same bytes read
+  as a Java archive.
 - **Advisories against osv-scanner** (`OsvAdvisoriesTests`): with `CORVUS_OSV_SCANNER` naming osv-scanner and its
   offline databases downloaded, an app with an old Newtonsoft.Json and NLog is published with a lock file; the
   advisories of `view=dependencies` must equal the ones osv-scanner reports for that packages.lock.json.
