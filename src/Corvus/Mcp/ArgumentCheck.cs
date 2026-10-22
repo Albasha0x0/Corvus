@@ -91,8 +91,7 @@ public static class ArgumentCheck
         // imageDirectories lists folders separated by ';'.
         foreach (var path in name == "imageDirectories" ? value.Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries) : [value])
             if (InputFiles.PathProblem(path) is { } problem)
-                throw new ToolError(ErrorCode.InvalidArgument, $"parameter '{name}' is not a valid path: {problem}.",
-                    path.Split('\\', '/').Any(n => n.Length > InputFiles.MaxNameLength) ? "Pass a shorter path." : "Pass an absolute path without invalid characters.")
+                throw new ToolError(ErrorCode.InvalidArgument, $"parameter '{name}' is not a valid path: {problem}.", InputFiles.PathHint(path))
                 {
                     Details = new { parameter = name },
                 };

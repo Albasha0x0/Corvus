@@ -30,7 +30,7 @@ public static class SafeFile
     public static string FullPath(string path)
     {
         if (string.IsNullOrWhiteSpace(path)) throw new ToolError(ErrorCode.InvalidArgument, "An output path is required.");
-        if (InputFiles.PathProblem(path) is { } problem) throw new ToolError(ErrorCode.InvalidArgument, $"invalid output path: {problem}: {path}");
+        if (InputFiles.PathProblem(path) is { } problem) throw new ToolError(ErrorCode.InvalidArgument, $"invalid output path: {problem}.", InputFiles.PathHint(path));
         if (OperatingSystem.IsWindows())
         {
             if (path.Replace('/', '\\').StartsWith(@"\\.\", StringComparison.Ordinal))

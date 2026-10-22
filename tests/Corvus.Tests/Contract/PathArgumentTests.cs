@@ -78,6 +78,18 @@ public class PathArgumentTests
     }
 
     [Fact]
+    public void A_writer_given_a_malformed_path_names_the_problem_and_a_hint_without_echoing_it()
+    {
+        var path = Path.Combine(Path.GetTempPath(), "a\0b.dll");
+        var error = Assert.Throws<ToolError>(() => SafeFile.FullPath(path));
+        Assert.Equal("invalid output path: it contains a control character.", error.Message);
+        Assert.Equal("Pass an absolute path without invalid characters.", error.Remediation);
+        var tooLong = Assert.Throws<ToolError>(() => SafeFile.FullPath(Path.Combine(Path.GetTempPath(), new string('n', 300))));
+        Assert.Equal("Pass a shorter path.", tooLong.Remediation);
+        Assert.DoesNotContain(new string('n', 300), tooLong.Message);
+    }
+
+    [Fact]
     public void An_empty_optional_path_counts_as_not_given()
     {
         var args = Args(("path", "  "));

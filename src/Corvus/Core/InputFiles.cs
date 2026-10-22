@@ -13,14 +13,22 @@ public static class InputFiles
 
     public static bool SamePath(string? a, string? b) => string.Equals(a, b, PathComparison);
 
-    /// <summary>Longest file or directory name the host file systems take (NTFS, ext4, APFS), in characters.</summary>
+    /// <summary>
+    /// Longest name NTFS, ext4 and APFS all take: 255 UTF-16 units on NTFS, 255 UTF-8 bytes on ext4 and APFS. Checked in
+    /// characters, so a longer non-ASCII name is left to the file system.
+    /// </summary>
     public const int MaxNameLength = 255;
 
     /// <summary>
     /// Why the host would reject <paramref name="path"/> as a file name, checked without touching the file system: a
-    /// control character, on Windows a character it reserves or a colon past the drive, or a name longer than
-    /// <see cref="MaxNameLength"/>; null when none applies. Empty and whitespace are left to the caller.
+    /// control character, on Windows a character it reserves or a colon past the drive (so NTFS alternate data streams are
+    /// refused too), or a name longer than <see cref="MaxNameLength"/>; null when none applies. Empty and whitespace are
+    /// left to the caller.
     /// </summary>
+    /// <summary>What to pass instead of a path <see cref="PathProblem"/> rejects: a shorter one, or one without invalid characters.</summary>
+    public static string PathHint(string path) =>
+        path.Split('\\', '/').Any(n => n.Length > MaxNameLength) ? "Pass a shorter path." : "Pass an absolute path without invalid characters.";
+
     public static string? PathProblem(string path)
     {
         if (path.Any(char.IsControl)) return "it contains a control character";
@@ -46,7 +54,7 @@ public static class InputFiles
     public static string RequireRegularFile(string path, string what = "file")
     {
         if (string.IsNullOrWhiteSpace(path)) throw new ToolError(ErrorCode.InvalidArgument, $"invalid path '{path}': the {what} path is empty.");
-        if (PathProblem(path) is { } problem) throw new ToolError(ErrorCode.InvalidArgument, $"invalid {what} path: {problem}.");
+        if (PathProblem(path) is { } problem) throw new ToolError(ErrorCode.InvalidArgument, $"invalid {what} path: {problem}.", PathHint(path));
         string full;
         try { full = Path.GetFullPath(path); }
         catch (PathTooLongException) { throw new ToolError(ErrorCode.InvalidArgument, "a path is too long.", "Pass a shorter path."); }
