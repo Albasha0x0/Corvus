@@ -289,9 +289,10 @@
 - **Decompiler failures:** any Hex-Rays failure names `engine=ghidra` and `disassemble` as the next step, and a crash
   of Ghidra's decompiler process names `engine=ida` and `disassemble`. Verified on IDA 9.3 and Ghidra 12.1.4 on Windows
   11 x64. [93f5af6b](https://github.com/Albasha0x0/Corvus/commit/93f5af6b) [a9c46dc5](https://github.com/Albasha0x0/Corvus/commit/a9c46dc5)
-- **IDA Python search:** a Python that answers its version check late is reported unknown and searched again, an open
-  searching within its own time limit, instead of IDA being cached as unavailable; when no Python answers even then,
-  the open fails with a retryable timeout. [3fc786cb](https://github.com/Albasha0x0/Corvus/commit/3fc786cb)
+- **IDA Python search:** a Python that answers its version check late is reported unknown and searched again within
+  the open's own time limit, instead of IDA being cached as unavailable; when no Python answers even then, the open
+  fails with a retryable timeout. Verified with a fake interpreter on Windows 11 x64; an IDA open against a slow
+  Python is not verified. [3fc786cb](https://github.com/Albasha0x0/Corvus/commit/3fc786cb)
 - **Engine timeouts:** a request that runs out of time is read before it is cancelled, and its error names whether the
   request was written, how many progress events the worker sent for it and the worker's last log line for it. Verified
   with Ghidra 12.1.4 on Windows 11 x64.
@@ -360,8 +361,8 @@
 - **inspect_process:** process 0, by id or by the name Idle, is refused as the System Idle Process, and `live_session`
   neither lists it nor attaches to it. [4760f864](https://github.com/Albasha0x0/Corvus/commit/4760f864)
 - **Shared records:** a note, a name or another shared record saved while another writer of the same file runs waits
-  up to 30 s for it instead of 2 s, so a save on a loaded machine is no longer reported as not made.
-  [a10363c5](https://github.com/Albasha0x0/Corvus/commit/a10363c5)
+  up to 30 s for it instead of 2 s, so a save on a loaded machine is no longer reported as not made. Verified on
+  Windows 11 x64. [a10363c5](https://github.com/Albasha0x0/Corvus/commit/a10363c5)
 - **unload_assembly:** closes an open dump id. [cdd47b37](https://github.com/Albasha0x0/Corvus/commit/cdd47b37)
 - **save_assembly, save_native:** a second save over the original replaces this server's own earlier save. [aeeb5026](https://github.com/Albasha0x0/Corvus/commit/aeeb5026)
 - **Paged session results:** `live_events`, `live_console` and `live_timeline` pages no longer skip rows the output budget
