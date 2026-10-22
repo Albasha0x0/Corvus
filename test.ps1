@@ -92,8 +92,10 @@ if ($Status) {
     exit 0
 }
 
-# Starts timing a test run: the machine's load is sampled on a thread meanwhile, and the tests log their permit waits.
-function Start-RunTiming {
+# Starts timing a test run: the machine's load is sampled on a thread meanwhile, the tests log their permit waits,
+# and the collection orderer reads the history of the run's mode (Support/CollectionOrder.cs).
+function Start-RunTiming([string]$mode) {
+    $env:CORVUS_TEST_HISTORY = $timeHistory; $env:CORVUS_TEST_MODE = $mode
     Import-Module (Join-Path $root 'test-time.psm1') -Force
     $script:loadJob = try { Start-MachineLoad } catch { $null }
     $env:CORVUS_PERMIT_LOG = Join-Path $tempRoot "corvus-permits-$PID.tsv"
@@ -297,7 +299,7 @@ if (-not ($Full -or $All -or $Affected -or $Filter -or $Coverage -or $CoverageMa
         if ($quickFilter.Length -lt 24000) {
             Write-Host "Changed since ${Base}: $($changed.Count) files; quick tests of $($families -join ', ')."
             $results = Join-Path $tempRoot "corvus-trx-$PID"
-            Start-RunTiming
+            Start-RunTiming 'quick'
             & dotnet test $tests --nologo --filter $quickFilter --logger 'trx;LogFileName=full.trx' --results-directory $results
             $code = $LASTEXITCODE
             Save-RunTimes (Join-Path $results 'full.trx') 'quick' $code
@@ -530,7 +532,7 @@ try {
         $heavy = Enter-HeavyLock $heavyLock
         if ($heavy) { $timing.heavyWait = [math]::Round($lockClock.Elapsed.TotalSeconds, 1) }
     }
-    Start-RunTiming
+    Start-RunTiming $runMode
     & dotnet @arguments
     $code = $LASTEXITCODE
     $trx = Join-Path $results 'full.trx'

@@ -46,15 +46,15 @@ function Get-Spread($values) {
 }
 
 # The tests of a TRX file, timed from the first test's start: an object with At (that start), Wall (seconds to the last
-# test's end), Summed (seconds of all tests) and Tests (Name, Class, Start, End, Seconds, Outcome; Class is the top-level
-# class); $null when the file is missing or no result has times.
+# test's end), Summed (seconds of all tests) and Tests (Name, Class, Start, End, Seconds, Outcome; Class is the test
+# class, a nested one as Outer+Inner); $null when the file is missing or no result has times.
 function Read-TestTimes([string]$trxPath) {
     if (-not (Test-Path $trxPath)) { return $null }
     [xml]$trx = Get-Content $trxPath -Raw
     $ns = @{ t = 'http://microsoft.com/schemas/VisualStudio/TeamTest/2010' }
     $classOf = @{}
     foreach ($test in Select-Xml -Xml $trx -XPath '//t:UnitTest' -Namespace $ns) {
-        $classOf[$test.Node.id] = ($test.Node.TestMethod.className -split '\.')[-1] -replace '\+.*$', ''
+        $classOf[$test.Node.id] = ($test.Node.TestMethod.className -split '\.')[-1]
     }
     $raw = foreach ($result in Select-Xml -Xml $trx -XPath '//t:UnitTestResult' -Namespace $ns) {
         $node = $result.Node

@@ -68,7 +68,7 @@ function Get-RootReaders([string]$testsDir) {
 function Get-RunEnvironment([hashtable]$override = @{}) {
     $os = if ($IsWindows) { $v = Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion'; "windows $($v.CurrentBuild).$($v.UBR)" } else { uname -srm }
     $values = @{}
-    Get-ChildItem env: | Where-Object { ($_.Name -like 'CORVUS_*' -and $_.Name -notin 'CORVUS_ALL_TESTS', 'CORVUS_SWEEP', 'CORVUS_UPDATE_DOCS', 'CORVUS_BACKGROUND_DIR', 'CORVUS_HEAVY_LOCK') -or $_.Name -eq 'JAVA_HOME' } |
+    Get-ChildItem env: | Where-Object { ($_.Name -like 'CORVUS_*' -and $_.Name -notin 'CORVUS_ALL_TESTS', 'CORVUS_SWEEP', 'CORVUS_UPDATE_DOCS', 'CORVUS_BACKGROUND_DIR', 'CORVUS_HEAVY_LOCK', 'CORVUS_PERMIT_LOG', 'CORVUS_TEST_HISTORY', 'CORVUS_TEST_MODE') -or $_.Name -eq 'JAVA_HOME' } |
         ForEach-Object { $values[$_.Name] = $_.Value }
     foreach ($name in $override.Keys) { $values[$name] = $override[$name] }
     $settings = $values.Keys | Sort-Object | ForEach-Object { "$_=$($values[$_])" }

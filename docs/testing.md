@@ -60,7 +60,8 @@
   and summed time, the tests running in each 5-minute bucket, the critical path, the 20 slowest classes and tests with
   their median and 90th percentile, regressions (over 5 s and 1.5 times the median in each of the last two runs), heavy
   lock and permit waits, and the failed tests. A run prints one line from it; `./test.ps1 -Status` shows each mode's
-  latest run against its target.
+  latest run against its target. The tests start the longest classes first, by their median time in the history's runs
+  of the same mode (`Support/CollectionOrder.cs`).
 - **Machine-wide permits.** A test class that runs IDA (`[IdaFact]`), Ghidra (`[GhidraFact]`) or another heavy
   resource (`[Permit("live")]`, `[Permit("reference-tool")]`) waits for a permit before it starts and holds it until its
   last test ends (`Support/MachinePermits.cs`: IDA 2, Ghidra 2, live 2, reference tools 4). Every test process on the
