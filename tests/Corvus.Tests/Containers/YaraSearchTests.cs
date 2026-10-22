@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.IO.Compression;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
@@ -112,5 +113,38 @@ public sealed class YaraSearchTests : IDisposable
         Assert.Equal("$a at 0x2+6, 0x1A+6", found.Items.Single(i => i.Name == "finds_corvus").Detail);
         Assert.Contains(found.Notes, n => n.StartsWith("YARA-X 1.22.0: 2 rules from 2 files; 1 errors, their rules not run", StringComparison.Ordinal));
         Assert.Contains(found.Notes, n => n.StartsWith($"{Path.Combine(rules, "bad.yar")}:3:14 rule broken: E009 unknown identifier `no_such_name`", StringComparison.Ordinal));
+    }
+
+    [YaraFact]
+    public void A_rule_matching_only_inside_compressed_members_is_found_at_their_paths()
+    {
+        var marker = "corvus-marker-" + string.Concat(Enumerable.Range(0, 40).Select(i => (char)('a' + i % 26)));
+        var text = string.Join("\n", Enumerable.Range(0, 200).Select(i => $"line {i} of the notes")) + "\n" + marker + "\n";
+        var archive = _dir.File("bundle.zip");
+        using (var zip = ZipFile.Open(archive, ZipArchiveMode.Create))
+        {
+            Add(zip, "docs/readme.txt", Encoding.ASCII.GetBytes(text));
+            var inner = new MemoryStream();
+            using (var nested = new ZipArchive(inner, ZipArchiveMode.Create, leaveOpen: true)) Add(nested, "deep/note.txt", Encoding.ASCII.GetBytes("nested " + text));
+            Add(zip, "nested.zip", inner.ToArray());
+        }
+        // Deflate keeps no plain copy of the marker, so a scan of the file alone finds nothing.
+        Assert.DoesNotContain(marker, Encoding.Latin1.GetString(File.ReadAllBytes(archive)));
+        var rules = _dir.File("marker.yar");
+        File.WriteAllText(rules, $"rule finds_marker {{ strings: $a = \"{marker}\" condition: $a }}\n");
+        using var pool = Pool();
+        using var shared = WorkerPool.UseShared(pool);
+
+        var found = new UnpackService(_ws).Search(archive, rules, "yara", 10, AnalysisLimits.Default, default);
+        Assert.Equal(["docs/readme.txt", "nested.zip_unpacked/deep/note.txt"], found.Items.Select(i => i.Path).Order());
+        Assert.All(found.Items, i => Assert.Equal("finds_marker", i.Name));
+        Assert.Equal(4, found.Searched);
+        Assert.Contains(found.Notes, n => n.Contains("; 3 container members scanned;", StringComparison.Ordinal));
+    }
+
+    private static void Add(ZipArchive zip, string name, byte[] bytes)
+    {
+        using var entry = zip.CreateEntry(name, CompressionLevel.Optimal).Open();
+        entry.Write(bytes);
     }
 }

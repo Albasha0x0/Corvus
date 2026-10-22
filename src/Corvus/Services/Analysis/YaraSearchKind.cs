@@ -10,8 +10,9 @@ namespace Corvus.Services.Analysis;
 
 /// <summary>
 /// search_container kind=yara: the query is a YARA rule file or a folder of them, compiled and run by YARA-X in a
-/// <c>corvus worker</c> process; rows are the rules that matched, with their tags, metadata and pattern offsets. Rules
-/// that do not compile are named with their file, line and rule, and the rest still run.
+/// <c>corvus worker</c> process over the file and each container member; rows are the rules that matched, with the file
+/// or member path, tags, metadata and pattern offsets. Rules that do not compile are named with their file, line and
+/// rule, and the rest still run.
 /// </summary>
 internal sealed class YaraSearchKind : IContainerSearchKind
 {
@@ -24,8 +25,9 @@ internal sealed class YaraSearchKind : IContainerSearchKind
 
     public UnpackService.ContainerSearch SearchFile(string path, string query, int offset, int limit, ContainerSearchArgs args, CancellationToken ct)
     {
-        var source = InputFiles.RequireRegularFile(path, "file");
-        if (!File.Exists(source)) throw Targets.FileNotFound(source);
+        // A folder is a deployment (Blazor, ClickOnce) whose members the worker reads.
+        var source = Directory.Exists(Path.GetFullPath(path)) ? Path.GetFullPath(path) : InputFiles.RequireRegularFile(path, "file");
+        if (!File.Exists(source) && !Directory.Exists(source)) throw Targets.FileNotFound(source);
         if (string.IsNullOrWhiteSpace(query))
             throw new ToolError(ErrorCode.InvalidArgument, "kind=yara takes the rules as query.", "pass a .yar file or a folder of .yar and .yara files as query");
         var request = new JsonObject { ["rules"] = Path.GetFullPath(query.Trim().Trim('"')), ["path"] = source };
@@ -33,7 +35,8 @@ internal sealed class YaraSearchKind : IContainerSearchKind
         var result = answer.Deserialize<YaraScanResult>(YaraOps.Json)
                      ?? throw new ToolError(ErrorCode.Failed, "The yara worker answered without a result.");
         var rows = result.Hits.SelectMany(h => h.Rules.Select(r => Row(h.Path, r))).ToList();
-        return new UnpackService.ContainerSearch(source, "file", 1, rows.Skip(Math.Max(0, offset)).Take(limit).ToList(), Math.Max(0, offset), rows.Count,
+        var files = (Directory.Exists(source) ? 0 : 1) + result.Members;
+        return new UnpackService.ContainerSearch(source, "file", files, rows.Skip(Math.Max(0, offset)).Take(limit).ToList(), Math.Max(0, offset), rows.Count,
             Notes(result));
     }
 
@@ -57,6 +60,7 @@ internal sealed class YaraSearchKind : IContainerSearchKind
     {
         var notes = new List<string>(result.Notes);
         var summary = new StringBuilder($"YARA-X {YaraX.Version}: {result.Rules:N0} rules from {result.RuleFiles:N0} file{(result.RuleFiles == 1 ? "" : "s")}");
+        if (result.Members > 0) summary.Append($"; {result.Members:N0} container members scanned");
         if (result.Errors.Count > 0) summary.Append($"; {result.Errors.Count:N0} errors, their rules not run");
         notes.Insert(0, summary.Append($"; at most {YaraRules.MaxMatchesPerPattern} matches kept per pattern; {result.ElapsedMs:N0} ms").ToString());
         foreach (var e in result.Errors)

@@ -9,6 +9,12 @@ namespace Corvus.Native.Providers.Worker;
 /// <summary>One worker op: its arguments in, its result record out; a <see cref="ToolError"/> is answered as that error.</summary>
 public delegate Task<JsonNode?> WorkerOp(JsonObject args, CancellationToken cancellationToken);
 
+/// <summary>Ops a <c>corvus worker</c> answers beyond ping, found as providers; a name taken twice fails the worker's start.</summary>
+public interface IWorkerOps
+{
+    IReadOnlyDictionary<string, WorkerOp> Ops { get; }
+}
+
 /// <summary>
 /// The <c>corvus worker</c> process: answers <see cref="WorkerProtocol"/> requests for the ops it registers, so untrusted
 /// work that crashes, overflows the stack or exhausts memory ends this process and not the server. It writes the
@@ -40,10 +46,12 @@ public static class WorkerHost
         return Run(input, protocol, Ops(Environment.GetEnvironmentVariable(FixtureOpsVariable) == "1"));
     }
 
-    /// <summary>The ops this worker answers: ping and the YARA scan always, the fixture ops when <paramref name="fixtures"/>.</summary>
+    /// <summary>The ops this worker answers: ping and every <see cref="IWorkerOps"/> provider's, the fixture ops when <paramref name="fixtures"/>.</summary>
     internal static IReadOnlyDictionary<string, WorkerOp> Ops(bool fixtures)
     {
-        var ops = new Dictionary<string, WorkerOp>(StringComparer.Ordinal) { ["ping"] = Ping, [Yara.YaraOps.ScanOp] = Yara.YaraOps.Scan };
+        var ops = new Dictionary<string, WorkerOp>(StringComparer.Ordinal) { ["ping"] = Ping };
+        foreach (var provider in Core.Providers.Of<IWorkerOps>())
+            foreach (var (name, op) in provider.Ops) ops.Add(name, op);
         if (fixtures)
         {
             ops["fixture_allocate"] = Allocate;

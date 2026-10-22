@@ -346,8 +346,10 @@ e.g. `identifier`). `kind=hermes` lists the strings and function names of a Herm
 
 **YARA rules** (`search_container kind=yara`, with `CORVUS_WORKER_HOST=1`): the query is a rule file or a folder of
 `.yar` and `.yara` files, compiled and run by YARA-X 1.22.0 in a `corvus worker` process, so a fault in the engine ends
-the worker and not the server. Each row is a rule that matched, with its namespace, tags, metadata and every pattern
-match as offset and length (at most 100 per pattern). A rule that does not compile is named with its file, line,
+the worker and not the server. The rules run over the file, then over each member of the container it is (nested
+containers opened, compressed members decompressed; files over 512 MB are scanned as one file), so a match inside a
+compressed member is found at its member path. Each row is a rule that matched, with the file or member path, its
+namespace, tags, metadata and every pattern match as offset and length (at most 100 per pattern). A rule that does not compile is named with its file, line,
 column and error, and the other rules still run. Modules `pe`, `elf`, `macho`, `dotnet`, `dex`, `hash`, `math`,
 `time` and `lnk` are available; `cuckoo` and `vt` are not. On the fixture rules the matches equal those of `yr scan`.
 
