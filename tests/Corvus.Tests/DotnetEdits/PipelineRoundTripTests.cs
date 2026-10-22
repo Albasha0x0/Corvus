@@ -15,7 +15,8 @@ namespace Corvus.Tests;
 /// saved by the product's writer; the original, processed and simplified builds are executed and must give the same exit
 /// code and output. A processed build that already misbehaves is the tool's fault and is reported, not counted.
 /// Then, over the whole module, what simplifying took back of what the pipeline added (instructions), checked against a
-/// floor pinned per option and sample, so a regression fails the test.
+/// floor pinned per option and sample, so a regression fails the test. The sample and option pairs are dealt to
+/// <see cref="Parts"/> classes that run side by side within the reference-tool permits.
 /// </summary>
 /// <remarks>
 /// The pipeline is a command-line tool that reads a crproj project (CORVUS_PIPELINE_TOOL: its executable; the first
@@ -25,14 +26,24 @@ namespace Corvus.Tests;
 /// .crproj profiles (default: Build/Profiles next to the tool); CORVUS_PIPELINE_SEEDS (default 3 in an exhaustive run, else one seed of the three, rotating by day);
 /// CORVUS_PIPELINE_SEED, one seed to run; CORVUS_PIPELINE_ONLY and
 /// CORVUS_PIPELINE_SAMPLE, substrings of the option and sample names to run; CORVUS_PIPELINE_PARALLEL, round trips run at once
-/// (default 1); CORVUS_PIPELINE_BUDGET_MINUTES, the run's total time (default 90 exhaustive, else 45); CORVUS_PIPELINE_REPORT, a file for the report;
+/// (default 1, per part); CORVUS_PIPELINE_BUDGET_MINUTES, a part's total time (default 90 exhaustive, else 45); CORVUS_PIPELINE_REPORT, a file for the
+/// report (each part writes its own, the part number before the extension);
 /// CORVUS_PIPELINE_KEEP, keep the work files.
 /// </remarks>
 [Trait("Speed", "Slow")]
 [Permit("reference-tool")]
-public sealed class PipelineRoundTripTests(ITestOutputHelper output) : IDisposable
+public abstract class PipelineRoundTripTests(ITestOutputHelper output, int part) : IDisposable
 {
     public const string ToolVariable = "CORVUS_PIPELINE_TOOL";
+
+    /// <summary>Classes the round trips are dealt to; each takes a reference-tool permit of its own.</summary>
+    public const int Parts = 4;
+
+    public sealed class Part1(ITestOutputHelper output) : PipelineRoundTripTests(output, 0);
+    public sealed class Part2(ITestOutputHelper output) : PipelineRoundTripTests(output, 1);
+    public sealed class Part3(ITestOutputHelper output) : PipelineRoundTripTests(output, 2);
+    public sealed class Part4(ITestOutputHelper output) : PipelineRoundTripTests(output, 3);
+
     private readonly TempDir _dir = new();
     private bool _keep;
 
@@ -190,6 +201,7 @@ public sealed class PipelineRoundTripTests(ITestOutputHelper output) : IDisposab
     /// <summary>A compiled sample with what its original build prints.</summary>
     private sealed record Built(string Name, string Path, string Expected, Metrics Baseline);
 
+    [Trait("Speed", "Slow")]
     [RequiresRealDataFact(ToolVariable)]
     public void ProcessedProgramsSimplifyAndBehaveTheSame()
     {
@@ -216,7 +228,9 @@ public sealed class PipelineRoundTripTests(ITestOutputHelper output) : IDisposab
             built.Add(new Built(sample.Name, original, expected.Output, Measure(File.ReadAllBytes(original))));
         }
 
-        var runs = (from b in built from o in options from seed in seeds select (Built: b, Option: o, Seed: seed)).ToList();
+        // A part takes every Parts-th sample and option pair with all its seeds, as each floor is the least over the seeds.
+        var runs = (from b in built from o in options select (Built: b, Option: o)).Where((_, i) => i % Parts == part)
+            .SelectMany(r => seeds.Select(seed => (r.Built, r.Option, Seed: seed))).ToList();
         var slots = new Row?[runs.Count];
         var failures = new System.Collections.Concurrent.ConcurrentQueue<string>();
         SigningKey();
@@ -248,7 +262,8 @@ public sealed class PipelineRoundTripTests(ITestOutputHelper output) : IDisposab
         }
 
         var report = Report(rows, built.Select(b => b.Name).ToList(), options.Select(o => o.Name).ToList());
-        if (Environment.GetEnvironmentVariable("CORVUS_PIPELINE_REPORT") is { Length: > 0 } path) File.WriteAllText(path, report);
+        if (Environment.GetEnvironmentVariable("CORVUS_PIPELINE_REPORT") is { Length: > 0 } path)
+            File.WriteAllText(Path.ChangeExtension(path, $"part{part + 1}{Path.GetExtension(path)}"), report);
         output.WriteLine(report);
         Assert.True(failures.IsEmpty, string.Join("\n", failures));
     }
