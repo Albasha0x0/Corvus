@@ -336,6 +336,7 @@ read, or a "Read by" cell that differs from the classes and scripts that read it
 | `CORVUS_TEST_REMOTE` | The test host (`user@host`) prepared by `test-remote-setup.ps1`; a whole-suite run sends its offloaded classes there when it answers over ssh. | host-tier.ps1, test-remote-setup.ps1, test-remote.psm1, test.ps1 |
 | `CORVUS_TEST_SCP` | The scp program, or a `.ps1` script standing in for it; OpenSSH's own when unset. | test-remote-setup.ps1, test-remote.psm1 |
 | `CORVUS_TEST_SSH` | The ssh program, or a `.ps1` script standing in for it; OpenSSH's own when unset. | test-remote-setup.ps1, test-remote.psm1 |
+| `CORVUS_WINDOWS_APP_SDK` | A Microsoft.WindowsAppSDK package version whose XAML compiler builds the test app. | XbfCompilerTests |
 
 ### Variables the test scripts set
 
@@ -408,6 +409,10 @@ their tool is missing:
 - **Advisories against osv-scanner** (`OsvAdvisoriesTests`): with `CORVUS_OSV_SCANNER` naming osv-scanner and its
   offline databases downloaded, an app with an old Newtonsoft.Json and NLog is published with a lock file; the
   advisories of `view=dependencies` must equal the ones osv-scanner reports for that packages.lock.json.
+- **Compiled XAML against the XAML compiler** (`XbfCompilerTests`): with `CORVUS_WINDOWS_APP_SDK` naming a
+  Microsoft.WindowsAppSDK package version, a WinUI app with an application, a window and a page of resources, styles,
+  templates, visual states and conditional XAML is built; each `.xbf` read with `view=xbf` must be complete, declare
+  the source's elements in order, and resolve every event handler the source names.
 - **Capture HTTP objects against Wireshark** (`CaptureObjectsTSharkTests`): with `CORVUS_TSHARK` set, synthetic
   captures (Content-Length, chunked, gzip / deflate / brotli, pipelining, resent segments, ranges, bodies ending at
   close, request bodies) must export exactly the files `tshark --export-objects http` exports, by SHA-256. With
