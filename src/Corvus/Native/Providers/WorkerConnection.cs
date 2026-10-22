@@ -18,10 +18,10 @@ public sealed record WorkerConnectionOptions
     /// </summary>
     public TimeSpan? CancelGrace { get; init; }
     /// <summary>
-    /// Called with the worker's process id before a worker that missed its start or a request's time is stopped: what
-    /// it was doing (a thread dump summary), or null. Added to the timeout error.
+    /// Called with the worker's process id, then the other processes of its tree, before a worker that missed its start
+    /// or a request's time is stopped: what it was doing (a thread dump summary), or null. Added to the timeout error.
     /// </summary>
-    public Func<int, string?>? StallReport { get; init; }
+    public Func<IReadOnlyList<int>, string?>? StallReport { get; init; }
     /// <summary>The setting a memory-limit hit names in its error.</summary>
     public string MemoryLimitVariable { get; init; } = EngineMemoryLimit.Variable;
 }
@@ -164,7 +164,7 @@ public sealed class WorkerConnection : IDisposable
         if (_options.StallReport is not { } report || _process.HasExited) return "";
         try
         {
-            return report(_process.Id) switch
+            return report([_process.Id, .. _process.TreeProcessIds().Where(id => id != _process.Id)]) switch
             {
                 null or "" => "\nworker state unknown: the report read nothing",
                 var text when text.StartsWith(StateUnknown, StringComparison.Ordinal) => "\nworker state unknown: " + text[StateUnknown.Length..],

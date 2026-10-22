@@ -17,30 +17,46 @@ internal static partial class JavaThreadDump
     public const string FolderVariable = "CORVUS_STALL_DIR";
 
     /// <summary>
-    /// Saves the thread dump and heap summary of process <paramref name="pid"/> under <see cref="FolderVariable"/>, else
-    /// <paramref name="folder"/>, and returns the heap line, the busiest Ghidra threads, why jcmd failed when it did, and
-    /// the file; starts with <see cref="WorkerConnection.StateUnknown"/> and the reason when neither tool read the threads.
+    /// Saves the thread dump and heap summary of the first of <paramref name="pids"/> that hosts a JVM (a PyGhidra worker
+    /// runs it in a child of the Python launcher) under <see cref="FolderVariable"/>, else <paramref name="folder"/>, and
+    /// returns the heap line, the busiest Ghidra threads, why jcmd failed when it did, and the file; starts with
+    /// <see cref="WorkerConnection.StateUnknown"/> and the reason when neither tool read the threads.
     /// </summary>
-    public static string? Report(string java, int pid, string folder)
+    public static string Report(string java, IReadOnlyList<int> pids, string folder)
     {
         var bin = Path.GetDirectoryName(java) ?? "";
         var jcmd = Path.Combine(bin, OperatingSystem.IsWindows() ? "jcmd.exe" : "jcmd");
         var jhsdb = Path.Combine(bin, OperatingSystem.IsWindows() ? "jhsdb.exe" : "jhsdb");
         if (!File.Exists(jcmd) && !File.Exists(jhsdb)) return WorkerConnection.StateUnknown + $"the JDK in {bin} has neither jcmd nor jhsdb";
         var notes = new List<string>();
-        var threads = File.Exists(jcmd) ? Run(jcmd, [pid.ToString(CultureInfo.InvariantCulture), "Thread.print"], Limit, "jcmd Thread.print", notes) : null;
-        var heap = threads != null ? Run(jcmd, [pid.ToString(CultureInfo.InvariantCulture), "GC.heap_info"], Limit, "jcmd GC.heap_info", notes) ?? "" : "";
+        string? threads = null, heap = "";
+        int pid = pids.Count > 0 ? pids[0] : 0;
+        foreach (var p in File.Exists(jcmd) ? pids : [])
+        {
+            var id = p.ToString(CultureInfo.InvariantCulture);
+            if ((threads = Run(jcmd, [id, "Thread.print"], Limit, $"jcmd Thread.print of {id}", notes)) == null) continue;
+            pid = p;
+            heap = Run(jcmd, [id, "GC.heap_info"], Limit, $"jcmd GC.heap_info of {id}", notes) ?? "";
+            break;
+        }
         // The serviceability agent reads the stopped process, so it needs no answer from the JVM.
-        if (threads == null && File.Exists(jhsdb))
-            threads = Run(jhsdb, ["jstack", "--pid", pid.ToString(CultureInfo.InvariantCulture)], DebuggerLimit, "jhsdb jstack", notes);
-        var note = string.Join('\n', notes);
+        foreach (var p in threads == null && File.Exists(jhsdb) ? pids : [])
+        {
+            var id = p.ToString(CultureInfo.InvariantCulture);
+            if ((threads = Run(jhsdb, ["jstack", "--pid", id], DebuggerLimit, $"jhsdb jstack of {id}", notes)) == null) continue;
+            pid = p;
+            break;
+        }
+        // Once a process answered, failures on the others (which host no JVM) say nothing.
+        var answered = $" of {pid.ToString(CultureInfo.InvariantCulture)} ";
+        var note = string.Join('\n', threads == null ? notes : notes.Where(n => n.Contains(answered, StringComparison.Ordinal)));
         string? file = null;
         if (Environment.GetEnvironmentVariable(FolderVariable) is { Length: > 0 } chosen) folder = chosen;
         try
         {
             Directory.CreateDirectory(folder);
             file = Path.Combine(folder, $"worker-{pid}-{DateTime.UtcNow:yyyyMMddTHHmmss}.txt");
-            File.WriteAllText(file, string.Join('\n', new[] { note, heap, threads ?? "" }.Where(t => t.Length > 0)));
+            File.WriteAllText(file, string.Join('\n', new[] { string.Join('\n', notes), heap, threads ?? "" }.Where(t => t.Length > 0)));
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { file = null; }
         var summary = threads != null ? Summary(threads, heap) : "";

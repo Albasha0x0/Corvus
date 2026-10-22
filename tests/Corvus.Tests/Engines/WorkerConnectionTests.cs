@@ -84,7 +84,7 @@ public class WorkerConnectionTests
     {
         int? asked = null;
         using var worker = new FakeWorkerProcess();
-        using var c = worker.Connect(Concurrent with { CancelGrace = TimeSpan.FromMilliseconds(200), StallReport = pid => { asked = pid; return "main thread in analysis"; } });
+        using var c = worker.Connect(Concurrent with { CancelGrace = TimeSpan.FromMilliseconds(200), StallReport = pids => { asked = pids[0]; return "main thread in analysis"; } });
         var e = await Assert.ThrowsAsync<ToolError>(() => c.RequestAsync("stubborn", null, TimeSpan.FromMilliseconds(200), default));
         Assert.Contains("the worker was stopped. Last worker message: ", e.Message);
         Assert.Contains("ago.\nworker state:\nmain thread in analysis", e.Message);
