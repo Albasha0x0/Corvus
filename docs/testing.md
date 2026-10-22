@@ -14,9 +14,11 @@
   .githooks`) starts `./test.ps1 -Full -Background` on the commit pushed to main, in a worktree of its own (`-Status`
   shows the result; the worktree goes under `CORVUS_BACKGROUND_DIR`, else the temp folder, so it can sit where the
   antivirus does not quarantine the script fixtures; it is kept between runs, so each run checks out its commit there and
-  builds incrementally), and a failure is fixed in the next commit. Every 10 s of the run, a sampler records the time
-  to create a small file in the permit folder and in the temp folder, with that volume's disk queue and idle time, free
-  memory and pages/s (`.git/corvus-background.log.io`); `-Status` names each window in which a file took over 1 s. A push while a run is going is queued: when the run
+  builds incrementally), and a failure is fixed in the next commit. Every 10 s of the run, a sampler records how late
+  the run woke for the sample, the time a normal-priority helper takes to create a small file in the permit folder and
+  in the temp folder, with that volume's disk queue and idle time, free memory and pages/s
+  (`.git/corvus-background.log.io`); `-Status` names each window in which a file took over 1 s or the run woke over 1 s
+  late, so a run starved of CPU is told apart from a slow disk. A push while a run is going is queued: when the run
   ends, one run starts on the newest commit, at the strongest strength asked meanwhile. `./test.ps1 -Wait` returns
   when the run and any run queued behind it end, prints the result and exits 0 on a pass, so a script or agent waits
   on it instead of polling `-Status`. A whole-suite run without reuse (the nightly run, a release gate) holds an exclusive machine lock while it runs when `CORVUS_HEAVY_LOCK` names a lock script

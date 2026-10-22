@@ -87,30 +87,52 @@ function Get-MachineLoad {
 # Starts sampling the machine's load on a thread of its own, so the sample costs a run no time; Receive-Job returns it.
 function Start-MachineLoad { Start-ThreadJob -ScriptBlock ${function:Get-MachineLoad} }
 
-# Writes a line to $log every $seconds while the calling process runs: the milliseconds to create, write and delete a
-# small file in each of $folders (-1 when that failed), the disk queue length and idle percent of the last folder's
-# volume, free memory in MB and pages per second (-1 where a counter cannot be read).
+# Writes a line to $log every $seconds while the calling process runs: how late this thread woke for the sample (lag,
+# ms; the run's own priority, so it shows the run starved of CPU), the milliseconds a normal-priority helper took to
+# create, write and delete a small file in each of $folders (-1 when that failed), the disk queue length and idle
+# percent of the last folder's volume, free memory in MB and pages per second (-1 where a counter cannot be read).
 function Invoke-IoSampler([string]$log, [string[]]$folders, [int]$seconds = 10) {
     $volume = if ($IsWindows) { Split-Path -Qualifier $folders[-1] } else { $null }
     $counters = if ($volume) { "\LogicalDisk($volume)\Avg. Disk Queue Length", "\LogicalDisk($volume)\% Idle Time", '\Memory\Available MBytes', '\Memory\Pages/sec' } else { @() }
     $invariant = [cultureinfo]::InvariantCulture
-    while ($true) {
-        $started = [Diagnostics.Stopwatch]::StartNew()
-        $fields = @((Get-Date).ToString('yyyy-MM-dd HH:mm:ss', $invariant))
-        foreach ($folder in $folders) {
-            $probe = Join-Path $folder "corvus-io-probe-$PID.tmp"
-            $watch = [Diagnostics.Stopwatch]::StartNew()
-            $ms = try { [IO.File]::WriteAllBytes($probe, [byte[]]::new(64)); [IO.File]::Delete($probe); [int]$watch.ElapsedMilliseconds } catch { -1 }
-            $fields += "open=$ms"
+    # The helper times the file at normal priority, so a starved run does not read as a slow file system. It reads a
+    # folder per line and answers in milliseconds; it ends when this thread's process closes its input.
+    $time = '$file = Join-Path $folder "corvus-io-probe-$PID.tmp"; $watch = [Diagnostics.Stopwatch]::StartNew(); ' +
+        'try { [IO.File]::WriteAllBytes($file, [byte[]]::new(64)); [IO.File]::Delete($file); [int]$watch.ElapsedMilliseconds } catch { -1 }'
+    $probe = 'while ($null -ne ($folder = [Console]::In.ReadLine())) { [Console]::Out.WriteLine($(' + $time + ')); [Console]::Out.Flush() }'
+    $start = [Diagnostics.ProcessStartInfo]::new((Get-Process -Id $PID).Path)
+    foreach ($arg in '-NoProfile', '-NonInteractive', '-EncodedCommand', [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($probe))) { $start.ArgumentList.Add($arg) }
+    $start.RedirectStandardInput = $true; $start.RedirectStandardOutput = $true; $start.UseShellExecute = $false; $start.CreateNoWindow = $true
+    # Without a helper the thread times the file itself, at the run's priority.
+    $helper = try { [Diagnostics.Process]::Start($start) } catch { $null }
+    if ($helper) { try { $helper.PriorityClass = 'Normal' } catch { } }
+    $local = [scriptblock]::Create($time)
+    $due = [Diagnostics.Stopwatch]::StartNew()
+    $next = 0
+    try {
+        while ($true) {
+            $lag = [math]::Max(0, [int]($due.ElapsedMilliseconds - $next))
+            $fields = @((Get-Date).ToString('yyyy-MM-dd HH:mm:ss', $invariant), "lag=$lag")
+            foreach ($folder in $folders) {
+                $ms = if (-not $helper) { & $local } else { try { $helper.StandardInput.WriteLine($folder); [int]$helper.StandardOutput.ReadLine() } catch { -1 } }
+                $fields += "open=$ms"
+            }
+            $values = @(-1, -1, -1, -1)
+            if ($counters) {
+                try { $values = @((Get-Counter -Counter $counters -MaxSamples 1 -ErrorAction Stop).CounterSamples | ForEach-Object CookedValue) } catch { }
+            }
+            $fields += ('queue=' + ([double]$values[0]).ToString('0.##', $invariant)), "idle=$([int]$values[1])", "freeMB=$([int]$values[2])", "pages=$([int]$values[3])"
+            Add-Content -Path $log -Value ($fields -join "`t")
+            $next = [math]::Max($next + $seconds * 1000, $due.ElapsedMilliseconds)
+            $left = $next - $due.ElapsedMilliseconds
+            if ($left -gt 0) { Start-Sleep -Milliseconds $left }
         }
-        $values = @(-1, -1, -1, -1)
-        if ($counters) {
-            try { $values = @((Get-Counter -Counter $counters -MaxSamples 1 -ErrorAction Stop).CounterSamples | ForEach-Object CookedValue) } catch { }
+    }
+    finally {
+        if ($helper) {
+            $helper.StandardInput.Close()
+            if (-not $helper.WaitForExit(2000)) { $helper.Kill() }
         }
-        $fields += ('queue=' + ([double]$values[0]).ToString('0.##', $invariant)), "idle=$([int]$values[1])", "freeMB=$([int]$values[2])", "pages=$([int]$values[3])"
-        Add-Content -Path $log -Value ($fields -join "`t")
-        $left = $seconds * 1000 - $started.ElapsedMilliseconds
-        if ($left -gt 0) { Start-Sleep -Milliseconds $left }
     }
 }
 
@@ -120,9 +142,9 @@ function Start-IoSampler([string]$log, [string[]]$folders) {
     Start-ThreadJob -ScriptBlock ${function:Invoke-IoSampler} -ArgumentList $log, $folders
 }
 
-# The windows of consecutive samples in an Invoke-IoSampler log where a file took over $limitMs, one line each with
-# the worst disk and memory values seen in it ("unknown" where no sample could read one); empty when there is none or
-# no log.
+# The windows of consecutive samples in an Invoke-IoSampler log where a file took over $limitMs or the run woke over
+# $limitMs late, one line each with the worst values seen in it ("unknown" where no sample could read one, as for the
+# lag of a log written before it was recorded); empty when there is none or no log.
 function Get-IoStalls([string]$log, [int]$limitMs = 1000) {
     if (-not (Test-Path $log)) { return @() }
     # The worse of a window's value and a sample's; a sample's -1 is unreadable and leaves the window's value.
@@ -141,10 +163,12 @@ function Get-IoStalls([string]$log, [int]$limitMs = 1000) {
             if ($name -eq 'open') { $values.opens += [int]$value } else { $values[$name] = [double]::Parse($value, $script:Invariant) }
         }
         $worst = ($values.opens | Measure-Object -Maximum).Maximum
-        if ($worst -gt $limitMs) {
-            if (-not $window) { $window = @{ From = $parts[0]; Samples = 0; Open = 0; Queue = $null; Idle = $null; Free = $null; Pages = $null } }
+        $late = if ($values.ContainsKey('lag')) { $values.lag } else { -1 }
+        if ($worst -gt $limitMs -or $late -gt $limitMs) {
+            if (-not $window) { $window = @{ From = $parts[0]; Samples = 0; Open = 0; Lag = $null; Queue = $null; Idle = $null; Free = $null; Pages = $null } }
             $window.To = $parts[0]; $window.Samples++
             $window.Open = [math]::Max($window.Open, $worst)
+            $window.Lag = Worse $window.Lag $late $true
             $window.Queue = Worse $window.Queue $values.queue $true
             $window.Idle = Worse $window.Idle $values.idle $false
             $window.Free = Worse $window.Free $values.freeMB $false
@@ -154,6 +178,7 @@ function Get-IoStalls([string]$log, [int]$limitMs = 1000) {
         if ($window) {
             $w = $window
             "$($w.From) to $($w.To) ($($w.Samples) samples): a file took up to $(Format-Seconds ($w.Open / 1000)); " +
+                "run lag $(Shown $w.Lag "up to $(Format-Seconds ($w.Lag / 1000))"); " +
                 "disk queue $(Shown $w.Queue "up to $(Format-Number $w.Queue)"), idle $(Shown $w.Idle "down to $($w.Idle)%"); " +
                 "free memory $(Shown $w.Free "down to $($w.Free) MB"), pages/s $(Shown $w.Pages "up to $($w.Pages)")"
             $window = $null

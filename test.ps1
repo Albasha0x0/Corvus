@@ -122,7 +122,7 @@ if ($Status) {
     Write-Host $text
     if (Test-Path $log) { Get-Content $log -Tail 5 | Where-Object { $_ -match '\[FAIL\]|Passed!|Failed!|Stamped' } | ForEach-Object { Write-Host "  $_" } }
     Import-Module (Join-Path $root 'test-time.psm1') -Force
-    Get-IoStalls "$log.io" | ForEach-Object { Write-Host "  Slow file opens: $_" }
+    Get-IoStalls "$log.io" | ForEach-Object { Write-Host "  Slow samples: $_" }
     $dumps = @(Get-ChildItem (Join-Path $gitDir 'corvus-stalls') -File -ErrorAction SilentlyContinue)
     if ($dumps) { Write-Host "  Worker thread dumps: $($dumps.Count) in $(Join-Path $gitDir 'corvus-stalls')" }
     if (Test-Path "$log.previous") {

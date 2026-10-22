@@ -139,15 +139,18 @@ public class TestTimeTests
 
     [Fact]
     [Trait("Speed", "Slow")]
-    public void The_status_names_each_window_of_slow_file_opens_with_its_worst_disk_and_memory_values()
+    public void The_status_names_each_window_of_slow_file_opens_or_late_samples_with_its_worst_values()
     {
         var dir = NewFolder();
         var log = Path.Combine(dir, "background.log.io");
         File.WriteAllLines(log, [
-            "2026-10-22 22:24:00\topen=12\topen=9\tqueue=0.5\tidle=95\tfreeMB=20000\tpages=10",
-            "2026-10-22 22:24:10\topen=4200\topen=30\tqueue=12.25\tidle=3\tfreeMB=900\tpages=5000",
-            "2026-10-22 22:24:20\topen=15\topen=1800\tqueue=8\tidle=10\tfreeMB=1200\tpages=7000",
-            "2026-10-22 22:24:30\topen=11\topen=8\tqueue=0.4\tidle=97\tfreeMB=19000\tpages=12",
+            "2026-10-22 22:24:00\tlag=3\topen=12\topen=9\tqueue=0.5\tidle=95\tfreeMB=20000\tpages=10",
+            "2026-10-22 22:24:10\tlag=40\topen=4200\topen=30\tqueue=12.25\tidle=3\tfreeMB=900\tpages=5000",
+            "2026-10-22 22:24:20\tlag=600\topen=15\topen=1800\tqueue=8\tidle=10\tfreeMB=1200\tpages=7000",
+            "2026-10-22 22:24:30\tlag=2\topen=11\topen=8\tqueue=0.4\tidle=97\tfreeMB=19000\tpages=12",
+            "2026-10-22 22:26:00\tlag=6400\topen=10\topen=7\tqueue=0.1\tidle=99\tfreeMB=21000\tpages=8",
+            "2026-10-22 22:26:10\tlag=1\topen=10\topen=7\tqueue=0.1\tidle=99\tfreeMB=21000\tpages=8",
+            // A line written before the lag was recorded.
             "2026-10-22 22:30:00\topen=-1\topen=2500\tqueue=-1\tidle=-1\tfreeMB=-1\tpages=-1",
         ]);
         try
@@ -159,8 +162,9 @@ public class TestTimeTests
                 """);
             if (lines is ["skip"]) return; // no pwsh on this machine
             Assert.Equal([
-                "stall=2026-10-22 22:24:10 to 2026-10-22 22:24:20 (2 samples): a file took up to 4.2 s; disk queue up to 12.25, idle down to 3%; free memory down to 900 MB, pages/s up to 7000",
-                "stall=2026-10-22 22:30:00 to 2026-10-22 22:30:00 (1 samples): a file took up to 2.5 s; disk queue unknown, idle unknown; free memory unknown, pages/s unknown",
+                "stall=2026-10-22 22:24:10 to 2026-10-22 22:24:20 (2 samples): a file took up to 4.2 s; run lag up to 0.6 s; disk queue up to 12.25, idle down to 3%; free memory down to 900 MB, pages/s up to 7000",
+                "stall=2026-10-22 22:26:00 to 2026-10-22 22:26:00 (1 samples): a file took up to 0.0 s; run lag up to 6.4 s; disk queue up to 0.1, idle down to 99%; free memory down to 21000 MB, pages/s up to 8",
+                "stall=2026-10-22 22:30:00 to 2026-10-22 22:30:00 (1 samples): a file took up to 2.5 s; run lag unknown; disk queue unknown, idle unknown; free memory unknown, pages/s unknown",
             ], lines.Where(l => l.StartsWith("stall=")));
             Assert.Equal("0", Line(lines, "none"));
         }
