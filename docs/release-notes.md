@@ -71,7 +71,8 @@
   native image take stop points; `live_session downloadDac=true` fetches a missing DAC (off by default, refused under
   `CORVUS_OFFLINE=1`). [a82f007a](https://github.com/Albasha0x0/Corvus/commit/a82f007a) [5eee839d](https://github.com/Albasha0x0/Corvus/commit/5eee839d) [719ecde0](https://github.com/Albasha0x0/Corvus/commit/719ecde0)
 - **Heap of a running program:** `dump_heap` and `dump_object` take a session id (x64, and x86 through the decoder
-  process). [3652cf43](https://github.com/Albasha0x0/Corvus/commit/3652cf43)
+  process). Verified with .NET 10 x64 and .NET Framework 4.8 x86 programs on Windows 11 x64; not verified on Linux or
+  macOS targets. [3652cf43](https://github.com/Albasha0x0/Corvus/commit/3652cf43)
 - **Child processes:** `live_session childNames` alone turns following on and holds matching children at their start
   (`["*"]` holds every child); `action=children` lists them as process rows with a state, together with processes that
   name the program as their parent without passing a hold (a browser process its runtime starts for it, WebView2 for
@@ -124,7 +125,8 @@
   frida/frida#2533). Verified on Linux x64 and x86 (glibc 2.39), linux-arm64 smoke test in an emulated VM; musl: attach
   only. [fda1fd00](https://github.com/Albasha0x0/Corvus/commit/fda1fd00) [635708e5](https://github.com/Albasha0x0/Corvus/commit/635708e5) [d451d936](https://github.com/Albasha0x0/Corvus/commit/d451d936) [a9a2a00b](https://github.com/Albasha0x0/Corvus/commit/a9a2a00b) [053f382e](https://github.com/Albasha0x0/Corvus/commit/053f382e)
 - **Snapshots at a stop:** the stop is the dump's exception (x64, x86 under WoW64) or the core's signal with the stop's
-  registers (Linux); a snapshot of a program changing during the read is retried. [02a58f2b](https://github.com/Albasha0x0/Corvus/commit/02a58f2b) [8b242284](https://github.com/Albasha0x0/Corvus/commit/8b242284)
+  registers (Linux); a snapshot of a program changing during the read is retried. Verified on Windows 11 x64 (64-bit
+  and 32-bit programs), Windows 11 ARM64 and Ubuntu 24.04 (x64 and x86 programs). [02a58f2b](https://github.com/Albasha0x0/Corvus/commit/02a58f2b) [8b242284](https://github.com/Albasha0x0/Corvus/commit/8b242284)
   [7737ae1e](https://github.com/Albasha0x0/Corvus/commit/7737ae1e) [f1c9f16b](https://github.com/Albasha0x0/Corvus/commit/f1c9f16b)
 - **Il2Cpp and NativeAOT stacks:** session frames named by method from the code index. [ce09a2a9](https://github.com/Albasha0x0/Corvus/commit/ce09a2a9)
 - **Program allow list:** `--live-allow <program or folder>` limits spawn, attach and `live_console`, compared by final
@@ -191,6 +193,7 @@
 - **Linux cores of .NET processes:** `dump_heap` and `dump_object` read them with the Windows-hosted DAC for Linux
   targets (server on Windows only), the decoder is reopened when a later `open_minidump` names `imageDirectories` that
   find libcoreclr.so, and `heap_not_captured` names `createdump --withheap` and `dotnet-dump collect --type Heap`.
+  Verified with the core of a .NET 10 program written under WSL; other runtime versions not verified.
   [65342d36](https://github.com/Albasha0x0/Corvus/commit/65342d36) [71b2a1dd](https://github.com/Albasha0x0/Corvus/commit/71b2a1dd) [b1f51f14](https://github.com/Albasha0x0/Corvus/commit/b1f51f14)
 - **Dump runtimes and frames:** a single-file app's runtime is found, Mono frames name Mono's own report, and a
   managed library named Mono.* no longer marks a CoreCLR process as Mono; COFF symbols name frames, and a frame named
@@ -211,7 +214,8 @@
   [5482d274](https://github.com/Albasha0x0/Corvus/commit/5482d274) [34ddbddd](https://github.com/Albasha0x0/Corvus/commit/34ddbddd) [5cd6f0e3](https://github.com/Albasha0x0/Corvus/commit/5cd6f0e3) [17f9dc8b](https://github.com/Albasha0x0/Corvus/commit/17f9dc8b)
 - **Il2Cpp:** builds that fill the code registration at run time map their generic method bodies, builds before
   metadata 27 among them (read through their module array); the known limit "generic method bodies with
-  runtime-filled registration are not mapped" is removed.
+  runtime-filled registration are not mapped" is removed. Verified with constructed 32-bit ARM libraries and a Windows
+  game copied with its registration cleared; builds before metadata 27 not verified by a test.
   [c1a2a07e](https://github.com/Albasha0x0/Corvus/commit/c1a2a07e) [7f8ef5ba](https://github.com/Albasha0x0/Corvus/commit/7f8ef5ba)
 - **Engines:** IDA analyses an open within a budget and saves a partial analysis that the next open or
   `reanalyze_native` continues, a saved analysis an open's time limit cut short reads "partial" and names
@@ -271,10 +275,12 @@
   open reports "start" before the engine's open call returns; a worker that exits or crashes is named with its exit code
   and stderr tail on every path that sees it (macOS and Linux included); a timed-out request names its last stage and
   how long the worker had been quiet. Any Hex-Rays failure names `engine=ghidra` and `disassemble` as the next step, and
-  a crash of Ghidra's decompiler process names `engine=ida` and `disassemble`.
+  a crash of Ghidra's decompiler process names `engine=ida` and `disassemble`. A request that runs out of time is read
+  before it is cancelled, and its error names whether the request was written, how many progress events the worker sent
+  for it and the worker's last log line for it.
   [ca4c91ec](https://github.com/Albasha0x0/Corvus/commit/ca4c91ec) [6264eb3e](https://github.com/Albasha0x0/Corvus/commit/6264eb3e) [2aebf983](https://github.com/Albasha0x0/Corvus/commit/2aebf983) [15520dff](https://github.com/Albasha0x0/Corvus/commit/15520dff)
   [1e1c3d5e](https://github.com/Albasha0x0/Corvus/commit/1e1c3d5e) [30707e76](https://github.com/Albasha0x0/Corvus/commit/30707e76) [2f2088b5](https://github.com/Albasha0x0/Corvus/commit/2f2088b5) [c1852fa5](https://github.com/Albasha0x0/Corvus/commit/c1852fa5)
-  [c75aa025](https://github.com/Albasha0x0/Corvus/commit/c75aa025) [93f5af6b](https://github.com/Albasha0x0/Corvus/commit/93f5af6b) [a9c46dc5](https://github.com/Albasha0x0/Corvus/commit/a9c46dc5)
+  [c75aa025](https://github.com/Albasha0x0/Corvus/commit/c75aa025) [93f5af6b](https://github.com/Albasha0x0/Corvus/commit/93f5af6b) [a9c46dc5](https://github.com/Albasha0x0/Corvus/commit/a9c46dc5) [d055446d](https://github.com/Albasha0x0/Corvus/commit/d055446d)
 - **32-bit .NET sessions:** one failed read of the runtime no longer stops the decoder for the session; the note that
   coverage counts first compiles comes once that counting is armed. [390a88ad](https://github.com/Albasha0x0/Corvus/commit/390a88ad) [1f857b4b](https://github.com/Albasha0x0/Corvus/commit/1f857b4b)
 - **Linux snapshots:** a program waiting in vfork is refused after 10 s instead of hanging gcore, and is left running.
@@ -350,6 +356,12 @@
   caller that waits for the state finds it, and two closes that meet record one close event. [25a8c92e](https://github.com/Albasha0x0/Corvus/commit/25a8c92e) [4de31e6c](https://github.com/Albasha0x0/Corvus/commit/4de31e6c) [0b647ef4](https://github.com/Albasha0x0/Corvus/commit/0b647ef4)
   [22cb80df](https://github.com/Albasha0x0/Corvus/commit/22cb80df) [3c33a59d](https://github.com/Albasha0x0/Corvus/commit/3c33a59d) [d6887793](https://github.com/Albasha0x0/Corvus/commit/d6887793) [5568313c](https://github.com/Albasha0x0/Corvus/commit/5568313c) [34555623](https://github.com/Albasha0x0/Corvus/commit/34555623) [fcef82ca](https://github.com/Albasha0x0/Corvus/commit/fcef82ca)
   [9ca10c3f](https://github.com/Albasha0x0/Corvus/commit/9ca10c3f) [a8743b28](https://github.com/Albasha0x0/Corvus/commit/a8743b28)
+- **Close during an exit:** a close that lets held threads go waits up to 1 s for the program to begin its exit and
+  detaches the agent's thread and module observers first, so a close during the exit no longer leaves the exit stuck or
+  crashes the program in the script runtime; the wait comes only after a resume let threads go from their stops, and a
+  start or an empty resume closes at once. A workaround for frida/frida-gum#1192 and frida/frida-gum#1194. Verified
+  with Frida 17.24.3 on Windows 11 x64 with 64-bit and 32-bit programs and on Ubuntu 24.04.
+  [73646c40](https://github.com/Albasha0x0/Corvus/commit/73646c40) [4169abff](https://github.com/Albasha0x0/Corvus/commit/4169abff)
 - **Stops on 32-bit Linux:** a stop reports the stop point's own address as its first frame and as pc and eip, so a
   stop in a child session (where the parent's agent stays loaded) no longer names an address no module covers. Verified
   on Ubuntu 24.04 (glibc 2.39) with Frida 17.24.3. [91daec47](https://github.com/Albasha0x0/Corvus/commit/91daec47)
