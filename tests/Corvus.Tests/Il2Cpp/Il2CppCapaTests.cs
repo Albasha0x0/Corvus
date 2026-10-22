@@ -5,6 +5,8 @@ using System.Text.Json;
 using Corvus.Native;
 using Corvus.Native.Providers;
 using Corvus.Services;
+using Corvus.Services.Analysis;
+using Corvus.Tools;
 using Xunit.Abstractions;
 
 namespace Corvus.Tests;
@@ -88,6 +90,7 @@ public sealed class Il2CppCapaTests(ITestOutputHelper output) : IDisposable
     {
         Assert.Equal(new Il2CppCallee("System.Collections.Generic", "Dictionary`2", "Add"),
             Il2CppCapa.FromScriptName("System.Collections.Generic.Dictionary<string, System.Collections.Generic.List<int>>", "Add"));
+        Assert.Equal(new Il2CppCallee("Game", "Pool", "Rent"), Il2CppCapa.FromScriptName("Game.Pool", "Rent<int>"));
         Assert.Equal(new Il2CppCallee("", "Global", ".ctor"), Il2CppCapa.FromScriptName("Global", ".ctor"));
         Assert.Null(Il2CppCapa.FromScriptName("Game.Saver", ""));
     }
@@ -149,6 +152,63 @@ public sealed class Il2CppCapaTests(ITestOutputHelper output) : IDisposable
         var result = Il2CppCapa.Match([], default);
         Assert.Equal("unavailable", result.State);
         Assert.Contains("CORVUS_CAPA", result.Note);
+    }
+
+    /// <summary>A dump folder: script.json of <see cref="Methods"/>, the game binary, and the fixture as its dummy assembly.</summary>
+    private Env LoadDump()
+    {
+        var dump = Path.Combine(_dir.Path, "dump");
+        var dummies = Path.Combine(dump, "DummyDll");
+        Directory.CreateDirectory(dummies);
+        var dll = Path.Combine(dummies, Path.GetFileName(Env.FixturePath));
+        File.Copy(Env.FixturePath, dll);
+        File.WriteAllText(Path.Combine(dump, "script.json"), JsonSerializer.Serialize(new
+        {
+            ScriptMethod = Methods.Select(m => new { Address = m.Rva, m.Name }),
+            Addresses = Methods.Select(m => m.Rva).Distinct(),
+        }));
+        File.WriteAllBytes(Path.Combine(dump, "GameAssembly.dll"), GameAssembly());
+        return new Env(dll);
+    }
+
+    private static InspectionService Inspection(Env env) => new(env.Workspace, il2cpp: env.Il2CppNavigator, literals: env.Il2CppStrings);
+
+    [Fact]
+    public void Survey_features_names_each_capa_rule_with_the_methods_it_matched_at()
+    {
+        const string result = """
+            {"meta":{},"rules":{
+              "query or enumerate registry value":{"meta":{"name":"query or enumerate registry value","namespace":"host-interaction/registry"},
+                "matches":[[{"type":"absolute","value":6442455104},{}]]},
+              "compiled to the .NET platform":{"meta":{"name":"compiled to the .NET platform","namespace":"runtime/dotnet"},
+                "matches":[[{"type":"no address"},{}]]}}}
+            """;
+        using var fake = new FakeTool();
+        fake.On("^--version$", stdout: "capa.exe 10.0.0\n");
+        fake.On(@"^-j .+features\.frz$", stdout: result);
+        using var scope = new EnvironmentScope().Set("CORVUS_CAPA", fake.CopyAs("capa")).Set(FakeTool.ScriptVariable, fake.ScriptPath);
+        using var env = LoadDump();
+        var report = Inspection(env).SurveyFeatures(env.Fixture.Id, null, "capa", default);
+        var rule = Assert.Single(report.Features);
+        var evidence = Assert.Single(rule.Evidence);
+        Assert.Equal(("query or enumerate registry value", "capa", "host-interaction/registry", 1), (rule.Name, rule.Category, evidence.Feature, evidence.Count));
+        Assert.Equal(["0x180001040 Game.Settings::Load"], evidence.Locations);
+        Assert.Contains("category capa: rules of capa 10.0.0 over the game binary's direct calls, matched", report.Notes);
+        Assert.Contains("capa: direct calls only: indirect and virtual calls are not followed", report.Notes);
+        Assert.Contains("capa: 1 of 5 calls reach code several methods share and are left out", report.Notes);
+        Assert.Contains("capa\n  query or enumerate registry value, 1 match\n    host-interaction/registry x1\n      0x180001040 Game.Settings::Load\n",
+            ContainerText.Survey(ContainerText.Survey(report, "capa")));
+    }
+
+    [Fact]
+    public void Survey_features_reports_capa_unavailable_for_an_Il2Cpp_assembly_without_it()
+    {
+        using var scope = new EnvironmentScope().Set("CORVUS_CAPA", Path.Combine(Path.GetTempPath(), "no-capa", "capa.exe"));
+        using var env = LoadDump();
+        var report = Inspection(env).SurveyFeatures(env.Fixture.Id, null, null, default);
+        Assert.DoesNotContain(report.Features, f => f.Category == "capa");
+        Assert.Contains(report.Notes, n => n.StartsWith("category capa:", StringComparison.Ordinal) && n.EndsWith(", unavailable", StringComparison.Ordinal));
+        Assert.Contains(report.Notes, n => n.StartsWith("capa: capa ", StringComparison.Ordinal) && n.Contains("CORVUS_CAPA"));
     }
 
     /// <summary>A real capa 10.0.0 named by CORVUS_CAPA reads the freeze file and matches its .NET rules at the callers.</summary>

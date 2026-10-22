@@ -10,7 +10,8 @@ namespace Corvus.Services.Analysis;
 /// Static analyses of a loaded assembly or a file: features, typed values, embedded content and a combined summary.
 /// <see cref="Summarize"/> also opens containers and summarizes the assemblies inside.
 /// </summary>
-public sealed class InspectionService(AssemblyWorkspace workspace, NativeCodeService? code = null, Mobile.DexService? dex = null)
+public sealed class InspectionService(AssemblyWorkspace workspace, NativeCodeService? code = null, Mobile.DexService? dex = null,
+    Il2CppNavigator? il2cpp = null, Il2CppStringService? literals = null)
 {
     private static AnalysisLimits Limits => AnalysisLimits.Default;
     private const int MaxSummarizedAssemblies = 8;
@@ -178,7 +179,26 @@ public sealed class InspectionService(AssemblyWorkspace workspace, NativeCodeSer
     {
         if (assembly == null && path != null && AppSurvey(path, ct) is { } app) return Filter(app, category);
         if (NativeSurvey(assembly, path, ct) is { } native) return Filter(native, category);
-        return WithAssembly(assembly, path, s => Filter(new FeatureReport(s.Label, s.Scan.MethodsScanned, Features.Detect(s.Scan, ct), s.Scan.Notes), category), ct);
+        var report = WithAssembly(assembly, path, s => new FeatureReport(s.Label, s.Scan.MethodsScanned, Features.Detect(s.Scan, ct), s.Scan.Notes), ct);
+        if (assembly != null && CapaSurvey(assembly, ct) is { } capa)
+            report = report with
+            {
+                Features = [.. report.Features, .. capa.Rules.Select(r => new Feature(r.Name, CapaCategory, [new Evidence(r.Namespace ?? "(no namespace)", r.Matches, r.Methods)]))],
+                Notes = [.. report.Notes, $"category {CapaCategory}: rules of {capa.Checker ?? "capa"} over the game binary's direct calls, {capa.State}",
+                    .. capa.Notes.Select(n => $"{CapaCategory}: {n}")],
+            };
+        return Filter(report, category);
+    }
+
+    /// <summary>The category of capa's rules; each rule's evidence is its namespace, at the functions it matched.</summary>
+    private const string CapaCategory = "capa";
+
+    /// <summary>capa's capabilities when <paramref name="assembly"/> is a dummy assembly of an Il2Cpp dump; null for any other.</summary>
+    private CapaCapabilities? CapaSurvey(string assembly, CancellationToken ct)
+    {
+        if (il2cpp == null || literals == null) return null;
+        var image = workspace.Read(() => il2cpp.ImageOf(workspace.Get(assembly)));
+        return image?.Dump == null ? null : Il2CppCapa.Survey(workspace, image, literals, ct);
     }
 
     private static FeatureReport Filter(FeatureReport report, string? category) =>

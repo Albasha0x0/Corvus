@@ -41,6 +41,15 @@ public sealed record CapaRuleMatch(string Name, string? Namespace, IReadOnlyList
 public sealed record CapaResult(string State, string? Checker, bool Tested, IReadOnlyList<CapaRuleMatch> Rules, string? Note);
 
 /// <summary>
+/// survey_features' capa capabilities of an Il2Cpp game binary: capa's state (as <see cref="CapaResult"/>), the version
+/// that ran, each rule matched at a function, and notes naming what was not read.
+/// </summary>
+public sealed record CapaCapabilities(string State, string? Checker, bool Tested, IReadOnlyList<CapaCapability> Rules, IReadOnlyList<string> Notes);
+
+/// <summary>A capa rule's name and namespace, the functions it matched and the first of them as "VA Ns.Type::Method".</summary>
+public sealed record CapaCapability(string Name, string? Namespace, int Matches, IReadOnlyList<string> Methods);
+
+/// <summary>
 /// capa's view of Il2Cpp game code: each function's direct calls to methods the metadata names, written as the .NET
 /// features capa's dnfile extractor gives a call (api, or property for an accessor; class and namespace), in capa's
 /// freeze file (format version 3, static), so capa's .NET rules match native code. Indirect and virtual calls are
@@ -317,6 +326,70 @@ public static class Il2CppCapa
             tested ? null : Untested($"{checker} ran"));
     }
 
+    private const int MaxMethodsPerRule = 5;
+
+    /// <summary>
+    /// capa's capabilities of the game binary beside the dump of <paramref name="image"/>: functions named by script.json,
+    /// else by the dummy methods. Calls are read under the workspace's read lock and capa runs after it. Unavailable when
+    /// capa is not set up; unknown, with the reason, when the binary is not found or not readable.
+    /// </summary>
+    public static CapaCapabilities Survey(Core.AssemblyWorkspace workspace, Il2CppNavigator.Image image, Il2CppStringService strings, CancellationToken ct)
+    {
+        if (image.Dump?.Files.GameAssembly is not { } path)
+            return new("unknown", null, false, [], ["the game binary was not found beside the dump; capa reads its code"]);
+        var probe = Native.Providers.ExternalTools.Probe(Native.Providers.ExternalTools.Capa);
+        if (!probe.Usable) return new("unavailable", null, false, [], [$"capa {probe.Problem}; {probe.Remediation}"]);
+        INativeImage binary;
+        try { binary = NativeImageLoader.Open(path); }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException or ArgumentException or Core.ToolError)
+        {
+            return new("unknown", null, false, [], [$"{Path.GetFileName(path)}: not a readable native image ({ex.Message})"]);
+        }
+        var notes = new List<string>
+        {
+            "direct calls only: indirect and virtual calls are not followed",
+            "one basic block per function: rules that need several blocks or a loop do not match",
+        };
+        var dump = image.Dump!;
+        var (features, labels) = workspace.Read(() =>
+        {
+            var script = image.Script;
+            IReadOnlyList<Il2CppCallee> Names(uint rva)
+            {
+                var list = new List<Il2CppCallee>();
+                if (script != null)
+                {
+                    var (first, count) = script.MethodRange(rva);
+                    for (int e = first; e < first + count; e++)
+                        if (FromScriptName(script.MethodTypeName(e), script.MethodShortName(e)) is { } c && !list.Contains(c)) list.Add(c);
+                }
+                if (list.Count == 0)
+                    foreach (var m in image.MethodsAt(rva))
+                        if (FromMethod(m.Method) is var c && !list.Contains(c)) list.Add(c);
+                return list;
+            }
+            Func<uint, IReadOnlyList<string>>? texts = null;
+            try
+            {
+                if (dump.Files.HasLiterals && dump.References != null)
+                    texts = rva => [.. strings.LiteralsUsedBy(dump, rva).Select(l => dump.Values[l.Literal])];
+                else notes.Add($"string literals are not read: {dump.ReferenceProblem ?? "the dump lists none"}");
+            }
+            catch (Core.ToolError ex) { notes.Add($"string literals are not read: {ex.Message}"); }
+            var read = Read(binary, image.Starts, Names, texts, ct);
+            var named = read.Functions.ToDictionary(f => f.Rva, f => Names(f.Rva) is { Count: > 0 } n
+                ? $"{n[0].Api}{(n.Count > 1 ? $" (+{n.Count - 1} sharing its code)" : "")}" : "an unnamed function");
+            return (read, named);
+        });
+        if (features.Ambiguous > 0) notes.Add($"{features.Ambiguous} of {features.Calls} calls reach code several methods share and are left out");
+        if (features.Unnamed > 0) notes.Add($"{features.Unnamed} of {features.Calls} calls reach functions no method names");
+        var result = Match(Freeze(binary, features, path), ct);
+        if (result.Note != null) notes.Add(result.Note);
+        var rules = result.Rules.Select(r => new CapaCapability(r.Name, r.Namespace, r.Addresses.Count, [.. r.Addresses.Take(MaxMethodsPerRule)
+            .Select(va => $"0x{va:X} {(va >= binary.ImageBase && labels.TryGetValue((uint)(va - binary.ImageBase), out var label) ? label : "a function")}")])).ToList();
+        return new(result.State, result.Checker, result.Tested, rules, notes);
+    }
+
     private static string LastLine(string text) =>
         text.ReplaceLineEndings("\n").Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).LastOrDefault() is { } line
             ? line[..Math.Min(line.Length, 500)] : "no message";
@@ -343,12 +416,13 @@ public static class Il2CppCapa
     };
 
     /// <summary>
-    /// The method of an Il2CppDumper name split at "$$" ("Ns.Type&lt;int&gt;", "Method") in .NET form ("Ns", "Type`1",
-    /// "Method"); null when either part is empty.
+    /// The method of an Il2CppDumper name split at "$$" ("Ns.Type&lt;int&gt;", "Method&lt;T&gt;") in .NET form ("Ns",
+    /// "Type`1", "Method"); null when either part is empty.
     /// </summary>
     public static Il2CppCallee? FromScriptName(string type, string member)
     {
         if (type.Length == 0 || member.Length == 0) return null;
+        member = Il2CppNames.StripArgs(member);
         var plain = new StringBuilder();
         int depth = 0, arity = 0;
         foreach (char ch in type)

@@ -574,7 +574,7 @@ Structured output: `path`, `size`, `type`, `sha256`, `container`, `view`, `views
 
 **Survey features** (read-only, idempotent)
 
-Rules over API calls, P/Invokes and strings (network, execution, registry, persistence, collection, system changes, code loading, cross-process, crypto); category= adds evidence. Native: imports, call arguments, strings, sections, RTTI. Apps: MASVS findings (WebView, TLS, pinning, root checks, code loading, weak crypto, keys) by method offset.
+Rules over API calls, P/Invokes and strings (network, execution, registry, persistence, collection, system changes, code loading, cross-process, crypto); category= adds evidence. Native: imports, call arguments, strings, sections, RTTI. Apps: MASVS findings (WebView, TLS, pinning, root checks, code loading, weak crypto, keys) by method offset. Il2Cpp: capa rule matches over the game binary's direct calls (category capa, CORVUS_CAPA).
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
