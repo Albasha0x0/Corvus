@@ -1,6 +1,5 @@
 using System.ComponentModel;
 using System.Globalization;
-using System.Text.RegularExpressions;
 using Corvus.Core;
 using Corvus.Core.Mobile;
 
@@ -158,14 +157,15 @@ public sealed class DexService
         lock (_lock) return [.. _cache.Select(n => n.Index)];
     }
 
-    private static Regex? Pattern(string? query)
+    /// <summary>
+    /// A wildcard (* ?) or substring test, case-insensitive, without a regex (a NonBacktracking automaton refuses a long
+    /// query); null for no query.
+    /// </summary>
+    private static Func<string, bool>? Pattern(string? query)
     {
         if (query is not { Length: > 0 }) return null;
         var q = query.Trim();
-        var body = q.Contains('*') || q.Contains('?')
-            ? "^" + Regex.Escape(q).Replace(@"\*", ".*", StringComparison.Ordinal).Replace(@"\?", ".", StringComparison.Ordinal) + "$"
-            : Regex.Escape(q);
-        return new Regex(body, RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.NonBacktracking);
+        return Wildcard.IsPattern(q) ? s => Wildcard.Matches(s, q) : s => s.Contains(q, StringComparison.OrdinalIgnoreCase);
     }
 
     public DexClassList ListClasses(string path, string? query, string? package, int offset, int limit, CancellationToken ct, string? mapping = null)
@@ -176,8 +176,8 @@ public sealed class DexService
         var prefix = package?.Trim().Replace('.', '/').Trim('/') is { Length: > 0 } p ? "L" + p + "/" : null;
         var rows = index.Classes.Values
             .Where(e => prefix == null || e.Class.Descriptor.StartsWith(prefix, StringComparison.Ordinal) || names?.Descriptor(e.Class.Descriptor)?.StartsWith(prefix, StringComparison.Ordinal) == true)
-            .Where(e => pattern == null || pattern.IsMatch(DexFile.JavaName(e.Class.Descriptor)) || pattern.IsMatch(e.Class.Descriptor)
-                        || names?.Display(e.Class.Descriptor) is { } original && pattern.IsMatch(original))
+            .Where(e => pattern == null || pattern(DexFile.JavaName(e.Class.Descriptor)) || pattern(e.Class.Descriptor)
+                        || names?.Display(e.Class.Descriptor) is { } original && pattern(original))
             .OrderBy(e => e.Class.Descriptor, StringComparer.Ordinal).ToList();
         limit = Math.Clamp(limit, 1, 5_000);
         offset = Math.Max(0, offset);
@@ -268,7 +268,7 @@ public sealed class DexService
     {
         var index = Index(path, ct);
         var names = Names(index, mapping, ct);
-        bool Original(string id) => names?.Display(id) is { } o && Pattern(query)!.IsMatch(o);
+        bool Original(string id) => names?.Display(id) is { } o && Pattern(query)!(o);
         var pattern = Pattern(query) ?? throw new ToolError(ErrorCode.InvalidArgument, "query is empty.");
         index.EnsureCode(ct);
         var hits = new List<DexHit>();
@@ -282,20 +282,20 @@ public sealed class DexService
                 foreach (var r in index.Refs.Where(r => r.Kind == DexRefKind.String))
                 {
                     var text = index.KeyText(r.Target);
-                    if (!pattern.IsMatch(text)) continue;
+                    if (!pattern(text)) continue;
                     used.Add(text);
                     if (hits.Count < MaxHits) hits.Add(new("string", text, index.KeyText(r.From), r.Offset, Op(r.Opcode), null));
                 }
-                int poolOnly = index.Files.Sum(f => Enumerable.Range(0, f.StringCount).Select(f.String).Count(s => pattern.IsMatch(s) && !used.Contains(s)));
+                int poolOnly = index.Files.Sum(f => Enumerable.Range(0, f.StringCount).Select(f.String).Count(s => pattern(s) && !used.Contains(s)));
                 if (poolOnly > 0) notes.Add($"{poolOnly} more matching string(s) are in the pools but not loaded by code (names, descriptors, annotation values).");
                 break;
             case "type" or "class":
-                foreach (var c in index.Classes.Values.Where(c => pattern.IsMatch(c.Class.Descriptor) || pattern.IsMatch(DexFile.JavaName(c.Class.Descriptor)) || Original(c.Class.Descriptor)))
+                foreach (var c in index.Classes.Values.Where(c => pattern(c.Class.Descriptor) || pattern(DexFile.JavaName(c.Class.Descriptor)) || Original(c.Class.Descriptor)))
                     hits.Add(new("class", c.Class.Descriptor, null, null, null, null));
                 foreach (var r in index.Refs.Where(r => r.Kind == DexRefKind.Type))
                 {
                     var t = index.KeyText(r.Target);
-                    if (hits.Count < MaxHits && (pattern.IsMatch(t) || pattern.IsMatch(DexFile.JavaName(t)) || Original(t))) hits.Add(new("type", t, index.KeyText(r.From), r.Offset, Op(r.Opcode), null));
+                    if (hits.Count < MaxHits && (pattern(t) || pattern(DexFile.JavaName(t)) || Original(t))) hits.Add(new("type", t, index.KeyText(r.From), r.Offset, Op(r.Opcode), null));
                 }
                 break;
             case "method" or "field":
@@ -309,7 +309,7 @@ public sealed class DexService
                     var arrow = d.IndexOf("->", StringComparison.Ordinal);
                     var name = d[(arrow + 2)..];
                     name = name[..name.IndexOfAny(['(', ':'])];
-                    if (pattern.IsMatch(name) || pattern.IsMatch(d) || Original(d))
+                    if (pattern(name) || pattern(d) || Original(d))
                         hits.Add(new(method ? "method" : "field", d, null, null, null, uses.GetValueOrDefault(d)));
                 }
                 hits.Sort((a, b) => string.CompareOrdinal(a.Value, b.Value));
@@ -327,7 +327,7 @@ public sealed class DexService
                     ct.ThrowIfCancellationRequested();
                     if (m.Encoded.CodeOffset == 0 || m.File.Code(m.Encoded.CodeOffset) is not { } code) continue;
                     foreach (var i in Dalvik.Decode(code.Instructions))
-                        if (!i.IsPayload && (i.Name.Equals(query.Trim(), StringComparison.OrdinalIgnoreCase) || pattern.IsMatch(i.Name)) && hits.Count < MaxHits)
+                        if (!i.IsPayload && (i.Name.Equals(query.Trim(), StringComparison.OrdinalIgnoreCase) || pattern(i.Name)) && hits.Count < MaxHits)
                             hits.Add(new("opcode", i.Name, m.Descriptor, i.Offset, i.Name, null));
                 }
                 break;

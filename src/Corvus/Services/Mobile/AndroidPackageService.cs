@@ -1,6 +1,5 @@
 using System.ComponentModel;
 using System.Text;
-using System.Text.RegularExpressions;
 using Corvus.Core;
 using Corvus.Core.Mobile;
 
@@ -54,10 +53,10 @@ public sealed class AndroidPackageService(JavaDotNetMap? dotnet = null)
         var table = p.Resources ?? throw new ToolError(ErrorCode.NotFound, $"{p.Path} has no resource table (resources.arsc / resources.pb).");
         var all = table.Rows.ToList();
         var types = all.GroupBy(r => r.Type).OrderBy(g => g.Key, StringComparer.Ordinal).ToDictionary(g => g.Key, g => g.Count());
-        var namePattern = name is { Length: > 0 } ? Wildcard(name) : null;
+        var namePattern = name is { Length: > 0 } ? name.Trim() : null;
         string? wanted = config?.Trim() is { Length: > 0 } c ? c.Equals("default", StringComparison.OrdinalIgnoreCase) ? "" : c : null;
         var rows = all.Where(r => (type is not { Length: > 0 } || r.Type.Equals(type.Trim().TrimStart('@'), StringComparison.Ordinal))
-                                  && (namePattern == null || namePattern.IsMatch(r.Name))
+                                  && (namePattern == null || Wildcard.Matches(r.Name, namePattern))
                                   && (wanted == null || r.Config.Equals(wanted, StringComparison.OrdinalIgnoreCase)))
             .OrderBy(r => r.Id).ThenBy(r => r.Config, StringComparer.Ordinal).ToList();
         limit = Math.Clamp(limit, 1, 5_000);
@@ -69,10 +68,6 @@ public sealed class AndroidPackageService(JavaDotNetMap? dotnet = null)
 
     /// <summary>Longer values (strings, arrays) are cut in a list; get_android_resource gives them whole.</summary>
     public const int MaxValueChars = 200;
-
-    private static Regex Wildcard(string pattern) =>
-        new("^" + Regex.Escape(pattern.Trim()).Replace(@"\*", ".*", StringComparison.Ordinal).Replace(@"\?", ".", StringComparison.Ordinal) + "$",
-            RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.NonBacktracking);
 
     /// <summary>A file entry (binary XML decoded) or a resource's values; outputPath writes the entry's bytes.</summary>
     public AndroidResourceRead Resource(string path, string name, string? outputPath, bool overwrite)

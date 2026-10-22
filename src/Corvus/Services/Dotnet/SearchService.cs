@@ -340,11 +340,11 @@ public sealed class SearchService(ServerOptions? options = null)
         return list;
     }
 
+    // Without a regex: a NonBacktracking automaton refuses a long pattern at construction.
     private static Func<string, bool> Glob(string glob)
     {
-        var re = new Regex("^" + Regex.Escape(glob.Trim('"')).Replace("\\*", ".*").Replace("\\?", ".") + "$",
-            RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Singleline | RegexOptions.NonBacktracking);
-        return s => re.IsMatch(s);
+        var pattern = glob.Trim('"');
+        return s => Wildcard.Matches(s, pattern);
     }
 
     /// <summary>Text forms an operand pattern is tested against.</summary>
