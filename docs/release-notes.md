@@ -76,8 +76,8 @@
 - **Child processes:** `live_session childNames` alone turns following on and holds matching children at their start
   (`["*"]` holds every child); `action=children` lists them as process rows with a state, together with processes that
   name the program as their parent without passing a hold (a browser process its runtime starts for it, WebView2 for
-  example), and `action=attach_child` / `release_child` open or release one. Verified on Windows 11 x64 and Linux x64
-  (fork and exec, `posix_spawn`, `/proc/self/exe`).
+  example), and `action=attach_child` / `release_child` open or release one. Verified on Windows 11 x64 and Ubuntu
+  24.04 x64 (fork and exec, `posix_spawn`, `/proc/self/exe`).
   [957d6fb1](https://github.com/Albasha0x0/Corvus/commit/957d6fb1) [49e33e73](https://github.com/Albasha0x0/Corvus/commit/49e33e73) [c6efa8b5](https://github.com/Albasha0x0/Corvus/commit/c6efa8b5)
   [72c84bc9](https://github.com/Albasha0x0/Corvus/commit/72c84bc9) [11b64a3d](https://github.com/Albasha0x0/Corvus/commit/11b64a3d)
 - **Child processes on Linux:** a child session closed before its first continue leaves the child held again, as on
@@ -137,7 +137,7 @@
   [ce09a2a9](https://github.com/Albasha0x0/Corvus/commit/ce09a2a9)
 - **Program allow list:** `--live-allow <program or folder>` limits spawn, attach and `live_console`, compared by
   final path, a link whose target passes through another link included (macOS `/var`). Verified on Windows 11 x64 and
-  macOS.
+  the macos-latest CI image (macOS ARM64).
   [e63e805a](https://github.com/Albasha0x0/Corvus/commit/e63e805a) [e27efe55](https://github.com/Albasha0x0/Corvus/commit/e27efe55) [3a1b279e](https://github.com/Albasha0x0/Corvus/commit/3a1b279e)
 - **Pinned Frida:** `--live-install-frida` (off by default) installs Frida 17.24.3 from hash-checked wheels into a private
   Python environment; `server_status` shows the version against the tested range 17.24.3 to 17.x. [0700c27c](https://github.com/Albasha0x0/Corvus/commit/0700c27c)
@@ -283,7 +283,7 @@
   the class analysis; IDA's extern segment is left out of function lists; Ghidra opens files whose names it rejects.
   An open reports "start" before the engine's open call returns; a worker that exits or crashes is named with its exit
   code and stderr tail on every path that sees it (macOS and Linux included); a timed-out request names its last stage
-  and how long the worker had been quiet. Any Hex-Rays failure names `engine=ghidra` and `disassemble` as the next
+  and how long the worker had been quiet; any Hex-Rays failure names `engine=ghidra` and `disassemble` as the next
   step, and a crash of Ghidra's decompiler process names `engine=ida` and `disassemble`. Verified on IDA 9.3 and
   Ghidra 12.1.4 on Windows 11 x64.
   [ca4c91ec](https://github.com/Albasha0x0/Corvus/commit/ca4c91ec) [6264eb3e](https://github.com/Albasha0x0/Corvus/commit/6264eb3e) [2aebf983](https://github.com/Albasha0x0/Corvus/commit/2aebf983)
@@ -318,8 +318,10 @@
   been seen. Verified on the macos-latest and ubuntu-latest CI images. [ccc4abd8](https://github.com/Albasha0x0/Corvus/commit/ccc4abd8)
 - **get_pe_info:** the PDB line reports the finished automatic search (waiting up to 30 s, else "PDB search pending").
   [637cb40e](https://github.com/Albasha0x0/Corvus/commit/637cb40e)
-- **Workspace shutdown:** waits up to 10 s for calls holding or queued for the workspace lock before disposing it.
-  [c79fabb0](https://github.com/Albasha0x0/Corvus/commit/c79fabb0)
+- **Workspace shutdown:** waits up to 10 s for calls holding or queued for the workspace lock, and a call still in the
+  lock after that keeps the assemblies until it leaves, so closing a workspace while background indexing reads an
+  assembly no longer ends the server with an access violation. Verified on Windows 11 x64.
+  [c79fabb0](https://github.com/Albasha0x0/Corvus/commit/c79fabb0) [6ab1239e](https://github.com/Albasha0x0/Corvus/commit/6ab1239e)
 - **Pattern matching:** the built-in patterns (endpoint scans, package review rules, script tokens, stack text formats,
   values and member names, documents and databases, feature rules, package and class wildcards) have no match timeout,
   so a loaded machine no longer loses rows. A pattern from a caller or an analyzed script runs without backtracking
@@ -368,18 +370,16 @@
 - **Results:** a list whose rows sit outside `items` (a timeline report) is no longer counted twice and cut short, and
   a cut record names the shortened string in its warning.
   [6805b45a](https://github.com/Albasha0x0/Corvus/commit/6805b45a) [53b82556](https://github.com/Albasha0x0/Corvus/commit/53b82556)
-- **Session lifecycle:** status and the exit event name why a session closed (deadline, close, server exit), from the
+- **Session close:** status and the exit event name why a session closed (deadline, close, server exit) from the
   moment the close starts; a program whose exit does not finish within 10 s is ended with the exit code it chose, also
   for 20 s after a close; a close posts every awaited reply before the unload and does not unload from an exiting
-  program; the last watch batches and the exit status are sent when the program starts to exit; a fatal exception
-  sends the calls recorded before it; a start that fails after the program runs ends the program; a crash whose
-  exception event was lost is recorded from the exit code; the exit event is recorded as the state turns exited or
-  failed, so a caller that waits for the state finds it, and two closes that meet record one close event. Verified
-  with Frida 17.24.3 on Windows 11 x64.
-  [25a8c92e](https://github.com/Albasha0x0/Corvus/commit/25a8c92e) [4de31e6c](https://github.com/Albasha0x0/Corvus/commit/4de31e6c) [0b647ef4](https://github.com/Albasha0x0/Corvus/commit/0b647ef4)
-  [22cb80df](https://github.com/Albasha0x0/Corvus/commit/22cb80df) [3c33a59d](https://github.com/Albasha0x0/Corvus/commit/3c33a59d) [d6887793](https://github.com/Albasha0x0/Corvus/commit/d6887793)
-  [5568313c](https://github.com/Albasha0x0/Corvus/commit/5568313c) [34555623](https://github.com/Albasha0x0/Corvus/commit/34555623) [fcef82ca](https://github.com/Albasha0x0/Corvus/commit/fcef82ca)
-  [9ca10c3f](https://github.com/Albasha0x0/Corvus/commit/9ca10c3f) [a8743b28](https://github.com/Albasha0x0/Corvus/commit/a8743b28)
+  program; and two closes that meet record one close event. Verified with Frida 17.24.3 on Windows 11 x64.
+  [25a8c92e](https://github.com/Albasha0x0/Corvus/commit/25a8c92e) [4de31e6c](https://github.com/Albasha0x0/Corvus/commit/4de31e6c) [0b647ef4](https://github.com/Albasha0x0/Corvus/commit/0b647ef4) [22cb80df](https://github.com/Albasha0x0/Corvus/commit/22cb80df) [3c33a59d](https://github.com/Albasha0x0/Corvus/commit/3c33a59d) [a8743b28](https://github.com/Albasha0x0/Corvus/commit/a8743b28)
+- **Session exit records:** the last watch batches and the exit status are sent when the program starts to exit; a
+  fatal exception sends the calls recorded before it; a start that fails after the program runs ends the program; a
+  crash whose exception event was lost is recorded from the exit code; and the exit event is recorded as the state
+  turns exited or failed, so a caller that waits for the state finds it. Verified with Frida 17.24.3 on Windows 11
+  x64. [d6887793](https://github.com/Albasha0x0/Corvus/commit/d6887793) [5568313c](https://github.com/Albasha0x0/Corvus/commit/5568313c) [34555623](https://github.com/Albasha0x0/Corvus/commit/34555623) [fcef82ca](https://github.com/Albasha0x0/Corvus/commit/fcef82ca) [9ca10c3f](https://github.com/Albasha0x0/Corvus/commit/9ca10c3f)
 - **Close during an exit:** a close that lets held threads go waits up to 1 s for the program to begin its exit and
   detaches the agent's thread and module observers first, so a close during the exit no longer leaves the exit stuck or
   crashes the program in the script runtime; the wait comes only after a resume let threads go from their stops, and a
@@ -423,6 +423,10 @@
 - **server_status:** fits its report budget again with every external tool configured. A tool set in its variable is
   named by that variable, the workers section lists at most 3 processes per program, and a fix already given in
   unavailableTools is not repeated. [f6085507](https://github.com/Albasha0x0/Corvus/commit/f6085507)
+- **server_status wait:** status waits at most 5 s for the engine and external program checks; a version check still
+  running reports the program usable with its version unknown, an engine check still running keeps the engine's tools
+  listed, and the next call reads the finished result. Verified on Windows 11 x64, including a contract sweep
+  limited to two cores. [2efbd420](https://github.com/Albasha0x0/Corvus/commit/2efbd420)
 
 ## 2.4.0
 
