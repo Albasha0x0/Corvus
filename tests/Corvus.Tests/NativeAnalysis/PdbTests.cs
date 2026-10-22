@@ -17,11 +17,12 @@ public class PdbTests
 
     /// <summary>
     /// A tiny x64 image: .text (entry: mov eax,1 ; ret, nop filler, mov eax,2 ; ret at +0x40 reached by nothing), .rdata
-    /// with a CodeView RSDS record naming <paramref name="pdbName"/>, .data.
+    /// with a CodeView RSDS record naming <paramref name="pdbName"/>, .data; <paramref name="x86"/> builds the same code
+    /// as an x86 image without .pdata.
     /// </summary>
-    internal static byte[] TinyImage(Guid guid, uint age, string pdbName = "tiny.pdb")
+    internal static byte[] TinyImage(Guid guid, uint age, string pdbName = "tiny.pdb", bool x86 = false)
     {
-        var b = new PeBuilder { Is64 = true, Machine = 0x8664, ImageBase = 0x140000000 };
+        var b = x86 ? new PeBuilder { Is64 = false, Machine = 0x14C, ImageBase = 0x10000000 } : new PeBuilder { Is64 = true, Machine = 0x8664, ImageBase = 0x140000000 };
         var code = new byte[0x80];
         Array.Fill(code, (byte)0x90);
         code[0] = 0xB8; code[1] = 1; code[2] = 0; code[3] = 0; code[4] = 0; code[5] = 0xC3;
@@ -43,6 +44,7 @@ public class PdbTests
         });
         b.Directories[6] = (rdata.Rva, 28);
         b.Add(".data", new byte[0x200], 0xC0000040);
+        if (x86) return b.Build();
         // .pdata for the entry function only, as an MSVC image has: the code at 0x1040 stays unreached until a PDB names it
         var pdata = b.Add(".pdata", rva => [.. BitConverter.GetBytes(text.Rva), .. BitConverter.GetBytes(text.Rva + 6), .. BitConverter.GetBytes(rva + 12), 1, 0, 0, 0]);
         b.Directories[3] = (pdata.Rva, 12);
@@ -147,6 +149,22 @@ public class PdbTests
         Assert.Equal("Bar::Foo", PdbNaming.Display("?Foo@Bar@@QEAAHH@Z"));
         // an image size cuts off names beyond the image
         Assert.Equal(2, PdbNaming.Choose(PdbFile.FromBytes(PdbBuilder.Sample().Build()), sizeOfImage: 0x2000).Count);
+    }
+
+    [Fact]
+    public async Task An_x86_public_resolves_by_its_decorated_name()
+    {
+        using var h = new Harness(x86: true);
+        var p = new PdbBuilder();
+        p.GlobalRecords.Add(PdbBuilder.Pub("_CreateFileW@28", 1, 0, true));
+        p.GlobalRecords.Add(PdbBuilder.Pub("@Fast@8", 1, 0x40, true));
+        File.WriteAllBytes(h.Dir.File("tiny.pdb"), p.Build());
+        var native = h.Env.Workspace.LoadAny(h.ImagePath).Native!;
+        var index = await h.Code.Index(native, null, default);
+        Assert.Equal("CreateFileW", index.NameAt(0x1000));
+        Assert.Equal(0x1000u, index.AddressOfName("CreateFileW"));
+        Assert.Equal(0x1000u, index.AddressOfName("_CreateFileW@28"));
+        Assert.Equal(0x1040u, index.AddressOfName("@Fast@8"));
     }
 
     [Fact]
@@ -431,13 +449,13 @@ public class PdbTests
         public readonly NativeEditService Edits;
         public readonly string ImagePath;
 
-        public Harness()
+        public Harness(bool x86 = false)
         {
             Code = new NativeCodeService(Env.Workspace, Env.Options, null, new Corvus.Native.Annotations.AnnotationStore(Dir.File("ann")));
             Pdbs = new PdbService(Code);
             Edits = new NativeEditService(Env.Workspace, Code);
             ImagePath = Dir.File("tiny.dll");
-            File.WriteAllBytes(ImagePath, TinyImage(SampleGuid, 3));
+            File.WriteAllBytes(ImagePath, TinyImage(SampleGuid, 3, x86: x86));
         }
 
         public void Dispose() { Env.Dispose(); Dir.Dispose(); }

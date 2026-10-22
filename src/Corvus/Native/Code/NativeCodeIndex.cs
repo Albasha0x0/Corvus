@@ -625,9 +625,18 @@ public sealed partial class NativeCodeIndex : ICodeSymbols
 
     /// <summary>
     /// Every address <paramref name="name"/> is in effect at: names set by a source (user, pdb, il2cpp, ida, ghidra), and the
-    /// discovered names (exports, import thunks) of functions no source renamed.
+    /// discovered names (exports, import thunks) of functions no source renamed. A C-decorated name no name matches
+    /// resolves as the undecorated name a PDB public shows ("_f@8" -> "f").
     /// </summary>
     public IReadOnlyList<AddressCandidate> AddressesOfName(string name)
+    {
+        var exact = AddressesOfExactName(name);
+        if (exact.Count == 0 && name.Length > 1 && name[0] != '?' && Corvus.Native.Pdb.PdbNaming.Display(name) is var plain && plain != name)
+            return AddressesOfExactName(plain);
+        return exact;
+    }
+
+    private List<AddressCandidate> AddressesOfExactName(string name)
     {
         var found = _sourced.AddressesOf(name).Select(c => new AddressCandidate(c.Rva, c.Source.Id())).ToList();
         foreach (var rva in _discoveredByName.GetValueOrDefault(name) ?? [])
