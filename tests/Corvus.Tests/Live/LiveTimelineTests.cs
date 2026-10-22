@@ -50,7 +50,7 @@ public sealed class LiveTimelineTests : IDisposable
     public LiveTimelineTests()
     {
         _backend = new ScriptedLiveBackend(Sqlite, 0x7ff6_1000_0000, 0x200000);
-        _service = new LiveSessionService(_workspace, new NativeCodeService(_workspace, new ServerOptions())) { Backend = _backend, ActivitySource = _source };
+        _service = new LiveSessionService(_workspace, new NativeCodeService(_workspace, SharedCodeIndex.Options())) { Backend = _backend, ActivitySource = _source };
         _tools = new LiveSessionTools(new ServerOptions { AllowLive = true, AllowLiveAttach = true }, _service);
     }
 
@@ -255,7 +255,7 @@ public sealed class LiveTimelineTests : IDisposable
     public async Task A_platform_without_a_reader_answers_provider_unavailable()
     {
         using var workspace = new AssemblyWorkspace();
-        using var service = new LiveSessionService(workspace, new NativeCodeService(workspace, new ServerOptions()))
+        using var service = new LiveSessionService(workspace, new NativeCodeService(workspace, SharedCodeIndex.Options()))
         {
             Backend = new ScriptedLiveBackend(Sqlite, 0x7ff6_1000_0000, 0x200000), ActivitySource = new ScriptedActivitySource { Missing = "no reader here" },
         };

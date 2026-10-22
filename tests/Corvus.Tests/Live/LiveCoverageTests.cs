@@ -18,7 +18,7 @@ public sealed class LiveCoverageTests : IDisposable
     public LiveCoverageTests()
     {
         _backend = new ScriptedLiveBackend(Sqlite, Base, 0x200000);
-        _service = new LiveSessionService(_workspace, new NativeCodeService(_workspace, new ServerOptions())) { Backend = _backend };
+        _service = new LiveSessionService(_workspace, new NativeCodeService(_workspace, SharedCodeIndex.Options())) { Backend = _backend };
         _tools = new LiveSessionTools(new ServerOptions { AllowLive = true, AllowLiveAttach = true }, _service);
     }
 
@@ -126,7 +126,7 @@ public sealed class LiveCoverageTests : IDisposable
     public async Task A_stop_point_inside_a_function_start_and_coverage_of_that_function_exclude_each_other()
     {
         await _tools.LiveSession("attach", program: "4242");
-        var index = new NativeCodeService(_workspace, new ServerOptions()).IndexOfOriginal(_workspace.Natives.Single(), default);
+        var index = new NativeCodeService(_workspace, SharedCodeIndex.Options()).IndexOfOriginal(_workspace.Natives.Single(), default);
         var rva = index.AddressOfName("sqlite3_complete")!.Value;
         var second = index.Disassemble(rva, 2)[1].Rva - rva;
         Assert.True(second < 16);

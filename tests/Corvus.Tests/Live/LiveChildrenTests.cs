@@ -17,7 +17,7 @@ public sealed class LiveChildrenTests : IDisposable
     public LiveChildrenTests()
     {
         _backend = new ScriptedLiveBackend(Sqlite, Base, 0x200000);
-        _service = new LiveSessionService(_workspace, new NativeCodeService(_workspace, new ServerOptions())) { Backend = _backend };
+        _service = new LiveSessionService(_workspace, new NativeCodeService(_workspace, SharedCodeIndex.Options())) { Backend = _backend };
         _tools = new LiveSessionTools(new ServerOptions { AllowLive = true, AllowLiveSpawn = true }, _service);
     }
 
@@ -92,7 +92,7 @@ public sealed class LiveChildrenTests : IDisposable
     public async Task On_linux_the_gate_lets_the_child_go_stopped_and_the_child_session_starts_it_itself()
     {
         var backend = new ScriptedLiveBackend(Sqlite, Base, 0x200000) { Platform = "linux" };
-        using var service = new LiveSessionService(_workspace, new NativeCodeService(_workspace, new ServerOptions())) { Backend = backend };
+        using var service = new LiveSessionService(_workspace, new NativeCodeService(_workspace, SharedCodeIndex.Options())) { Backend = backend };
         var tools = new LiveSessionTools(new ServerOptions { AllowLive = true, AllowLiveSpawn = true }, service);
         await tools.LiveSession("spawn", program: Sqlite, childNames: ["*"]);
         backend.Child(backend.Worker!, 5001, "/app/child", held: true);

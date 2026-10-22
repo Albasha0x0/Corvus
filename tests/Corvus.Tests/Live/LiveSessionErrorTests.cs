@@ -15,7 +15,7 @@ public sealed class LiveSessionErrorTests : IDisposable
 
     public LiveSessionErrorTests()
     {
-        _service = new LiveSessionService(_workspace, new NativeCodeService(_workspace, new ServerOptions())) { Backend = new ScriptedLiveBackend(Sqlite, Base, 0x200000) };
+        _service = new LiveSessionService(_workspace, new NativeCodeService(_workspace, SharedCodeIndex.Options())) { Backend = new ScriptedLiveBackend(Sqlite, Base, 0x200000) };
         _tools = new LiveSessionTools(new ServerOptions { AllowLive = true, AllowLiveAttach = true, AllowLiveSpawn = true, LiveScripting = true }, _service);
     }
 
@@ -62,14 +62,14 @@ public sealed class LiveSessionErrorTests : IDisposable
     {
         foreach (var (version, warned) in new[] { ("18.0.1", true), ("17.24.3", false) })
         {
-            using var service = new LiveSessionService(_workspace, new NativeCodeService(_workspace, new ServerOptions()))
+            using var service = new LiveSessionService(_workspace, new NativeCodeService(_workspace, SharedCodeIndex.Options()))
                 { Backend = new ScriptedLiveBackend(Sqlite, Base, 0x200000) { FridaVersion = version } };
             var tools = new LiveSessionTools(new ServerOptions { AllowLiveAttach = true }, service);
             await tools.LiveSession("attach", program: "4242");
             var events = await tools.LiveEvents("live-1");
             Assert.Equal(warned, events.Contains($"Frida {version} is outside the tested range {Native.Providers.Live.FridaVersions.TestedRange}"));
         }
-        using var old = new LiveSessionService(_workspace, new NativeCodeService(_workspace, new ServerOptions()))
+        using var old = new LiveSessionService(_workspace, new NativeCodeService(_workspace, SharedCodeIndex.Options()))
             { Backend = new ScriptedLiveBackend(Sqlite, Base, 0x200000) { FridaVersion = "16.5.9" } };
         await Refused(ErrorCode.ProviderUnavailable, () => new LiveSessionTools(new ServerOptions { AllowLiveAttach = true }, old).LiveSession("attach", program: "4242"),
             "Frida 16.5.9 is older than 17.0.0");
@@ -147,7 +147,7 @@ public sealed class LiveSessionErrorTests : IDisposable
         using var observed = Child();
         using var other = Child();
         var backend = new ScriptedLiveBackend(Sqlite, Base, 0x200000) { ProcessId = observed.Id };
-        using var service = new LiveSessionService(_workspace, new NativeCodeService(_workspace, new ServerOptions())) { Backend = backend };
+        using var service = new LiveSessionService(_workspace, new NativeCodeService(_workspace, SharedCodeIndex.Options())) { Backend = backend };
         using var dumps = new MinidumpService();
         var inspect = new LiveProcessTools(new LiveProcessService(dumps), service);
         try

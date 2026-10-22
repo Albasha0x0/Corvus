@@ -25,7 +25,7 @@ public sealed class LiveJumpTests : IDisposable
         var path = Path.Combine(_dir.Path, "stubs.exe");
         File.WriteAllBytes(path, Image());
         _backend = new ScriptedLiveBackend(path, Base, 0x4000);
-        _service = new LiveSessionService(_workspace, new NativeCodeService(_workspace, new ServerOptions())) { Backend = _backend };
+        _service = new LiveSessionService(_workspace, new NativeCodeService(_workspace, SharedCodeIndex.Options())) { Backend = _backend };
         _tools = new LiveSessionTools(new ServerOptions { AllowLive = true, AllowLiveAttach = true }, _service);
     }
 

@@ -210,7 +210,7 @@ public sealed class LiveSessionTests : IDisposable
     public LiveSessionTests()
     {
         _backend = new ScriptedLiveBackend(Sqlite, Base, 0x200000);
-        _service = new LiveSessionService(_workspace, new NativeCodeService(_workspace, new ServerOptions())) { Backend = _backend };
+        _service = new LiveSessionService(_workspace, new NativeCodeService(_workspace, SharedCodeIndex.Options())) { Backend = _backend };
         _tools = new LiveSessionTools(new ServerOptions { AllowLive = true, AllowLiveAttach = true, AllowLiveSpawn = true }, _service);
     }
 
@@ -223,7 +223,7 @@ public sealed class LiveSessionTests : IDisposable
     [Fact]
     public async Task The_programs_own_module_is_found_wherever_the_backend_lists_it()
     {
-        var service = new LiveSessionService(_workspace, new NativeCodeService(_workspace, new ServerOptions())) { Backend = new ScriptedLiveBackend(Sqlite, Base, 0x200000) { MainListedLast = true } };
+        var service = new LiveSessionService(_workspace, new NativeCodeService(_workspace, SharedCodeIndex.Options())) { Backend = new ScriptedLiveBackend(Sqlite, Base, 0x200000) { MainListedLast = true } };
         var tools = new LiveSessionTools(new ServerOptions { AllowLiveSpawn = true }, service);
         await tools.LiveSession("spawn", program: Sqlite);
         Assert.Contains("e_sqlite3.dll!sqlite3_open", await tools.LiveBreak("live-1", "set", at: "sqlite3_open"));
@@ -337,7 +337,7 @@ public sealed class LiveSessionTests : IDisposable
 
         var set = await _tools.LiveBreak("live-1", "set", at: "e_sqlite3!sqlite3_open");
         var image = _workspace.Natives.Single();
-        var rva = new NativeCodeService(_workspace, new ServerOptions()).IndexOfOriginal(image, default).AddressOfName("sqlite3_open")!.Value;
+        var rva = new NativeCodeService(_workspace, SharedCodeIndex.Options()).IndexOfOriginal(image, default).AddressOfName("sqlite3_open")!.Value;
         Assert.Contains($"s1 set at 0x{Base + rva:X} e_sqlite3.dll!sqlite3_open", set);
 
         Assert.Contains("program started", await _tools.LiveBreak("live-1", "continue"));
@@ -418,7 +418,7 @@ public sealed class LiveSessionTests : IDisposable
     public async Task A_deferred_point_not_set_at_the_load_is_reported_once_and_listed_as_failed()
     {
         // the session's code service carries an Il2Cpp layer naming sqlite3_open "Game_Player__Update"; the point is given in the managed form
-        var code = new NativeCodeService(_workspace, new ServerOptions());
+        var code = new NativeCodeService(_workspace, SharedCodeIndex.Options());
         using var service = new LiveSessionService(_workspace, code) { Backend = new ScriptedLiveBackend(Sqlite, Base, 0x200000) };
         var backend = (ScriptedLiveBackend)service.Backend;
         var tools = new LiveSessionTools(new ServerOptions { AllowLive = true, AllowLiveAttach = true }, service);
@@ -456,7 +456,7 @@ public sealed class LiveSessionTests : IDisposable
     public async Task Name_plus_offset_resolves_and_a_point_inside_an_instruction_is_refused()
     {
         await _tools.LiveSession("attach", program: "4242");
-        var index = new NativeCodeService(_workspace, new ServerOptions()).IndexOfOriginal(_workspace.Natives.Single(), default);
+        var index = new NativeCodeService(_workspace, SharedCodeIndex.Options()).IndexOfOriginal(_workspace.Natives.Single(), default);
         var rva = index.AddressOfName("sqlite3_open")!.Value;
         var second = index.Disassemble(rva, 2)[1].Rva - rva;
         Assert.Contains($"set at 0x{Base + rva + second:X} e_sqlite3.dll!sqlite3_open+0x{second:X}",
@@ -480,7 +480,7 @@ public sealed class LiveSessionTests : IDisposable
         _backend.Load("old.dll", old, LibBase, 0x200000);
         var exportRva = Native.NativeImageLoader.Open(old).Exports.Single(e => e.Name == "sqlite3_close").Rva;
         await Task.Delay(100);
-        var entry = Base + new NativeCodeService(_workspace, new ServerOptions()).IndexOfOriginal(_workspace.Natives.Single(), default).AddressOfName("sqlite3_open")!.Value;
+        var entry = Base + new NativeCodeService(_workspace, SharedCodeIndex.Options()).IndexOfOriginal(_workspace.Natives.Single(), default).AddressOfName("sqlite3_open")!.Value;
         _backend.HitWith("s1", 9, 0x3e8, ulong.MaxValue, Base + 0x10, LibBase + exportRva + 2, entry, LibBase + exportRva + 2);
         var stop = await _tools.LiveBreak("live-1", wait: true, waitSeconds: 10);
         Assert.Single(Regex.Matches(stop, $@"#\d+ 0x{entry:X} "));
@@ -539,7 +539,7 @@ public sealed class LiveSessionTests : IDisposable
     public async Task A_watch_and_a_stop_point_in_the_same_prologue_are_refused_in_either_order()
     {
         await _tools.LiveSession("attach", program: "4242");
-        var index = new NativeCodeService(_workspace, new ServerOptions()).IndexOfOriginal(_workspace.Natives.Single(), default);
+        var index = new NativeCodeService(_workspace, SharedCodeIndex.Options()).IndexOfOriginal(_workspace.Natives.Single(), default);
         var rva = index.AddressOfName("sqlite3_open")!.Value;
         var second = index.Disassemble(rva, 2)[1].Rva - rva;
         await _tools.LiveBreak("live-1", "set", at: $"sqlite3_open+0x{second:X}");
@@ -556,7 +556,7 @@ public sealed class LiveSessionTests : IDisposable
     public async Task Stop_points_whose_hook_jumps_overlap_are_refused_and_a_watch_is_set_only_at_a_function_start()
     {
         await _tools.LiveSession("attach", program: "4242");
-        var index = new NativeCodeService(_workspace, new ServerOptions()).IndexOfOriginal(_workspace.Natives.Single(), default);
+        var index = new NativeCodeService(_workspace, SharedCodeIndex.Options()).IndexOfOriginal(_workspace.Natives.Single(), default);
         var f = index.Functions.Where(f => f.Size >= 64 && index.NameAt(f.Start) is not null).OrderBy(f => f.Start).First();
         var name = index.NameAt(f.Start);
         var starts = index.Disassemble(f.Start, 12).Select(l => l.Rva - f.Start).ToList();
@@ -641,7 +641,7 @@ public sealed class LiveSessionTests : IDisposable
         using var dir = new TempDir();
         using var program = Process.Start(LiveTarget.WinX64.Build(dir, "stuckexit", Source))!;
         var backend = new ScriptedLiveBackend(Sqlite, Base, 0x200000) { ProcessId = program.Id };
-        using var service = new LiveSessionService(_workspace, new NativeCodeService(_workspace, new ServerOptions())) { Backend = backend };
+        using var service = new LiveSessionService(_workspace, new NativeCodeService(_workspace, SharedCodeIndex.Options())) { Backend = backend };
         var tools = new LiveSessionTools(new ServerOptions { AllowLive = true, AllowLiveAttach = true }, service);
         var stuck = LiveSessionService.StuckExit;
         LiveSessionService.StuckExit = TimeSpan.FromSeconds(1);
@@ -678,7 +678,7 @@ public sealed class LiveSessionTests : IDisposable
         using var dir = new TempDir();
         using var program = Process.Start(LiveTarget.WinX64.Build(dir, "stuckexit", Source))!;
         var backend = new ScriptedLiveBackend(Sqlite, Base, 0x200000) { ProcessId = program.Id };
-        using var service = new LiveSessionService(_workspace, new NativeCodeService(_workspace, new ServerOptions())) { Backend = backend };
+        using var service = new LiveSessionService(_workspace, new NativeCodeService(_workspace, SharedCodeIndex.Options())) { Backend = backend };
         var tools = new LiveSessionTools(new ServerOptions { AllowLive = true, AllowLiveAttach = true }, service);
         var stuck = LiveSessionService.StuckExit;
         LiveSessionService.StuckExit = TimeSpan.FromSeconds(2);
@@ -709,7 +709,7 @@ public sealed class LiveSessionTests : IDisposable
     public async Task A_function_too_short_to_hook_is_refused_with_its_size()
     {
         await _tools.LiveSession("attach", program: "4242");
-        var index = new NativeCodeService(_workspace, new ServerOptions()).IndexOfOriginal(_workspace.Natives.Single(), default);
+        var index = new NativeCodeService(_workspace, SharedCodeIndex.Options()).IndexOfOriginal(_workspace.Natives.Single(), default);
         var shortest = index.Functions.Where(f => f.Size is > 0 and < 16).OrderBy(f => f.Start).First();
         _backend.Unhookable.Add(Base + shortest.Start);
         var refused = await Assert.ThrowsAsync<ToolError>(() => _tools.LiveBreak("live-1", "set", at: $"0x{Base + shortest.Start:X}"));
@@ -728,7 +728,7 @@ public sealed class LiveSessionTests : IDisposable
         using var child = Process.Start(new ProcessStartInfo(Path.Combine(Environment.SystemDirectory, "findstr.exe"), "x")
             { RedirectStandardInput = true, UseShellExecute = false, CreateNoWindow = true })!;
         var backend = new ScriptedLiveBackend(Sqlite, Base, 0x200000) { ProcessId = child.Id };
-        using var service = new LiveSessionService(_workspace, new NativeCodeService(_workspace, new ServerOptions())) { Backend = backend };
+        using var service = new LiveSessionService(_workspace, new NativeCodeService(_workspace, SharedCodeIndex.Options())) { Backend = backend };
         var tools = new LiveSessionTools(new ServerOptions { AllowLive = true, AllowLiveAttach = true }, service);
         await tools.LiveSession("attach", program: child.Id.ToString());
         // The program is still running, as one whose exit has begun but whose exit code is not yet set.
@@ -750,7 +750,7 @@ public sealed class LiveSessionTests : IDisposable
         using var child = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(Path.Combine(Environment.SystemDirectory, "findstr.exe"), "x")
             { RedirectStandardInput = true, UseShellExecute = false, CreateNoWindow = true })!;
         var backend = new ScriptedLiveBackend(Sqlite, Base, 0x200000) { ProcessId = child.Id };
-        using var service = new LiveSessionService(_workspace, new NativeCodeService(_workspace, new ServerOptions())) { Backend = backend };
+        using var service = new LiveSessionService(_workspace, new NativeCodeService(_workspace, SharedCodeIndex.Options())) { Backend = backend };
         var tools = new LiveSessionTools(new ServerOptions { AllowLive = true, AllowLiveAttach = true }, service);
         await tools.LiveSession("attach", program: child.Id.ToString());
         child.StandardInput.Close(); // findstr exits 1: no line matched
@@ -766,11 +766,11 @@ public sealed class LiveSessionTests : IDisposable
         var lib = NativeFormats.NativeFixtures.NativeAotLib("linux-x64", "libSystem.Native.so");
         const ulong ElfBase = 0x7f00_0000_0000, Sp = 0x7ffc_0000_1000;
         var backend = new ScriptedLiveBackend(lib, ElfBase, Corvus.Native.NativeImageLoader.Open(lib).SizeOfImage);
-        using var service = new LiveSessionService(_workspace, new NativeCodeService(_workspace, new ServerOptions())) { Backend = backend };
+        using var service = new LiveSessionService(_workspace, new NativeCodeService(_workspace, SharedCodeIndex.Options())) { Backend = backend };
         var tools = new LiveSessionTools(new ServerOptions { AllowLive = true, AllowLiveAttach = true }, service);
         await tools.LiveSession("attach", program: "4242");
         await tools.LiveBreak("live-1", "set", at: "SystemNative_FStat");
-        var index = new NativeCodeService(_workspace, new ServerOptions()).IndexOfOriginal(_workspace.Natives.Single(), default);
+        var index = new NativeCodeService(_workspace, SharedCodeIndex.Options()).IndexOfOriginal(_workspace.Natives.Single(), default);
         ulong caller = ElfBase + index.AddressOfName("SystemNative_StrErrorR")!.Value + 0x10;
         // at the function's start the return address is at the stack pointer; the backend's walk put the word there twice
         backend.HitWithStack("s1", 77, Sp, [.. BitConverter.GetBytes(caller), .. new byte[8]], caller, caller);
@@ -796,7 +796,7 @@ public sealed class LiveSessionTests : IDisposable
         using var child = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(Path.Combine(Environment.SystemDirectory, "cmd.exe"),
             "/c findstr x & exit /b -1073741819") { RedirectStandardInput = true, UseShellExecute = false, CreateNoWindow = true })!;
         var backend = new ScriptedLiveBackend(Sqlite, Base, 0x200000) { ProcessId = child.Id };
-        using var service = new LiveSessionService(_workspace, new NativeCodeService(_workspace, new ServerOptions())) { Backend = backend };
+        using var service = new LiveSessionService(_workspace, new NativeCodeService(_workspace, SharedCodeIndex.Options())) { Backend = backend };
         var tools = new LiveSessionTools(new ServerOptions { AllowLive = true, AllowLiveAttach = true }, service);
         await tools.LiveSession("attach", program: child.Id.ToString());
         child.StandardInput.Close();
@@ -877,7 +877,7 @@ public sealed class LiveSessionTests : IDisposable
         Assert.Contains("w1 set at 0x", set);
         Assert.Contains("e_sqlite3.dll!sqlite3_open: sqlite3_open(a0, a1) (raw values); at most 10,000 calls/s recorded", set);
         Assert.Equal(["hex", "hex"], _backend.WatchedKinds["w1"]);
-        var rva = new NativeCodeService(_workspace, new ServerOptions()).IndexOfOriginal(_workspace.Natives.Single(), default).AddressOfName("sqlite3_open")!.Value;
+        var rva = new NativeCodeService(_workspace, SharedCodeIndex.Options()).IndexOfOriginal(_workspace.Natives.Single(), default).AddressOfName("sqlite3_open")!.Value;
         _backend.Calls("w1", Enumerable.Range(0, 3).Select(i => (5L, 1000L + i * 10, Base + rva + 0x4, new string?[] { $"0x{0x100 + i:x}", "0x0" }, "0x0")), skipped: 7);
         for (int i = 0; i < 50 && !(await _tools.LiveWatchCalls("live-1")).Contains("3 call(s)"); i++) await Task.Delay(20);
         var list = await _tools.LiveWatchCalls("live-1");
@@ -947,7 +947,7 @@ public sealed class LiveSessionTests : IDisposable
     {
         var lib = NativeFormats.NativeFixtures.NativeAotLib("linux-x64", "libSystem.Native.so");
         var native = _workspace.LoadAny(lib).Native!;
-        var code = new NativeCodeService(_workspace, new ServerOptions());
+        var code = new NativeCodeService(_workspace, SharedCodeIndex.Options());
         await new PdbService(code).Load(native, lib + ".dbg", false, null, false, TimeSpan.FromSeconds(30), 1 << 30, default);
         var index = await code.Index(native, null, default);
         var fstat = index.AddressOfName("SystemNative_FStat")!.Value;
@@ -974,7 +974,7 @@ public sealed class LiveSessionTests : IDisposable
         var dumps = new MinidumpService();
         // findstr runs as the machine's own architecture.
         var arch = System.Runtime.InteropServices.RuntimeInformation.OSArchitecture == System.Runtime.InteropServices.Architecture.Arm64 ? "arm64" : "x64";
-        var service = new LiveSessionService(_workspace, new NativeCodeService(_workspace, new ServerOptions())) { Backend = new ScriptedLiveBackend(Sqlite, Base, 0x200000) { ProcessId = child.Id, Arch = arch } };
+        var service = new LiveSessionService(_workspace, new NativeCodeService(_workspace, SharedCodeIndex.Options())) { Backend = new ScriptedLiveBackend(Sqlite, Base, 0x200000) { ProcessId = child.Id, Arch = arch } };
         var tools = new LiveSessionTools(new ServerOptions { AllowLive = true, AllowLiveAttach = true }, service, dumps);
         var dir = Path.Combine(Path.GetTempPath(), "corvus-test-" + Guid.NewGuid().ToString("N"));
         try
@@ -1023,7 +1023,7 @@ public sealed class LiveSessionTests : IDisposable
     public async Task A_pointer_is_as_wide_as_the_programs_pointers(string arch, string first)
     {
         var backend = new ScriptedLiveBackend(Sqlite, Base, 0x200000) { Arch = arch };
-        using var service = new LiveSessionService(_workspace, new NativeCodeService(_workspace, new ServerOptions())) { Backend = backend };
+        using var service = new LiveSessionService(_workspace, new NativeCodeService(_workspace, SharedCodeIndex.Options())) { Backend = backend };
         var tools = new LiveSessionTools(new ServerOptions { AllowLive = true, AllowLiveAttach = true }, service);
         await tools.LiveSession("attach", program: "4242");
         backend.Memory[0x5000] = [0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88, 0x99, 0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF, 0x10];
@@ -1107,7 +1107,7 @@ public sealed class LiveSessionTests : IDisposable
     [Fact]
     public async Task A_missing_backend_names_its_next_step()
     {
-        var service = new LiveSessionService(_workspace, new NativeCodeService(_workspace, new ServerOptions())) { Backend = new ScriptedLiveBackend(Sqlite, Base, 1) { Missing = "no frida" } };
+        var service = new LiveSessionService(_workspace, new NativeCodeService(_workspace, SharedCodeIndex.Options())) { Backend = new ScriptedLiveBackend(Sqlite, Base, 1) { Missing = "no frida" } };
         var tools = new LiveSessionTools(new ServerOptions { AllowLive = true, AllowLiveAttach = true }, service);
         var e = await Assert.ThrowsAsync<ToolError>(() => tools.LiveSession("attach", program: "app"));
         Assert.Equal(ErrorCode.ProviderUnavailable, e.Code);

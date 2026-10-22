@@ -13,7 +13,7 @@ public sealed class LiveProgramScopeTests : IDisposable
     private readonly LiveSessionService _service;
     private readonly ScriptedLiveBackend _backend = new("app.exe", 0, 1);
 
-    public LiveProgramScopeTests() => _service = new LiveSessionService(_workspace, new NativeCodeService(_workspace, new ServerOptions())) { Backend = _backend };
+    public LiveProgramScopeTests() => _service = new LiveSessionService(_workspace, new NativeCodeService(_workspace, SharedCodeIndex.Options())) { Backend = _backend };
 
     public void Dispose()
     {

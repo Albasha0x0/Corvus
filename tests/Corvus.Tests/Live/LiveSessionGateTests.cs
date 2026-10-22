@@ -11,7 +11,7 @@ public class LiveSessionGateTests
     private static LiveSessionTools Tools(bool live = false, bool spawn = false, bool attach = false)
     {
         var workspace = new AssemblyWorkspace();
-        var service = new LiveSessionService(workspace, new NativeCodeService(workspace, new ServerOptions()))
+        var service = new LiveSessionService(workspace, new NativeCodeService(workspace, SharedCodeIndex.Options()))
         {
             Backend = new ScriptedLiveBackend("app.exe", 0, 1) { Missing = "no session backend" },
         };

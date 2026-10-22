@@ -168,7 +168,7 @@ public sealed class FridaEnvironmentRealTests(ITestOutputHelper output) : IDispo
 
         var exe = LiveFridaRealTests.Build(_dir, "orders", "int main(void) { return 3; }");
         using var workspace = new AssemblyWorkspace();
-        using var service = new LiveSessionService(workspace, new NativeCodeService(workspace, new ServerOptions())) { Backend = backend };
+        using var service = new LiveSessionService(workspace, new NativeCodeService(workspace, SharedCodeIndex.Options())) { Backend = backend };
         var session = await service.OpenAsync(spawn: true, exe, [], CancellationToken.None);
         Assert.True(session.ProcessId > 0);
         await service.CloseAsync(session, "test");
