@@ -171,6 +171,26 @@ function Invoke-TestBuild {
     $script:buildSeconds += $clock.Elapsed.TotalSeconds
 }
 
+# A quick run starts the classes that run alone in a test process of their own, beside the parallel ones, as what
+# they need alone (the thread pool, process-wide variables) is per process; full and push runs keep them in the one
+# process, after the parallel classes. Starts the built tests $filter selects; Receive-AloneRun waits for the job.
+function Start-AloneRun([string]$filter, [string]$resultsDir, [string[]]$more = @()) {
+    Start-ThreadJob -ArgumentList $tests, $buildPriority, $filter, $resultsDir, $more -ScriptBlock {
+        param($tests, $priority, $filter, $resultsDir, $more)
+        & dotnet test $tests --nologo @priority --no-build --filter $filter --logger 'trx;LogFileName=alone.trx' --results-directory $resultsDir @more 2>&1
+        "exit=$LASTEXITCODE"
+    }
+}
+
+# Waits for a Start-AloneRun job, prints its output, joins its results into $trx and returns its exit code.
+function Receive-AloneRun($job, [string]$trx, [string]$resultsDir) {
+    $lines = @(Receive-Job $job -Wait -AutoRemoveJob)
+    $lines | Select-Object -SkipLast 1 | Out-Host
+    Import-Module (Join-Path $root 'test-remote.psm1') -Force
+    Join-TrxFiles $trx @($trx, (Join-Path $resultsDir 'alone.trx'))
+    if ("$($lines[-1])" -match '^exit=(-?\d+)$') { [int]$Matches[1] } else { 1 }
+}
+
 # Records a run's TRX times in the history and the time report and prints the report's one line. Timing never fails
 # a run: an error is printed and the run's exit code stands.
 function Save-RunTimes([string]$trx, [string]$mode, [int]$code, [hashtable]$extra = @{}) {
@@ -481,12 +501,22 @@ if (-not ($Full -or $All -or $Affected -or $Filter -or $Coverage -or $CoverageMa
             Write-Host "Changed since ${Base}: $($changed.Count) files; quick tests of $($families -join ', ')."
             $results = Join-Path $tempRoot "corvus-trx-$PID"
             Start-RunTiming 'quick'
-            # A failed build leaves --no-build out: the test command builds again and names the errors.
+            # A failed build leaves the split and --no-build out: the test command builds again and names the errors.
             Invoke-TestBuild
             $built = $LASTEXITCODE -eq 0
-            $noBuild = @(if ($built) { '--no-build' })
-            & dotnet test $tests --nologo @buildPriority @noBuild --filter $quickFilter --logger 'trx;LogFileName=full.trx' --results-directory $results
+            $alone = if ($built) { @(Get-AloneClasses $tests | Where-Object { ($_ -replace '\+.*$', '') -in $classes }) } else { @() }
+            $aloneJob = $null
+            if ($alone) {
+                $split = Get-AloneFilters $quickFilter $alone
+                $aloneJob = Start-AloneRun $split.Alone (Join-Path $results 'alone')
+                & dotnet test $tests --nologo @buildPriority --no-build --filter $split.Rest --logger 'trx;LogFileName=full.trx' --results-directory $results
+            }
+            else {
+                $noBuild = @(if ($built) { '--no-build' })
+                & dotnet test $tests --nologo @buildPriority @noBuild --filter $quickFilter --logger 'trx;LogFileName=full.trx' --results-directory $results
+            }
             $code = $LASTEXITCODE
+            if ($aloneJob) { $aloneCode = Receive-AloneRun $aloneJob (Join-Path $results 'full.trx') (Join-Path $results 'alone'); if ($code -eq 0) { $code = $aloneCode } }
             Save-RunTimes (Join-Path $results 'full.trx') 'quick' $code @{ build = if ($built) { [math]::Round($buildSeconds, 1) } else { $null } }
             if (Test-Path $results) { Remove-Item -Recurse -Force $results }
             exit $code
@@ -831,9 +861,19 @@ try {
         Invoke-TestBuild
         if ($LASTEXITCODE -eq 0) { $built = $true; $arguments += '--no-build' }
     }
+    $aloneJob = $null
+    if ($runMode -eq 'quick' -and $built -and -not $Coverage -and $arguments -notcontains '--filter') {
+        $alone = @(Get-AloneClasses $tests)
+        if ($alone) {
+            $split = Get-AloneFilters $null $alone
+            $arguments += @('--filter', $split.Rest)
+            $aloneJob = Start-AloneRun $split.Alone (Join-Path $results 'alone') @('--blame-hang', '--blame-hang-timeout', $hangLimit, '--blame-hang-dump-type', 'mini')
+        }
+    }
     & dotnet @arguments
     $code = $LASTEXITCODE
     $trx = Join-Path $results 'full.trx'
+    if ($aloneJob) { $aloneCode = Receive-AloneRun $aloneJob $trx (Join-Path $results 'alone'); if ($code -eq 0) { $code = $aloneCode } }
     if ($offloadHandle) {
         # The other machine's results join the local ones. A class that failed there, proved less there or has no
         # results there runs once more here, and its result here is the one that counts.

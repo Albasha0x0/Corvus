@@ -119,11 +119,35 @@ function Set-RunPriority([int]$processId = $PID) {
     catch { }
 }
 
+# The newest build of the test assembly under $testsDir/bin; $null when it is not built.
+function Get-BuiltTestAssembly([string]$testsDir) {
+    Get-ChildItem (Join-Path $testsDir 'bin') -Recurse -Filter 'Corvus.Tests.dll' -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending | Select-Object -First 1
+}
+
 # Where the test assembly finds each external tool, one line per tool (LocatedTools.cs); none when it is not built.
 function Get-LocatedTools([string]$testsDir) {
-    $assembly = Get-ChildItem (Join-Path $testsDir 'bin') -Recurse -Filter 'Corvus.Tests.dll' -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending | Select-Object -First 1
+    $assembly = Get-BuiltTestAssembly $testsDir
     if (-not $assembly) { return @() }
     @(& dotnet exec $assembly.FullName --located-tools 2>$null | Where-Object { $_ -like 'tool *' })
+}
+
+# The test classes whose collection runs alone, as "Outer+Nested" names (AloneClasses.cs); none when the test
+# assembly is not built.
+function Get-AloneClasses([string]$testsDir) {
+    $assembly = Get-BuiltTestAssembly $testsDir
+    if (-not $assembly) { return @() }
+    @(& dotnet exec $assembly.FullName --alone-classes 2>$null | Where-Object { $_ -like 'class *' } | ForEach-Object { $_.Substring(6) })
+}
+
+# Two dotnet test filters that split the tests $filter selects (every test when it is empty): Rest without the
+# classes in $alone, Alone with only them. A term names the class between dots, so DeadlineTests leaves out
+# CallDeadlineTests and the classes nested in it.
+function Get-AloneFilters([string]$filter, [string[]]$alone) {
+    $base = if ($filter) { "($filter)&" } else { '' }
+    [pscustomobject]@{
+        Rest = $base + (($alone | ForEach-Object { "FullyQualifiedName!~.$_." }) -join '&')
+        Alone = $base + '(' + (($alone | ForEach-Object { "FullyQualifiedName~.$_." }) -join '|') + ')'
+    }
 }
 
 # One key per family from `git ls-tree -r` lines ("<mode> blob <sha>\t<path>") and an environment string. With a
@@ -447,4 +471,4 @@ function Exit-HeavyLock([string]$name) {
     if ($env:CORVUS_HEAVY_LOCK) { & $env:CORVUS_HEAVY_LOCK release $name | Out-Host }
 }
 
-Export-ModuleMember -Function Add-FullPass, Get-FullPass, Read-QueuedRun, Save-QueuedRun, Enter-RunLock, Get-SelectionMisses, Get-PathStamp, Get-LocatedTools, Set-RunPriority, Enter-HeavyLock, Exit-HeavyLock, Get-RunEnvironment, Get-ReuseScope, Get-ClassMap, Get-SlowClasses, Test-AlwaysRunFolder, Read-ClassCoverage, Split-ClassMap, Add-ClassTestScopes, Get-RootReaders, Get-FamilyKeys, Read-CoverageMap, Get-CoveredFiles, Get-StaleFamilies, Get-ReuseFilter, Get-PassedFamilies, Save-FamilyPasses, Test-DocsOnly, Get-FailedTests, Get-FailureMessages, Save-FailedRun, Get-PassedTests, Test-RunCompleted, Get-FailureLabels, Read-Quarantine, Split-Quarantined
+Export-ModuleMember -Function Add-FullPass, Get-FullPass, Read-QueuedRun, Save-QueuedRun, Enter-RunLock, Get-SelectionMisses, Get-PathStamp, Get-LocatedTools, Get-AloneClasses, Get-AloneFilters, Set-RunPriority, Enter-HeavyLock, Exit-HeavyLock, Get-RunEnvironment, Get-ReuseScope, Get-ClassMap, Get-SlowClasses, Test-AlwaysRunFolder, Read-ClassCoverage, Split-ClassMap, Add-ClassTestScopes, Get-RootReaders, Get-FamilyKeys, Read-CoverageMap, Get-CoveredFiles, Get-StaleFamilies, Get-ReuseFilter, Get-PassedFamilies, Save-FamilyPasses, Test-DocsOnly, Get-FailedTests, Get-FailureMessages, Save-FailedRun, Get-PassedTests, Test-RunCompleted, Get-FailureLabels, Read-Quarantine, Split-Quarantined

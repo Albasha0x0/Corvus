@@ -501,6 +501,24 @@ public class TestReuseTests
         }
     }
 
+    [Fact]
+    [Trait("Speed", "Slow")]
+    public void The_alone_filters_split_a_filter_into_the_classes_that_run_alone_and_the_rest()
+    {
+        var module = Path.Combine(DocsTests.RepoRoot(), "test-reuse.psm1");
+        var lines = Run($$"""
+            Import-Module '{{module.Replace("'", "''")}}'
+            $split = Get-AloneFilters 'Speed!=Slow' @('DeadlineTests', 'FileIsolationTests+InProcessParsingVariable')
+            'rest=' + $split.Rest
+            'alone=' + $split.Alone
+            'all=' + (Get-AloneFilters $null @('DeadlineTests')).Rest
+            """);
+        if (lines is ["skip"]) return; // no pwsh on this machine
+        Assert.Contains("rest=(Speed!=Slow)&FullyQualifiedName!~.DeadlineTests.&FullyQualifiedName!~.FileIsolationTests+InProcessParsingVariable.", lines);
+        Assert.Contains("alone=(Speed!=Slow)&(FullyQualifiedName~.DeadlineTests.|FullyQualifiedName~.FileIsolationTests+InProcessParsingVariable.)", lines);
+        Assert.Contains("all=FullyQualifiedName!~.DeadlineTests.", lines);
+    }
+
     /// <summary>The output lines of a pwsh script that must exit 0, or ["skip"] where there is no pwsh.</summary>
     [Fact]
     public void A_queued_background_run_keeps_the_strongest_strength_and_the_newest_commit()
