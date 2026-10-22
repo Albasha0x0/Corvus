@@ -63,7 +63,7 @@ public sealed class LiveTimelineTests : IDisposable
     [Fact]
     public async Task Entries_page_with_a_cursor_and_the_report_counts_each_name()
     {
-        await _tools.LiveSession("attach", program: "4242");
+        await _tools.LiveSession("attach", program: "99994242");
         Assert.Contains("tl-1 tracing live-1", await _tools.LiveTimeline("live-1", "start"));
         Assert.Equal(ScriptedLiveBackend.Pid, _source.ProcessId);
         Assert.Equal(ErrorCode.Conflict, (await Assert.ThrowsAsync<ToolError>(() => _tools.LiveTimeline("live-1", "start"))).Code);
@@ -95,7 +95,7 @@ public sealed class LiveTimelineTests : IDisposable
     /// <summary>tl-1 and tl-2 on one session, one after the other: orders.txt and the registry value in both, the rest in one.</summary>
     private async Task TwoTimelines()
     {
-        await _tools.LiveSession("attach", program: "4242");
+        await _tools.LiveSession("attach", program: "99994242");
         await _tools.LiveTimeline("live-1", "start");
         _source.Send("file", @"C:\data\orders.txt");
         _source.Send("file", @"C:\data\old.cfg");
@@ -114,7 +114,7 @@ public sealed class LiveTimelineTests : IDisposable
     [Fact]
     public async Task A_filtered_page_with_every_match_ends_the_timeline_and_its_poll_starts_past_the_rest()
     {
-        await _tools.LiveSession("attach", program: "4242");
+        await _tools.LiveSession("attach", program: "99994242");
         await _tools.LiveTimeline("live-1", "start");
         _source.Send("file", @"C:\data\orders.txt");
         _source.Send("file", @"C:\data\old.cfg");
@@ -131,7 +131,7 @@ public sealed class LiveTimelineTests : IDisposable
     [Fact]
     public async Task Entry_pages_cut_to_the_output_budget_skip_no_entry()
     {
-        await _tools.LiveSession("attach", program: "4242");
+        await _tools.LiveSession("attach", program: "99994242");
         await _tools.LiveTimeline("live-1", "start");
         for (int i = 1; i <= 2000; i++) _source.Send("file", $@"C:\data\file{i}-{new string('x', 50)}.txt");
         using var pipeline = new OutputPipeline();
@@ -143,7 +143,7 @@ public sealed class LiveTimelineTests : IDisposable
     [Fact]
     public async Task Files_of_the_sessions_own_helpers_are_left_out()
     {
-        await _tools.LiveSession("attach", program: "4242");
+        await _tools.LiveSession("attach", program: "99994242");
         await _tools.LiveTimeline("live-1", "start");
         _source.Send("file", Path.Combine(Corvus.Native.Providers.AnalysisCache.DefaultRoot, "workers", "live-temp", "1a2b3c", "x86_64", "dbghelp.dll"));
         _source.Send("file", @"C:\data\orders.txt");
@@ -188,7 +188,7 @@ public sealed class LiveTimelineTests : IDisposable
     [Fact]
     public async Task A_report_page_of_long_names_holds_its_limit()
     {
-        await _tools.LiveSession("attach", program: "4242");
+        await _tools.LiveSession("attach", program: "99994242");
         await _tools.LiveTimeline("live-1", "start");
         for (int i = 1; i <= 120; i++) _source.Send("file", $@"C:\Users\someone\AppData\Local\Product\cache-{i:D3}-{new string('x', 120)}.bin");
         using var pipeline = new OutputPipeline();
@@ -243,7 +243,7 @@ public sealed class LiveTimelineTests : IDisposable
     [Fact]
     public async Task The_timeline_completes_when_the_program_exits()
     {
-        await _tools.LiveSession("attach", program: "4242");
+        await _tools.LiveSession("attach", program: "99994242");
         await _tools.LiveTimeline("live-1", "start");
         _backend.Worker!.Emit(new JsonObject { ["event"] = "exit", ["reason"] = "exit code 0" });
         for (int i = 0; i < 100 && _service.GetTimeline("tl-1").State != "complete"; i++) await Task.Delay(20);
@@ -260,7 +260,7 @@ public sealed class LiveTimelineTests : IDisposable
             Backend = new ScriptedLiveBackend(Sqlite, 0x7ff6_1000_0000, 0x200000), ActivitySource = new ScriptedActivitySource { Missing = "no reader here" },
         };
         var tools = new LiveSessionTools(new ServerOptions { AllowLive = true, AllowLiveAttach = true }, service);
-        await tools.LiveSession("attach", program: "4242");
+        await tools.LiveSession("attach", program: "99994242");
         Assert.Equal(ErrorCode.ProviderUnavailable, (await Assert.ThrowsAsync<ToolError>(() => tools.LiveTimeline("live-1", "start"))).Code);
     }
 

@@ -13,7 +13,10 @@ namespace Corvus.Tests;
 /// <summary>A scripted session backend: one program whose main module is a real image, stops on demand.</summary>
 internal sealed class ScriptedLiveBackend(string mainPath, ulong mainBase, uint mainSize) : ILiveBackend
 {
-    public const int Pid = 4242;
+    // Scripted ids sit above the pid maximum of Linux (4194304) and macOS (99998)
+    // and off a multiple of four (Windows), so no real process, the test host
+    // and its parents included, ever has one.
+    public const int Pid = 99994242;
     public FakeWorkerProcess? Worker { get; private set; }
     public readonly List<string> Ops = [];
     /// <summary>Stop points set bare (no stack or registers sent).</summary>
@@ -405,7 +408,7 @@ public sealed class LiveSessionTests : IDisposable
     [Fact]
     public async Task A_point_in_a_module_not_yet_loaded_is_deferred_until_its_load_event()
     {
-        await _tools.LiveSession("attach", program: "4242");
+        await _tools.LiveSession("attach", program: "99994242");
         var deferred = await _tools.LiveBreak("live-1", "set", at: "plugin!sqlite3_open");
         Assert.Contains("s1 deferred: plugin is not loaded; it is set when plugin loads, before the module's code runs", deferred);
         Assert.Contains("s1 plugin!sqlite3_open: deferred until plugin loads", deferred);
@@ -432,7 +435,7 @@ public sealed class LiveSessionTests : IDisposable
     [Fact]
     public async Task A_deferred_point_in_a_module_the_agent_cannot_observe_fails_with_the_reason()
     {
-        await _tools.LiveSession("attach", program: "4242");
+        await _tools.LiveSession("attach", program: "99994242");
         await _tools.LiveBreak("live-1", "set", at: "plugin!sqlite3_open");
 
         _backend.Load("plugin.dll", Sqlite, 0x7ff7_0000_0000, 0x200000, unobserved: "its entry point writes its code");
@@ -456,7 +459,7 @@ public sealed class LiveSessionTests : IDisposable
         var rva = index.AddressOfName("sqlite3_open")!.Value;
         NativeNameLayers.Of(native).Set(new NativeNameLayers.Layer(NativeNameSource.Il2Cpp, new Dictionary<uint, string> { [rva] = "Game_Player__Update" },
             new Dictionary<uint, string>(), "test"), index);
-        await tools.LiveSession("attach", program: "4242");
+        await tools.LiveSession("attach", program: "99994242");
         await tools.LiveBreak("live-1", "set", at: "plugin!Game.Player::Update()");
         await tools.LiveWatchCalls("live-1", "set", at: "plugin!no_such_function");
 
@@ -484,7 +487,7 @@ public sealed class LiveSessionTests : IDisposable
     [Fact]
     public async Task Name_plus_offset_resolves_and_a_point_inside_an_instruction_is_refused()
     {
-        await _tools.LiveSession("attach", program: "4242");
+        await _tools.LiveSession("attach", program: "99994242");
         var index = new NativeCodeService(_workspace, SharedCodeIndex.Options()).IndexOfOriginal(_workspace.Natives.Single(), default);
         var rva = index.AddressOfName("sqlite3_open")!.Value;
         var second = index.Disassemble(rva, 2)[1].Rva - rva;
@@ -502,7 +505,7 @@ public sealed class LiveSessionTests : IDisposable
     [Fact]
     public async Task Stack_values_that_cannot_be_code_are_left_out_and_unloaded_modules_name_by_export()
     {
-        await _tools.LiveSession("attach", program: "4242");
+        await _tools.LiveSession("attach", program: "99994242");
         await _tools.LiveBreak("live-1", "set", at: "e_sqlite3!sqlite3_open");
         var old = RealPackages.File("SQLitePCLRaw.lib.e_sqlite3", "2.1.2", "runtimes", "win-x64", "native", "e_sqlite3.dll");
         const ulong LibBase = 0x7ff8_0000_0000;
@@ -523,7 +526,7 @@ public sealed class LiveSessionTests : IDisposable
     [Fact]
     public async Task A_frame_in_a_function_the_unwind_data_shows_unexported_is_not_named_after_the_export_below()
     {
-        await _tools.LiveSession("attach", program: "4242");
+        await _tools.LiveSession("attach", program: "99994242");
         await _tools.LiveBreak("live-1", "set", at: "e_sqlite3!sqlite3_open");
         var old = RealPackages.File("SQLitePCLRaw.lib.e_sqlite3", "2.1.2", "runtimes", "win-x64", "native", "e_sqlite3.dll");
         const ulong LibBase = 0x7ff8_0000_0000;
@@ -544,7 +547,7 @@ public sealed class LiveSessionTests : IDisposable
     [Fact]
     public async Task An_unloaded_elf_names_frames_by_its_symbol_table_and_a_return_address_by_its_call()
     {
-        await _tools.LiveSession("attach", program: "4242");
+        await _tools.LiveSession("attach", program: "99994242");
         await _tools.LiveBreak("live-1", "set", at: "e_sqlite3!sqlite3_open");
         using var dir = new TempDir();
         var lib = dir.File("libpython.so");
@@ -567,7 +570,7 @@ public sealed class LiveSessionTests : IDisposable
     [Fact]
     public async Task A_watch_and_a_stop_point_in_the_same_prologue_are_refused_in_either_order()
     {
-        await _tools.LiveSession("attach", program: "4242");
+        await _tools.LiveSession("attach", program: "99994242");
         var index = new NativeCodeService(_workspace, SharedCodeIndex.Options()).IndexOfOriginal(_workspace.Natives.Single(), default);
         var rva = index.AddressOfName("sqlite3_open")!.Value;
         var second = index.Disassemble(rva, 2)[1].Rva - rva;
@@ -584,7 +587,7 @@ public sealed class LiveSessionTests : IDisposable
     [Fact]
     public async Task Stop_points_whose_hook_jumps_overlap_are_refused_and_a_watch_is_set_only_at_a_function_start()
     {
-        await _tools.LiveSession("attach", program: "4242");
+        await _tools.LiveSession("attach", program: "99994242");
         var index = new NativeCodeService(_workspace, SharedCodeIndex.Options()).IndexOfOriginal(_workspace.Natives.Single(), default);
         var f = index.Functions.Where(f => f.Size >= 64 && index.NameAt(f.Start) is not null).OrderBy(f => f.Start).First();
         var name = index.NameAt(f.Start);
@@ -616,7 +619,7 @@ public sealed class LiveSessionTests : IDisposable
     [Fact]
     public async Task A_wait_the_program_ends_says_the_program_ended()
     {
-        await _tools.LiveSession("attach", program: "4242");
+        await _tools.LiveSession("attach", program: "99994242");
         var wait = _tools.LiveBreak("live-1", wait: true, waitSeconds: 60);
         await Task.Delay(200);
         _backend.Worker!.Emit(new JsonObject { ["event"] = "exit", ["reason"] = "process-terminated" });
@@ -737,7 +740,7 @@ public sealed class LiveSessionTests : IDisposable
     [Fact]
     public async Task A_function_too_short_to_hook_is_refused_with_its_size()
     {
-        await _tools.LiveSession("attach", program: "4242");
+        await _tools.LiveSession("attach", program: "99994242");
         var index = new NativeCodeService(_workspace, SharedCodeIndex.Options()).IndexOfOriginal(_workspace.Natives.Single(), default);
         var shortest = index.Functions.Where(f => f.Size is > 0 and < 16).OrderBy(f => f.Start).First();
         _backend.Unhookable.Add(Base + shortest.Start);
@@ -829,7 +832,7 @@ public sealed class LiveSessionTests : IDisposable
         {
             var backend = new ScriptedLiveBackend(Sqlite, Base, 0x200000);
             using var service = new LiveSessionService(_workspace, new NativeCodeService(_workspace, SharedCodeIndex.Options())) { Backend = backend };
-            await new LiveSessionTools(new ServerOptions { AllowLive = true, AllowLiveAttach = true }, service).LiveSession("attach", program: "4242");
+            await new LiveSessionTools(new ServerOptions { AllowLive = true, AllowLiveAttach = true }, service).LiveSession("attach", program: "99994242");
             var session = service.Get("live-1");
             // Both closes are released together, so both can pass the closed check.
             using var together = new Barrier(2);
@@ -847,7 +850,7 @@ public sealed class LiveSessionTests : IDisposable
         {
             var backend = new ScriptedLiveBackend(Sqlite, Base, 0x200000);
             using var service = new LiveSessionService(_workspace, new NativeCodeService(_workspace, SharedCodeIndex.Options())) { Backend = backend };
-            await new LiveSessionTools(new ServerOptions { AllowLive = true, AllowLiveAttach = true }, service).LiveSession("attach", program: "4242");
+            await new LiveSessionTools(new ServerOptions { AllowLive = true, AllowLiveAttach = true }, service).LiveSession("attach", program: "99994242");
             var session = service.Get("live-1");
             // A spinning reader sees the state the moment it changes.
             var reader = Task.Run(() =>
@@ -868,7 +871,7 @@ public sealed class LiveSessionTests : IDisposable
         var backend = new ScriptedLiveBackend(lib, ElfBase, Corvus.Native.NativeImageLoader.Open(lib).SizeOfImage);
         using var service = new LiveSessionService(_workspace, new NativeCodeService(_workspace, SharedCodeIndex.Options())) { Backend = backend };
         var tools = new LiveSessionTools(new ServerOptions { AllowLive = true, AllowLiveAttach = true }, service);
-        await tools.LiveSession("attach", program: "4242");
+        await tools.LiveSession("attach", program: "99994242");
         await tools.LiveBreak("live-1", "set", at: "SystemNative_FStat");
         var index = new NativeCodeService(_workspace, SharedCodeIndex.Options()).IndexOfOriginal(_workspace.Natives.Single(), default);
         ulong caller = ElfBase + index.AddressOfName("SystemNative_StrErrorR")!.Value + 0x10;
@@ -898,7 +901,7 @@ public sealed class LiveSessionTests : IDisposable
     [Fact]
     public async Task The_exit_status_event_gives_the_exit_code_where_no_process_handle_does()
     {
-        await _tools.LiveSession("attach", program: "4242");
+        await _tools.LiveSession("attach", program: "99994242");
         _backend.Worker!.Emit(new JsonObject { ["event"] = "exit_status", ["tid"] = 77, ["code"] = 259 });
         _backend.Worker!.Emit(new JsonObject { ["event"] = "exit", ["reason"] = "process-terminated" });
         for (int i = 0; i < 100 && _service.Get("live-1").State != "exited"; i++) await Task.Delay(50);
@@ -927,7 +930,7 @@ public sealed class LiveSessionTests : IDisposable
     [Fact]
     public async Task Events_page_with_a_cursor_and_never_resend()
     {
-        await _tools.LiveSession("attach", program: "4242");
+        await _tools.LiveSession("attach", program: "99994242");
         await _tools.LiveBreak("live-1", "set", at: $"0x{Base + 0x1000:X}");
         for (int i = 0; i < 5; i++) _backend.Hit("s1", 100 + i, Base + 0x1010);
         await Task.Delay(200);
@@ -946,7 +949,7 @@ public sealed class LiveSessionTests : IDisposable
     [Fact]
     public async Task A_filtered_page_with_every_match_ends_the_ring_and_its_poll_starts_past_the_rest()
     {
-        await _tools.LiveSession("attach", program: "4242");
+        await _tools.LiveSession("attach", program: "99994242");
         await _tools.LiveBreak("live-1", "set", at: $"0x{Base + 0x1000:X}");
         _backend.Hit("s1", 100, Base + 0x1010);
         for (int i = 0; i < 5; i++) _backend.ScriptMessage("u1", new JsonObject { ["n"] = i });
@@ -988,7 +991,7 @@ public sealed class LiveSessionTests : IDisposable
     [Fact]
     public async Task Watched_calls_go_into_the_ring_decoded_with_their_callers_named_and_counted()
     {
-        await _tools.LiveSession("attach", program: "4242");
+        await _tools.LiveSession("attach", program: "99994242");
         var set = await _tools.LiveWatchCalls("live-1", "set", at: "e_sqlite3!sqlite3_open", arguments: 2);
         Assert.Contains("w1 set at 0x", set);
         Assert.Contains("e_sqlite3.dll!sqlite3_open: sqlite3_open(a0, a1) (raw values); at most 10,000 calls/s recorded", set);
@@ -1009,7 +1012,7 @@ public sealed class LiveSessionTests : IDisposable
     [Fact]
     public async Task A_user_script_loads_only_with_live_scripting_and_its_messages_are_events()
     {
-        await _tools.LiveSession("attach", program: "4242");
+        await _tools.LiveSession("attach", program: "99994242");
         var off = await Assert.ThrowsAsync<ToolError>(() => _tools.LiveScriptCalls("live-1", "load", source: "send(1);"));
         Assert.Contains(ServerOptions.LiveScriptingOption, off.Remediation);
         var tools = new LiveSessionTools(new ServerOptions { AllowLive = true, AllowLiveAttach = true, LiveScripting = true }, _service);
@@ -1026,7 +1029,7 @@ public sealed class LiveSessionTests : IDisposable
     [Fact]
     public async Task Event_pages_cut_to_the_output_budget_skip_no_event()
     {
-        await _tools.LiveSession("attach", program: "4242");
+        await _tools.LiveSession("attach", program: "99994242");
         for (int i = 1; i <= 2000; i++) _backend.ScriptMessage("u1", new JsonObject { ["n"] = i, ["pad"] = new string('x', 60) });
         for (int i = 0; i < 100 && !(await _tools.LiveEvents("live-1", kind: "script", limit: 1000, cursor: "1990")).Contains("\"n\":2000"); i++) await Task.Delay(20);
         using var pipeline = new OutputPipeline();
@@ -1039,9 +1042,9 @@ public sealed class LiveSessionTests : IDisposable
     [Fact]
     public async Task A_process_already_in_a_session_is_not_attached_again()
     {
-        await _tools.LiveSession("attach", program: "4242");
-        var e = await Assert.ThrowsAsync<ToolError>(() => _tools.LiveSession("attach", program: "4242"));
-        Assert.Equal((ErrorCode.Conflict, "Process 4242 is already in session live-1."), (e.Code, e.Message));
+        await _tools.LiveSession("attach", program: "99994242");
+        var e = await Assert.ThrowsAsync<ToolError>(() => _tools.LiveSession("attach", program: "99994242"));
+        Assert.Equal((ErrorCode.Conflict, "Process 99994242 is already in session live-1."), (e.Code, e.Message));
     }
 
     [Fact]
@@ -1118,7 +1121,7 @@ public sealed class LiveSessionTests : IDisposable
     [Fact]
     public async Task Strings_read_to_their_terminator_a_page_at_a_time_and_say_where_they_stop_short()
     {
-        await _tools.LiveSession("attach", program: "4242");
+        await _tools.LiveSession("attach", program: "99994242");
         var text = new string('a', 300);
         _backend.Memory[0x10000] = [.. System.Text.Encoding.UTF8.GetBytes(text), 0];
         _backend.Memory[0x20000] = [.. System.Text.Encoding.Unicode.GetBytes(text), 0, 0];
@@ -1141,7 +1144,7 @@ public sealed class LiveSessionTests : IDisposable
         var backend = new ScriptedLiveBackend(Sqlite, Base, 0x200000) { Arch = arch };
         using var service = new LiveSessionService(_workspace, new NativeCodeService(_workspace, SharedCodeIndex.Options())) { Backend = backend };
         var tools = new LiveSessionTools(new ServerOptions { AllowLive = true, AllowLiveAttach = true }, service);
-        await tools.LiveSession("attach", program: "4242");
+        await tools.LiveSession("attach", program: "99994242");
         backend.Memory[0x5000] = [0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88, 0x99, 0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF, 0x10];
         var read = await tools.LiveRead("live-1", memory: "0x5000", type: "pointer[2]");
         Assert.Contains($"[0] {first}", read);
@@ -1151,7 +1154,7 @@ public sealed class LiveSessionTests : IDisposable
     [Fact]
     public async Task Every_value_type_decodes_and_bad_types_are_refused()
     {
-        await _tools.LiveSession("attach", program: "4242");
+        await _tools.LiveSession("attach", program: "99994242");
         _backend.Memory[0x5000] = [0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF];
         _backend.Memory[0x6000] = [.. BitConverter.GetBytes(0.5f), .. BitConverter.GetBytes(2.5)];
         foreach (var (type, value) in new[] { ("int8", "-1"), ("uint8", "255"), ("int16", "-1"), ("uint16", "65535"), ("int32", "-1"), ("uint32", "4294967295"), ("int64", "-1"), ("uint64", "18446744073709551615") })
@@ -1167,7 +1170,7 @@ public sealed class LiveSessionTests : IDisposable
     [Fact]
     public async Task Registers_are_read_only_from_held_threads()
     {
-        await _tools.LiveSession("attach", program: "4242");
+        await _tools.LiveSession("attach", program: "99994242");
         var noThread = await Assert.ThrowsAsync<ToolError>(() => _tools.LiveRead("live-1"));
         Assert.Equal(ErrorCode.InvalidArgument, noThread.Code);
         _backend.Memory[0x5000] = [1, 0, 0, 0];
@@ -1186,7 +1189,7 @@ public sealed class LiveSessionTests : IDisposable
     [Fact]
     public async Task Events_refuse_an_unknown_kind_or_source_and_count_what_the_ring_dropped()
     {
-        await _tools.LiveSession("attach", program: "4242");
+        await _tools.LiveSession("attach", program: "99994242");
         Assert.Equal(ErrorCode.InvalidArgument, (await Assert.ThrowsAsync<ToolError>(() => _tools.LiveEvents("live-1", kind: "stops"))).Code);
         Assert.Equal(ErrorCode.NotFound, (await Assert.ThrowsAsync<ToolError>(() => _tools.LiveEvents("live-1", from: "w1"))).Code);
         Assert.Equal(ErrorCode.InvalidArgument, (await Assert.ThrowsAsync<ToolError>(() => _tools.LiveEvents("live-1", cursor: "next"))).Code);
@@ -1203,7 +1206,7 @@ public sealed class LiveSessionTests : IDisposable
     [Fact]
     public async Task A_call_flood_keeps_the_output_and_marks_the_calls_it_dropped()
     {
-        await _tools.LiveSession("attach", program: "4242");
+        await _tools.LiveSession("attach", program: "99994242");
         var s = _service.Get("live-1");
         long Call() => s.Add("call", 5, Base, "f()", source: "w1");
         var head = s.Sequence;

@@ -72,7 +72,7 @@ public sealed class LiveJumpTests : IDisposable
     [Fact]
     public async Task A_jump_through_the_CFG_dispatch_pointer_is_refused_before_the_backend()
     {
-        await _tools.LiveSession("attach", program: "4242");
+        await _tools.LiveSession("attach", program: "99994242");
         var e = await Assert.ThrowsAsync<ToolError>(() => _tools.LiveBreak("live-1", "set", at: At(CfgStub)));
         Assert.Equal(ErrorCode.Unsupported, e.Code);
         Assert.Contains("Control Flow Guard dispatch pointer", e.Message);
@@ -106,7 +106,7 @@ public sealed class LiveJumpTests : IDisposable
     [Fact]
     public async Task Direct_and_memory_jumps_are_followed_and_said()
     {
-        await _tools.LiveSession("attach", program: "4242");
+        await _tools.LiveSession("attach", program: "99994242");
         _backend.Memory[Base + PointerSlot] = BitConverter.GetBytes(Base + Function); // the pointer as the loader left it
 
         var direct = await _tools.LiveBreak("live-1", "set", at: At(DirectJump));
@@ -125,7 +125,7 @@ public sealed class LiveJumpTests : IDisposable
     [Fact]
     public async Task A_stop_point_through_a_pointer_the_program_rebinds_moves_with_it()
     {
-        await _tools.LiveSession("attach", program: "4242");
+        await _tools.LiveSession("attach", program: "99994242");
         var pointer = BitConverter.GetBytes(Base + FirstCall);
         _backend.Memory[Base + BoundSlot] = pointer;
 

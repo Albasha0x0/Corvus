@@ -47,11 +47,11 @@ public sealed class LiveProgramScopeTests : IDisposable
     [Fact]
     public async Task Attaching_needs_allow_live_attach()
     {
-        var e = await Refused(() => Tools(attach: false).LiveSession("attach", program: "4242"));
+        var e = await Refused(() => Tools(attach: false).LiveSession("attach", program: "99994242"));
         Assert.Contains(ServerOptions.AllowLiveAttachOption, e.Remediation);
         Assert.Null(_backend.LastOpen);
-        await Tools(attach: true).LiveSession("attach", program: "4242"); // without --live-allow the program passes unchanged
-        Assert.Contains("4242", _backend.LastOpen!.ToJsonString());
+        await Tools(attach: true).LiveSession("attach", program: "99994242"); // without --live-allow the program passes unchanged
+        Assert.Contains("99994242", _backend.LastOpen!.ToJsonString());
     }
 
     [Fact]
@@ -69,7 +69,7 @@ public sealed class LiveProgramScopeTests : IDisposable
             Assert.Contains("process id of the other process", parent.Remediation);
         }
         Assert.Null(_backend.LastOpen);
-        await Tools().LiveSession("attach", program: "4242");
+        await Tools().LiveSession("attach", program: "99994242");
         Assert.NotNull(_backend.LastOpen);
     }
 

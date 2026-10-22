@@ -65,7 +65,7 @@ public sealed class LiveCoverageTests : IDisposable
     [Fact]
     public async Task Stops_at_function_starts_are_counted_resumed_and_cleared_at_the_hit_limit()
     {
-        await _tools.LiveSession("attach", program: "4242");
+        await _tools.LiveSession("attach", program: "99994242");
         var start = await _tools.LiveCoverage("live-1", "start", match: "sqlite3_open", hitLimit: 2);
         var n = int.Parse(Regex.Match(start, @"cov-1 counting (\d+) functions of e_sqlite3\.dll").Groups[1].Value);
         Assert.True(n >= 2, start);
@@ -97,7 +97,7 @@ public sealed class LiveCoverageTests : IDisposable
     [Fact]
     public async Task A_counted_stop_is_counted_with_no_resume_or_clear()
     {
-        await _tools.LiveSession("attach", program: "4242");
+        await _tools.LiveSession("attach", program: "99994242");
         var start = await _tools.LiveCoverage("live-1", "start", match: "sqlite3_open", hitLimit: 2);
         var n = int.Parse(Regex.Match(start, @"cov-1 counting (\d+) functions").Groups[1].Value);
         // Each function start goes with its limit, so the agent counts there.
@@ -117,7 +117,7 @@ public sealed class LiveCoverageTests : IDisposable
     [Fact]
     public async Task A_run_whose_program_ended_stays_ended_when_stopped()
     {
-        await _tools.LiveSession("attach", program: "4242");
+        await _tools.LiveSession("attach", program: "99994242");
         await _tools.LiveCoverage("live-1", "start", match: "sqlite3_open");
         _backend.Worker!.Emit(new System.Text.Json.Nodes.JsonObject { ["event"] = "exit", ["reason"] = "process-terminated" });
         await Until(() => _service.GetCoverage("cov-1").State == "ended");
@@ -131,7 +131,7 @@ public sealed class LiveCoverageTests : IDisposable
     [Fact]
     public async Task A_run_whose_program_ends_while_it_starts_is_ended()
     {
-        await _tools.LiveSession("attach", program: "4242");
+        await _tools.LiveSession("attach", program: "99994242");
         var session = _service.Get("live-1");
         _service.BeforeCoverageRun = async () =>
         {
@@ -145,7 +145,7 @@ public sealed class LiveCoverageTests : IDisposable
     [Fact]
     public async Task A_stop_point_inside_a_function_start_and_coverage_of_that_function_exclude_each_other()
     {
-        await _tools.LiveSession("attach", program: "4242");
+        await _tools.LiveSession("attach", program: "99994242");
         var index = new NativeCodeService(_workspace, SharedCodeIndex.Options()).IndexOfOriginal(_workspace.Natives.Single(), default);
         var rva = index.AddressOfName("sqlite3_complete")!.Value;
         var second = index.Disassemble(rva, 2)[1].Rva - rva;
@@ -166,7 +166,7 @@ public sealed class LiveCoverageTests : IDisposable
     [Fact]
     public async Task Function_counts_are_drawn_on_the_static_call_graph()
     {
-        await _tools.LiveSession("attach", program: "4242");
+        await _tools.LiveSession("attach", program: "99994242");
         await _tools.LiveCoverage("live-1", "start", match: "sqlite3_complete");
         var run = _service.GetCoverage("cov-1");
         var complete = run.Points.Select((p, i) => (p, i)).Single(x => x.p.Name == "sqlite3_complete");
@@ -185,7 +185,7 @@ public sealed class LiveCoverageTests : IDisposable
     [Fact]
     public async Task The_diff_lists_the_functions_that_ran_in_only_one_run()
     {
-        await _tools.LiveSession("attach", program: "4242");
+        await _tools.LiveSession("attach", program: "99994242");
         await _tools.LiveCoverage("live-1", "start", match: "sqlite3_column_");
         Assert.Contains("cov-1", await _tools.LiveCoverage("live-1", "report")); // run omitted: the session's only run
         await _tools.LiveCoverage("live-1", "start", match: "sqlite3_column_");
@@ -215,7 +215,7 @@ public sealed class LiveCoverageTests : IDisposable
         using var dir = new TempDir();
         var plugin = dir.File("plugin.dll");
         File.Copy(RealPackages.File("SQLitePCLRaw.lib.e_sqlite3", "2.1.2", "runtimes", "win-x64", "native", "e_sqlite3.dll"), plugin);
-        await _tools.LiveSession("attach", program: "4242");
+        await _tools.LiveSession("attach", program: "99994242");
         Assert.Equal(ErrorCode.NotFound, (await Assert.ThrowsAsync<ToolError>(() => _tools.LiveCoverage("live-1", "start", match: "plugin!sqlite3_open"))).Code);
         _workspace.LoadAny(plugin);
 
@@ -249,7 +249,7 @@ public sealed class LiveCoverageTests : IDisposable
         using var dir = new TempDir();
         var plugin = dir.File("plugin.dll");
         File.Copy(RealPackages.File("SQLitePCLRaw.lib.e_sqlite3", "2.1.2", "runtimes", "win-x64", "native", "e_sqlite3.dll"), plugin);
-        await _tools.LiveSession("attach", program: "4242");
+        await _tools.LiveSession("attach", program: "99994242");
         _backend.Load("plugin.dll", plugin, 0x7ff7_0000_0000, 0x200000);
         await Until(() => _service.Get("live-1").Modules.Any(m => m.Name == "plugin.dll"));
 
@@ -297,7 +297,7 @@ public sealed class LiveCoverageTests : IDisposable
             Symbols = [new("fn_zero", T, (uint)zero.Length), new("fn_frame", T + 0x10, (uint)frame.Length), new("fn_refused", T + 0x20, (uint)frame.Length)],
         }.Build());
         const ulong LibBase = 0x7ff8_0000_0000;
-        await _tools.LiveSession("attach", program: "4242");
+        await _tools.LiveSession("attach", program: "99994242");
         backend.Load("libplug.so", lib, LibBase, 0x30000);
         await Until(() => _service.Get("live-1").Modules.Any(m => m.Name == "libplug.so"));
         backend.Unhookable.Add(LibBase + T + 0x20);
@@ -315,7 +315,7 @@ public sealed class LiveCoverageTests : IDisposable
     [Fact]
     public async Task A_match_over_the_cap_suggests_narrower_matches_with_their_counts()
     {
-        await _tools.LiveSession("attach", program: "4242");
+        await _tools.LiveSession("attach", program: "99994242");
         _service.CoverageLimit = 60;
         var over = await Assert.ThrowsAsync<ToolError>(() => _tools.LiveCoverage("live-1", "start", match: "sqlite3_"));
         Assert.Equal(ErrorCode.LimitExceeded, over.Code);
@@ -336,7 +336,7 @@ public sealed class LiveCoverageTests : IDisposable
         using var dir = new TempDir();
         var plugin = dir.File("plugin.dll");
         File.Copy(RealPackages.File("SQLitePCLRaw.lib.e_sqlite3", "2.1.2", "runtimes", "win-x64", "native", "e_sqlite3.dll"), plugin);
-        await _tools.LiveSession("attach", program: "4242");
+        await _tools.LiveSession("attach", program: "99994242");
         _workspace.LoadAny(plugin);
 
         var start = await _tools.LiveCoverage("live-1", "start", match: "plugin!sqlite3_");
@@ -352,7 +352,7 @@ public sealed class LiveCoverageTests : IDisposable
     [Fact]
     public async Task A_run_of_every_function_is_too_large_to_draw()
     {
-        await _tools.LiveSession("attach", program: "4242");
+        await _tools.LiveSession("attach", program: "99994242");
         await _tools.LiveCoverage("live-1", "start");
         var all = _service.GetCoverage("cov-1").Placed.Count;
         Assert.True(all > 200, $"{all} functions");
@@ -365,15 +365,15 @@ public sealed class LiveCoverageTests : IDisposable
     [Fact]
     public async Task Runs_of_two_builds_and_unknown_names_are_refused()
     {
-        await _tools.LiveSession("attach", program: "4242");
+        await _tools.LiveSession("attach", program: "99994242");
         await _tools.LiveCoverage("live-1", "start", match: "sqlite3_open");
         Assert.Equal(ErrorCode.InvalidArgument, (await Assert.ThrowsAsync<ToolError>(() => _tools.LiveCoverage(action: "report", run: "cov-1", show: "some"))).Code);
         Assert.Equal(ErrorCode.NotFound, (await Assert.ThrowsAsync<ToolError>(() => _tools.LiveCoverage("live-1", "start", match: "nosuchmodule!open"))).Code);
         Assert.Equal(ErrorCode.NotFound, (await Assert.ThrowsAsync<ToolError>(() => _tools.LiveCoverage("live-1", "start", match: "no_function_has_this_name"))).Code);
 
         var old = RealPackages.File("SQLitePCLRaw.lib.e_sqlite3", "2.1.2", "runtimes", "win-x64", "native", "e_sqlite3.dll");
-        _service.Backend = new ScriptedLiveBackend(old, Base, 0x200000) { ProcessId = 4343 };
-        await _tools.LiveSession("attach", program: "4343");
+        _service.Backend = new ScriptedLiveBackend(old, Base, 0x200000) { ProcessId = 99994343 };
+        await _tools.LiveSession("attach", program: "99994343");
         await _tools.LiveCoverage("live-2", "start", match: "sqlite3_column_");
         var builds = await Assert.ThrowsAsync<ToolError>(() => _tools.LiveCoverage(action: "diff", run: "cov-1", other: "cov-2"));
         Assert.Equal(ErrorCode.Conflict, builds.Code);

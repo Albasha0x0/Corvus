@@ -36,7 +36,7 @@ public sealed class LiveSessionErrorTests : IDisposable
     [Fact]
     public async Task Unknown_actions_and_missing_arguments_are_refused_with_the_next_step()
     {
-        await _tools.LiveSession("attach", program: "4242");
+        await _tools.LiveSession("attach", program: "99994242");
         await Refused(ErrorCode.InvalidArgument, () => _tools.LiveSession("open"), "Unknown action 'open'");
         await Refused(ErrorCode.InvalidArgument, () => _tools.LiveSession("attach"), "needs program");
         await Refused(ErrorCode.InvalidArgument, () => _tools.LiveSession("status"), "needs session");
@@ -65,13 +65,13 @@ public sealed class LiveSessionErrorTests : IDisposable
             using var service = new LiveSessionService(_workspace, new NativeCodeService(_workspace, SharedCodeIndex.Options()))
                 { Backend = new ScriptedLiveBackend(Sqlite, Base, 0x200000) { FridaVersion = version } };
             var tools = new LiveSessionTools(new ServerOptions { AllowLiveAttach = true }, service);
-            await tools.LiveSession("attach", program: "4242");
+            await tools.LiveSession("attach", program: "99994242");
             var events = await tools.LiveEvents("live-1");
             Assert.Equal(warned, events.Contains($"Frida {version} is outside the tested range {Native.Providers.Live.FridaVersions.TestedRange}"));
         }
         using var old = new LiveSessionService(_workspace, new NativeCodeService(_workspace, SharedCodeIndex.Options()))
             { Backend = new ScriptedLiveBackend(Sqlite, Base, 0x200000) { FridaVersion = "16.5.9" } };
-        await Refused(ErrorCode.ProviderUnavailable, () => new LiveSessionTools(new ServerOptions { AllowLiveAttach = true }, old).LiveSession("attach", program: "4242"),
+        await Refused(ErrorCode.ProviderUnavailable, () => new LiveSessionTools(new ServerOptions { AllowLiveAttach = true }, old).LiveSession("attach", program: "99994242"),
             "Frida 16.5.9 is older than 17.0.0");
         Assert.Empty(old.Sessions);
     }
@@ -87,7 +87,7 @@ public sealed class LiveSessionErrorTests : IDisposable
     [Fact]
     public async Task Unknown_ids_are_not_found()
     {
-        await _tools.LiveSession("attach", program: "4242");
+        await _tools.LiveSession("attach", program: "99994242");
         await Refused(ErrorCode.NotFound, () => _tools.LiveSession("status", session: "live-9"), "No session 'live-9'");
         await Refused(ErrorCode.NotFound, () => _tools.LiveBreak("live-9"));
         await Refused(ErrorCode.NotFound, () => _tools.LiveRead("live-9", memory: "0x10"));
@@ -106,7 +106,7 @@ public sealed class LiveSessionErrorTests : IDisposable
     [Fact]
     public async Task A_closed_session_refuses_changes_and_keeps_its_lists_and_events_readable()
     {
-        await _tools.LiveSession("attach", program: "4242");
+        await _tools.LiveSession("attach", program: "99994242");
         await _tools.LiveBreak("live-1", "set", at: "sqlite3_open");
         await _tools.LiveSession("close", session: "live-1");
         foreach (var call in new Func<Task<string>>[]
@@ -129,13 +129,13 @@ public sealed class LiveSessionErrorTests : IDisposable
     {
         for (int i = 0; i < LiveSessionService.MaxSessions; i++)
         {
-            _service.Backend = new ScriptedLiveBackend(Sqlite, Base, 0x200000) { ProcessId = 5000 + i };
-            await _tools.LiveSession("attach", program: $"{5000 + i}");
+            _service.Backend = new ScriptedLiveBackend(Sqlite, Base, 0x200000) { ProcessId = 99995001 + 2 * i };
+            await _tools.LiveSession("attach", program: $"{99995001 + 2 * i}");
         }
-        _service.Backend = new ScriptedLiveBackend(Sqlite, Base, 0x200000) { ProcessId = 6000 };
-        await Refused(ErrorCode.LimitExceeded, () => _tools.LiveSession("attach", program: "6000"), $"{LiveSessionService.MaxSessions} sessions are open");
+        _service.Backend = new ScriptedLiveBackend(Sqlite, Base, 0x200000) { ProcessId = 99996001 };
+        await Refused(ErrorCode.LimitExceeded, () => _tools.LiveSession("attach", program: "99996001"), $"{LiveSessionService.MaxSessions} sessions are open");
         await _tools.LiveSession("close", session: "live-3");
-        Assert.Contains("live-9 (scripted)", await _tools.LiveSession("attach", program: "6000"));
+        Assert.Contains("live-9 (scripted)", await _tools.LiveSession("attach", program: "99996001"));
     }
 
     [Fact]
@@ -172,7 +172,7 @@ public sealed class LiveSessionErrorTests : IDisposable
     [Fact]
     public async Task A_script_loads_from_a_file_up_to_its_size_limit()
     {
-        await _tools.LiveSession("attach", program: "4242");
+        await _tools.LiveSession("attach", program: "99994242");
         using var dir = new TempDir();
         File.WriteAllText(dir.File("trace.js"), "send('from a file');");
         Assert.Contains($"u1 loaded ({dir.File("trace.js")})", await _tools.LiveScriptCalls("live-1", "load", path: dir.File("trace.js")));
