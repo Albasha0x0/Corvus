@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- CORVUS_ALL_TESTS=1: the sweeps spread their own work over every processor and run alone in SweepCollection, after the
-     parallel classes; the other classes mostly wait on engine processes and real-data reads, so several run at once (12 overloaded the engines and shared folders). -->
+     parallel classes. The others run one class per processor: engines, real programs and reference tools are bounded by
+     machine-wide permits (Support/MachinePermits.cs), not by the thread count. -->
 <RunSettings>
   <!-- Tells the tests they run in the full set, however it was started (fuzz entries then run every iteration). -->
   <RunConfiguration>
@@ -9,6 +10,6 @@
     </EnvironmentVariables>
   </RunConfiguration>
   <xUnit>
-    <MaxParallelThreads>8</MaxParallelThreads>
+    <MaxParallelThreads>0</MaxParallelThreads>
   </xUnit>
 </RunSettings>
