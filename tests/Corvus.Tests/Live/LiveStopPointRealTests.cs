@@ -183,6 +183,17 @@ public sealed class LiveStopPointRealTests(ITestOutputHelper output) : LiveToolC
         var pid = await Spawn(server, exe, "live-1", plugin, "3");
 
         Assert.Contains("s1 deferred: ", await Set(server, "plugin!PluginWork"));
+        if (target.Emulated)
+        {
+            await Ok(server, "live_break", new() { ["session"] = "live-1", ["action"] = "continue" });
+            Assert.Matches(@"exit code 0(?![0-9xX])", await UntilExited(server, "live-1"));
+            Assert.Contains("s1 plugin!PluginWork: failed (plugin.dll loaded): its entry point writes its code, and a stop point there is not seen in a program emulated on an ARM64 machine",
+                await Ok(server, "live_break", new() { ["session"] = "live-1" }));
+            Assert.Contains("plugin 12", await Events(server, "live-1", kind: "output"));
+            await Ok(server, "live_session", new() { ["action"] = "close", ["session"] = "live-1" });
+            Ended(pid);
+            return;
+        }
         var stop = await Ok(server, "live_break", new() { ["session"] = "live-1", ["action"] = "continue", ["wait"] = true, ["waitSeconds"] = 60 });
         Assert.Contains("stopped at s1 (plugin.dll!PluginWork)", stop);
         Assert.Equal(0UL, await FirstArgument(server, target));
