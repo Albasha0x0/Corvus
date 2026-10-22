@@ -92,9 +92,7 @@ public sealed class WorkerPool(WorkerPoolOptions? options = null) : IDisposable
         if (!Enabled)
             throw new ToolError(ErrorCode.ProviderUnavailable, $"The worker host is off; {EnableVariable}=1 turns it on.");
         ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
-        Slot slot;
-        lock (_slots)
-            if (!_slots.TryGetValue(kind, out slot!)) _slots[kind] = slot = new Slot();
+        var slot = SlotOf(kind);
         var connection = await ConnectAsync(kind, slot, cancellationToken).ConfigureAwait(false);
         try { return await connection.RequestAsync(op, args, timeout, cancellationToken).ConfigureAwait(false); }
         catch (ToolError e) when (e.Code is ErrorCode.LimitExceeded or ErrorCode.ProviderUnavailable)
@@ -111,6 +109,30 @@ public sealed class WorkerPool(WorkerPoolOptions? options = null) : IDisposable
         }
     }
 
+    /// <summary>How long a cancelled request has to stop before its worker, and every request on it, is ended.</summary>
+    public static readonly TimeSpan CancelGrace = TimeSpan.FromSeconds(2);
+
+    /// <summary>
+    /// Starts the worker of <paramref name="kind"/> unless it runs, so a caller can tell a worker that cannot start from one
+    /// that crashed on a request. Throws <see cref="ToolError"/> as <see cref="RunAsync"/> does, or the start's own exception.
+    /// </summary>
+    public async Task StartAsync(string kind, CancellationToken cancellationToken)
+    {
+        if (!Enabled)
+            throw new ToolError(ErrorCode.ProviderUnavailable, $"The worker host is off; {EnableVariable}=1 turns it on.");
+        ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
+        await ConnectAsync(kind, SlotOf(kind), cancellationToken).ConfigureAwait(false);
+    }
+
+    private Slot SlotOf(string kind)
+    {
+        lock (_slots)
+        {
+            if (!_slots.TryGetValue(kind, out var slot)) _slots[kind] = slot = new Slot();
+            return slot;
+        }
+    }
+
     private async Task<WorkerConnection> ConnectAsync(string kind, Slot slot, CancellationToken cancellationToken)
     {
         await slot.Gate.WaitAsync(cancellationToken).ConfigureAwait(false);
@@ -124,7 +146,9 @@ public sealed class WorkerPool(WorkerPoolOptions? options = null) : IDisposable
             if (OperatingSystem.IsMacOS() && start.MemoryLimitBytes is { } bytes)
                 // The watchdog ends the worker; the GC's own limit fails a managed allocation first, which the worker reports.
                 start = start with { Environment = new Dictionary<string, string?>(start.Environment) { ["DOTNET_GCHeapHardLimit"] = "0x" + bytes.ToString("X", CultureInfo.InvariantCulture) } };
-            var connection = WorkerConnection.Start($"{kind} worker", start, options: new WorkerConnectionOptions { MemoryLimitVariable = MemoryVariable });
+            // Requests run side by side, as the worker answers in any order; a cancelled one is asked to stop before the worker is ended.
+            var connection = WorkerConnection.Start($"{kind} worker", start,
+                options: new WorkerConnectionOptions { MemoryLimitVariable = MemoryVariable, Concurrent = true, CancelGrace = CancelGrace });
             connection.EventReceived += e => { if (e.Name == WorkerHost.OutOfMemoryEvent) slot.OutOfMemory = true; };
             try { await connection.WaitReadyAsync(_options.StartTimeout, cancellationToken).ConfigureAwait(false); }
             catch
