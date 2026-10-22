@@ -345,16 +345,18 @@ public sealed class CompareTools(AssemblyWorkspace workspace, AssemblyComparer c
     private sealed class Renames
     {
         private static readonly System.Text.RegularExpressions.Regex TokenMark = new(@"\s*\[token (?:0x[0-9A-Fa-f]{8}|\(new\))\]",
-            System.Text.RegularExpressions.RegexOptions.CultureInvariant, TimeSpan.FromSeconds(2));
+            System.Text.RegularExpressions.RegexOptions.CultureInvariant | System.Text.RegularExpressions.RegexOptions.NonBacktracking);
         private readonly Dictionary<string, string> _map;
         private readonly System.Text.RegularExpressions.Regex? _names;
 
         private Renames(Dictionary<string, string> map)
         {
             _map = map;
+            // Literal names between one-character lookarounds: bounded work per
+            // position, so no match timeout.
             if (map.Count > 0)
                 _names = new(@"(?<![\w`])(" + string.Join("|", map.Keys.OrderByDescending(k => k.Length).Select(System.Text.RegularExpressions.Regex.Escape)) + @")(?![\w`])",
-                    System.Text.RegularExpressions.RegexOptions.CultureInvariant, TimeSpan.FromSeconds(5));
+                    System.Text.RegularExpressions.RegexOptions.CultureInvariant);
         }
 
         public static Renames Of(Comparison cmp)

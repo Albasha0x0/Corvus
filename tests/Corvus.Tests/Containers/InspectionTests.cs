@@ -536,6 +536,17 @@ public class InspectionTests : IDisposable
     }
 
     [Fact]
+    public void Values_beside_a_long_run_of_colons_keep_their_addresses()
+    {
+        // The run backtracked an IPv6 pattern of three overlapping classes past its 1 s timeout, and the text lost its addresses.
+        var text = "fe80::1 and 2001:db8::7\n" + new string(':', 20_000) + "g";
+        var fixture = ContainerFixtures.Module("Colons", m => m.Resources.Add(new EmbeddedResource("notes.txt", Encoding.UTF8.GetBytes(text))));
+        var found = Inspection.ExtractStrings(null, Save("Colons.dll", fixture), null, default).Values.Select(i => (i.Type, i.Value)).ToList();
+        Assert.Contains(("ipv6", "fe80::1"), found);
+        Assert.Contains(("ipv6", "2001:db8::7"), found);
+    }
+
+    [Fact]
     public void Values_OfEverydayApis_KnowWhereTheyGo_AndExport()
     {
         var path = Save("EverydayApis.dll", EverydayApis());

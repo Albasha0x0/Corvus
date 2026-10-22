@@ -14,27 +14,34 @@ public sealed record ExtractedValue(string Type, string Value, int Count, IReadO
 /// Extracts typed values (network indicators, paths, registry keys, mutexes, user agents, crypto keys) from strings,
 /// resource text and decoded embedded text. Mutexes, user agents and keys are recognized by the APIs that consume them.
 /// </summary>
-public static class Values
+public static partial class Values
 {
     public static readonly IReadOnlyList<string> Types =
         ["url", "domain", "ipv4", "ipv6", "email", "file_path", "named_pipe", "registry_key", "mutex", "user_agent", "crypto_key"];
 
     private const int MaxLocations = 5;
-    private static readonly TimeSpan RegexTimeout = TimeSpan.FromSeconds(1);
 
-    private static Regex R(string pattern) => new(pattern, RegexOptions.CultureInvariant | RegexOptions.Compiled, RegexTimeout);
+    // Texts run to 1 MB: NonBacktracking matches in linear time, so no match
+    // timeout. Patterns that need lookarounds are generated regexes whose tails
+    // fail only where no later match can start, or code.
+    private static Regex R(string pattern) => new(pattern, RegexOptions.CultureInvariant | RegexOptions.NonBacktracking);
 
     private static readonly Regex Url = R(@"\b(?:https?|ftps?|wss?|tcp|udp)://[^\s""'<>\\^`{|}]+");
     private static readonly Regex Email = R(@"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,24}\b");
-    private static readonly Regex Ipv4 = R(@"(?<![\d.])(?:(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)\.){3}(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(?![\d.])");
-    private static readonly Regex Ipv6Candidate = R(@"(?<![\w:.])[0-9A-Fa-f:]*:[0-9A-Fa-f:]*:[0-9A-Fa-f:.]*(?![\w:])");
+    [GeneratedRegex(@"(?<![\d.])(?:(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)\.){3}(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(?![\d.])", RegexOptions.CultureInvariant)]
+    private static partial Regex Ipv4();
+    private static readonly Regex Ipv6Run = R(@"[0-9A-Fa-f:.]+");
+    private static readonly Regex WordChar = R(@"\w");
     private static readonly Regex Hostname = R(@"^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+([a-z]{2,24})$");
     // Paths also end at a quote, ';' or '`', which terminate command-line arguments.
     private static readonly Regex WindowsPath = R(@"(?:\b[A-Za-z]:\\|%[A-Za-z_][A-Za-z0-9_]*%\\)[^\r\n""'`;*?<>|]*[^\r\n""'`;*?<>|\s.,:)]");
-    private static readonly Regex UncPath = R(@"\\\\(?!\.\\pipe\\)[A-Za-z0-9._$-]+\\[^\r\n""'`;*?<>|]*[^\r\n""'`;*?<>|\s.,:)]");
-    private static readonly Regex UnixPath = R(@"(?<![\w/])/(?:etc|tmp|var|usr|bin|sbin|home|dev|proc|opt|root|Library|Users|Applications|System)/[^\s""'<>|;]*[^\s""'<>|;.,)]");
+    [GeneratedRegex(@"\\\\(?!\.\\pipe\\)[A-Za-z0-9._$-]+\\[^\r\n""'`;*?<>|]*[^\r\n""'`;*?<>|\s.,:)]", RegexOptions.CultureInvariant)]
+    private static partial Regex UncPath();
+    [GeneratedRegex(@"(?<![\w/])/(?:etc|tmp|var|usr|bin|sbin|home|dev|proc|opt|root|Library|Users|Applications|System)/[^\s""'<>|;]*[^\s""'<>|;.,)]", RegexOptions.CultureInvariant)]
+    private static partial Regex UnixPath();
     private static readonly Regex Pipe = R(@"\\\\\.\\pipe\\[^\s""'<>|]+");
-    private static readonly Regex Registry = R(@"\b(?:HKEY_(?:LOCAL_MACHINE|CURRENT_USER|CLASSES_ROOT|USERS|CURRENT_CONFIG)|HKLM|HKCU|HKCR|HKU)(?:\\[^\r\n""]*[^\r\n""\s\\])?(?![\w])");
+    [GeneratedRegex(@"\b(?:HKEY_(?:LOCAL_MACHINE|CURRENT_USER|CLASSES_ROOT|USERS|CURRENT_CONFIG)|HKLM|HKCU|HKCR|HKU)(?:\\[^\r\n""]*[^\r\n""\s\\])?(?![\w])", RegexOptions.CultureInvariant)]
+    private static partial Regex Registry();
     private static readonly Regex RelativeRegistry = R(@"^(?:SOFTWARE|Software|SYSTEM\\CurrentControlSet|System\\CurrentControlSet)\\[^\r\n""]+$");
 
     /// <summary>XML / schema namespace hosts, excluded from URLs and domains.</summary>
@@ -106,12 +113,29 @@ public static class Values
             .OrderBy(i => Array.IndexOf([.. Types], i.Type)).ThenByDescending(i => i.Count).ThenBy(i => i.Value, StringComparer.Ordinal)];
     }
 
-    private static IEnumerable<string> Matches(Regex regex, string text)
+    private static IEnumerable<string> Matches(Regex regex, string text) => regex.Matches(text).Select(m => m.Value);
+
+    /// <summary>
+    /// IPv6 candidates: runs of hex digits, colons and dots outside a word, with two colons before any dot, ending
+    /// before a non-word character or at the run's last dot.
+    /// </summary>
+    private static IEnumerable<string> Ipv6Candidates(string text)
     {
-        MatchCollection matches;
-        try { matches = regex.Matches(text); _ = matches.Count; }
-        catch (RegexMatchTimeoutException) { yield break; }
-        foreach (Match m in matches) yield return m.Value;
+        // A scan of whole runs: one regex of three overlapping classes
+        // backtracks cubically over a long run that ends inside a word.
+        foreach (Match run in Ipv6Run.Matches(text))
+        {
+            int start = run.Index, end = run.Index + run.Length;
+            if (text[start] == '.' || start > 0 && WordChar.IsMatch(text.AsSpan(start - 1, 1))) continue;
+            int dot = run.Value.IndexOf('.');
+            if (run.Value.AsSpan(0, dot < 0 ? run.Length : dot).Count(':') < 2) continue;
+            if (end < text.Length && WordChar.IsMatch(text.AsSpan(end, 1)))
+            {
+                if (dot < 0) continue;
+                end = start + run.Value.LastIndexOf('.');
+            }
+            yield return text[start..end];
+        }
     }
 
     private static void FromText(Builder b, string text, Location where, IReadOnlyList<string> passedTo)
@@ -143,19 +167,19 @@ public static class Values
             var host = t.Contains(':') && !t.Contains("::") ? t[..t.IndexOf(':')] : t;
             if (IsDomain(host, requireKnownTld: true)) b.Add("domain", host, where, passedTo);
         }
-        foreach (var m in MatchesAt(Ipv4, text))
+        foreach (Match m in Ipv4().Matches(text))
             if (IsPlausibleIpv4(m.Value) && !IsVersionContext(text, m.Index)
                 && !text.Contains("Version=" + m.Value, StringComparison.OrdinalIgnoreCase)) // same number used as a version elsewhere
                 b.Add("ipv4", m.Value, where, passedTo);
-        foreach (var candidate in Matches(Ipv6Candidate, text))
+        foreach (var candidate in Ipv6Candidates(text))
             if (candidate.Count(c => c == ':') >= 2 && IPAddress.TryParse(candidate, out var v6) && v6.AddressFamily == AddressFamily.InterNetworkV6
                 && candidate.Any(char.IsAsciiHexDigit))
                 b.Add("ipv6", v6.ToString(), where, passedTo);
         foreach (var pipe in Matches(Pipe, text))
             b.Add("named_pipe", pipe, where, passedTo);
-        foreach (var path in Matches(WindowsPath, text).Concat(Matches(UncPath, text)).Concat(Matches(UnixPath, text)))
+        foreach (var path in Matches(WindowsPath, text).Concat(Matches(UncPath(), text)).Concat(Matches(UnixPath(), text)))
             b.Add("file_path", path, where, passedTo);
-        foreach (var key in Matches(Registry, text))
+        foreach (var key in Matches(Registry(), text))
             b.Add("registry_key", key, where, passedTo);
         if (RelativeRegistry.IsMatch(text.Trim()) || passedTo.Any(a => a.StartsWith("Microsoft.Win32.RegistryKey::", StringComparison.Ordinal) && a.Contains("SubKey")))
             if (text.Contains('\\') && text.Length < 512) b.Add("registry_key", text.Trim(), where, passedTo);
@@ -165,7 +189,7 @@ public static class Values
     private static void FromContext(Builder b, ModuleScan.CodeString s, ModuleScan scan)
     {
         var value = s.Value;
-        if (s.Consumers.Any(a => a.StartsWith("System.Threading.Mutex::", StringComparison.Ordinal) || Regex.IsMatch(a, @"::(?:Create|Open)Mutex", RegexOptions.None, RegexTimeout)))
+        if (s.Consumers.Any(a => a.StartsWith("System.Threading.Mutex::", StringComparison.Ordinal) || a.Contains("::CreateMutex", StringComparison.Ordinal) || a.Contains("::OpenMutex", StringComparison.Ordinal)))
             b.Add("mutex", value, s.Location, s.Consumers);
         if (value.StartsWith("Mozilla/", StringComparison.Ordinal)
             || value.Length is >= 4 and < 512 && s.Consumers.Any(a => a.EndsWith("::set_UserAgent", StringComparison.Ordinal)
@@ -217,14 +241,6 @@ public static class Values
         var before = text.AsSpan(Math.Max(0, index - 12), index - Math.Max(0, index - 12)).TrimEnd(" =:\t".AsSpan());
         return before.EndsWith("version", StringComparison.OrdinalIgnoreCase) || before.EndsWith("ver", StringComparison.OrdinalIgnoreCase)
                || (before.Length > 0 && (before[^1] is 'v' or 'V') && (before.Length == 1 || !char.IsLetterOrDigit(before[^2])));
-    }
-
-    private static IEnumerable<Match> MatchesAt(Regex regex, string text)
-    {
-        MatchCollection matches;
-        try { matches = regex.Matches(text); _ = matches.Count; }
-        catch (RegexMatchTimeoutException) { yield break; }
-        foreach (Match m in matches) yield return m;
     }
 
     /// <summary>Rejects "0.x.x.x" and version-like "N.x.0.0" with N below 10; private ranges are kept.</summary>

@@ -54,6 +54,6 @@ public static partial class XamlEvents
         return sb.Append(Environment.NewLine).Append("-->").ToString();
     }
 
-    [GeneratedRegex(@"^[\p{L}_][\p{L}\p{Nd}_]*$", RegexOptions.None, matchTimeoutMilliseconds: 1000)]
+    [GeneratedRegex(@"^[\p{L}_][\p{L}\p{Nd}_]*$")]
     private static partial Regex Identifier();
 }
