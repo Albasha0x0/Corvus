@@ -16,7 +16,7 @@
 #         ./test.ps1 -Wait                # returns when the background run and any run queued behind it end: 0 passed, 1 not
 #         ./test.ps1 -Perf                # the speed measurements with their budgets, alone on the machine (nightly, after -Full)
 #         ./test.ps1 -Stamp               # records the last full run's passes when its recording step failed (same tree only)
-#         ./test.ps1 -RemoteRun -Shard 0/4 # CI: one shard of the classes a push run offloads (test-remote.psm1)
+#         ./test.ps1 -RemoteRun -Group sweep -Shard 0/2  # CI: one shard of a group a push run offloads (test-remote.psm1)
 #         ./test.ps1 -Full -Coverage      # also collects line coverage (coverlet) and checks Ratchets/coverage.txt
 #         ./test.ps1 -CoverageMap         # which source files each family's tests (and each slow class) run (a whole background run refreshes it weekly): -Reuse keys on them
 #         ./test.ps1 -Mutation [-Target sqlite,pe]  # mutation testing of the core readers (Stryker.NET; tests/mutation.json),
@@ -42,6 +42,7 @@ param(
     [switch]$Stamp,
     [switch]$Perf,
     [switch]$RemoteRun,
+    [string]$Group = '',
     [string]$Shard = '0/1',
     [switch]$CrossPlatform,
     [switch]$Wait
@@ -85,9 +86,9 @@ if (-not $Perf) {
 if ($RemoteRun) {
     Import-Module (Join-Path $root 'test-remote.psm1') -Force
     $index, $count = $Shard -split '/' | ForEach-Object { [int]$_ }
-    $classes = @(Get-RemoteShard @(Get-RemoteClasses $tests -CrossPlatform:$CrossPlatform) $index $count)
-    if (-not $classes) { Write-Host "Shard $Shard has no class."; exit 0 }
-    Write-Host "Shard $Shard`: $($classes -join ', ')"
+    $classes = @(Get-RemoteShard @(Get-RemoteClasses $tests $Group -CrossPlatform:$CrossPlatform) $index $count)
+    if (-not $classes) { Write-Host "Shard $Shard of $(if ($Group) { $Group } else { 'every group' }) has no class."; exit 0 }
+    Write-Host "Shard $Shard of $(if ($Group) { $Group } else { 'every group' }): $($classes -join ', ')"
     $env:CORVUS_ALL_TESTS = '1'; $env:CORVUS_SWEEP = if ($Exhaustive) { 'exhaustive' } else { $null }
     & dotnet test $tests --nologo -c Release --filter (Get-ClassFilter $classes $Exhaustive.IsPresent) --logger 'trx;LogFileName=offload.trx' `
         --results-directory (Join-Path $root 'TestResults') --blame-hang --blame-hang-timeout 30m --blame-hang-dump-type mini
@@ -652,13 +653,13 @@ $runFilter = if ($Full -and -not $Exhaustive -and -not $Coverage -and -not $PSBo
 $offload = if ($wholeSuite -and -not $Coverage) { Import-Module (Join-Path $root 'test-remote.psm1') -Force; Get-OffloadTarget $root $Exhaustive.IsPresent } else { $null }
 $offloadHandle = $null; $sent = @(); $offloadRecord = $null; $offloadClock = $null
 if ($offload) {
-    $candidates = @(Get-RemoteClasses $tests)
+    $candidates = @(Get-RemoteClasses $tests); $mixed = @(Get-MixedClasses $tests)
     $sent = if ($Filter) { @([regex]::Matches($Filter, 'FullyQualifiedName~\.(\w+)') | ForEach-Object { $_.Groups[1].Value } | Where-Object { $_ -in $candidates }) } else { $candidates }
     $offloadRecord = [ordered]@{ target = $offload.Name; commit = (git -C $root rev-parse --short HEAD).Trim(); at = (Get-Date -Format 'yyyy-MM-dd HH:mm'); classes = $sent.Count; state = 'running'; seconds = $null; note = $null }
     if ($sent) {
         $offloadClock = [Diagnostics.Stopwatch]::StartNew()
         $offloadHandle = Start-Offload $offload (git -C $root rev-parse HEAD).Trim() $sent ($runFilter -notmatch 'Tier!=Release') (Join-Path $root 'test-remote.psm1')
-        $runFilter = Get-LocalFilter $runFilter $sent
+        $runFilter = Get-LocalFilter $runFilter $sent $mixed
         Write-Host "Offloading $($sent.Count) classes to $($offload.Name); the rest run here."
     }
     else { $offloadRecord.state = 'idle'; $offloadRecord.note = 'no class to send' }
@@ -701,28 +702,36 @@ try {
     $code = $LASTEXITCODE
     $trx = Join-Path $results 'full.trx'
     if ($offloadHandle) {
-        # The other machine's results join the local ones. Classes that did not run there, or ran with tests skipped
-        # that run here, run here; a remote half that started and then gave no results counts as failed, never passed.
+        # The other machine's results join the local ones. A class that failed there, proved less there or has no
+        # results there runs once more here, and its result here is the one that counts.
         $got = Receive-Offload $offloadHandle (Join-Path $results 'offload')
         $offloadRecord.seconds = [math]::Round($offloadClock.Elapsed.TotalSeconds, 1)
-        $here = @()
-        if (-not $got.Started) { $here = $sent; $offloadRecord.state = 'not run there'; $offloadRecord.note = "$($got.Note); its classes ran here" }
-        elseif (-not $got.Copied) { $offloadRecord.state = 'failed'; $offloadRecord.note = "no results came back: $($got.Note)"; if ($code -eq 0) { $code = 1 } }
+        $here = @(); $notes = @()
+        if (-not $got.Started) { $here = $sent; $offloadRecord.state = 'not run there'; $notes += "$($got.Note); its classes ran here" }
         else {
-            $here = @(Get-SkippedOnHost $got.Trx $lastTrx)
-            $offloadRecord.state = if ($got.Code -eq 0) { 'passed' } else { "FAILED (exit $($got.Code))" }
-            if ($here) { $offloadRecord.note = "skipped tests there, ran here: $($here -join ', ')" }
-            if ($got.Code -ne 0 -and $code -eq 0) { $code = $got.Code }
-            Copy-Item $got.Trx (Join-Path $gitDir "corvus-remote/$(Get-TargetFileName $offload.Name).trx") -Force
-            # A target may run more classes than this run needed (it does not reuse passes); only the sent ones count.
-            Join-TrxFiles $trx @($trx, $got.Trx) (@($here) + @($candidates | Where-Object { $_ -notin $sent }))
+            $here = @(Get-RerunClasses $got $sent $lastTrx $mixed $trx)
+            $offloadRecord.state = if ($got.Failed) { "failed on $($offload.Name)" } else { 'passed' }
+            if ($got.Note -notmatch '^run \d+$') { $notes += $got.Note }
+            if ($got.Trx) {
+                Copy-Item $got.Trx (Join-Path $gitDir "corvus-remote/$(Get-TargetFileName $offload.Name).trx") -Force
+                # A target may run more classes than this run needed (it does not reuse passes); only the sent ones count.
+                Join-TrxFiles $trx @($trx, $got.Trx) (@($here) + @($candidates | Where-Object { $_ -notin $sent })) $mixed
+            }
         }
+        $hereTrx = Join-Path $results 'here/here.trx'
         if ($here) {
-            Write-Host "Running here what $($offload.Name) did not: $($here.Count) classes."
-            & dotnet test $tests --nologo --no-build --filter (Get-ClassFilter $here ($runFilter -notmatch 'Tier!=Release')) --logger 'trx;LogFileName=here.trx' --results-directory (Join-Path $results 'here') | Out-Host
+            Write-Host "Running here what $($offload.Name) did not prove: $($here.Count) classes."
+            & dotnet test $tests --nologo --no-build --filter (Get-ClassFilter $here ($runFilter -notmatch 'Tier!=Release') $mixed) --logger 'trx;LogFileName=here.trx' --results-directory (Join-Path $results 'here') | Out-Host
             if ($LASTEXITCODE -ne 0 -and $code -eq 0) { $code = $LASTEXITCODE }
-            Join-TrxFiles $trx @($trx, (Join-Path $results 'here/here.trx'))
+            Join-TrxFiles $trx @($trx, $hereTrx) @() $mixed
         }
+        if ($got.Started) {
+            if ($got.Failed) { $notes += Get-FailedThereNote $got.Failed $(if ($here) { $hereTrx }) $offload.Name }
+            $rest = @($here | Where-Object { $_ -notin @($got.Failed | ForEach-Object Class) })
+            if ($rest) { $notes += "no full result there, ran here: $($rest -join ', ')" }
+        }
+        $offloadRecord.note = if ($notes) { $notes -join '; ' } else { $null }
+        $timing.offload = "$($offloadRecord.state)$(if ($offloadRecord.note) { "; $($offloadRecord.note)" })"
         Save-RemoteRecord $gitDir $offloadRecord
         Write-Host "Offload $($offload.Name): $($offloadRecord.state)$(if ($offloadRecord.note) { "; $($offloadRecord.note)" })."
     }

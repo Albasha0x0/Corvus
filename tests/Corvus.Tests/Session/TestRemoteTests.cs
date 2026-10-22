@@ -31,37 +31,51 @@ public sealed class TestRemoteTests : IDisposable
 
     [Fact]
     [Trait("Speed", "Slow")]
-    public void Engine_free_heavy_classes_are_offloaded_and_leave_the_local_filter()
+    public void Heavy_classes_are_grouped_for_offload_and_leave_the_local_filter()
     {
         var tests = Path.Combine(_dir.Path, "tests");
-        void Source(string folder, string text)
+        void Source(string folder, string text, string file = "T.cs")
         {
             Directory.CreateDirectory(Path.Combine(tests, folder));
-            File.WriteAllText(Path.Combine(tests, folder, "T.cs"), text);
+            File.WriteAllText(Path.Combine(tests, folder, file), text);
         }
         Source("Dotnet", "public sealed class FormatSweepTests { }\npublic class PlainTests { }");
         Source("DotnetEdits", "public abstract class PipelineRoundTripTests { public sealed class Part1 { } }");
         Source("Engines", "public class EngineSweepTests { }");
-        Source("Live", "public class LiveMatrixTests { }");
+        Source("Engines", "public class GhidraReadTests { [GhidraFact] public void M() { } }\npublic sealed class GhidraCacheFixture { }", "G.cs");
+        Source("Engines", "public class EngineMixTests { [IdaFact] public void A() { } [GhidraFact] public void B() { } }", "M.cs");
+        Source("Live", "public class LiveMatrixTests { }\npublic abstract class LiveToolCalls { }");
         Source("NativeAnalysis", "public class IdaSweepTests { [IdaFact] public void M() { } }");
         Source("Containers", "public class CorpusSweepTests { [RequiresRealDataFact(\"CORVUS_X\")] public void M() { } }");
         Source("NativeFormats", "public class PeSweepTests { [WindowsFact] public void M() { } }");
         var lines = TestReuseTests.Run($$"""
             Import-Module {{Module}}
-            $all = Get-RemoteClasses {{Quote(tests)}}
-            'classes=' + ($all -join ',')
+            'classes=' + ((Get-RemoteClasses {{Quote(tests)}}) -join ',')
             'cross=' + ((Get-RemoteClasses {{Quote(tests)}} -CrossPlatform) -join ',')
-            'shard0=' + ((Get-RemoteShard $all 0 2) -join ',')
-            'shard1=' + ((Get-RemoteShard $all 1 2) -join ',')
+            $sweep = Get-RemoteClasses {{Quote(tests)}} sweep
+            'sweep=' + ($sweep -join ',')
+            'ghidra=' + ((Get-RemoteClasses {{Quote(tests)}} ghidra) -join ',')
+            'live=' + ((Get-RemoteClasses {{Quote(tests)}} live -CrossPlatform) -join ',')
+            'mixed=' + ((Get-MixedClasses {{Quote(tests)}}) -join ',')
+            'shard0=' + ((Get-RemoteShard $sweep 0 2) -join ',')
+            'shard1=' + ((Get-RemoteShard $sweep 1 2) -join ',')
             'routine=' + (Get-LocalFilter 'Tier!=Release' @('FormatSweepTests', 'PipelineRoundTripTests'))
             'everything=' + (Get-LocalFilter '' @('FormatSweepTests'))
             'none=' + (Get-LocalFilter 'Tier!=Release' @())
             'remote=' + (Get-ClassFilter @('FormatSweepTests', 'PeSweepTests') $false)
             'release=' + (Get-ClassFilter @('FormatSweepTests') $true)
+            'split=' + (Get-LocalFilter 'Tier!=Release' @('EngineMixTests', 'FormatSweepTests') @('EngineMixTests'))
+            'rest=' + (Get-ClassFilter @('EngineMixTests', 'FormatSweepTests') $false @('EngineMixTests'))
             """);
         if (lines is ["skip"]) return;
-        Assert.Contains("classes=FormatSweepTests,PeSweepTests,PipelineRoundTripTests", lines);
-        Assert.Contains("cross=FormatSweepTests,PipelineRoundTripTests", lines);
+        // Ghidra and live classes go as groups of their own, a class using both engines too; a file with IDA facts alone
+        // stays here.
+        Assert.Contains("classes=EngineMixTests,FormatSweepTests,GhidraReadTests,LiveMatrixTests,PeSweepTests,PipelineRoundTripTests", lines);
+        Assert.Contains("cross=EngineMixTests,FormatSweepTests,GhidraReadTests,LiveMatrixTests,PipelineRoundTripTests", lines);
+        Assert.Contains("sweep=FormatSweepTests,PeSweepTests,PipelineRoundTripTests", lines);
+        Assert.Contains("ghidra=EngineMixTests,GhidraReadTests", lines);
+        Assert.Contains("mixed=EngineMixTests", lines);
+        Assert.Contains("live=LiveMatrixTests", lines);
         Assert.Contains("shard0=FormatSweepTests,PipelineRoundTripTests", lines);
         Assert.Contains("shard1=PeSweepTests", lines);
         Assert.Contains("routine=(Tier!=Release)&FullyQualifiedName!~.FormatSweepTests&FullyQualifiedName!~.PipelineRoundTripTests", lines);
@@ -69,6 +83,47 @@ public sealed class TestRemoteTests : IDisposable
         Assert.Contains("none=Tier!=Release", lines);
         Assert.Contains("remote=(FullyQualifiedName~.FormatSweepTests|FullyQualifiedName~.PeSweepTests)&Tier!=Release", lines);
         Assert.Contains("release=FullyQualifiedName~.FormatSweepTests", lines);
+        Assert.Contains("split=(Tier!=Release)&FullyQualifiedName!~.FormatSweepTests&(Engine!=ghidra|FullyQualifiedName!~.EngineMixTests)", lines);
+        Assert.Contains("rest=((FullyQualifiedName~.EngineMixTests&Engine!=ida)|FullyQualifiedName~.FormatSweepTests)&Tier!=Release", lines);
+    }
+
+    [Fact]
+    [Trait("Speed", "Slow")]
+    public void A_class_using_both_engines_joins_per_test_and_reruns_only_for_a_test_skipped_on_both_sides()
+    {
+        // Here M0 is an IDA test and M2 a plain one; there M0 skips, M1 is a Ghidra test, and M3 fails only there.
+        var local = _dir.File("full.trx");
+        File.WriteAllText(local, Trx(("MixTests", "Passed"), ("PlainTests", "Passed"), ("MixTests", "Passed"), ("MixTests", "Passed")));
+        var remote = _dir.File("remote.trx");
+        File.WriteAllText(remote, Trx(("MixTests", "NotExecuted"), ("MixTests", "Passed"), ("MixTests", "Passed"), ("MixTests", "Failed")));
+        var skipped = _dir.File("skipped.trx");
+        File.WriteAllText(skipped, Trx(("MixTests", "NotExecuted"), ("MixTests", "NotExecuted")));
+        var ran = _dir.File("ran.trx");
+        File.WriteAllText(ran, Trx(("MixTests", "Passed"), ("MixTests", "Passed")));
+        var unran = _dir.File("unran.trx");
+        File.WriteAllText(unran, Trx(("MixTests", "Passed"), ("MixTests", "NotExecuted")));
+        var lines = TestReuseTests.Run($$"""
+            Import-Module {{Module}}
+            Import-Module {{Quote(Path.Combine(DocsTests.RepoRoot(), "test-reuse.psm1"))}}
+            $got = [pscustomobject]@{ Started = $true; Trx = {{Quote(remote)}}; Failed = @(); Note = 'run 42' }
+            'split=' + ((Get-RerunClasses $got @('MixTests') {{Quote(ran)}} @('MixTests') {{Quote(local)}}) -join ',')
+            'whole=' + ((Get-RerunClasses $got @('MixTests') {{Quote(ran)}}) -join ',')
+            'both=' + ((Get-SkippedOnBoth {{Quote(skipped)}} {{Quote(_dir.File("absent.trx"))}} {{Quote(ran)}} @('MixTests')) -join ',')
+            'neither=' + ((Get-SkippedOnBoth {{Quote(skipped)}} {{Quote(local)}} {{Quote(unran)}} @('MixTests')) -join ',')
+            Join-TrxFiles {{Quote(local)}} @({{Quote(local)}}, {{Quote(remote)}}) @() @('MixTests')
+            'tests=' + ((Get-TestOutcomes {{Quote(local)}} | ForEach-Object { "$($_.Key -replace '^Corvus\.Tests\.', '')=$($_.Outcome)" } | Sort-Object) -join ',')
+            'failed=' + ((Get-FailedTests {{Quote(local)}}) -join ',')
+            'total=' + ([xml](Get-Content {{Quote(local)}} -Raw)).TestRun.ResultSummary.Counters.total
+            """);
+        if (lines is ["skip"]) return;
+        // The IDA test skips there as expected; counted per class it would look like a skip there that ran here.
+        Assert.Contains("split=", lines);
+        Assert.Contains("whole=MixTests", lines);
+        Assert.Contains("both=MixTests", lines);
+        Assert.Contains("neither=", lines);
+        Assert.Contains("tests=MixTests|M0=Passed,MixTests|M1=Passed,MixTests|M2=Passed,MixTests|M3=Failed,PlainTests|M1=Passed", lines);
+        Assert.Contains("failed=Corvus.Tests.MixTests.M3", lines);
+        Assert.Contains("total=5", lines);
     }
 
     [Fact]
@@ -106,17 +161,53 @@ public sealed class TestRemoteTests : IDisposable
         Assert.Contains("status=github: FAILED (exit 1) on abc at now (3 classes, 12.5 s)", lines);
     }
 
-    /// <summary>A script standing in for gh: one CI run whose offload job ended with <paramref name="conclusion"/>.</summary>
-    private string FakeGh(string conclusion, string trx)
+    [Fact]
+    [Trait("Speed", "Slow")]
+    public void A_class_that_failed_there_or_has_no_results_there_reruns_here_and_its_result_here_is_named()
+    {
+        var remote = _dir.File("remote.trx");
+        File.WriteAllText(remote, Trx(("FormatSweepTests", "Failed"), ("RoundTripTests", "Passed"), ("ToolSweepTests", "NotExecuted")));
+        var before = _dir.File("last.trx");
+        File.WriteAllText(before, Trx(("ToolSweepTests", "Passed"), ("GoneTests", "Passed")));
+        var here = _dir.File("here.trx");
+        File.WriteAllText(here, Trx(("FormatSweepTests", "Passed"), ("RoundTripTests", "Failed")));
+        var lines = TestReuseTests.Run($$"""
+            Import-Module {{Module}}
+            $failed = @(
+                [pscustomobject]@{ Class = 'FormatSweepTests'; Platform = 'windows' },
+                [pscustomobject]@{ Class = 'FormatSweepTests'; Platform = 'ubuntu' },
+                [pscustomobject]@{ Class = 'RoundTripTests'; Platform = 'ubuntu' })
+            $sent = 'FormatSweepTests', 'RoundTripTests', 'ToolSweepTests', 'GoneTests', 'NeverTests'
+            $got = [pscustomobject]@{ Started = $true; Trx = {{Quote(remote)}}; Failed = $failed; Note = 'run 42' }
+            'rerun=' + ((Get-RerunClasses $got $sent {{Quote(before)}}) -join ',')
+            $none = [pscustomobject]@{ Started = $true; Trx = $null; Failed = @(); Note = 'run 42' }
+            'notrx=' + ((Get-RerunClasses $none $sent {{Quote(before)}}) -join ',')
+            'nolast=' + ((Get-RerunClasses $none $sent {{Quote(_dir.File("absent.trx"))}}) -join ',')
+            'note=' + (Get-FailedThereNote $failed {{Quote(here)}} 'github')
+            'unrun=' + (Get-FailedThereNote $failed $null 'github')
+            """);
+        if (lines is ["skip"]) return;
+        // GoneTests has no results there but ran here last time; NeverTests ran in neither place.
+        Assert.Contains("rerun=FormatSweepTests,GoneTests,RoundTripTests,ToolSweepTests", lines);
+        Assert.Contains("notrx=GoneTests,ToolSweepTests", lines);
+        Assert.Contains("nolast=FormatSweepTests,GoneTests,NeverTests,RoundTripTests,ToolSweepTests", lines);
+        Assert.Contains("note=FormatSweepTests failed on github (ubuntu, windows), passed here; RoundTripTests failed on github (ubuntu), failed here", lines);
+        Assert.Contains("unrun=FormatSweepTests failed on github (ubuntu, windows), not run here; RoundTripTests failed on github (ubuntu), not run here", lines);
+    }
+
+    /// <summary>A script standing in for gh: one CI run whose first offload job ended with <paramref name="conclusion"/>;
+    /// its Windows shards hold <paramref name="trx"/>, its Linux shard <paramref name="linuxTrx"/>.</summary>
+    private string FakeGh(string conclusion, string trx, string linuxTrx)
     {
         var path = _dir.File($"gh-{conclusion}.ps1");
         File.WriteAllText(path, $$"""
             $verb = "$($args[0]) $($args[1])"
             if ($verb -eq 'run list') { '[{"databaseId": 42}]'; exit 0 }
-            if ($verb -eq 'run view') { '{"status": "completed", "jobs": [{"name": "offload (windows-latest 0/2)", "status": "completed", "conclusion": "{{conclusion}}"}, {"name": "offload (windows-latest 1/2)", "status": "completed", "conclusion": "success"}, {"name": "test (windows-latest)", "status": "completed", "conclusion": "failure"}]}'; exit 0 }
+            if ($verb -eq 'run view') { '{"status": "completed", "jobs": [{"name": "offload (sweep windows-latest 0/2)", "status": "completed", "conclusion": "{{conclusion}}"}, {"name": "offload (sweep windows-latest 1/2)", "status": "completed", "conclusion": "success"}, {"name": "offload (live ubuntu-latest 0/1)", "status": "completed", "conclusion": "success"}, {"name": "test (windows-latest)", "status": "completed", "conclusion": "failure"}]}'; exit 0 }
             if ($verb -eq 'run download') {
                 $to = $args[[array]::IndexOf($args, '-D') + 1]
-                foreach ($shard in 0, 1) { New-Item -ItemType Directory -Force "$to/offload-windows-latest-$shard" | Out-Null; Copy-Item {{Quote(trx)}} "$to/offload-windows-latest-$shard/offload.trx" }
+                foreach ($shard in 0, 1) { New-Item -ItemType Directory -Force "$to/offload-sweep-windows-latest-$shard" | Out-Null; Copy-Item {{Quote(trx)}} "$to/offload-sweep-windows-latest-$shard/offload.trx" }
+                New-Item -ItemType Directory -Force "$to/offload-live-ubuntu-latest-0" | Out-Null; Copy-Item {{Quote(linuxTrx)}} "$to/offload-live-ubuntu-latest-0/offload.trx"
                 exit 0
             }
             exit 1
@@ -126,18 +217,20 @@ public sealed class TestRemoteTests : IDisposable
 
     [Fact]
     [Trait("Speed", "Slow")]
-    public void A_finished_ci_run_brings_its_results_back_and_a_failed_or_missing_one_leaves_the_classes_here()
+    public void A_finished_ci_run_brings_its_results_and_failures_back_and_a_missing_one_leaves_the_classes_here()
     {
         var trx = _dir.File("shard.trx");
         File.WriteAllText(trx, Trx(("FormatSweepTests", "Passed")));
+        var linux = _dir.File("linux.trx");
+        File.WriteAllText(linux, Trx(("LiveMatrixTests", "Failed"), ("LiveMatrixTests", "Passed")));
         var none = _dir.File("gh-none.ps1");
         File.WriteAllText(none, "'[]'; exit 0");
         var lines = TestReuseTests.Run($$"""
             Import-Module {{Module}}
-            $env:CORVUS_TEST_GH = {{Quote(FakeGh("success", trx))}}
+            $env:CORVUS_TEST_GH = {{Quote(FakeGh("success", trx, linux))}}
             $r = Receive-GitHubRun (Wait-GitHubRun 'owner/repo' 'abc' 0 0) {{Quote(Path.Combine(_dir.Path, "ok"))}}
-            'ok=' + $r.Started + ',' + $r.Copied + ',' + $r.Note + ',' + ([xml](Get-Content $r.Trx -Raw)).TestRun.ResultSummary.Counters.total
-            $env:CORVUS_TEST_GH = {{Quote(FakeGh("failure", trx))}}
+            'ok=' + $r.Started + ',' + $r.Note + ',' + ([xml](Get-Content $r.Trx -Raw)).TestRun.ResultSummary.Counters.total + ',' + (($r.Failed | ForEach-Object { "$($_.Class)@$($_.Platform)" }) -join ',')
+            $env:CORVUS_TEST_GH = {{Quote(FakeGh("failure", trx, linux))}}
             $r = Receive-GitHubRun (Wait-GitHubRun 'owner/repo' 'abc' 0 0) {{Quote(Path.Combine(_dir.Path, "failed"))}}
             'failed=' + $r.Started + ',' + $r.Note
             $env:CORVUS_TEST_GH = {{Quote(none)}}
@@ -149,9 +242,9 @@ public sealed class TestRemoteTests : IDisposable
             'release=' + ($null -eq (Get-OffloadTarget {{Quote(DocsTests.RepoRoot())}} $true))
             """);
         if (lines is ["skip"]) return;
-        // Both Windows shards joined; the failed quick-set job is not an offload job.
-        Assert.Contains("ok=True,True,run 42,2", lines);
-        Assert.Contains("failed=False,its offload jobs ended failure in run 42", lines);
+        // Both Windows shards joined, the Linux shard's failure named; the failed quick-set job is not an offload job.
+        Assert.Contains("ok=True,run 42,2,LiveMatrixTests@ubuntu", lines);
+        Assert.Contains("failed=True,offload (sweep windows-latest 0/2) ended failure in run 42", lines);
         Assert.Contains("none=False,no CI run for the commit after 0 s", lines);
         Assert.Contains("off=True", lines);
         Assert.Contains("release=True", lines);

@@ -6,6 +6,7 @@ using Corvus.Native;
 using Corvus.Native.Providers;
 using Corvus.Native.Providers.Ghidra;
 using Xunit.Abstractions;
+using Xunit.Sdk;
 
 namespace Corvus.Tests;
 
@@ -756,7 +757,8 @@ public sealed class NativeGhidraTypeTests(ITestOutputHelper output, GhidraCacheF
 }
 
 /// <summary>Runs when Ghidra (CORVUS_GHIDRA_DIR or GHIDRA_INSTALL_DIR) and a JDK for it are present, on Windows (system DLL samples).</summary>
-public sealed class GhidraFactAttribute : FactAttribute
+[TraitDiscoverer(EngineTraitDiscoverer.TypeName, EngineTraitDiscoverer.AssemblyName)]
+public sealed class GhidraFactAttribute : FactAttribute, ITraitAttribute
 {
     private static readonly Lazy<string?> SkipReason = new(() =>
     {

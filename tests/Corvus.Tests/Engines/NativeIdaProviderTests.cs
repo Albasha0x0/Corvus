@@ -7,6 +7,7 @@ using Corvus.Native;
 using Corvus.Native.Providers;
 using Corvus.Native.Providers.Ida;
 using Xunit.Abstractions;
+using Xunit.Sdk;
 
 namespace Corvus.Tests;
 
@@ -868,7 +869,8 @@ internal static class WorkerKill
 }
 
 /// <summary>Runs only when an IDA install with idalib and a usable 64-bit Python are present (checked once per run).</summary>
-public sealed class IdaFactAttribute : FactAttribute
+[TraitDiscoverer(EngineTraitDiscoverer.TypeName, EngineTraitDiscoverer.AssemblyName)]
+public sealed class IdaFactAttribute : FactAttribute, ITraitAttribute
 {
     private static readonly Lazy<string?> SkipReason = new(() =>
     {

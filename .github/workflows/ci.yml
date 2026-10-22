@@ -104,19 +104,25 @@ jobs:
           path: "**/TestResults/*.trx"
           if-no-files-found: ignore
 
-  # The engine-free heavy test classes of a pushed commit (test-remote.psm1), dealt to shards; the push run on the
-  # developer's machine leaves them out and joins these results. Linux runs the cross-platform ones as a check. A manual
-  # run checks a branch.
+  # The heavy test classes of a pushed commit (test-remote.psm1), one group per matrix entry dealt to shards: sweeps and
+  # comparisons, the Ghidra classes, and the live family. The push run on the developer's machine leaves them out and
+  # joins these results; Linux runs the cross-platform ones as a check. A manual run checks a branch.
   offload:
-    name: offload (${{ matrix.os }} ${{ matrix.shard }}/${{ matrix.shards }})
+    name: offload (${{ matrix.group }} ${{ matrix.os }} ${{ matrix.shard }}/${{ matrix.shards }})
     if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
     strategy:
       fail-fast: false
       matrix:
         include:
-          - { os: windows-latest, shard: 0, shards: 2 }
-          - { os: windows-latest, shard: 1, shards: 2 }
-          - { os: ubuntu-latest, shard: 0, shards: 1, cross: true }
+          - { group: sweep, os: windows-latest, shard: 0, shards: 2 }
+          - { group: sweep, os: windows-latest, shard: 1, shards: 2 }
+          - { group: sweep, os: ubuntu-latest, shard: 0, shards: 1, cross: true }
+          - { group: ghidra, os: windows-latest, shard: 0, shards: 3 }
+          - { group: ghidra, os: windows-latest, shard: 1, shards: 3 }
+          - { group: ghidra, os: windows-latest, shard: 2, shards: 3 }
+          - { group: live, os: windows-latest, shard: 0, shards: 2 }
+          - { group: live, os: windows-latest, shard: 1, shards: 2 }
+          - { group: live, os: ubuntu-latest, shard: 0, shards: 1, cross: true }
     runs-on: ${{ matrix.os }}
     timeout-minutes: 90
     steps:
@@ -144,7 +150,7 @@ jobs:
         uses: actions/cache@v6
         with:
           path: ${{ runner.temp }}/test-tools
-          key: test-tools-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('tests/Corvus.Tests/Support/*-assets.json') }}
+          key: test-tools-${{ matrix.group }}-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('tests/Corvus.Tests/Support/*-assets.json') }}
 
       - name: Test tools
         shell: pwsh
@@ -153,15 +159,49 @@ jobs:
           if (-not (Get-ChildItem $dir -File -ErrorAction SilentlyContinue)) { ./tests/Corvus.Tests/Support/fetch-yara-x.ps1 -Destination $dir }
           "CORVUS_TEST_YARA_X=$dir" >> $env:GITHUB_ENV
 
+      # The JDK release the local Ghidra runs on, and the Ghidra release pinned in remote-tools-assets.json.
+      - uses: actions/setup-java@v6
+        if: matrix.group == 'ghidra'
+        with:
+          distribution: temurin
+          java-version: '24.0.1+9'
+
+      - name: Ghidra
+        if: matrix.group == 'ghidra'
+        shell: pwsh
+        run: ./tests/Corvus.Tests/Support/fetch-remote-tools.ps1 -Destination (Join-Path $env:RUNNER_TEMP 'test-tools') -Name ghidra >> $env:GITHUB_ENV
+
+      # The Frida release the live tests are written against, as in the live job.
+      - uses: actions/setup-python@v6
+        if: matrix.group == 'live'
+        id: python
+        with:
+          python-version: '3.13'
+
+      - name: Frida
+        if: matrix.group == 'live'
+        shell: bash
+        run: |
+          "$PYTHON" -m pip install --disable-pip-version-check frida==17.24.3
+          echo "CORVUS_FRIDA_PYTHON=$PYTHON" >> "$GITHUB_ENV"
+        env:
+          PYTHON: ${{ steps.python.outputs.python-path }}
+
+      - name: GDB and ptrace scope (Linux)
+        if: matrix.group == 'live' && runner.os == 'Linux'
+        run: |
+          sudo apt-get install -y --no-install-recommends gdb
+          sudo sysctl -w kernel.yama.ptrace_scope=0
+
       - name: Test
         shell: pwsh
-        run: ./test.ps1 -RemoteRun -Shard ${{ matrix.shard }}/${{ matrix.shards }} -CrossPlatform:$${{ matrix.cross == true }}
+        run: ./test.ps1 -RemoteRun -Group ${{ matrix.group }} -Shard ${{ matrix.shard }}/${{ matrix.shards }} -CrossPlatform:$${{ matrix.cross == true }}
 
       - name: Upload test results
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: offload-${{ matrix.os }}-${{ matrix.shard }}
+          name: offload-${{ matrix.group }}-${{ matrix.os }}-${{ matrix.shard }}
           path: TestResults/offload.trx
           if-no-files-found: ignore
 

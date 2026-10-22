@@ -4,10 +4,12 @@
 
 # The classes a run sends: engine-free heavy classes (sweeps, matrices, round trips, reference comparisons).
 $script:RemotePatterns = '*SweepTests', '*MatrixTests', 'PipelineRoundTripTests', '*OracleTests', '*ComparisonTests', '*CompareTests'
-# Folders that stay here: engines and live sessions (their installs and permits are this machine's).
-$script:LocalFolders = 'Engines', 'Live'
-# Attributes that keep a class's file here: IDA and Ghidra facts, and real data that never leaves this machine.
-$script:LocalAttributes = 'IdaFact', 'GhidraFact', 'RequiresRealDataFact'
+# Groups of offloaded classes, each a CI job of its own: sweeps and comparisons, Ghidra classes, the live family.
+$script:Groups = 'sweep', 'ghidra', 'live'
+# Folders whose classes go only as the ghidra group (by their Ghidra facts).
+$script:EngineFolders = 'Engines'
+# Attributes that keep a class's file here: real data never leaves this machine.
+$script:LocalAttributes = 'RequiresRealDataFact', 'LiveRealDataFact'
 # Classes whose inputs are this machine's own: every System32 import binding holds on a client edition only (a server
 # image lacks some DLLs), the Program Files sweep grows with what is installed (past 30 min on a runner), the crash
 # dump sweep reads this machine's dumps, and the comparisons over local data folders pass empty elsewhere.
@@ -34,18 +36,38 @@ $script:RunAppearSeconds = 120
 $script:RunFinishMinutes = 120
 $script:PollSeconds = 15
 
-# The classes of $testsDir a run sends: names matching the table but not the local classes, outside the local folders,
-# in files that use none of the local attributes; with -CrossPlatform, also no Windows-only fact. Sorted; empty when none match.
-function Get-RemoteClasses([string]$testsDir, [switch]$CrossPlatform) {
+# The offloaded classes of $testsDir as @{ Class; Group; Mixed }: live, the classes of the Live folder; ghidra, those in
+# files with a Ghidra fact (Mixed when the file has IDA facts too); sweep, names matching the table outside the engine
+# folder. Files with IDA facts alone or real data, and the local classes, stay here; with -CrossPlatform, files with a
+# Windows-only fact too. Only classes named *Tests count (fixtures and test bases hold no test of their own; an abstract
+# *Tests class holds nested ones).
+function Get-RemoteEntries([string]$testsDir, [switch]$CrossPlatform) {
     $local = '\[(' + ($script:LocalAttributes -join '|') + $(if ($CrossPlatform) { '|WindowsFact' }) + ')\b'
-    @(Get-ChildItem $testsDir -Directory | Where-Object { $_.Name -notin @('bin', 'obj') + $script:LocalFolders } | ForEach-Object {
+    Get-ChildItem $testsDir -Directory | Where-Object { $_.Name -notin 'bin', 'obj' } | ForEach-Object {
+        $folder = $_.Name
         Get-ChildItem $_.FullName -Recurse -Filter *.cs | ForEach-Object {
             $text = Get-Content $_.FullName -Raw
             if ($text -match $local) { return }
-            [regex]::Matches($text, '(?m)^public (?:sealed |abstract |partial |static )*class (\w+)') | ForEach-Object { $_.Groups[1].Value } |
-                Where-Object { $name = $_; $name -notin $script:LocalClasses -and ($script:RemotePatterns | Where-Object { $name -like $_ }) }
+            $ida = $text -match '\[IdaFact\b'; $ghidra = $text -match '\[GhidraFact\b'
+            if ($ida -and -not $ghidra) { return }
+            $of = if ($folder -eq 'Live') { 'live' } elseif ($ghidra) { 'ghidra' } elseif ($folder -notin $script:EngineFolders) { 'sweep' } else { return }
+            [regex]::Matches($text, '(?m)^public (?:sealed |abstract |partial |static )*class (\w+Tests)\b') | ForEach-Object { $_.Groups[1].Value } |
+                Where-Object { $name = $_; $name -notin $script:LocalClasses -and ($of -ne 'sweep' -or ($script:RemotePatterns | Where-Object { $name -like $_ })) } |
+                ForEach-Object { [pscustomobject]@{ Class = $_; Group = $of; Mixed = $ida } }
         }
-    } | Sort-Object -Unique)
+    }
+}
+
+# The classes of $testsDir a run sends, of one group or (empty) of every group (Get-RemoteEntries). Sorted; throws for
+# an unknown group.
+function Get-RemoteClasses([string]$testsDir, [string]$Group = '', [switch]$CrossPlatform) {
+    if ($Group -and $Group -notin $script:Groups) { throw "Unknown offload group '$Group' (one of $($script:Groups -join ', '))." }
+    @(Get-RemoteEntries $testsDir -CrossPlatform:$CrossPlatform | Where-Object { -not $Group -or $_.Group -eq $Group } | ForEach-Object Class | Sort-Object -Unique)
+}
+
+# The sent classes that use both engines: their Ghidra tests run there and their IDA tests here, joined per test. Sorted.
+function Get-MixedClasses([string]$testsDir) {
+    @(Get-RemoteEntries $testsDir | Where-Object Mixed | ForEach-Object Class | Sort-Object -Unique)
 }
 
 # Shard $index (0-based) of $count over $classes, dealt in name order so every machine computes the same shards.
@@ -53,34 +75,62 @@ function Get-RemoteShard([string[]]$classes, [int]$index, [int]$count) {
     @(for ($i = $index; $i -lt $classes.Count; $i += $count) { $classes[$i] })
 }
 
-# A dotnet test filter that runs $filter (everything when empty) without $classes.
-function Get-LocalFilter([string]$filter, [string[]]$classes) {
-    $without = ($classes | ForEach-Object { "FullyQualifiedName!~.$_" }) -join '&'
+# A dotnet test filter that runs $filter (everything when empty) without $classes, keeping the tests other than the
+# Ghidra ones (trait Engine=ghidra) of those in $mixed.
+function Get-LocalFilter([string]$filter, [string[]]$classes, [string[]]$mixed = @()) {
+    $parts = @($classes | Where-Object { $_ -notin $mixed } | ForEach-Object { "FullyQualifiedName!~.$_" })
+    $split = @($classes | Where-Object { $_ -in $mixed } | ForEach-Object { "FullyQualifiedName!~.$_" })
+    if ($split) { $parts += "(Engine!=ghidra|$($split -join '&'))" }
+    $without = $parts -join '&'
     if (-not $without) { return $filter }
     if ($filter) { return "($filter)&$without" }
     return $without
 }
 
-# A dotnet test filter for $classes, at routine strength (no Tier=Release tests) unless $releaseTier.
-function Get-ClassFilter([string[]]$classes, [bool]$releaseTier) {
-    $filter = ($classes | ForEach-Object { "FullyQualifiedName~.$_" }) -join '|'
+# A dotnet test filter for $classes, at routine strength (no Tier=Release tests) unless $releaseTier; of those in $mixed
+# only the tests other than the IDA ones (trait Engine=ida), which ran here already.
+function Get-ClassFilter([string[]]$classes, [bool]$releaseTier, [string[]]$mixed = @()) {
+    $filter = ($classes | ForEach-Object { if ($_ -in $mixed) { "(FullyQualifiedName~.$_&Engine!=ida)" } else { "FullyQualifiedName~.$_" } }) -join '|'
     if ($releaseTier) { return $filter }
     "($filter)&Tier!=Release"
 }
 
-# Per class of a TRX file: whether any of its tests was skipped (NotExecuted), and its summed test seconds.
+# Per class of a TRX file: whether any of its tests was skipped (NotExecuted) or failed, and its summed test seconds.
 function Get-ClassOutcomes([string]$trxPath) {
     [xml]$trx = Get-Content $trxPath -Raw
     $ns = @{ t = 'http://microsoft.com/schemas/VisualStudio/TeamTest/2010' }
     $classOf = @{}
     foreach ($test in Select-Xml -Xml $trx -XPath '//t:UnitTest' -Namespace $ns) { $classOf[$test.Node.id] = ($test.Node.TestMethod.className -split '\.')[-1] -replace '\+.*$', '' }
-    $skipped = @{}; $seconds = @{}
+    $skipped = @{}; $failed = @{}; $seconds = @{}
     foreach ($result in Select-Xml -Xml $trx -XPath '//t:UnitTestResult' -Namespace $ns) {
         $class = $classOf[$result.Node.testId]
         $skipped[$class] = [bool]$skipped[$class] -or $result.Node.outcome -eq 'NotExecuted'
+        $failed[$class] = [bool]$failed[$class] -or $result.Node.outcome -in 'Failed', 'Error', 'Timeout', 'Aborted'
         $seconds[$class] = [double]$seconds[$class] + $(if ($result.Node.duration) { [TimeSpan]::Parse($result.Node.duration, [cultureinfo]::InvariantCulture).TotalSeconds } else { 0 })
     }
-    $skipped.Keys | ForEach-Object { [pscustomobject]@{ Class = $_; Skipped = $skipped[$_]; Seconds = $seconds[$_] } }
+    $skipped.Keys | ForEach-Object { [pscustomobject]@{ Class = $_; Skipped = $skipped[$_]; Failed = $failed[$_]; Seconds = $seconds[$_] } }
+}
+
+# Per test of a TRX file: @{ Key; Class; Outcome }, the key being its class and test name.
+function Get-TestOutcomes([string]$trxPath) {
+    [xml]$trx = Get-Content $trxPath -Raw
+    $ns = @{ t = 'http://microsoft.com/schemas/VisualStudio/TeamTest/2010' }
+    $classOf = @{}
+    foreach ($test in Select-Xml -Xml $trx -XPath '//t:UnitTest' -Namespace $ns) { $classOf[$test.Node.id] = $test.Node.TestMethod.className }
+    foreach ($result in Select-Xml -Xml $trx -XPath '//t:UnitTestResult' -Namespace $ns) {
+        $full = $classOf[$result.Node.testId]
+        [pscustomobject]@{ Key = "$full|$($result.Node.testName)"; Class = ($full -split '\.')[-1] -replace '\+.*$', ''; Outcome = $result.Node.outcome }
+    }
+}
+
+# Classes of $classes with a test skipped both in $remoteTrx and in $hereTrx (or absent there) that ran in $lastTrx
+# (the last local whole run). Sorted; empty without $lastTrx.
+function Get-SkippedOnBoth([string]$remoteTrx, [string]$hereTrx, [string]$lastTrx, [string[]]$classes) {
+    if (-not ($classes -and (Test-Path $lastTrx))) { return @() }
+    $ran = @{}; foreach ($t in Get-TestOutcomes $lastTrx) { if ($t.Outcome -ne 'NotExecuted') { $ran[$t.Key] = $true } }
+    $here = @{}; if (Test-Path $hereTrx) { foreach ($t in Get-TestOutcomes $hereTrx) { if ($t.Outcome -ne 'NotExecuted') { $here[$t.Key] = $true } } }
+    @(Get-TestOutcomes $remoteTrx | Where-Object { $_.Class -in $classes -and $_.Outcome -eq 'NotExecuted' -and -not $here[$_.Key] -and $ran[$_.Key] } |
+        ForEach-Object Class | Sort-Object -Unique)
 }
 
 # Classes whose results in $remoteTrx prove less than in $localTrx (the last local whole run): a test skipped there
@@ -93,10 +143,34 @@ function Get-SkippedOnHost([string]$remoteTrx, [string]$localTrx) {
     } | ForEach-Object Class | Sort-Object -Unique)
 }
 
+# The sent classes that rerun here after the remote half: those with a failed test there on any platform, those that
+# proved less there (Get-SkippedOnHost; for $mixed classes, whose IDA tests skip there, Get-SkippedOnBoth against this
+# run's $hereTrx), and those with no results there that ran here in $localTrx (all of them when there is no
+# $localTrx). Sorted; empty when the remote half covered every class.
+function Get-RerunClasses($got, [string[]]$sent, [string]$localTrx, [string[]]$mixed = @(), [string]$hereTrx = '') {
+    $there = @{}; if ($got.Trx) { foreach ($c in Get-ClassOutcomes $got.Trx) { $there[$c.Class] = $true } }
+    $ranHere = if (Test-Path $localTrx) { @(Get-ClassOutcomes $localTrx | ForEach-Object Class) } else { $null }
+    $missing = @($sent | Where-Object { -not $there[$_] -and ($null -eq $ranHere -or $_ -in $ranHere) })
+    $short = if ($got.Trx) { @(Get-SkippedOnHost $got.Trx $localTrx | Where-Object { $_ -notin $mixed }) } else { @() }
+    $both = if ($got.Trx) { @(Get-SkippedOnBoth $got.Trx $hereTrx $localTrx $mixed) } else { @() }
+    @(@($got.Failed | ForEach-Object Class) + $short + $both + $missing | Where-Object { $_ -in $sent } | Sort-Object -Unique)
+}
+
+# One line per class that failed on $target and how its rerun here ($hereTrx) ended, joined with "; ":
+# "<class> failed on <target> (<platforms>), passed here" (or "failed here", "not run here"). Empty when none failed.
+function Get-FailedThereNote($failed, [string]$hereTrx, [string]$target) {
+    $here = @{}; if ($hereTrx -and (Test-Path $hereTrx)) { foreach ($c in Get-ClassOutcomes $hereTrx) { $here[$c.Class] = $c } }
+    (@($failed) | Group-Object Class | Sort-Object Name | ForEach-Object {
+        $outcome = if (-not $here[$_.Name]) { 'not run here' } elseif ($here[$_.Name].Failed) { 'failed here' } else { 'passed here' }
+        "$($_.Name) failed on $target ($((@($_.Group.Platform) | Sort-Object -Unique) -join ', ')), $outcome"
+    }) -join '; '
+}
+
 # Writes to $target one TRX file holding the results of $sources (missing files are passed over), without the results
-# of $dropClasses from every source after the first. Outcome counters are recounted, the others summed; an aborted
+# of $dropClasses from every source after the first. A test of $mergeClasses keeps one result per class and test name:
+# a failed one over a passed one over a skipped one. Outcome counters are recounted, the others summed; an aborted
 # source makes the run aborted.
-function Join-TrxFiles([string]$target, [string[]]$sources, [string[]]$dropClasses = @()) {
+function Join-TrxFiles([string]$target, [string[]]$sources, [string[]]$dropClasses = @(), [string[]]$mergeClasses = @()) {
     $present = @($sources | Where-Object { $_ -and (Test-Path $_) })
     if (-not $present) { return }
     $ns = 'http://microsoft.com/schemas/VisualStudio/TeamTest/2010'
@@ -109,6 +183,7 @@ function Join-TrxFiles([string]$target, [string[]]$sources, [string[]]$dropClass
         foreach ($test in $other.SelectNodes('//t:UnitTest', $o)) {
             if ((($test.TestMethod.className -split '\.')[-1] -replace '\+.*$', '') -in $dropClasses) { $drop[$test.id] = $true }
         }
+        if ($mergeClasses) { Merge-TrxTests $merged $m $other $o $mergeClasses $drop }
         foreach ($part in @(@('//t:TestDefinitions', '//t:TestDefinitions/t:UnitTest', 'id'), @('//t:Results', '//t:Results/t:UnitTestResult', 'testId'), @('//t:TestEntries', '//t:TestEntries/t:TestEntry', 'testId'))) {
             $parent = $merged.SelectSingleNode($part[0], $m)
             if (-not $parent) { continue }
@@ -131,6 +206,31 @@ function Join-TrxFiles([string]$target, [string[]]$sources, [string[]]$dropClass
         $counters.SetAttribute('notExecuted', [string]$skipped)
     }
     $merged.Save($target)
+}
+
+# For each test of $mergeClasses in $other that $merged holds too: marks it in $drop when its result there ranks no
+# higher (failed over passed over skipped), else removes the one in $merged.
+function Merge-TrxTests([xml]$merged, $m, [xml]$other, $o, [string[]]$mergeClasses, [hashtable]$drop) {
+    $rank = { param($outcome) switch ($outcome) { 'NotExecuted' { 1 } 'Passed' { 2 } default { 3 } } }
+    $mine = @{}
+    foreach ($t in Get-TrxTests $merged $m) { if ($t.Class -in $mergeClasses) { $mine[$t.Key] = $t } }
+    foreach ($t in Get-TrxTests $other $o) {
+        if ($t.Class -notin $mergeClasses -or $drop[$t.Id] -or -not $mine[$t.Key]) { continue }
+        $old = $mine[$t.Key]
+        if ((& $rank $t.Result.outcome) -le (& $rank $old.Result.outcome)) { $drop[$t.Id] = $true; continue }
+        foreach ($node in $old.Result, $old.Test, $merged.SelectSingleNode("//t:TestEntries/t:TestEntry[@testId='$($old.Id)']", $m)) { if ($node) { [void]$node.ParentNode.RemoveChild($node) } }
+    }
+}
+
+# The tests of a TRX document with a result: @{ Id; Key; Class; Test; Result }, the key being its class and test name.
+function Get-TrxTests([xml]$trx, $ns) {
+    $results = @{}; foreach ($r in $trx.SelectNodes('//t:Results/t:UnitTestResult', $ns)) { $results[$r.testId] = $r }
+    foreach ($test in $trx.SelectNodes('//t:TestDefinitions/t:UnitTest', $ns)) {
+        $result = $results[$test.id]
+        if (-not $result) { continue }
+        $full = $test.TestMethod.className
+        [pscustomobject]@{ Id = $test.id; Key = "$full|$($result.testName)"; Class = ($full -split '\.')[-1] -replace '\+.*$', ''; Test = $test; Result = $result }
+    }
 }
 
 # The file name a target's record and results take in the record folder.
@@ -184,8 +284,7 @@ function Start-Offload($target, [string]$commit, [string[]]$classes, [bool]$rele
     }
 }
 
-# Waits for the remote half: @{ Started; Copied; Code; Trx; Note }. Started false means no test ran there and its
-# classes run here; Copied false after a start means its results never came back.
+# Waits for the remote half: @{ Started; Trx; Failed; Note } as Receive-GitHubRun returns it.
 function Receive-Offload($handle, [string]$folder) {
     $state = Receive-Job $handle -Wait -AutoRemoveJob | Select-Object -Last 1
     if ($state.Kind -eq 'github') { return Receive-GitHubRun $state $folder }
@@ -200,7 +299,7 @@ function Invoke-Gh([string[]]$arguments) {
 }
 
 # Waits for the commit's CI run on push and its offload jobs: @{ Kind; Repository; Run; Jobs; Note }, with Run $null
-# (and Note saying why) when the run never appeared, did not finish, or its offload jobs did not all succeed.
+# (and Note saying why) when the run never appeared or did not finish; Note names the offload jobs that did not succeed.
 function Wait-GitHubRun([string]$repository, [string]$commit, [int]$appearSeconds = $script:RunAppearSeconds, [int]$pollSeconds = $script:PollSeconds) {
     $state = @{ Kind = 'github'; Repository = $repository; Run = $null; Jobs = @(); Note = $null }
     $deadline = (Get-Date).AddSeconds($appearSeconds)
@@ -219,9 +318,9 @@ function Wait-GitHubRun([string]$repository, [string]$commit, [int]$appearSecond
             $info = ($view -join '') | ConvertFrom-Json
             $jobs = @($info.jobs | Where-Object { $_.name -like "$script:OffloadJob*" })
             if ($jobs -and -not ($jobs | Where-Object status -ne 'completed')) {
-                $failed = @($jobs | Where-Object conclusion -ne 'success')
-                if ($failed) { $state.Note = "its offload jobs ended $(($failed | ForEach-Object conclusion | Sort-Object -Unique) -join ', ') in run $run"; return $state }
                 $state.Run = $run; $state.Jobs = $jobs
+                $failed = @($jobs | Where-Object conclusion -ne 'success')
+                if ($failed) { $state.Note = "$(($failed | ForEach-Object name) -join ', ') ended $(($failed | ForEach-Object conclusion | Sort-Object -Unique) -join ', ') in run $run" }
                 return $state
             }
             if (-not $jobs -and $info.status -eq 'completed') { $state.Note = "run $run has no offload job"; return $state }
@@ -231,20 +330,27 @@ function Wait-GitHubRun([string]$repository, [string]$commit, [int]$appearSecond
     }
 }
 
-# Downloads a finished run's TRX artifacts into $folder and joins the Windows shards into one file; the other
-# platforms' shards gate the run (they had to succeed) and their expected skips stay out.
+# Downloads a finished run's TRX artifacts (offload-<group>-<os>-<shard>) into $folder: @{ Started; Trx; Failed; Note }.
+# Trx joins the Windows shards ($null when none came back); the other platforms' expected skips stay out. Failed lists
+# the classes with a failed test on any platform, as @{ Class; Platform }. Started false means no test ran there.
 function Receive-GitHubRun($state, [string]$folder) {
-    $result = [pscustomobject]@{ Started = $false; Copied = $false; Code = 0; Trx = $null; Note = $state.Note }
+    $result = [pscustomobject]@{ Started = $false; Trx = $null; Failed = @(); Note = $state.Note }
     if (-not $state.Run) { return $result }
     New-Item -ItemType Directory -Force $folder | Out-Null
     $null = Invoke-Gh @('run', 'download', "$($state.Run)", '-R', $state.Repository, '-p', "$script:OffloadJob-*", '-D', $folder) 2>$null
-    $files = @(Get-ChildItem $folder -Recurse -Filter *.trx -ErrorAction SilentlyContinue | Where-Object { $_.FullName -match "$script:OffloadJob-windows" } | Sort-Object FullName)
-    $windows = @($state.Jobs | Where-Object { $_.name -match 'windows' })
-    if (-not $files -or $files.Count -lt $windows.Count) { $result.Note = "the TRX artifacts of run $($state.Run) did not all download"; return $result }
-    $joined = Join-Path $folder 'offload.trx'
-    Join-TrxFiles $joined @($files.FullName)
-    $result.Started = $true; $result.Copied = $true; $result.Trx = $joined; $result.Note = "run $($state.Run)"
+    $files = @(Get-ChildItem $folder -Recurse -Filter *.trx -ErrorAction SilentlyContinue | Sort-Object FullName)
+    $result.Failed = @(foreach ($file in $files) {
+        $platform = if ($file.Directory.Name -match 'windows|ubuntu|macos') { $Matches[0] } else { $file.Directory.Name }
+        Get-ClassOutcomes $file.FullName | Where-Object Failed | ForEach-Object { [pscustomobject]@{ Class = $_.Class; Platform = $platform } }
+    })
+    $windows = @($files | Where-Object { $_.Directory.Name -match 'windows' })
+    if ($windows) {
+        $result.Trx = Join-Path $folder 'offload.trx'
+        Join-TrxFiles $result.Trx @($windows.FullName)
+    }
+    $result.Started = $true
+    $result.Note = if ($state.Note) { $state.Note } else { "run $($state.Run)" }
     $result
 }
 
-Export-ModuleMember -Function Invoke-Gh, Wait-GitHubRun, Receive-GitHubRun, Get-RemoteClasses, Get-RemoteShard, Get-LocalFilter, Get-ClassFilter, Get-ClassOutcomes, Get-SkippedOnHost, Join-TrxFiles, Get-TargetFileName, Save-RemoteRecord, Get-RemoteStatus, Get-OffloadTarget, Start-Offload, Receive-Offload
+Export-ModuleMember -Function Invoke-Gh, Wait-GitHubRun, Receive-GitHubRun, Get-RemoteClasses, Get-RemoteShard, Get-LocalFilter, Get-ClassFilter, Get-ClassOutcomes, Get-TestOutcomes, Get-SkippedOnHost, Get-SkippedOnBoth, Get-RerunClasses, Get-MixedClasses, Get-FailedThereNote, Join-TrxFiles, Get-TargetFileName, Save-RemoteRecord, Get-RemoteStatus, Get-OffloadTarget, Start-Offload, Receive-Offload

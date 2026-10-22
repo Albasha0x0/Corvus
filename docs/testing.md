@@ -63,15 +63,20 @@
   `-MaxBehind` (50) commits back, stops on a background failure after that pass on its history (`-SkipTests` overrides), names the families not
   yet verified on the current inputs, and runs the quick set after the version bump. A failure found later goes into a
   patch release. For release-strength passes, start `./test.ps1 -Full -Background -Exhaustive` (or `-Whole`).
-- **Offloaded classes.** Every push to main also runs the engine-free heavy classes (sweeps, matrices, reference
-  comparisons; the table in `test-remote.psm1`, without the engine and live families or tests that need real data or
-  IDA or Ghidra) on GitHub-hosted runners: the `offload` job of `ci.yml`, dealt to Windows shards, with the
-  cross-platform ones on Linux as a check (`./test.ps1 -RemoteRun -Shard <i>/<n>` runs one shard). A routine whole-suite
-  run here on a commit that has that job (the background push run, or `-Full` on a commit on `origin/main`) leaves
-  those classes out, waits for the run with `gh`, and joins its TRX results, so family passes and the tree stamp need
-  both halves. A run that does not appear within 2 minutes, or whose offload jobs fail or are cancelled, leaves its
-  classes to run here; a class that skipped a test there that ran here in the last whole run runs here again.
-  `-Status` shows one `github` line; `CORVUS_TEST_OFFLOAD=0` runs everything here.
+- **Offloaded classes.** Every push to main also runs three groups of heavy classes on GitHub-hosted runners: the
+  engine-free sweeps, matrices and reference comparisons (the table in `test-remote.psm1`), the classes that use only
+  Ghidra (the release pinned in `Support/remote-tools-assets.json`, on a pinned JDK), and the live family (Frida
+  17.24.3). A class that uses both engines goes with the Ghidra group and keeps its IDA tests here (the trait
+  `Engine=ida` or `Engine=ghidra` of each engine fact); the two halves join per test. Tests that need real data stay
+  here. The groups are the `offload` job of `ci.yml`, dealt to Windows shards, with the cross-platform classes on Linux
+  as a check (`./test.ps1 -RemoteRun -Group <group> -Shard <i>/<n>` runs one shard). A routine whole-suite run here on a
+  commit that has that job (the background push run, or `-Full` on a commit on `origin/main`) leaves those classes out,
+  waits for the run with `gh`, and joins its TRX results, so family passes and the tree stamp need both halves. A class
+  runs once more here when it failed a test there on any platform, skipped a test there that ran here in the last whole
+  run (for a class using both engines: skipped a test on both sides that ran here then), or has no results there (a run
+  that does not appear within 2 minutes, a failed or cancelled job); its result here is the one that counts. `-Status`
+  shows one `github` line, and it and the time report name each class that failed there with its result here;
+  `CORVUS_TEST_OFFLOAD=0` runs everything here.
 - **Run times.** Every run but a coverage run records its test times from its TRX results in
   `.git/corvus-test-history.jsonl` (the last 30 runs of each mode: commit gate, push, full, perf and filtered runs; a
   test that passed in under a second is kept in its class's total) and rewrites `.git/corvus-time-report.md`: each

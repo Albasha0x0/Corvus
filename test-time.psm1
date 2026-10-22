@@ -221,6 +221,7 @@ function Get-RunSection($times, $run, $history) {
     $lines.Add("- CPU load at start $(& $load $run.loadStart), at end $(& $load $run.loadEnd); heavy lock $(if ($null -eq $run.heavyWait) { 'not taken' } else { "waited for $(Format-Seconds $run.heavyWait)" }).")
     $lines.Add("- Permit waits: $(if ($run.permits) { ($run.permits.PSObject.Properties | ForEach-Object { "$($_.Name) $(Format-Seconds $_.Value)" }) -join ', ' } else { 'not recorded (the run took no permits)' }).")
     if ($null -ne $run.reused) { $lines.Add("- Selection: $($run.reused) of $($run.families) families reused from earlier passes.") }
+    if ($run.offload) { $lines.Add("- Offload: $($run.offload).") }
     $lines.Add('')
 
     $bucket = if ($times.Wall -ge 900) { 300 } else { 60 }
