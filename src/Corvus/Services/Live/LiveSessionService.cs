@@ -478,6 +478,8 @@ public sealed partial class LiveSessionService(AssemblyWorkspace workspace, Nati
                 {
                     var h = Native.Live.LiveNative.OpenProcess(Native.Live.LiveNative.SYNCHRONIZE | access, false, session.ProcessId);
                     if (h.IsInvalid) { h.Dispose(); continue; }
+                    // Windows ignores a process id's low two bits, so an id that is not a multiple of 4 opens another process.
+                    if (Native.Live.LiveNative.GetProcessId(h) != session.ProcessId) { h.Dispose(); break; }
                     session.ProcessHandle = h;
                     break;
                 }

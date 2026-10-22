@@ -821,6 +821,22 @@ public sealed class LiveSessionTests : IDisposable
         Assert.DoesNotContain("#2 ", stop);
     }
 
+    // CI run 39796597537: the scripted id 4242 opened a runner's process 4240, so an exit report was held for it.
+    [Fact]
+    public async Task An_id_off_a_multiple_of_four_holds_no_handle_to_the_process_it_rounds_to()
+    {
+        if (!OperatingSystem.IsWindows()) return;
+        // This test process stands in for the process the id rounds down to.
+        var backend = new ScriptedLiveBackend(Sqlite, Base, 0x200000) { ProcessId = Environment.ProcessId + 2 };
+        using var service = new LiveSessionService(_workspace, new NativeCodeService(_workspace, SharedCodeIndex.Options())) { Backend = backend };
+        var tools = new LiveSessionTools(new ServerOptions { AllowLive = true, AllowLiveAttach = true }, service);
+        await tools.LiveSession("attach", program: backend.ProcessId.ToString());
+        Assert.Null(service.Get("live-1").ProcessHandle);
+        backend.Worker!.Emit(new JsonObject { ["event"] = "exit", ["reason"] = "process-terminated" });
+        for (int i = 0; i < 100 && service.Get("live-1").State != "exited"; i++) await Task.Delay(50);
+        Assert.Contains("exited: process-terminated", await tools.LiveEvents("live-1", kind: "exit"));
+    }
+
     [Fact]
     public async Task The_exit_status_event_gives_the_exit_code_where_no_process_handle_does()
     {

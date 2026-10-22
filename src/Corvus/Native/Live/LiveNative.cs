@@ -94,6 +94,9 @@ internal static class LiveNative
     public static extern SafeKernelHandle OpenProcess(uint access, bool inherit, int processId);
 
     [DllImport("kernel32.dll", SetLastError = true)]
+    public static extern int GetProcessId(SafeKernelHandle process);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
     public static extern uint WaitForSingleObject(SafeKernelHandle handle, uint milliseconds);
 
     // A file or folder opened with no access, only to ask for its final path (links and short names resolved).
