@@ -9,6 +9,7 @@ internal static partial class DependencyInventory
     private const double EmbeddedVersion = 0.6, FileNameOnly = 0.3;
     private const int MaxSmallEntry = 64 * 1024;
     private const int MaxLibraryScan = 32 << 20;
+    private const long MaxSplitBytes = 512L << 20;
 
     /// <summary>Version strings libraries compile into their code, by library; group 1 is the version.</summary>
     private static readonly (string Name, Regex Pattern)[] EmbeddedLibraries =
@@ -36,46 +37,74 @@ internal static partial class DependencyInventory
 
     /// <summary>
     /// An Android package's Java libraries (Maven pom.properties, AndroidX META-INF/*.version files) and native
-    /// libraries with the library versions compiled into them; the app named by its manifest is the subject.
+    /// libraries with the library versions compiled into them; the app named by its manifest is the subject. A split
+    /// set (.apks, .xapk, .apkm) is one app: each APK in it is read, and its entries are located as "split.apk!/entry".
+    /// Returns true when an APK of a split set holds Il2Cpp metadata.
     /// </summary>
-    private static void FromAndroid(Builder b, FileInput input, IReadOnlyDictionary<string, FileView> views, CancellationToken ct)
+    private static bool FromAndroid(Builder b, FileInput input, IReadOnlyDictionary<string, FileView> views, CancellationToken ct)
     {
-        if (input.Kind != "zip" || !input.HasZipEntry(n => n is "AndroidManifest.xml" or "base/manifest/AndroidManifest.xml")) return;
+        if (input.Kind != "zip") return false;
+        bool single = input.HasZipEntry(n => n is "AndroidManifest.xml" or "base/manifest/AndroidManifest.xml");
+        if (!single && !input.HasZipEntry(n => n.EndsWith(".apk", StringComparison.OrdinalIgnoreCase))) return false;
         if (b.Subject == null && views.GetValueOrDefault("android")?.Detail is Mobile.AndroidPackageFacts app)
             b.Subject = new DependencyComponent(b.NewRef($"android:{app.Package}"), app.Package, app.VersionName, "android", "application", null, Manifest,
                 "manifest-analysis", "AndroidManifest.xml package and versionName");
+        var opened = new List<ZipArchive>();
+        bool il2cpp = false;
         try
         {
-            using var zip = new ZipArchive(input.OpenRead(), ZipArchiveMode.Read);
-            b.Sources.Add($"Android package {Path.GetFileName(input.Path)} (META-INF version files, Maven properties, native libraries)");
+            var outer = new ZipArchive(input.OpenRead(), ZipArchiveMode.Read);
+            opened.Add(outer);
+            var archives = new List<(ZipArchive Zip, string Prefix)>();
+            if (single) archives.Add((outer, ""));
+            else
+            {
+                int large = 0;
+                foreach (var e in outer.Entries.Where(e => e.FullName.EndsWith(".apk", StringComparison.OrdinalIgnoreCase)))
+                {
+                    ct.ThrowIfCancellationRequested();
+                    if (e.Length > MaxSplitBytes) { large++; continue; }
+                    var nested = new ZipArchive(new MemoryStream(ReadBytes(e), writable: false), ZipArchiveMode.Read);
+                    opened.Add(nested);
+                    archives.Add((nested, e.FullName + "!/"));
+                }
+                if (archives.Count == 0 && large == 0) return false;
+                if (large > 0) b.Notes.Add($"{large} APKs of the split set over {MaxSplitBytes >> 20} MiB were not read: their libraries are unknown");
+            }
+            b.Sources.Add(single
+                ? $"Android package {Path.GetFileName(input.Path)} (META-INF version files, Maven properties, native libraries)"
+                : $"Android split set {Path.GetFileName(input.Path)}: {archives.Count} APKs read (META-INF version files, Maven properties, native libraries)");
             var poms = new List<(string Group, string Artifact, string Version, string Location)>();
             var versionFiles = new List<(string Stem, string Version, string Location)>();
-            var libraries = new Dictionary<string, List<ZipArchiveEntry>>(StringComparer.Ordinal);
-            foreach (var e in zip.Entries)
-            {
-                ct.ThrowIfCancellationRequested();
-                // An app bundle keeps the files of META-INF under base/root/ and the libraries under base/lib/.
-                var name = e.FullName.StartsWith("base/root/", StringComparison.Ordinal) ? e.FullName["base/root/".Length..]
-                    : e.FullName.StartsWith("base/lib/", StringComparison.Ordinal) ? e.FullName["base/".Length..] : e.FullName;
-                if (name.StartsWith("META-INF/maven/", StringComparison.Ordinal) && name.EndsWith("/pom.properties", StringComparison.Ordinal) && e.Length <= MaxSmallEntry)
+            var libraries = new Dictionary<string, List<(ZipArchiveEntry Entry, string Location)>>(StringComparer.Ordinal);
+            foreach (var (zip, prefix) in archives)
+                foreach (var e in zip.Entries)
                 {
-                    var p = Properties(ReadText(e));
-                    if (p.GetValueOrDefault("groupId") is { Length: > 0 } g && p.GetValueOrDefault("artifactId") is { Length: > 0 } a && p.GetValueOrDefault("version") is { Length: > 0 } v)
-                        poms.Add((g, a, v, e.FullName));
+                    ct.ThrowIfCancellationRequested();
+                    var location = prefix + e.FullName;
+                    il2cpp |= prefix.Length > 0 && e.FullName.EndsWith("/global-metadata.dat", StringComparison.Ordinal);
+                    // An app bundle keeps the files of META-INF under base/root/ and the libraries under base/lib/.
+                    var name = e.FullName.StartsWith("base/root/", StringComparison.Ordinal) ? e.FullName["base/root/".Length..]
+                        : e.FullName.StartsWith("base/lib/", StringComparison.Ordinal) ? e.FullName["base/".Length..] : e.FullName;
+                    if (name.StartsWith("META-INF/maven/", StringComparison.Ordinal) && name.EndsWith("/pom.properties", StringComparison.Ordinal) && e.Length <= MaxSmallEntry)
+                    {
+                        var p = Properties(ReadText(e));
+                        if (p.GetValueOrDefault("groupId") is { Length: > 0 } g && p.GetValueOrDefault("artifactId") is { Length: > 0 } a && p.GetValueOrDefault("version") is { Length: > 0 } v)
+                            poms.Add((g, a, v, location));
+                    }
+                    else if (name.StartsWith("META-INF/", StringComparison.Ordinal) && name.EndsWith(".version", StringComparison.Ordinal) && name.IndexOf('/', 9) < 0 && e.Length <= MaxSmallEntry)
+                    {
+                        var text = ReadText(e).Trim();
+                        versionFiles.Add((name[9..^".version".Length], MavenVersion().IsMatch(text) ? text : "", location));
+                    }
+                    else if (name.StartsWith("lib/", StringComparison.Ordinal) && name.EndsWith(".so", StringComparison.Ordinal) && name.Count(c => c == '/') == 2)
+                    {
+                        var file = name[(name.LastIndexOf('/') + 1)..];
+                        // .NET for Android keeps its assembly store in a .so; its assemblies are read as assemblies.
+                        if (file.StartsWith("libassemblies.", StringComparison.Ordinal) || file == "libassembly-store.so") continue;
+                        (libraries.TryGetValue(file, out var list) ? list : libraries[file] = []).Add((e, location));
+                    }
                 }
-                else if (name.StartsWith("META-INF/", StringComparison.Ordinal) && name.EndsWith(".version", StringComparison.Ordinal) && name.IndexOf('/', 9) < 0 && e.Length <= MaxSmallEntry)
-                {
-                    var text = ReadText(e).Trim();
-                    versionFiles.Add((name[9..^".version".Length], MavenVersion().IsMatch(text) ? text : "", e.FullName));
-                }
-                else if (name.StartsWith("lib/", StringComparison.Ordinal) && name.EndsWith(".so", StringComparison.Ordinal) && name.Count(c => c == '/') == 2)
-                {
-                    var file = name[(name.LastIndexOf('/') + 1)..];
-                    // .NET for Android keeps its assembly store in a .so; its assemblies are read as assemblies.
-                    if (file.StartsWith("libassemblies.", StringComparison.Ordinal) || file == "libassembly-store.so") continue;
-                    (libraries.TryGetValue(file, out var list) ? list : libraries[file] = []).Add(e);
-                }
-            }
             foreach (var (g, a, v, location) in poms)
                 Add(b, new DependencyComponent(b.NewRef(PurlMaven(g, a, v)), $"{g}:{a}", v, "maven", "library", PurlMaven(g, a, v), Manifest, "manifest-analysis",
                     "Maven pom.properties") { Locations = [location] }, location);
@@ -102,17 +131,22 @@ internal static partial class DependencyInventory
         {
             b.Notes.Add($"the Android package could not be read as a zip ({ex.Message}); its Java and native libraries are unknown");
         }
+        finally
+        {
+            foreach (var z in opened) z.Dispose();
+        }
+        return il2cpp;
     }
 
     /// <summary>Each native library once, with the ABIs it ships for, and the libraries its code names by version string.</summary>
-    private static void FromNativeLibraries(Builder b, Dictionary<string, List<ZipArchiveEntry>> libraries, CancellationToken ct)
+    private static void FromNativeLibraries(Builder b, Dictionary<string, List<(ZipArchiveEntry Entry, string Location)>> libraries, CancellationToken ct)
     {
         int skipped = 0;
         foreach (var (file, entries) in libraries.OrderBy(l => l.Key, StringComparer.Ordinal))
         {
             b.Components.Add(new DependencyComponent(b.NewRef($"native:{file}"), file, null, "native", "library", null, FileNameOnly, "filename",
-                "native library in the package; the file name gives no version") { Locations = [.. entries.Select(e => e.FullName)] });
-            foreach (var e in entries)
+                "native library in the package; the file name gives no version") { Locations = [.. entries.Select(e => e.Location)] });
+            foreach (var (e, location) in entries)
             {
                 ct.ThrowIfCancellationRequested();
                 if (e.Length > MaxLibraryScan) { skipped++; continue; }
@@ -120,7 +154,7 @@ internal static partial class DependencyInventory
                 foreach (var (name, pattern) in EmbeddedLibraries)
                     foreach (var version in pattern.Matches(text).Select(m => m.Groups[1].Value).Distinct(StringComparer.Ordinal))
                         Add(b, new DependencyComponent(b.NewRef($"native:{name}@{version}"), name, version, "native", "library", null, EmbeddedVersion, "binary-analysis",
-                            $"version string compiled into the native code") { Locations = [e.FullName] }, e.FullName);
+                            $"version string compiled into the native code") { Locations = [location] }, location);
             }
         }
         if (skipped > 0) b.Notes.Add($"{skipped} native libraries over {MaxLibraryScan >> 20} MiB were not scanned for version strings: the libraries compiled into them are unknown");

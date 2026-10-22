@@ -102,4 +102,46 @@ public sealed class AndroidDependencyTests : IDisposable
         Assert.Equal(("13.0.0.0", null), Assert.Single(facts.All, c => c.Name == "Newtonsoft.Json") is var j ? (j.AssemblyVersion, j.Version) : default);
         Assert.Contains(facts.All, c => c.Name == "libil2cpp.so");
     }
+
+    /// <summary>A split set: base.apk with the Java libraries and a .NET assembly, config.arm64_v8a.apk with the native library.</summary>
+    private static byte[] SplitSet()
+    {
+        var json = File.ReadAllBytes(RealPackages.Lib("Newtonsoft.Json", "13.0.1", "netstandard2.0", "Newtonsoft.Json.dll"));
+        var native = NativeLibrary("OpenSSL 3.0.13 30 Jan 2024");
+        return ContainerFixtures.Zip(
+            ("base.apk", AndroidSamples.Apk(30,
+                ("META-INF/MANIFEST.MF", Text("Manifest-Version: 1.0\n")),
+                ("META-INF/maven/com.squareup.okhttp3/okhttp/pom.properties", Text("version=4.12.0\ngroupId=com.squareup.okhttp3\nartifactId=okhttp\n")),
+                ("assemblies/Newtonsoft.Json.dll", ContainerFixtures.Xalz(json)))),
+            ("config.arm64_v8a.apk", ContainerFixtures.Zip(("lib/arm64-v8a/libnative.so", native))));
+    }
+
+    [Theory]
+    [InlineData("app.xapk")]
+    [InlineData("app.apks")]
+    [InlineData("app.apkm")]
+    public void A_split_set_is_one_app_with_each_split_as_a_location(string name)
+    {
+        var facts = Facts(name, SplitSet());
+        Assert.Equal(("com.example.app", "1.2"), (facts.Subject!.Name, facts.Subject.Version));
+        var okhttp = Assert.Single(facts.All, c => c.Name == "com.squareup.okhttp3:okhttp");
+        Assert.Equal(["base.apk!/META-INF/maven/com.squareup.okhttp3/okhttp/pom.properties"], okhttp.Locations);
+        Assert.Equal(["config.arm64_v8a.apk!/lib/arm64-v8a/libnative.so"], Assert.Single(facts.All, c => c.Name == "libnative.so").Locations);
+        Assert.Equal("3.0.13", Assert.Single(facts.All, c => c.Name == "OpenSSL").Version);
+        Assert.Equal("pkg:nuget/Newtonsoft.Json@13.0.1", Assert.Single(facts.All, c => c.Name == "Newtonsoft.Json").Purl);
+        DependencyInventoryTests.AssertValid(CycloneDx.Write(facts, name, new string('0', 64), "1.0.0", DateTimeOffset.UnixEpoch, Guid.Empty));
+    }
+
+    [Fact]
+    public void An_il2cpp_split_set_lists_unity_from_the_metadata_in_its_base_apk()
+    {
+        var metadata = new Il2CppMetadataWriter().Assembly("Assembly-CSharp", "0.0.0.0").Assembly("mscorlib", "4.0.0.0").Build();
+        byte[] managers = [.. new byte[20], .. Encoding.ASCII.GetBytes("2021.3.45f1"), 0, .. new byte[64]];
+        var facts = Facts("game.xapk", ContainerFixtures.Zip(
+            ("base.apk", AndroidSamples.Apk(30,
+                ("assets/bin/Data/Managed/Metadata/global-metadata.dat", metadata), ("assets/bin/Data/globalgamemanagers", managers))),
+            ("config.arm64_v8a.apk", ContainerFixtures.Zip(("lib/arm64-v8a/libil2cpp.so", NativeLibrary("il2cpp"))))));
+        Assert.Equal("2021.3.45f1", Assert.Single(facts.All, c => c.Name == "Unity").Version);
+        Assert.Equal(["config.arm64_v8a.apk!/lib/arm64-v8a/libil2cpp.so"], Assert.Single(facts.All, c => c.Name == "libil2cpp.so").Locations);
+    }
 }

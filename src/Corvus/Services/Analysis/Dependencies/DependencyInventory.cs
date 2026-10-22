@@ -92,10 +92,11 @@ internal static partial class DependencyInventory
         FromAssemblies(b, input.Path, assemblies.Where(a => !claimed.Contains(a)).ToList(), ct);
         if (views.ContainsKey("go") || views.ContainsKey("rust")) FromNative(b, input, views);
         if (views.GetValueOrDefault("python")?.Detail is PythonFileView.Facts { App: { } python }) FromPython(b, python, input.Path, ct);
-        FromAndroid(b, input, views, ct);
+        bool il2cppSplit = FromAndroid(b, input, views, ct);
         // Reading Il2Cpp metadata takes seconds on a large game, so it waits until the view is asked for.
         if (input.Options.Wants("dependencies"))
-            FromIl2Cpp(b, input.Path, Il2CppPackages.IsPackage(input.Path) && input.Kind == "zip" && input.HasZipEntry(n => n.EndsWith("/global-metadata.dat", StringComparison.Ordinal)), ct);
+            FromIl2Cpp(b, input.Path, Il2CppPackages.IsPackage(input.Path) && input.Kind == "zip"
+                && (il2cppSplit || input.HasZipEntry(n => n.EndsWith("/global-metadata.dat", StringComparison.Ordinal))), ct);
         if (b.Components.Count == 0) return null;
         var edges = b.Edges.Select(e => new DependencyEdge(e.Key, e.Value)).ToList();
         if (b.Components.Count > MaxListed) b.Notes.Add($"components: the first {MaxListed} of {b.Components.Count:N0} listed; sbomPath writes all");
