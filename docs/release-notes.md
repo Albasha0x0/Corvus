@@ -299,8 +299,10 @@
   "the program changed while it was read"; a program held at its start is refused with a timeout naming
   `live_break action=continue`. Verified on Windows 11 x64 with 64-bit and 32-bit programs. [51e5cc1c](https://github.com/Albasha0x0/Corvus/commit/51e5cc1c)
 - **Session starts on macOS:** a start Frida 17.24.3 times out on ("unexpectedly timed out while initializing suspended
-  process") is ended and tried once more; the session names what it ended. A workaround with no upstream report
-  yet; not on Windows, where this timeout has not been seen. [ccc4abd8](https://github.com/Albasha0x0/Corvus/commit/ccc4abd8)
+  process") is ended and tried once more; the session names what it ended. A workaround: the 10 s limit is
+  source-derived (frida-core 17.24.3, the darwin helper's target preparation), and no upstream report is filed because
+  400 standalone starts on macOS, idle and loaded, did not reproduce it; not on Windows, where this timeout has not
+  been seen. [ccc4abd8](https://github.com/Albasha0x0/Corvus/commit/ccc4abd8)
 - **get_pe_info:** the PDB line reports the finished automatic search (waiting up to 30 s, else "PDB search pending").
   [637cb40e](https://github.com/Albasha0x0/Corvus/commit/637cb40e)
 - **Workspace shutdown:** waits up to 10 s for calls holding or queued for the workspace lock before disposing it.
