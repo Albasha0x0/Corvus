@@ -209,6 +209,14 @@ public sealed class LiveProcessService(MinidumpService dumps)
         return (row, ctx, t.StackLow ?? 0, t.StackHigh ?? 0);
     }
 
+    /// <summary>
+    /// The refusal of process id 0, which Windows lists as the System Idle Process: it has no image, memory or threads of
+    /// its own to read.
+    /// </summary>
+    internal static ToolError IdleProcess() =>
+        new(ErrorCode.Unsupported, "Process 0 is the System Idle Process: it has no image, memory or threads of its own to read.", "pass the id or name of a running program")
+        { Details = new { reason = "idle_process", pid = 0 } };
+
     /// <summary>A process id (decimal or 0x hex) or a process name (with or without .exe); a name must match one process.</summary>
     internal static (int Pid, string Name) Resolve(string process)
     {
@@ -218,7 +226,8 @@ public sealed class LiveProcessService(MinidumpService dumps)
             : text.All(char.IsAsciiDigit) ? (ulong.TryParse(text, out var d) ? d : ulong.MaxValue) : null;
         if (number is { } n)
         {
-            if (n == 0 || n > int.MaxValue) throw new ToolError(ErrorCode.InvalidArgument, $"'{text}' is not a valid process id.", "pass a process id or a process name");
+            if (n == 0) throw IdleProcess();
+            if (n > int.MaxValue) throw new ToolError(ErrorCode.InvalidArgument, $"'{text}' is not a valid process id.", "pass a process id or a process name");
             try
             {
                 using var p = Process.GetProcessById((int)n);
@@ -236,6 +245,7 @@ public sealed class LiveProcessService(MinidumpService dumps)
         {
             var exact = all.Where(p => p.ProcessName.Equals(name, StringComparison.OrdinalIgnoreCase) && p.Id != Environment.ProcessId)
                 .Select(p => (p.Id, p.ProcessName, Session: SafeSession(p))).OrderBy(p => p.Id).ToList();
+            if (exact is [{ Id: 0 }]) throw IdleProcess();
             if (exact.Count == 1) return (exact[0].Id, exact[0].ProcessName);
             if (exact.Count > 1)
                 throw new ToolError(ErrorCode.Ambiguous,

@@ -51,12 +51,25 @@ public sealed class LiveProcessTests(ITestOutputHelper output)
             return;
         }
         Assert.Equal(ErrorCode.NotFound, (await Fails("no-such-process-" + Guid.NewGuid().ToString("N")[..8])).Code);
-        Assert.Equal(ErrorCode.InvalidArgument, (await Fails("0")).Code);
         Assert.Equal(ErrorCode.InvalidArgument, (await Fails(Environment.ProcessId.ToString())).Code);
         Assert.Equal(ErrorCode.InvalidArgument, (await Fails("1", "bogus")).Code);
         // the System process (pid 4) exists and is never readable from user mode
         var system = await Fails("4");
         Assert.True(system.Code is ErrorCode.AccessDenied or ErrorCode.NotFound, system.Code.ToString());
+    }
+
+    [Fact]
+    public async Task Process_0_is_refused_as_the_System_Idle_Process_by_id_and_by_name()
+    {
+        if (!OperatingSystem.IsWindows()) return;
+        using var dumps = new MinidumpService();
+        var service = new LiveProcessService(dumps);
+        foreach (var process in new[] { "0", "0x0", "Idle" })
+        {
+            var e = await Assert.ThrowsAsync<ToolError>(() => service.Inspect(process, null, null, 0, 1, null, 1, null, 5, default));
+            Assert.Equal(ErrorCode.Unsupported, e.Code);
+            Assert.Contains("Process 0 is the System Idle Process", e.Message);
+        }
     }
 
     public static TheoryData<string> Bitness => new() { "System32", "SysWOW64" };
@@ -219,7 +232,8 @@ public sealed class LiveProcessSweepTests(ITestOutputHelper output)
         string slowestName = "";
         var all = Process.GetProcesses();
         // bounded: the first 40 by id (about 10 s)
-        var targets = all.Where(p => p.SessionId == session && p.Id != Environment.ProcessId).Select(p => (p.Id, p.ProcessName)).OrderBy(p => p.Id).Take(40).ToList();
+        // Process 0, listed in session 0, is refused by its own test.
+        var targets = all.Where(p => p.SessionId == session && p.Id != 0 && p.Id != Environment.ProcessId).Select(p => (p.Id, p.ProcessName)).OrderBy(p => p.Id).Take(40).ToList();
         foreach (var p in all) p.Dispose();
         foreach (var (pid, name) in targets)
         {

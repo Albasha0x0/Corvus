@@ -813,6 +813,16 @@ public sealed class LiveSessionTests : IDisposable
     }
 
     [Fact]
+    public async Task An_attach_to_process_0_is_refused_as_the_System_Idle_Process()
+    {
+        if (!OperatingSystem.IsWindows()) return;
+        var e = await Assert.ThrowsAsync<ToolError>(() => _tools.LiveSession("attach", program: "0"));
+        Assert.Equal(ErrorCode.Unsupported, e.Code);
+        Assert.Contains("Process 0 is the System Idle Process", e.Message);
+        Assert.Null(_backend.LastOpen);
+    }
+
+    [Fact]
     public async Task Two_closes_at_once_record_one_close_event()
     {
         for (int round = 0; round < 50; round++)

@@ -142,6 +142,7 @@ public sealed partial class LiveSessionTools(ServerOptions options, LiveSessionS
                 case "attach" or "spawn":
                     if (string.IsNullOrWhiteSpace(program))
                         throw new ToolError(ErrorCode.InvalidArgument, $"action={a} needs program.", a == "spawn" ? "program=<path to the program>" : "program=<process id or name>");
+                    if (a == "attach" && program.Trim() == "0" && OperatingSystem.IsWindows()) throw LiveProcessService.IdleProcess();
                     var names = childNames?.Where(n => !string.IsNullOrWhiteSpace(n)).Select(n => n.Trim()).ToList();
                     if (names?.Contains("*") == true) names = [];
                     else if (names is { Count: 0 }) names = null;
@@ -220,6 +221,8 @@ public sealed partial class LiveSessionTools(ServerOptions options, LiveSessionS
             using (p)
             {
                 string name;
+                // Process 0 is the System Idle Process, never a program to attach to.
+                if (p.Id == 0) continue;
                 try { name = p.ProcessName; }
                 catch (InvalidOperationException) { continue; } // exited meanwhile
                 if (string.IsNullOrWhiteSpace(filter) || name.Contains(filter.Trim(), StringComparison.OrdinalIgnoreCase)) rows.Add(new LiveProcessRow(p.Id, name));
