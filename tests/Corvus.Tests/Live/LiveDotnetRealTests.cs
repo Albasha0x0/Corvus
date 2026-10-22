@@ -395,7 +395,10 @@ public sealed class LiveDotnetRealTests(ITestOutputHelper output) : LiveToolCall
         int after = -1;
         for (int i = 0; i < 200 && after < 3; i++)
         {
-            Assert.Contains("stopped at s1", await Ok(server, "live_break", new() { ["session"] = "live-1", ["action"] = "continue", ["wait"] = true, ["waitSeconds"] = 30 }));
+            var stop = await Ok(server, "live_break", new() { ["session"] = "live-1", ["action"] = "continue", ["wait"] = true, ["waitSeconds"] = 30 });
+            // A missed stop names the modules the session saw, where s1 was set and any error binding it.
+            if (!stop.Contains("stopped at s1", StringComparison.Ordinal))
+                Assert.Fail($"{stop}\nafter {i} stops; module events:\n{await Events(server, "live-1", kind: "module", log: false)}\nerrors:\n{await Events(server, "live-1", kind: "error", log: false)}");
             if (after >= 0 || (await Events(server, "live-1", kind: "module", log: false)).Contains("s1 also set at", StringComparison.Ordinal)) after++;
         }
         Assert.Equal(3, after);
