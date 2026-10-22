@@ -98,6 +98,36 @@ public class TestReuseTests
 
     [Fact]
     [Trait("Speed", "Slow")]
+    public void A_failed_run_keeps_its_results_and_names_each_failure_message()
+    {
+        var module = Path.Combine(DocsTests.RepoRoot(), "test-reuse.psm1");
+        using var dir = new TempDir();
+        var trx = dir.File("full.trx");
+        File.WriteAllText(trx, Trx.Replace("""<UnitTestResult testId="2" outcome="Failed" />""",
+            """<UnitTestResult testId="2" outcome="Failed"><Output><ErrorInfo><Message>worker did not start</Message></ErrorInfo></Output></UnitTestResult>"""));
+        var kept = dir.File("kept");
+        var lines = Run($$"""
+            Import-Module '{{module.Replace("'", "''")}}'
+            $m = Get-FailureMessages '{{trx}}'
+            'message=' + $m['Corvus.Tests.EngineB+Nested.M']
+            'count=' + $m.Count
+            foreach ($i in 1..12) { Save-FailedRun '{{kept}}' ('20261023-0000{0:00}-abc' -f $i) @('{{trx}}', '{{trx}}', '{{dir.File("missing.trx")}}') }
+            'kept=' + ((Get-ChildItem '{{kept}}' -Filter *.trx | Sort-Object Name | ForEach-Object Name) -join ',')
+            """);
+        if (lines is ["skip"]) return; // no pwsh on this machine
+        string Line(string name) => lines.Single(l => l.StartsWith(name + "=")).Substring(name.Length + 1);
+        Assert.Equal("worker did not start", Line("message"));
+        Assert.Equal("1", Line("count"));
+        // Twelve runs of two files each: the newest ten runs stay, each with its rerun's copy.
+        var names = Line("kept").Split(',');
+        Assert.Equal(20, names.Length);
+        Assert.Contains("20261023-000003-abc.trx", names);
+        Assert.Contains("20261023-000012-abc-2.trx", names);
+        Assert.DoesNotContain(names, n => n.StartsWith("20261023-000002-"));
+    }
+
+    [Fact]
+    [Trait("Speed", "Slow")]
     public void DocumentationOnlyChangesAndFailedTestsAreNamed()
     {
         var module = Path.Combine(DocsTests.RepoRoot(), "test-reuse.psm1");

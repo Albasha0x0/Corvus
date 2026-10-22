@@ -54,8 +54,10 @@
   that `corvus update` reaches the new one.
 - **Failures, hangs and quarantine.** A failure fails the run; nothing is retried to green. A full run reruns each
   failed test once (25 at most) only to label it, "failed" or "failed, passed on rerun (suspected flaky)", printed and
-  kept in `.git/corvus-last-run-labels.txt`; the run stays failed. A test that runs past its hang limit (2 minutes in a
-  quick run, 30 minutes in a full run) ends the run with a dump of the test host, kept with the test sequence in
+  kept in `.git/corvus-last-run-labels.txt`; the run stays failed. Each failure's first message lines are printed with
+  the labels, and the run's results and its rerun's are kept in `.git/corvus-failed-runs` (the newest 10 runs). A
+  test that runs past its hang limit (2 minutes in a quick run, 30 minutes in a full run) ends the run with a dump of
+  the test host, kept with the test sequence in
   `.git/corvus-hang-<time>`. `tests/Corvus.Tests/Ratchets/quarantine.txt` lists quarantined tests, one
   `Class.Method | owner | issue | yyyy-MM-dd` line each, the date by which the test is fixed or removed: a quarantined
   test still runs and its failure is reported, but it alone does not fail a run that completed; past its date the

@@ -821,6 +821,14 @@ try {
             if ($split.Blocking.Count -gt $again.Count) { $labels += "$($split.Blocking.Count - $again.Count) more failed test(s) not rerun (the rerun takes 25)" }
             Set-Content -Path (Join-Path $gitDir 'corvus-last-run-labels.txt') -Value $labels
             Write-Host "Failures after one rerun (the run stays failed):`n  $($labels -join "`n  ")" -ForegroundColor Red
+            # The log and a kept copy of the results name each failure's cause after the next run replaces the TRX.
+            $messages = Get-FailureMessages $trx
+            foreach ($test in $split.Blocking | Where-Object { $messages[$_] }) {
+                Write-Host "  $test`: $((($messages[$test] -split "`r?`n") | Where-Object { $_.Trim() } | Select-Object -First 3) -join ' | ')"
+            }
+            $failedRun = "$(Get-Date -Format 'yyyyMMdd-HHmmss')-$((git -C $root rev-parse --short HEAD).Trim())"
+            Save-FailedRun (Join-Path $gitDir 'corvus-failed-runs') $failedRun @($trx, $rerunTrx)
+            Write-Host "Results kept in $(Join-Path $gitDir "corvus-failed-runs/$failedRun.trx")."
         }
     }
     $dumps = @(Get-ChildItem $results -Recurse -Include '*.dmp', 'Sequence_*.xml' -ErrorAction SilentlyContinue)

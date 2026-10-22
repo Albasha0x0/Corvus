@@ -298,6 +298,36 @@ function Get-FailedTests([string]$trxPath) {
         ForEach-Object { $nameOf[$_.Node.testId] } | Sort-Object -Unique)
 }
 
+# Each failed test's first failure message in a TRX file, by the name Get-FailedTests gives it; a test without a
+# message is left out.
+function Get-FailureMessages([string]$trxPath) {
+    [xml]$trx = Get-Content $trxPath -Raw
+    $ns = @{ t = 'http://microsoft.com/schemas/VisualStudio/TeamTest/2010' }
+    $nameOf = @{}
+    foreach ($test in Select-Xml -Xml $trx -XPath '//t:UnitTest' -Namespace $ns) {
+        $nameOf[$test.Node.id] = "$($test.Node.TestMethod.className).$($test.Node.TestMethod.name)"
+    }
+    $messages = @{}
+    foreach ($result in Select-Xml -Xml $trx -XPath '//t:UnitTestResult' -Namespace $ns | Where-Object { $_.Node.outcome -notin 'Passed', 'NotExecuted' }) {
+        $name = $nameOf[$result.Node.testId]
+        $message = $result.Node.Output.ErrorInfo.Message
+        if ($name -and $message -and -not $messages.ContainsKey($name)) { $messages[$name] = [string]$message }
+    }
+    $messages
+}
+
+# Copies a failed run's result files into $folder under $name and keeps the newest $keep runs there. The next run
+# replaces corvus-last-run.trx, so this copy is what still holds the failure messages afterwards.
+function Save-FailedRun([string]$folder, [string]$name, [string[]]$files, [int]$keep = 10) {
+    New-Item -ItemType Directory -Force $folder | Out-Null
+    $n = 0
+    foreach ($file in $files | Where-Object { $_ -and (Test-Path $_) }) {
+        Copy-Item $file (Join-Path $folder "$name$(if ($n++) { "-$n" }).trx") -Force
+    }
+    $runs = @(Get-ChildItem $folder -Filter '*.trx' | Group-Object { ($_.BaseName -split '-')[0..2] -join '-' } | Sort-Object Name -Descending)
+    $runs | Select-Object -Skip $keep | ForEach-Object { $_.Group | Remove-Item -Force }
+}
+
 # The tests that passed in a TRX file (every result of the name passed), named as Get-FailedTests names them.
 function Get-PassedTests([string]$trxPath) {
     [xml]$trx = Get-Content $trxPath -Raw
@@ -399,4 +429,4 @@ function Exit-HeavyLock([string]$name) {
     if ($env:CORVUS_HEAVY_LOCK) { & $env:CORVUS_HEAVY_LOCK release $name | Out-Host }
 }
 
-Export-ModuleMember -Function Add-FullPass, Get-FullPass, Enter-RunLock, Get-SelectionMisses, Get-PathStamp, Get-LocatedTools, Set-RunPriority, Enter-HeavyLock, Exit-HeavyLock, Get-RunEnvironment, Get-ReuseScope, Get-ClassMap, Get-SlowClasses, Test-AlwaysRunFolder, Read-ClassCoverage, Split-ClassMap, Add-ClassTestScopes, Get-RootReaders, Get-FamilyKeys, Read-CoverageMap, Get-CoveredFiles, Get-StaleFamilies, Get-ReuseFilter, Get-PassedFamilies, Save-FamilyPasses, Test-DocsOnly, Get-FailedTests, Get-PassedTests, Test-RunCompleted, Get-FailureLabels, Read-Quarantine, Split-Quarantined
+Export-ModuleMember -Function Add-FullPass, Get-FullPass, Enter-RunLock, Get-SelectionMisses, Get-PathStamp, Get-LocatedTools, Set-RunPriority, Enter-HeavyLock, Exit-HeavyLock, Get-RunEnvironment, Get-ReuseScope, Get-ClassMap, Get-SlowClasses, Test-AlwaysRunFolder, Read-ClassCoverage, Split-ClassMap, Add-ClassTestScopes, Get-RootReaders, Get-FamilyKeys, Read-CoverageMap, Get-CoveredFiles, Get-StaleFamilies, Get-ReuseFilter, Get-PassedFamilies, Save-FamilyPasses, Test-DocsOnly, Get-FailedTests, Get-FailureMessages, Save-FailedRun, Get-PassedTests, Test-RunCompleted, Get-FailureLabels, Read-Quarantine, Split-Quarantined
