@@ -1,3 +1,5 @@
+using System.Security.Cryptography;
+using System.Text;
 using Corvus.Native.Annotations;
 using Corvus.Native.Code;
 using Corvus.Native.NativeAot;
@@ -42,6 +44,50 @@ public class NativeAotSampleTests(ITestOutputHelper log)
 
     public static readonly TheoryData<string> Names = new(Variants.Keys);
 
+    private static readonly string Cache = Path.Combine(LeakGuard.SharedTemp, "corvus-test-data", "nativeaot-samples");
+
+    /// <summary>
+    /// The folder of <paramref name="variant"/>'s published build. A build is kept per sample source, project, variant
+    /// and SDK version and shared by later runs, as the test checks the reader, not the compiler; an exhaustive run
+    /// publishes afresh in <paramref name="scratch"/>, so a new linker is seen at release strength. Fails the test when
+    /// dotnet publish fails.
+    /// </summary>
+    private static string Published(string variant, TempDir scratch)
+    {
+        var (tfm, _, rid, properties) = Variants[variant];
+        var source = File.ReadAllBytes(Path.Combine(AppContext.BaseDirectory, "NativeAotSample", "Program.cs"));
+        var (sdkCode, sdk) = Tools.Dotnet(null, "--version");
+        Assert.True(sdkCode == 0, $"dotnet --version failed ({sdkCode}): {sdk}");
+        using var hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
+        hash.AppendData(source);
+        hash.AppendData(Encoding.UTF8.GetBytes(string.Join("\n", Project, tfm, rid, string.Join(";", properties), sdk.Trim())));
+        var key = Convert.ToHexStringLower(hash.GetHashAndReset())[..16];
+        var dir = Path.Combine(Cache, $"{variant}-{key}");
+        if (!SweepScope.Exhaustive && File.Exists(Path.Combine(dir, "app.exe"))) return dir;
+        // Builds of this variant under another key: an older SDK or sample.
+        if (Directory.Exists(Cache))
+            foreach (var old in Directory.EnumerateDirectories(Cache, $"{variant}-*").Where(d => Path.GetFileName(d).Length == variant.Length + 17 && d != dir))
+            {
+                try { Directory.Delete(old, true); }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
+            }
+
+        // Published in a folder of this process, then moved in place; another process may win.
+        var work = SweepScope.Exhaustive ? scratch.File("build") : Path.Combine(Cache, $"{variant}-{key}-{Environment.ProcessId}-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(work);
+        File.WriteAllBytes(Path.Combine(work, "Program.cs"), source);
+        File.WriteAllText(Path.Combine(work, "app.csproj"), Project.Replace("TFM", tfm));
+        string[] args = ["publish", "app.csproj", "-c", "Release", "-r", rid, "-o", "out", .. properties.Select(p => "-p:" + p)];
+        var (code, output) = Tools.Dotnet(work, args);
+        Assert.True(code == 0, $"dotnet publish failed ({code}):\n{output}");
+        if (SweepScope.Exhaustive) return Path.Combine(work, "out");
+        try { Directory.Move(Path.Combine(work, "out"), dir); }
+        catch (IOException) when (File.Exists(Path.Combine(dir, "app.exe"))) { }
+        try { Directory.Delete(work, true); }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
+        return dir;
+    }
+
     private const string Project = """
         <Project Sdk="Microsoft.NET.Sdk">
           <PropertyGroup>
@@ -58,13 +104,11 @@ public class NativeAotSampleTests(ITestOutputHelper log)
     [MemberData(nameof(Names))]
     public async Task Sample_NamesMatchThePdb(string variant)
     {
-        var (tfm, runtime, rid, properties) = Variants[variant];
+        var (_, runtime, _, properties) = Variants[variant];
         using var dir = new TempDir();
-        File.Copy(Path.Combine(AppContext.BaseDirectory, "NativeAotSample", "Program.cs"), dir.File("Program.cs"));
-        File.WriteAllText(dir.File("app.csproj"), Project.Replace("TFM", tfm));
-        string[] args = ["publish", "app.csproj", "-c", "Release", "-r", rid, "-o", "out", .. properties.Select(p => "-p:" + p)];
-        var (code, output) = Tools.Dotnet(dir.Path, args);
-        Assert.True(code == 0, $"dotnet publish failed ({code}):\n{output}");
+        var published = Published(variant, dir);
+        Directory.CreateDirectory(dir.File("out"));
+        foreach (var file in Directory.EnumerateFiles(published)) File.Copy(file, dir.File(Path.Combine("out", Path.GetFileName(file))));
 
         var exe = dir.File(Path.Combine("out", "app.exe"));
         var pe = PeFile.Open(exe);
