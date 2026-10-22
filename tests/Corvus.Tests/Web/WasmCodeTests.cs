@@ -154,6 +154,11 @@ public sealed class WasmIndexSpeedTests(ITestOutputHelper output)
                          $"{index.VirtualEdges.Count:N0} call_indirect edges: {clock.Elapsed.TotalSeconds:F2} s");
         Assert.True(bytes.Length >= 60_000_000, $"{bytes.Length:N0} bytes");
         Assert.Equal(210_000, index.Functions.Count);
+        // Each body is decoded once: 132 instructions and 52 references a function, plus the 1,000 table entries. The
+        // table is over the per-type cap, so call_indirect makes no edges instead of 1,000 per site.
+        Assert.Equal((210_000L * 132, 210_000L * 52 + 1_000, 1), (index.Stats.Instructions, index.Stats.Xrefs, index.Stats.DiscoveryPasses));
+        Assert.Empty(index.VirtualEdges);
+        Assert.Contains(index.Truncations, t => t.Contains("more than 256 table entries", StringComparison.Ordinal));
         PerfBudget.Time("web/wasm-60mb-index", clock.Elapsed, TimeSpan.FromSeconds(5), output);
     }
 }

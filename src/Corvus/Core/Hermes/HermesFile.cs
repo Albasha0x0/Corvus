@@ -54,6 +54,16 @@ public sealed class HermesFile
 
     public IReadOnlyList<HermesFunction> Functions { get; private set; } = [];
     public int StringCount => _stringEntries.Length;
+
+    private int _stringsDecoded, _codeDecodes;
+
+    /// <summary>Strings decoded so far: each once, on its first use.</summary>
+    internal int StringsDecoded => Volatile.Read(ref _stringsDecoded);
+
+    /// <summary>Function bodies decoded so far (<see cref="HermesCode.Decode"/> calls).</summary>
+    internal int CodeDecodes => Volatile.Read(ref _codeDecodes);
+
+    internal void CountCodeDecode() => Interlocked.Increment(ref _codeDecodes);
     public List<string> Issues { get; } = [];
 
     /// <summary>Literal buffers (serialized literal format) and the bigint and regexp tables, as file ranges.</summary>
@@ -220,6 +230,7 @@ public sealed class HermesFile
         if (_strings == null || id < 0 || id >= _strings.Length) return null;
         if (_strings[id] is { } cached) return cached;
         var (at, length, utf16) = _stringEntries[id];
+        Interlocked.Increment(ref _stringsDecoded);
         string text = utf16 ? Encoding.Unicode.GetString(_data, at, length * 2) : Encoding.Latin1.GetString(_data, at, length);
         return _strings[id] = text;
     }

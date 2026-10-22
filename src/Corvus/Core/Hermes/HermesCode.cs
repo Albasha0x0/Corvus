@@ -36,6 +36,7 @@ public static class HermesCode
     /// <summary>The instructions of <paramref name="f"/>; an unknown opcode or a truncated instruction ends the list with an issue.</summary>
     public static List<HermesInstruction> Decode(HermesFile file, HermesFunction f, List<string>? issues = null, List<HermesSwitch>? switches = null)
     {
+        file.CountCodeDecode();
         var list = new List<HermesInstruction>(Math.Max(4, f.Size / 3));
         if (file.Opcodes is not { } table || f.Size == 0) return list;
         var code = file.Bytes.Span.Slice(f.Offset, f.Size);

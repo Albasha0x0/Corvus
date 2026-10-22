@@ -246,8 +246,13 @@ public sealed partial class HermesTests(ITestOutputHelper output) : IDisposable
             var clock = Stopwatch.StartNew();
             var f = HermesFile.Read(HermesBundles.FromPackage(bytes, out _)!);
             var read = clock.Elapsed;
+            var (stringsRead, codeRead) = (f.StringsDecoded, f.CodeDecodes);
             var index = new HermesIndex(f);
             var indexed = clock.Elapsed;
+            // Strings decode on first use and the index decodes each body once (the global code twice, for its module table).
+            Assert.Equal((0, 0), (stringsRead, codeRead));
+            Assert.Equal(f.Functions.Count + 1, f.CodeDecodes);
+            Assert.InRange(f.StringsDecoded, 0, f.StringCount / 10);
             clock.Restart();
             int gotos = 0;
             foreach (var fn in f.Functions)
