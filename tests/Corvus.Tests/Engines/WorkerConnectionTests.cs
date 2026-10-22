@@ -79,6 +79,18 @@ public class WorkerConnectionTests
         Assert.Contains("license check failed", e.Message);
     }
 
+    // Regression for the macOS and Linux failures of A_worker_that_crashes_is_named_and_the_next_call_starts_a_new_one.
+    [Fact]
+    public async Task A_worker_whose_pipes_close_before_its_exit_is_named_with_its_exit_code_and_stderr()
+    {
+        using var worker = new FakeWorkerProcess();
+        using var c = worker.Connect(Concurrent);
+        var e = await Assert.ThrowsAsync<ToolError>(() => c.RequestAsync("exit_late", new JsonObject { ["message"] = "fatal: stack overflow" }, NoLimit, default));
+        Assert.Equal(ErrorCode.ProviderUnavailable, e.Code);
+        Assert.Contains("test worker exited with code 1 (0x00000001) while handling 'exit_late'.", e.Message);
+        Assert.Contains("fatal: stack overflow", e.Message);
+    }
+
     [Fact]
     public async Task A_worker_stopped_for_time_names_what_it_was_doing()
     {

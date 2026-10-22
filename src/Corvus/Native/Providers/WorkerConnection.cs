@@ -45,6 +45,9 @@ public sealed class WorkerConnection : IDisposable
     private readonly TextTail _stderr = new(32_000);
     private readonly TaskCompletionSource<JsonElement> _ready = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private readonly TaskCompletionSource _closed = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    /// <summary>How long a dead worker's error waits for its exit code and stderr tail.</summary>
+    private static readonly TimeSpan ExitGrace = TimeSpan.FromSeconds(2);
+
     private readonly TaskCompletionSource _stdoutDone = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private readonly TaskCompletionSource _stderrDone = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private readonly object _sync = new();
@@ -132,7 +135,7 @@ public sealed class WorkerConnection : IDisposable
     {
         var done = await Task.WhenAny(_ready.Task, _closed.Task, Task.Delay(timeout, cancellationToken)).ConfigureAwait(false);
         if (done == _ready.Task) return _ready.Task.Result;
-        if (done == _closed.Task) throw Died("start");
+        if (done == _closed.Task) throw await DiedAsync("start").ConfigureAwait(false);
         var stall = cancellationToken.IsCancellationRequested ? null : Stall();
         Kill(cancellationToken.IsCancellationRequested ? "cancelled" : "start timeout");
         cancellationToken.ThrowIfCancellationRequested();
@@ -196,7 +199,7 @@ public sealed class WorkerConnection : IDisposable
         long id = 0;
         try
         {
-            if (!IsAlive) throw Died(op);
+            if (!IsAlive) throw await DiedAsync(op).ConfigureAwait(false);
             id = Interlocked.Increment(ref _nextId);
             Interlocked.Increment(ref _requests);
             var tcs = new TaskCompletionSource<WorkerMessage.Response>(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -213,13 +216,13 @@ public sealed class WorkerConnection : IDisposable
             try
             {
                 var w = await Task.WhenAny(write, tcs.Task, _closed.Task, stop).ConfigureAwait(false);
-                if (w == write && write.IsFaulted && !tcs.Task.IsCompleted) throw Died(op);
+                if (w == write && write.IsFaulted && !tcs.Task.IsCompleted) throw await DiedAsync(op).ConfigureAwait(false);
                 if (w == write) await Task.WhenAny(tcs.Task, _closed.Task, stop).ConfigureAwait(false);
             }
-            catch (IOException) { throw Died(op); }
+            catch (IOException) { throw await DiedAsync(op).ConfigureAwait(false); }
 
             if (tcs.Task.IsCompleted) return Result(tcs.Task.Result);
-            if (_closed.Task.IsCompleted && !timer.IsCancellationRequested) throw Died(op);
+            if (_closed.Task.IsCompleted && !timer.IsCancellationRequested) throw await DiedAsync(op).ConfigureAwait(false);
             var cancelled = cancellationToken.IsCancellationRequested;
             if (await CancelAsync(id, write, tcs.Task).ConfigureAwait(false))
             {
@@ -330,10 +333,17 @@ public sealed class WorkerConnection : IDisposable
         OnClosed();
     }
 
-    private ToolError Died(string op)
+    /// <summary>
+    /// The error for a worker that went away during <paramref name="op"/>. Every path that sees the death builds it here,
+    /// after waiting up to <see cref="ExitGrace"/> for the exit and the stderr tail, so the error names both.
+    /// </summary>
+    private async Task<ToolError> DiedAsync(string op)
     {
         string? reason;
         lock (_sync) reason = _killReason;
+        // A broken pipe or a closed stdout can be seen before the exit is reaped (macOS, Linux).
+        if (reason == null)
+            await Task.WhenAny(Task.WhenAll(_process.Exited, _stderrDone.Task), Task.Delay(ExitGrace)).ConfigureAwait(false);
         var exit = _process.ExitCode is { } c ? $" with code {c} (0x{c:X8})" : "";
         var what = reason != null ? $"{_name} was stopped ({reason})" : $"{_name} exited{exit}";
         if (_process.MemoryLimitReached() is { } limit)
