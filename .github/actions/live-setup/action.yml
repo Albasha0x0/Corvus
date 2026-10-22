@@ -1,0 +1,32 @@
+name: Live session setup
+description: >-
+  What the Live family needs on a runner, shared by the live and offload jobs: a 64-bit Python of the machine's own
+  architecture with the Frida release the tests are written against (CORVUS_FRIDA_PYTHON names it), and on Linux GDB,
+  multilib gcc and ptrace_scope 0.
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-python@v6
+      id: python
+      with:
+        python-version: '3.13'
+
+    - name: Frida
+      shell: bash
+      run: |
+        "$PYTHON" -m pip install --disable-pip-version-check frida==17.24.3
+        "$PYTHON" -c "import frida, platform, struct; print('frida', frida.__version__, platform.machine(), struct.calcsize('P') * 8, 'bit')"
+        echo "CORVUS_FRIDA_PYTHON=$PYTHON" >> "$GITHUB_ENV"
+      env:
+        PYTHON: ${{ steps.python.outputs.python-path }}
+
+    # Snapshots on Linux are written by gcore (GDB), gcc-multilib builds the
+    # linux-x86 programs, and attaching to a program the session did not start
+    # needs ptrace_scope 0 (the runner's is 1).
+    - name: GDB, multilib gcc and ptrace scope (Linux)
+      if: runner.os == 'Linux'
+      shell: bash
+      run: |
+        sudo apt-get update -q
+        sudo apt-get install -y --no-install-recommends gdb gcc-multilib
+        sudo sysctl -w kernel.yama.ptrace_scope=0

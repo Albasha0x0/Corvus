@@ -165,29 +165,8 @@ jobs:
         shell: pwsh
         run: ./tests/Corvus.Tests/Support/fetch-remote-tools.ps1 -Destination (Join-Path $env:RUNNER_TEMP 'test-tools') -Name ghidra, jdk >> $env:GITHUB_ENV
 
-      # The Frida release the live tests are written against, as in the live job.
-      - uses: actions/setup-python@v6
+      - uses: ./.github/actions/live-setup
         if: matrix.group == 'live'
-        id: python
-        with:
-          python-version: '3.13'
-
-      - name: Frida
-        if: matrix.group == 'live'
-        shell: bash
-        run: |
-          "$PYTHON" -m pip install --disable-pip-version-check frida==17.24.3
-          echo "CORVUS_FRIDA_PYTHON=$PYTHON" >> "$GITHUB_ENV"
-        env:
-          PYTHON: ${{ steps.python.outputs.python-path }}
-
-      # gcc-multilib builds the linux-x86 programs.
-      - name: GDB, multilib gcc and ptrace scope (Linux)
-        if: matrix.group == 'live' && runner.os == 'Linux'
-        run: |
-          sudo apt-get update -q
-          sudo apt-get install -y --no-install-recommends gdb gcc-multilib
-          sudo sysctl -w kernel.yama.ptrace_scope=0
 
       # The x86 programs of the managed session tests run on the 32-bit runtime, in its standard folder.
       - name: x86 .NET 9 runtime (Windows)
@@ -336,28 +315,7 @@ jobs:
         with:
           global-json-file: global.json
 
-      # A 64-bit Python of the machine's own architecture, with the Frida
-      # release the live tests are written against.
-      - uses: actions/setup-python@v6
-        id: python
-        with:
-          python-version: '3.13'
-
-      - name: Frida
-        shell: bash
-        run: |
-          "$PYTHON" -m pip install --disable-pip-version-check frida==17.24.3
-          "$PYTHON" -c "import frida, platform, struct; print('frida', frida.__version__, platform.machine(), struct.calcsize('P') * 8, 'bit')"
-        env:
-          PYTHON: ${{ steps.python.outputs.python-path }}
-
-      # Snapshots on Linux are written by gcore (GDB); attaching to a program
-      # the session did not start needs ptrace_scope 0 (the runner's is 1).
-      - name: GDB and ptrace scope (Linux)
-        if: runner.os == 'Linux'
-        run: |
-          sudo apt-get install -y --no-install-recommends gdb
-          sudo sysctl -w kernel.yama.ptrace_scope=0
+      - uses: ./.github/actions/live-setup
 
       # Snapshots on macOS are written by lldb's process save-core (the Xcode
       # command line tools).
@@ -374,7 +332,6 @@ jobs:
         shell: bash
         env:
           CORVUS_ALL_TESTS: "1"
-          CORVUS_FRIDA_PYTHON: ${{ steps.python.outputs.python-path }}
         run: |
           filter=$(grep -ohE '^public (sealed |abstract |partial )*class [A-Za-z0-9_]+' tests/Corvus.Tests/Live/*.cs | awk '{print "FullyQualifiedName~." $NF}' | sort -u | paste -sd '|' -)
           dotnet test tests/Corvus.Tests --no-build -c Release --filter "$filter" --blame-hang-timeout 15m --logger "trx;LogFileName=live.trx" --logger "console;verbosity=normal"
