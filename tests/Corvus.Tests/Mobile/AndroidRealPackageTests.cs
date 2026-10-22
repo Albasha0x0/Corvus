@@ -11,6 +11,8 @@ namespace Corvus.Tests;
 [Trait("Speed", "Slow")]
 [Trait("Data", "Real")]
 [Permit("reference-tool")]
+// The real JADX server is read from CORVUS_JAVA and CORVUS_JAVA_DECOMPILER, which the fake-tool tests replace meanwhile.
+[Collection(ExternalToolEnvironmentCollection.Name)]
 public sealed class AndroidRealPackageTests(Xunit.Abstractions.ITestOutputHelper output) : IDisposable
 {
     private const string Ref = "Microsoft.Android.Ref.35", Runtime = "Microsoft.Android.Runtime.35.android-arm64", Version = "35.0.105";
