@@ -259,6 +259,22 @@ public sealed class LiveSession
         }
     }
 
+    /// <summary>
+    /// Records the close event and marks the session closed in one step, so the state reads closed only with the event
+    /// recorded; false when the session was closed already.
+    /// </summary>
+    internal bool AddClose(string reason)
+    {
+        lock (_gate)
+        {
+            if (Closed) return false;
+            CloseReason = reason;
+            Add("exit", null, null, "session closed (" + reason + ")");
+            Closed = true;
+            return true;
+        }
+    }
+
     /// <summary>The last event sequence: a resume sent after it releases only the stops held up to it.</summary>
     internal long Sequence
     {
@@ -1706,10 +1722,7 @@ public sealed partial class LiveSessionService(AssemblyWorkspace workspace, Nati
     /// <summary>Releases every held thread and disconnects; a program the session started is ended.</summary>
     public async Task CloseAsync(LiveSession session, string reason)
     {
-        if (session.Closed) return;
-        session.CloseReason = reason;
-        session.Closed = true;
-        session.Add("exit", null, null, "session closed (" + reason + ")");
+        if (!session.AddClose(reason)) return;
         session.Deadline?.Dispose();
         session.ExitCheck?.Dispose();
         await CloseChildrenAsync(session).ConfigureAwait(false);

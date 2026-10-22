@@ -812,6 +812,23 @@ public sealed class LiveSessionTests : IDisposable
         Assert.Contains("exited: process-terminated, exit code 1", await tools.LiveEvents("live-1", kind: "exit"));
     }
 
+    [Fact]
+    public async Task Two_closes_at_once_record_one_close_event()
+    {
+        for (int round = 0; round < 50; round++)
+        {
+            var backend = new ScriptedLiveBackend(Sqlite, Base, 0x200000);
+            using var service = new LiveSessionService(_workspace, new NativeCodeService(_workspace, SharedCodeIndex.Options())) { Backend = backend };
+            await new LiveSessionTools(new ServerOptions { AllowLive = true, AllowLiveAttach = true }, service).LiveSession("attach", program: "4242");
+            var session = service.Get("live-1");
+            // Both closes are released together, so both can pass the closed check.
+            using var together = new Barrier(2);
+            var closes = Enumerable.Range(0, 2).Select(_ => Task.Run(() => { together.SignalAndWait(); return service.CloseAsync(session, "request"); })).ToArray();
+            await Task.WhenAll(closes).WaitAsync(TimeSpan.FromSeconds(10));
+            Assert.Single(session.Page(0, "exit", null, 10).Events, e => e.Text.StartsWith("session closed", StringComparison.Ordinal));
+        }
+    }
+
     // The live offload job of run 39825043627 read no exit event after the state said exited.
     [Fact]
     public async Task A_session_that_reads_exited_has_its_exit_event_recorded()
