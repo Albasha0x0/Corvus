@@ -98,6 +98,18 @@ public class WorkerConnectionTests
     }
 
     [Fact]
+    public async Task A_stall_report_that_read_nothing_says_the_worker_state_is_unknown()
+    {
+        foreach (var (answer, shown) in new[] { (WorkerConnection.StateUnknown + "jcmd Thread.print failed", "jcmd Thread.print failed"), ((string?)null, "the report read nothing") })
+        {
+            using var worker = new FakeWorkerProcess();
+            using var c = worker.Connect(Concurrent with { CancelGrace = TimeSpan.FromMilliseconds(200), StallReport = _ => answer });
+            var e = await Assert.ThrowsAsync<ToolError>(() => c.RequestAsync("stubborn", null, TimeSpan.FromMilliseconds(200), default));
+            Assert.Contains("\nworker state unknown: " + shown, e.Message);
+        }
+    }
+
+    [Fact]
     public void A_thread_dump_summary_keeps_the_heap_line_and_running_Ghidra_threads()
     {
         const string threads = """

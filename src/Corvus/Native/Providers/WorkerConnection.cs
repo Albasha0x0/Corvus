@@ -152,13 +152,30 @@ public sealed class WorkerConnection : IDisposable
         return (stage != null ? $" Last stage: {stage}." : "") + $" Last worker message: {Seconds(quiet)} ago.";
     }
 
-    /// <summary>The stall report of the running worker as a message suffix, or empty.</summary>
+    /// <summary>Starts a stall report that read nothing of the worker; the reason follows.</summary>
+    internal const string StateUnknown = "unknown: ";
+
+    /// <summary>
+    /// The stall report of the running worker as a message suffix; "worker state unknown" with the reason when the
+    /// report read nothing, so a stall is never reported silently; empty without a report.
+    /// </summary>
     private string Stall()
     {
         if (_options.StallReport is not { } report || _process.HasExited) return "";
-        try { return report(_process.Id) is { Length: > 0 } text ? "\nworker state:\n" + text : ""; }
+        try
+        {
+            return report(_process.Id) switch
+            {
+                null or "" => "\nworker state unknown: the report read nothing",
+                var text when text.StartsWith(StateUnknown, StringComparison.Ordinal) => "\nworker state unknown: " + text[StateUnknown.Length..],
+                var text => "\nworker state:\n" + text,
+            };
+        }
         // A report is best effort: the timeout error stands without it.
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException or System.ComponentModel.Win32Exception) { return ""; }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException or System.ComponentModel.Win32Exception)
+        {
+            return "\nworker state unknown: " + ex.Message;
+        }
     }
 
     /// <summary>The next step after an engine request of <paramref name="op"/> ran out of time: the open's limit for opens, else the request's.</summary>

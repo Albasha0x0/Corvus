@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using Corvus.Native.Providers;
 using Corvus.Native.Providers.Ghidra;
 
 namespace Corvus.Tests;
@@ -21,7 +22,7 @@ public sealed class JavaThreadDumpTests
         {
             // jcmd attaches once the JVM has started; the source launcher compiles first.
             string? report = null;
-            for (var clock = Stopwatch.StartNew(); report == null && clock.Elapsed < TimeSpan.FromSeconds(60); Thread.Sleep(1000))
+            for (var clock = Stopwatch.StartNew(); (report == null || report.StartsWith(WorkerConnection.StateUnknown, StringComparison.Ordinal)) && clock.Elapsed < TimeSpan.FromSeconds(60); Thread.Sleep(1000))
                 report = JavaThreadDump.Report(java.Java, jvm.Id, dir.File("stalls"));
             Assert.NotNull(report);
             Assert.StartsWith("heap: ", report);

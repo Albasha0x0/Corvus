@@ -19,14 +19,14 @@ internal static partial class JavaThreadDump
     /// <summary>
     /// Saves the thread dump and heap summary of process <paramref name="pid"/> under <see cref="FolderVariable"/>, else
     /// <paramref name="folder"/>, and returns the heap line, the busiest Ghidra threads, why jcmd failed when it did, and
-    /// the file; null when the JDK has neither jcmd nor jhsdb.
+    /// the file; starts with <see cref="WorkerConnection.StateUnknown"/> and the reason when neither tool read the threads.
     /// </summary>
     public static string? Report(string java, int pid, string folder)
     {
         var bin = Path.GetDirectoryName(java) ?? "";
         var jcmd = Path.Combine(bin, OperatingSystem.IsWindows() ? "jcmd.exe" : "jcmd");
         var jhsdb = Path.Combine(bin, OperatingSystem.IsWindows() ? "jhsdb.exe" : "jhsdb");
-        if (!File.Exists(jcmd) && !File.Exists(jhsdb)) return null;
+        if (!File.Exists(jcmd) && !File.Exists(jhsdb)) return WorkerConnection.StateUnknown + $"the JDK in {bin} has neither jcmd nor jhsdb";
         var notes = new List<string>();
         var threads = File.Exists(jcmd) ? Run(jcmd, [pid.ToString(CultureInfo.InvariantCulture), "Thread.print"], Limit, "jcmd Thread.print", notes) : null;
         var heap = threads != null ? Run(jcmd, [pid.ToString(CultureInfo.InvariantCulture), "GC.heap_info"], Limit, "jcmd GC.heap_info", notes) ?? "" : "";
@@ -44,7 +44,8 @@ internal static partial class JavaThreadDump
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { file = null; }
         var summary = threads != null ? Summary(threads, heap) : "";
-        return string.Join('\n', new[] { summary, note, file != null ? $"full dump: {file}" : "" }.Where(t => t.Length > 0));
+        var text = string.Join('\n', new[] { summary, note, file != null ? $"full dump: {file}" : "" }.Where(t => t.Length > 0));
+        return threads == null ? WorkerConnection.StateUnknown + text : text;
     }
 
     /// <summary>The heap line and up to three running or blocked threads with a Ghidra frame, eight frames each.</summary>
