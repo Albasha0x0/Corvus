@@ -22,6 +22,8 @@ public sealed record WorkerConnectionOptions
     /// it was doing (a thread dump summary), or null. Added to the timeout error.
     /// </summary>
     public Func<int, string?>? StallReport { get; init; }
+    /// <summary>The setting a memory-limit hit names in its error.</summary>
+    public string MemoryLimitVariable { get; init; } = EngineMemoryLimit.Variable;
 }
 
 /// <summary>A request the worker is running: its op, when it was sent, and the last progress the worker reported for it.</summary>
@@ -90,6 +92,9 @@ public sealed class WorkerConnection : IDisposable
         new(process, name, remediation ?? ((_, _) => null), options ?? new WorkerConnectionOptions());
 
     public int ProcessId => _process.Id;
+
+    /// <summary>The memory limit in bytes when the worker's tree reached it, else null (also when the system cannot tell).</summary>
+    public long? MemoryLimitReached => _process.MemoryLimitReached();
 
     /// <summary>False once the process exited, its output closed or <see cref="Kill"/> was called.</summary>
     public bool IsAlive
@@ -299,7 +304,7 @@ public sealed class WorkerConnection : IDisposable
         var exit = _process.ExitCode is { } c ? $" with code {c} (0x{c:X8})" : "";
         var what = reason != null ? $"{_name} was stopped ({reason})" : $"{_name} exited{exit}";
         if (_process.MemoryLimitReached() is { } limit)
-            what += $" after reaching its memory limit of {limit >> 20} MB ({EngineMemoryLimit.Variable})";
+            what += $" after reaching its memory limit of {limit >> 20} MB ({_options.MemoryLimitVariable})";
         var message = $"{what} while handling '{op}'.{StderrSuffix()}";
         return new ToolError(ErrorCode.ProviderUnavailable, message, _remediation(ErrorCode.ProviderUnavailable, message));
     }

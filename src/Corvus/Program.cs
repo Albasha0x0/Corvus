@@ -4,6 +4,7 @@ using Corvus;
 using Corvus.Core;
 using Corvus.Mcp;
 
+if (Corvus.Native.Providers.Worker.WorkerHost.TryRun(args) is { } workerExitCode) return workerExitCode;
 if (Corvus.Native.Providers.DataFolder.MigratesOnStart(args)) Corvus.Native.Providers.DataFolder.MigrateDefault(Console.Error);
 if (Corvus.Relay.RelayCli.TryRun(args) is { } relayExitCode) return relayExitCode;
 if (Corvus.Setup.ToolCli.TryRun(args) is { } toolExitCode) return toolExitCode;

@@ -14,6 +14,11 @@ public sealed record ChildProcessStart(string FileName, IReadOnlyList<string> Ar
     public IReadOnlyDictionary<string, string?> Environment { get; init; } = new Dictionary<string, string?>();
     /// <summary>Most committed memory of the whole tree in bytes (Windows: the job's limit; allocations past it fail); null: none.</summary>
     public long? MemoryLimitBytes { get; init; }
+    /// <summary>
+    /// Also applies <see cref="MemoryLimitBytes"/> outside Windows: RLIMIT_DATA on Linux (allocations past it fail), a
+    /// watchdog on the physical footprint on macOS (the tree is ended). Off: no limit there, as for engine workers.
+    /// </summary>
+    public bool MemoryLimitOnPosix { get; init; }
 }
 
 /// <summary>
@@ -99,12 +104,43 @@ internal sealed class PosixGroupProcess : ChildProcess
     private bool _disposed, _disposedExited;
     private int? _disposedExitCode;
 
-    private PosixGroupProcess(Process process)
+    private readonly long? _footprintLimit;
+    private volatile bool _limitHit;
+
+    private PosixGroupProcess(Process process, long? footprintLimit)
     {
         _process = process;
         _exited = process.WaitForExitAsync();
         _workerId = ReadWorkerId(process.StandardOutput.BaseStream) ?? process.Id;
+        _footprintLimit = footprintLimit;
+        // macOS does not enforce RLIMIT_DATA or RLIMIT_AS, so the footprint is
+        // read on a thread of its own: a starved pool would read it late.
+        if (footprintLimit is { } limit)
+            new Thread(() => WatchFootprint(limit)) { IsBackground = true, Name = "child footprint " + _workerId }.Start();
     }
+
+    /// <summary>Ends the tree once the worker's physical footprint (what macOS itself limits a process by) passes <paramref name="limit"/>.</summary>
+    private void WatchFootprint(long limit)
+    {
+        // rusage_info_v2: a 16-byte uuid, then 64-bit fields; ri_phys_footprint is the eighth.
+        const int footprintOffset = 72;
+        var info = new byte[256];
+        while (!_exited.Wait(100))
+        {
+            // Without the call the managed heap limit the caller sets still holds.
+            try { if (ProcPidRusage(_workerId, 2, info) != 0) continue; }
+            catch (Exception ex) when (ex is DllNotFoundException or EntryPointNotFoundException) { return; }
+            if (BitConverter.ToInt64(info, footprintOffset) <= limit) continue;
+            _limitHit = true;
+            Kill();
+            return;
+        }
+    }
+
+    [DllImport("libc", EntryPoint = "proc_pid_rusage")]
+    private static extern int ProcPidRusage(int pid, int flavor, byte[] buffer);
+
+    public override long? MemoryLimitReached() => _limitHit ? _footprintLimit : null;
 
     /// <summary>
     /// Runs "$@" with this shell as its parent, so its id is not reused while the watcher looks at it. setsid makes the child
@@ -112,12 +148,13 @@ internal sealed class PosixGroupProcess : ChildProcess
     /// only, as dash turns job control off without a controlling terminal. Its first output line is its id, written before it execs. Background
     /// jobs of a non-interactive shell read /dev/null, hence stdin through fd 3; the shell's own stderr (job notices) is
     /// dropped, the child's goes through fd 4. The watcher kills the child's group and the child once process $1 is gone.
+    /// A non-empty CORVUS_CHILD_DATA_KB becomes the child's RLIMIT_DATA, and is not passed on.
     /// </summary>
     internal const string WatchScript = """
         w=$1; shift
         exec 3<&0 4>&2
         if command -v setsid >/dev/null 2>&1; then g=setsid; else g=; set -m 2>/dev/null; fi
-        $g /bin/sh -c 'echo "$$"; exec "$@"' corvus-worker "$@" 0<&3 2>&4 3<&- 4>&- &
+        $g /bin/sh -c 'echo "$$"; if [ -n "$CORVUS_CHILD_DATA_KB" ]; then ulimit -d "$CORVUS_CHILD_DATA_KB" || exit 126; fi; unset CORVUS_CHILD_DATA_KB; exec "$@"' corvus-worker "$@" 0<&3 2>&4 3<&- 4>&- &
         c=$!
         set +m
         exec 3<&- 4>&- 2>/dev/null
@@ -164,7 +201,10 @@ internal sealed class PosixGroupProcess : ChildProcess
             if (v == null) psi.Environment.Remove(k);
             else psi.Environment[k] = v;
         }
-        return new PosixGroupProcess(Process.Start(psi) ?? throw new Win32Exception("process did not start"));
+        long? limit = start.MemoryLimitOnPosix && start.MemoryLimitBytes is > 0 ? start.MemoryLimitBytes : null;
+        if (limit is { } bytes && OperatingSystem.IsLinux())
+            psi.Environment["CORVUS_CHILD_DATA_KB"] = (bytes >> 10).ToString(System.Globalization.CultureInfo.InvariantCulture);
+        return new PosixGroupProcess(Process.Start(psi) ?? throw new Win32Exception("process did not start"), OperatingSystem.IsMacOS() ? limit : null);
     }
 
     /// <summary>The executable's full path, searched as Process.Start does; a missing one throws here as it would without the shell.</summary>

@@ -226,6 +226,17 @@ The server goes online only when a call or command asks for it: [SECURITY.md](..
 | `CORVUS_RESULT_MODE` | text | `json`: a structured result's text block is its compact JSON. |
 | `CORVUS_MAX_LEFTOVER_CALLS` | 2 | Cancelled or timed-out calls that may still run; past it, a new call waits, then is refused as busy. |
 
+### Worker processes
+
+Untrusted work runs in `corvus worker` child processes, so a crash or memory exhaustion ends the worker and the call reports it, while the server keeps answering. No tool uses them yet.
+
+| Variable | Default | Effect |
+|---|---|---|
+| `CORVUS_WORKER_HOST` | off | `1`: start worker processes for untrusted work. |
+| `CORVUS_WORKER_MEMORY_MB` | ½ of available | Memory limit of each worker (Windows job object, Linux RLIMIT_DATA, macOS footprint watchdog), at least 256; `0`: none. A worker that reaches it fails its call with `limit_exceeded` and is replaced. |
+| `CORVUS_WORKER_FIXTURE_OPS` | off | `1` in a worker's environment: it also answers the fixture ops the tests use. |
+| `CORVUS_CHILD_DATA_KB` | — | Set by Corvus for a Linux child it caps; becomes the child's RLIMIT_DATA and is not passed on. |
+
 ### Install and update
 
 | Variable | Effect |
