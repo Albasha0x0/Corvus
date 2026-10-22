@@ -11,6 +11,12 @@ public static class Purl
     /// <summary>pkg:cargo/name@version.</summary>
     public static string Cargo(string name, string version) => $"pkg:cargo/{Encode(name)}@{Encode(version)}";
 
+    /// <summary>pkg:pypi/name@version: the name lower case with each run of '-', '_' and '.' made one '-' (PEP 503).</summary>
+    public static string PyPI(string name, string version) => $"pkg:pypi/{Encode(PyPIName(name))}@{Encode(version)}";
+
+    /// <summary>A distribution name normalized as PEP 503 compares names.</summary>
+    public static string PyPIName(string name) => System.Text.RegularExpressions.Regex.Replace(name.Trim(), "[-_.]+", "-").ToLowerInvariant();
+
     /// <summary>pkg:golang/namespace/name@version: the module path's segments are the namespace and name; stdlib takes the bare toolchain version.</summary>
     public static string Golang(string modulePath, string version) =>
         $"pkg:golang/{string.Join('/', modulePath.Split('/', StringSplitOptions.RemoveEmptyEntries).Select(Encode))}@{Encode(version)}";

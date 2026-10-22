@@ -1,4 +1,5 @@
 using System.ComponentModel;
+using System.Text.Json.Serialization;
 using Corvus.Core;
 using Corvus.Core.Python;
 using Corvus.Native.Providers;
@@ -15,7 +16,11 @@ internal sealed class PythonFileView : IFileSummaryView
 {
     public sealed record Facts(string Freezer, string? PythonVersion, string? VersionSource, IReadOnlyList<string> EntryScripts, int Modules, int Packages,
         int Encrypted, IReadOnlyList<string> NativeModules, IReadOnlyList<string> Runtime, int DataFiles, bool CompiledCode, IReadOnlyList<string> ModuleNames,
-        IReadOnlyList<string> Notes);
+        IReadOnlyList<string> Notes)
+    {
+        /// <summary>The program as its freezer's reader found it, for the dependencies view.</summary>
+        [JsonIgnore] public FrozenApp? App { get; init; }
+    }
 
     public sealed record Bytecode(string PythonVersion, int Magic, string Filename, int CodeObjects,
         [property: Description("Qualified names of the functions, classes and comprehensions, to 200.")] IReadOnlyList<string> Functions,
@@ -51,7 +56,7 @@ internal sealed class PythonFileView : IFileSummaryView
         var facts = new Facts(app.Freezer, app.Version is { } v ? PyVersion.Label(v) : null, app.VersionSource, app.EntryScripts,
             app.Entries.Count(e => Is(e.Role, FrozenApp.Module)), app.Entries.Count(e => Is(e.Role, FrozenApp.Package)), app.Count(FrozenApp.Encrypted),
             Paths(r => Is(r, FrozenApp.Native)), Paths(r => Is(r, FrozenApp.Runtime)), app.Entries.Count(e => e.Role == FrozenApp.Data), app.Compiled,
-            [.. modules.Take(MaxListed)], notes);
+            [.. modules.Take(MaxListed)], notes) { App = app };
         var highlights = new List<string> { app.Headline() };
         if (app.Compiled) highlights.Add("The program's own Python code was compiled to native code (Nuitka): read it with the native tools.");
         if (facts.Encrypted > 0) highlights.Add($"{facts.Encrypted:N0} modules are encrypted (PyInstaller --key).");

@@ -248,20 +248,68 @@ public static class FrozenPython
             var path = fileName.Replace('\\', '/');
             var role = i == 0 ? "main binary (compiled program)" : FrozenApp.BinaryRole(path);
             if (PyVersion.FromLibraryName(path) is { } lib) Version(app, lib, Path.GetFileName(path), replace: true); // the runtime outranks the paths in the main binary
-            bool keep = size <= limits.MaxItemBytes && total + size <= limits.MaxTotalBytes && (i == 0 || allFiles || Containers.IsInteresting(path));
+            // The dependencies view reads names and versions from the metadata and the runtime, so both are kept.
+            bool metadata = FrozenApp.IsPackageMetadata(path) && size <= MaxMetadata || role == FrozenApp.Runtime;
+            bool keep = size <= limits.MaxItemBytes && total + size <= limits.MaxTotalBytes && (i == 0 || allFiles || Containers.IsInteresting(path) || metadata);
             byte[]? bytes = keep ? UpTo(input, size) : null;
             if (!keep) Skip(input, size);
             if (i == 0 && bytes != null)
             {
-                foreach (Match m in PythonPath.Matches(Encoding.Latin1.GetString(bytes)))
+                var text = Encoding.Latin1.GetString(bytes);
+                foreach (Match m in PythonPath.Matches(text))
                     versions[(m.Groups[1].Value[0] - '0', int.Parse(m.Groups[2].Value))] = versions.GetValueOrDefault((m.Groups[1].Value[0] - '0', int.Parse(m.Groups[2].Value))) + 1;
                 if (app.Version == null && versions.Count > 0) Version(app, versions.MaxBy(kv => kv.Value).Key, "the main binary's library paths");
+                NuitkaModules(app, text);
                 if (!(allFiles || Containers.IsInteresting(path))) bytes = null;
             }
             if (bytes != null) total += bytes.Length;
             var kept = bytes;
             app.Entries.Add(new FrozenEntry(path, size, role, kept == null ? null : () => kept));
         }
+    }
+
+    /// <summary>A distribution's metadata file is kept up to this size.</summary>
+    private const int MaxMetadata = 1 << 20;
+
+    // Nuitka's constants blob is a chain of sections, one per compiled module: its name, a zero byte, the data's
+    // length (4 bytes, little-endian), then the data, which ends with '.' and holds the string "<module NAME>"; a
+    // module-level "__version__ = '1.2'" keeps the value just before the name.
+    private static readonly Regex NuitkaModule = new(@"u<module ([A-Za-z_][\w.]{0,200})>\x00", RegexOptions.CultureInvariant);
+    private static readonly Regex NuitkaVersion = new(@"u(\d{1,9}(?:\.\d{1,9}){0,5}(?:[-_.]?(?:a|b|rc|c|post|dev)\d{0,9}){0,3}(?:\+[A-Za-z0-9.]{1,64})?)\x00a__version__\x00",
+        RegexOptions.CultureInvariant);
+    /// <summary>A section's header is looked for this many times, and this many bytes before the marker at most.</summary>
+    private const int MaxSectionLookups = 64, MaxSectionBytes = 16 << 20;
+
+    /// <summary>The modules a Nuitka binary's constants name, with the __version__ string in each one's own section.</summary>
+    private static void NuitkaModules(FrozenApp app, string binary)
+    {
+        foreach (Match m in NuitkaModule.Matches(binary))
+        {
+            var name = m.Groups[1].Value;
+            if (app.CompiledModules.Any(c => c.Module == name)) continue;
+            string? version = null;
+            if (NuitkaSection(binary, name, m.Index) is var (start, length))
+                version = NuitkaVersion.Match(binary, start, length) is { Success: true } v ? v.Groups[1].Value : null;
+            app.CompiledModules.Add((name, version));
+        }
+    }
+
+    /// <summary>The data of the constants section named <paramref name="name"/> that holds <paramref name="marker"/>, or null.</summary>
+    private static (int Start, int Length)? NuitkaSection(string binary, string name, int marker)
+    {
+        var key = name + "\0";
+        int floor = Math.Max(0, marker - MaxSectionBytes);
+        for (int at = marker, i = 0; i < MaxSectionLookups && at > floor; i++)
+        {
+            int header = binary.LastIndexOf(key, at - 1, at - floor, StringComparison.Ordinal);
+            if (header < 0) return null;
+            at = header;
+            int data = header + key.Length + 4;
+            if (header > 0 && binary[header - 1] is not ('\0' or '.') || data > binary.Length) continue;
+            long length = binary[data - 4] | (long)binary[data - 3] << 8 | (long)binary[data - 2] << 16 | (long)binary[data - 1] << 24;
+            if (length > 0 && data + length <= binary.Length && binary[data + (int)length - 1] == '.' && marker < data + length) return (data, (int)length);
+        }
+        return null;
     }
 
     private static readonly Regex PythonPath = new(@"python([23])\.(\d{1,2})(?=[/\\\x00])", RegexOptions.CultureInvariant);
@@ -337,6 +385,7 @@ public static class FrozenPython
         app.Notes.Add("Nuitka compiled the program's modules to native code in this executable: there is no bytecode to read; disassemble or decompile_native reads the code.");
         var versions = PythonPath.Matches(Encoding.Latin1.GetString(data)).GroupBy(m => (m.Groups[1].Value[0] - '0', int.Parse(m.Groups[2].Value))).MaxBy(g => g.Count());
         if (versions != null) Version(app, versions.Key, "the executable's library paths");
+        NuitkaModules(app, Encoding.Latin1.GetString(data));
         Beside(app, location);
         return app;
     }
@@ -414,8 +463,8 @@ public static class FrozenPython
     }
 
     /// <summary>
-    /// The runtime library and native modules beside the executable, and the .pyc modules under its lib folder, listed as
-    /// files on disk (not extracted: they are already files).
+    /// The runtime library, native modules and distribution metadata beside the executable, and the .pyc modules under its
+    /// lib folder, listed as files on disk (not extracted: they are already files).
     /// </summary>
     private static FrozenApp Beside(FrozenApp app, string? location)
     {
@@ -438,7 +487,8 @@ public static class FrozenPython
             var relative = Path.GetRelativePath(dir, file).Replace('\\', '/');
             if (listed.Contains(relative)) continue;
             var role = PyVersion.FromLibraryName(relative) != null ? FrozenApp.Runtime : FrozenApp.BinaryRole(relative) == FrozenApp.Native ? FrozenApp.Native
-                : FrozenApp.ModuleOf(relative) is { } m && relative.StartsWith("lib/", StringComparison.Ordinal) ? m.Package ? FrozenApp.Package : FrozenApp.Module : null;
+                : FrozenApp.ModuleOf(relative) is { } m && relative.StartsWith("lib/", StringComparison.Ordinal) ? m.Package ? FrozenApp.Package : FrozenApp.Module
+                : FrozenApp.IsPackageMetadata(relative) ? FrozenApp.Data : null;
             if (role == null) continue;
             if (role == FrozenApp.Runtime && PyVersion.FromLibraryName(relative) is { } v) Version(app, v, relative.Split('/')[^1], replace: app.VersionSource is null or "PYTHONSCRIPT code layout");
             long size = 0;

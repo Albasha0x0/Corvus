@@ -45,6 +45,23 @@ public static class PyDisassembler
         return found;
     }
 
+    /// <summary>
+    /// The module-level names <paramref name="code"/> binds to a string constant (LOAD_CONST, then STORE_NAME), first
+    /// binding kept; empty when the version's opcodes are unknown.
+    /// </summary>
+    public static Dictionary<string, string> ModuleStrings(PyCode code, (int Major, int Minor) version)
+    {
+        var found = new Dictionary<string, string>(StringComparer.Ordinal);
+        if (PyOpcodes.For(version) is not { } table) return found;
+        int load = table.Op("LOAD_CONST"), store = table.Op("STORE_NAME");
+        var ops = Unpack(code.Code, table);
+        for (int i = 0; i + 1 < ops.Count; i++)
+            if (ops[i].Op == load && ops[i + 1].Op == store && ops[i].Arg is { } c && c >= 0 && c < code.Consts.Length && code.Consts[c] is string or PyBytes
+                && ops[i + 1].Arg is { } n && n >= 0 && n < code.Names.Length && PyMarshal.Str(code.Names[n]) is { Length: > 0 } name)
+                found.TryAdd(name, PyMarshal.Str(code.Consts[c]));
+        return found;
+    }
+
     private static bool Recursive(StringBuilder sb, PyCode code, PyOpcodes table, int maxChars, CancellationToken ct)
     {
         ct.ThrowIfCancellationRequested();

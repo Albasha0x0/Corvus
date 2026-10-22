@@ -35,7 +35,8 @@ public sealed record DependencyEdge(string From, IReadOnlyList<string> To);
 
 /// <summary>
 /// view=dependencies: the components a file ships (NuGet packages from deps.json or assembly metadata, the .NET runtime,
-/// Go modules, Rust crates) with their package URLs and evidence, the edges between them, and what was read.
+/// Go modules, Rust crates, Python packages and the interpreter) with their package URLs and evidence, the edges between
+/// them, and what was read.
 /// </summary>
 public sealed record DependencyFacts(DependencyComponent? Subject, int ComponentTotal, int WithPurl, IReadOnlyList<DependencyComponent> Components,
     int EdgeTotal, IReadOnlyList<string> Sources, IReadOnlyList<string> Notes)
@@ -49,8 +50,8 @@ public sealed record DependencyFacts(DependencyComponent? Subject, int Component
     public DependencyAdvisories? Advisories { get; init; }
 }
 
-/// <summary>Builds a file's <see cref="DependencyFacts"/> from what summarize_file already unpacked and the native image's build records.</summary>
-internal static class DependencyInventory
+/// <summary>Builds a file's <see cref="DependencyFacts"/> from what summarize_file already unpacked, the native image's build records and the python view.</summary>
+internal static partial class DependencyInventory
 {
     public const int MaxListed = 500;
     private const double Manifest = 1.0, InformationalVersion = 0.7, AssemblyVersionOnly = 0.5, SourcePath = 0.8;
@@ -90,6 +91,7 @@ internal static class DependencyInventory
         foreach (var deps in manifests) FromDepsJson(b, deps, input.Path, assemblies, claimed);
         FromAssemblies(b, input.Path, assemblies.Where(a => !claimed.Contains(a)).ToList(), ct);
         if (views.ContainsKey("go") || views.ContainsKey("rust")) FromNative(b, input, views);
+        if (views.GetValueOrDefault("python")?.Detail is PythonFileView.Facts { App: { } python }) FromPython(b, python, input.Path, ct);
         // Reading Il2Cpp metadata takes seconds on a large game, so it waits until the view is asked for.
         if (input.Options.Wants("dependencies")) FromIl2Cpp(b, input.Path, ct);
         if (b.Components.Count == 0) return null;

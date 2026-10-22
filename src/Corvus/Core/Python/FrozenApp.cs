@@ -24,6 +24,11 @@ public sealed class FrozenApp(string freezer, string kind)
     public List<string> Notes { get; } = [];
     /// <summary>True when the program's own code was compiled to native code (Nuitka): no bytecode to read.</summary>
     public bool Compiled { get; set; }
+    /// <summary>
+    /// Modules compiled into a Nuitka binary, named by its constants, with the string bound to __version__ in each (null:
+    /// none read).
+    /// </summary>
+    public List<(string Module, string? Version)> CompiledModules { get; } = [];
 
     public int Count(params string[] roles) => Entries.Count(e => roles.Contains(e.Role));
 
@@ -77,6 +82,20 @@ public sealed class FrozenApp(string freezer, string kind)
         if (lower.EndsWith(".pyd", StringComparison.Ordinal) || lower.Contains(".cpython-", StringComparison.Ordinal) || lower.Contains(".abi3.", StringComparison.Ordinal)
             || (lower.EndsWith(".so", StringComparison.Ordinal) && !lower.StartsWith("lib", StringComparison.Ordinal))) return Native;
         return System.IO.Path.GetExtension(lower) is ".dll" or ".so" or ".dylib" or ".exe" || lower.Contains(".so.", StringComparison.Ordinal) || !lower.Contains('.') ? "binary" : Data;
+    }
+
+    /// <summary>Whether <paramref name="path"/> is a distribution's metadata: a .dist-info METADATA or .egg-info PKG-INFO, its top_level.txt, or an .egg-info file.</summary>
+    public static bool IsPackageMetadata(string path)
+    {
+        var parts = path.Replace('\\', '/').Split('/');
+        var folder = parts.Length > 1 ? parts[^2] : "";
+        return parts[^1] switch
+        {
+            "METADATA" => folder.EndsWith(".dist-info", StringComparison.OrdinalIgnoreCase),
+            "PKG-INFO" => folder.EndsWith(".egg-info", StringComparison.OrdinalIgnoreCase),
+            "top_level.txt" => folder.EndsWith(".dist-info", StringComparison.OrdinalIgnoreCase) || folder.EndsWith(".egg-info", StringComparison.OrdinalIgnoreCase),
+            var file => file.EndsWith(".egg-info", StringComparison.OrdinalIgnoreCase),
+        };
     }
 
     /// <summary>The module name of a .pyc path in a library: "a/b/__init__.pyc" is package a.b, "a/b.pyc" module a.b.</summary>
