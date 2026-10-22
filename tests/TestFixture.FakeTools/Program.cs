@@ -13,6 +13,19 @@ var script = Environment.GetEnvironmentVariable("ADB_FAKE_SCRIPT") is { Length: 
     : new JsonObject();
 var log = script["log"]?.GetValue<string>();
 if (log != null) File.AppendAllText(log, JsonSerializer.Serialize(args) + "\n");
+// A barrier ("barriers": { "<joined arguments>": { "touch": file, "waitFor": file } }) shows two calls overlap: each marks
+// its start, then waits up to 20 s for the other's mark.
+if (script["barriers"]?[string.Join(' ', args)] is JsonObject barrier)
+{
+    File.WriteAllText(barrier["touch"]!.GetValue<string>(), "");
+    var other = barrier["waitFor"]!.GetValue<string>();
+    for (var waited = System.Diagnostics.Stopwatch.StartNew(); !File.Exists(other); Thread.Sleep(20))
+        if (waited.Elapsed > TimeSpan.FromSeconds(20))
+        {
+            Console.Error.WriteLine("fake tool: the other call did not start");
+            return 1;
+        }
+}
 
 if (args is ["-version"])
 {

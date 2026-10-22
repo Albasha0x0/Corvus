@@ -135,4 +135,22 @@ public class ExternalToolsTests
         Assert.Contains("CORVUS_JAVA_DECOMPILER", jadx.Remediation);
         Assert.DoesNotContain(capabilities, c => c.Name.Contains("oracle", StringComparison.Ordinal));
     }
+
+    [Fact]
+    public void A_status_probes_the_external_tools_side_by_side()
+    {
+        using var fake = new FakeTool();
+        // Each version check waits for the other to start: probed one after another, the first gives up after 20 s.
+        fake.On("--version", stdout: "TShark (Wireshark) 4.6.9 (v4.6.9-0)\n");
+        fake.Set("barriers", new System.Text.Json.Nodes.JsonObject
+        {
+            ["version"] = new System.Text.Json.Nodes.JsonObject { ["touch"] = Path.Combine(fake.Directory, "adb.started"), ["waitFor"] = Path.Combine(fake.Directory, "tshark.started") },
+            ["--version"] = new System.Text.Json.Nodes.JsonObject { ["touch"] = Path.Combine(fake.Directory, "tshark.started"), ["waitFor"] = Path.Combine(fake.Directory, "adb.started") },
+        });
+        using var env = new EnvironmentScope().Set("CORVUS_ADB", fake.CopyAs("adb")).Set("CORVUS_TSHARK", fake.CopyAs("tshark"))
+            .Set(FakeTool.ScriptVariable, fake.ScriptPath);
+        var capabilities = Corvus.Tools.SessionTools.ExternalToolCapabilities().ToList();
+        Assert.Contains("version 1.0.41", capabilities.Single(c => c.Name.StartsWith("Android Debug Bridge", StringComparison.Ordinal)).Detail);
+        Assert.Contains("version 4.6.9", capabilities.Single(c => c.Name.StartsWith("TShark", StringComparison.Ordinal)).Detail);
+    }
 }

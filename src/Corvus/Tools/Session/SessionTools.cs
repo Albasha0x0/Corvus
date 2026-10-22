@@ -100,10 +100,14 @@ public sealed class SessionTools(AssemblyWorkspace workspace, IndexingService in
                 : new("reference pack download", true, "on demand, for an uninstalled target framework", null),
         ];
         capabilities.Add(new("native PE analysis", true, "built in", null));
+        // The engines are checked beside the external programs, each check in parallel (see ExternalToolCapabilities).
+        var external = Task.Run(() => ExternalToolCapabilities().ToList());
+        var providers = engines?.Providers ?? [];
+        var checks = providers.Select(provider => Task.Run(provider.CheckAvailability)).ToList();
         var availability = new List<Native.Providers.ProviderAvailability>();
-        foreach (var provider in engines?.Providers ?? [])
+        foreach (var (provider, check) in providers.Zip(checks))
         {
-            var a = provider.CheckAvailability();
+            var a = check.GetAwaiter().GetResult();
             availability.Add(a);
             capabilities.Add(new($"native decompilation ({provider.DisplayName})", a.IsAvailable,
                 a.IsAvailable ? string.Join(", ", a.Details.Select(d => $"{d.Key} {d.Value}")) : a.Reason ?? "unavailable", a.Remediation));
@@ -123,7 +127,7 @@ public sealed class SessionTools(AssemblyWorkspace workspace, IndexingService in
                 EngineMode.Ghidra => "default ghidra: Ghidra's analysis, started or waited for",
                 _ => "default auto: the first engine (IDA, then Ghidra) with an analysis of the image, else the built-in index",
             } + $"; set by --engine (or {ServerOptions.EngineVariable}), per call by engine=", null));
-        capabilities.AddRange(ExternalToolCapabilities());
+        capabilities.AddRange(external.GetAwaiter().GetResult());
         if (options.AllowLive)
             capabilities.Add(options.LiveAllow.Count > 0
                 ? new("programs sessions may open", true, "limited to: " + string.Join(", ", options.LiveAllow), null)
@@ -156,11 +160,13 @@ public sealed class SessionTools(AssemblyWorkspace workspace, IndexingService in
     }
 
     /// <summary>One capability per external program the server runs (test oracles left out), probed once per file.</summary>
-    internal static IEnumerable<Capability> ExternalToolCapabilities() =>
-        Native.Providers.ExternalTools.Table.Where(t => !t.TestOracle).Select(Native.Providers.ExternalTools.Probe).Select(p =>
-            new Capability($"{p.Name}: {p.Purpose}", p.Usable,
-                p.Usable ? Found(p) : p.Problem!,
-                p.Usable ? null : p.Remediation));
+    internal static IEnumerable<Capability> ExternalToolCapabilities()
+    {
+        var tools = Native.Providers.ExternalTools.Table.Where(t => !t.TestOracle).ToList();
+        // Side by side: each probe may start a program, so a first status waits for the slowest, not for their sum.
+        var probes = tools.AsParallel().AsOrdered().WithDegreeOfParallelism(tools.Count).Select(Native.Providers.ExternalTools.Probe).ToList();
+        return probes.Select(p => new Capability($"{p.Name}: {p.Purpose}", p.Usable, p.Usable ? Found(p) : p.Problem!, p.Usable ? null : p.Remediation));
+    }
 
     // A path the user set in the tool's variable is theirs already; a searched one is named.
     private static string Found(Native.Providers.ExternalToolProbe p) =>
