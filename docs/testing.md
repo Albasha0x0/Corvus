@@ -89,9 +89,12 @@
   <unit>)`. Gating runs only record the line. The perf run (`./test.ps1 -Perf`, nightly after a full run: `CORVUS_PERF=1`,
   filter `Perf=Timing`, one test at a time) enforces the budgets. It runs alone on the machine: it holds the heavy lock
   and every test permit. A test over its budget runs up to 4 more times and counts as over only when most of the 5
-  samples are. The run fails only on a test that was also over in the perf run before (`.git/corvus-perf-verdicts.json`),
-  so a single slow run is reported but does not fail the run; `-Status` shows the last verdict. Medians are compared with
-  `tests/Corvus.Tests/Ratchets/perf-baseline.txt`, one baseline per name and OS; a new measurement name needs a line there.
+  samples are. Each measurement is also compared with `tests/Corvus.Tests/Ratchets/perf-baseline.txt`, one baseline per
+  name and OS (a new measurement name needs a line there): a value past 1.5 times its baseline (below a rate's baseline
+  divided by 1.5) runs its tests 4 more times, and the measurement regresses when the median of each sample's worst
+  value is past it. The run fails only on a test over budget or a regressed measurement that was also so in the perf
+  run before (`.git/corvus-perf-verdicts.json`), so a single slow run is reported but does not fail the run; `-Status`
+  shows the last verdict. The baselines start at the budgets and change only by a commit that tightens them.
 - **Nightly run.** `./nightly.ps1 -Register [-At 02:00]` adds a Windows scheduled task for the current user (opt-in;
   `-Unregister` removes it). Each night, once the machine has been idle for 10 minutes, it starts a full run of HEAD in
   the background worktree (`-Strength`, whole by default, which holds the heavy lock), waits for it and any run queued

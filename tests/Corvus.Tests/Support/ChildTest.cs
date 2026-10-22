@@ -55,10 +55,18 @@ public static class ChildTest
         return true;
     }
 
-    /// <summary>The child's entry point: runs the test method the arguments name; exit code 0 when it passes.</summary>
+    /// <summary>
+    /// The assembly's entry point: runs the test method the arguments name in a child (exit code 0 when it passes), or the
+    /// perf run's baseline comparison (<see cref="PerfRegressions.Main"/>).
+    /// </summary>
     public static int Main(string[] args)
     {
-        int code = args is [Flag, var typeName, var methodName, .. var rest] ? Run(typeName, methodName, rest) : 2;
+        int code = args switch
+        {
+            [Flag, var typeName, var methodName, .. var rest] => Run(typeName, methodName, rest),
+            [PerfRegressions.Flag, .. var trxPaths] => PerfRegressions.Main(trxPaths),
+            _ => 2,
+        };
         // Exit now: a foreground thread the test started must not keep the child running.
         Environment.Exit(code);
         return code;

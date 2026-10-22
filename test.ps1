@@ -144,8 +144,10 @@ function Save-RunTimes([string]$trx, [string]$mode, [int]$code, [hashtable]$extr
 # The perf run: the speed measurements ([Trait("Perf", "Timing")]) with their budgets enforced (CORVUS_PERF=1), one
 # test at a time, alone on the machine. It holds the heavy lock and every permit, so no other test process runs heavy
 # work beside it, and its own tests take no permit (CORVUS_PERMITS_HELD). A test over budget runs up to 4 more times
-# and counts as over only when most of its 5 samples are; the run fails only on a test that was also over in the perf
-# run before (.git/corvus-perf-verdicts.json), so one slow run is reported, and a second in a row fails.
+# and counts as over only when most of its 5 samples are. A measurement whose value is past 1.5 times its baseline in
+# Ratchets/perf-baseline.txt has its tests run 4 more times, and regresses when the median of each sample's worst value
+# is (PerfRegressions). The run fails only on a test over budget or a regressed measurement that was also so in the
+# perf run before (.git/corvus-perf-verdicts.json), so one slow run is reported, and a second in a row fails.
 $perfVerdicts = Join-Path $gitDir 'corvus-perf-verdicts.json'
 if ($Perf) {
     Import-Module (Join-Path $root 'test-reuse.psm1') -Force
@@ -170,6 +172,8 @@ if ($Perf) {
         $failed = @(if (Test-Path $trx) { Get-FailedTests $trx })
         if ($code -ne 0 -and -not $failed) { Write-Host "The perf run failed (exit $code) with no failed test to sample again." -ForegroundColor Red; exit $code }
         $sample = 1
+        $samples = [Collections.Generic.List[string]]::new()
+        if (Test-Path $trx) { $samples.Add($trx) }
         $over = @(Get-PerfOverBudget $failed {
             param($pending)
             $script:sample++
@@ -178,13 +182,26 @@ if ($Perf) {
                 --logger 'trx;LogFileName=sample.trx' --results-directory $out @serial | Out-Host
             $sampleTrx = Join-Path $out 'sample.trx'
             # A sample that wrote no results counts as over budget for every test in it.
-            if (Test-Path $sampleTrx) { Get-FailedTests $sampleTrx } else { $pending }
+            if (Test-Path $sampleTrx) { $samples.Add($sampleTrx); Get-FailedTests $sampleTrx } else { $pending }
         })
-        $confirmed = @(Update-PerfVerdicts $perfVerdicts $over (git -C $root rev-parse --short HEAD).Trim())
-        $once = @($over | Where-Object { $_ -notin $confirmed })
+        # The baseline comparison runs in the test assembly, which reads the baselines the way the tests do.
+        $assembly = Get-ChildItem (Join-Path $tests 'bin') -Recurse -Filter 'Corvus.Tests.dll' | Sort-Object LastWriteTime -Descending | Select-Object -First 1
+        function Get-Regressions { if ($samples.Count) { & dotnet exec $assembly.FullName --perf-regressions @samples } }
+        $candidates = @(Get-Regressions | Where-Object { $_ -like "test`t*" } | ForEach-Object { ($_ -split "`t")[1] })
+        for ($extra = 2; $extra -le 5 -and $candidates; $extra++) {
+            $out = Join-Path $results "baseline-$extra"
+            & dotnet test $tests --nologo --no-build --filter (($candidates | ForEach-Object { "FullyQualifiedName~$_" }) -join '|') `
+                --logger 'trx;LogFileName=sample.trx' --results-directory $out @serial | Out-Host
+            if (Test-Path (Join-Path $out 'sample.trx')) { $samples.Add((Join-Path $out 'sample.trx')) }
+        }
+        $regressed = @(Get-Regressions | Where-Object { $_ -like "regressed`t*" } | ForEach-Object { $f = $_ -split "`t"; [pscustomobject]@{ Name = $f[1]; Text = $f[2] } })
+        foreach ($r in $regressed) { Write-Host "Past 1.5 times its baseline: $($r.Text)." -ForegroundColor Yellow }
+        $flagged = @($over) + @($regressed | ForEach-Object { "baseline:$($_.Name)" })
+        $confirmed = @(Update-PerfVerdicts $perfVerdicts $flagged (git -C $root rev-parse --short HEAD).Trim())
+        $once = @($flagged | Where-Object { $_ -notin $confirmed })
         if ($failed -and -not $over) { Write-Host "Over budget once, within it in most of 5 samples: $($failed -join ', ')." -ForegroundColor Yellow }
-        if ($once) { Write-Host "Over budget in most of 5 samples for the first run in a row (the next perf run confirms or clears it): $($once -join ', ')." -ForegroundColor Yellow }
-        if ($confirmed) { Write-Host "Over budget in two perf runs in a row: $($confirmed -join ', ')." -ForegroundColor Red; exit 1 }
+        if ($once) { Write-Host "Over budget or past the baseline for the first run in a row (the next perf run confirms or clears it): $($once -join ', ')." -ForegroundColor Yellow }
+        if ($confirmed) { Write-Host "Over budget or past the baseline in two perf runs in a row: $($confirmed -join ', ')." -ForegroundColor Red; exit 1 }
         Write-Host 'Perf run: no regression confirmed.'
         exit 0
     }

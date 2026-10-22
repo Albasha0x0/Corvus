@@ -47,6 +47,9 @@ internal static class PerfBudget
         if (Enforced) Assert.True(within, line);
     }
 
+    /// <summary>The baseline of <paramref name="name"/> for this OS in Ratchets/perf-baseline.txt; null when it has none.</summary>
+    public static (double Value, string Unit)? Baseline(string name) => Baselines.Value.TryGetValue((name, Os), out var b) ? b : null;
+
     private static string Os => OperatingSystem.IsWindows() ? "windows" : OperatingSystem.IsMacOS() ? "macos" : "linux";
 
     /// <summary>Ratchets/perf-baseline.txt by name and OS; PerfBaselineTests checks its form and that every name has a line.</summary>
