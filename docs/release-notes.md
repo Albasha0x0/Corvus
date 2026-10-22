@@ -245,8 +245,8 @@
   the edits they wrote. [14d22758](https://github.com/Albasha0x0/Corvus/commit/14d22758)
 - **Comparisons:** `compare_folders noDiffs=true`; `diff_function` compares a kept result with a loaded image.
   [1545f272](https://github.com/Albasha0x0/Corvus/commit/1545f272) [942166ea](https://github.com/Albasha0x0/Corvus/commit/942166ea)
-- **Catalog:** shorter tool and parameter descriptions: model-facing catalog 151,871 bytes, tools/list 308,686, lean
-  37,369, core 88,559. [be75e4c1](https://github.com/Albasha0x0/Corvus/commit/be75e4c1) [7513ca65](https://github.com/Albasha0x0/Corvus/commit/7513ca65)
+- **Catalog:** shorter tool and parameter descriptions: model-facing catalog 151,871 bytes, tools/list 308,482, lean
+  37,369, core 88,559. [be75e4c1](https://github.com/Albasha0x0/Corvus/commit/be75e4c1) [7513ca65](https://github.com/Albasha0x0/Corvus/commit/7513ca65) [a5939cda](https://github.com/Albasha0x0/Corvus/commit/a5939cda)
 - **Batch scans:** `corvus batch --file <path> --json` runs a fixed set of read-only steps (`summarize_file`, the
   container listing when the file is one, strings of a .NET assembly) and prints one `corvus.batch/1` document with the
   file's hashes, the limits used and a status per section (complete, partial with the limit reached, not_applicable,
@@ -305,6 +305,9 @@
   CET stubs are left out before any point is set, with the instructions named. Verified with Frida 17.24.3 on Windows
   11 x64.
   [0b3428ab](https://github.com/Albasha0x0/Corvus/commit/0b3428ab) [178ab701](https://github.com/Albasha0x0/Corvus/commit/178ab701) [b8f374e0](https://github.com/Albasha0x0/Corvus/commit/b8f374e0)
+- **Managed coverage runs:** a run that never read the program's runtime (the program ended first, or every 32-bit
+  decoder read failed) reports the methods it did not see run as unknown, marked `?`, instead of not run; the summary
+  has an `unread` field. Verified on Windows 11 x64. [dc2d3ba4](https://github.com/Albasha0x0/Corvus/commit/dc2d3ba4)
 - **IDA opens:** a fatal IDA error that ends the worker is named in the error, and an open that loses IDA's registry race
   ("Fatal registry error") starts a new worker, at most twice, a workaround with no upstream report yet.
   Verified on IDA 9.3. [c91989fb](https://github.com/Albasha0x0/Corvus/commit/c91989fb) [aba393c4](https://github.com/Albasha0x0/Corvus/commit/aba393c4)
@@ -348,8 +351,9 @@
   [c27ce974](https://github.com/Albasha0x0/Corvus/commit/c27ce974) [7b40138b](https://github.com/Albasha0x0/Corvus/commit/7b40138b)
 - **Path arguments:** every path parameter is checked before the tool runs, so a path the host rejects (a control
   character, a reserved character on Windows, a name over 255 characters) is `invalid_argument` naming the parameter,
-  and file errors are classified by type rather than by stack frames, which a Release build can inline away.
-  [7da411d0](https://github.com/Albasha0x0/Corvus/commit/7da411d0)
+  and file errors are classified by type rather than by stack frames, which a Release build can inline away; every
+  check names a malformed path the same way, with one hint and without echoing the path.
+  [7da411d0](https://github.com/Albasha0x0/Corvus/commit/7da411d0) [23e36665](https://github.com/Albasha0x0/Corvus/commit/23e36665)
 - **inspect_process:** process 0, by id or by the name Idle, is refused as the System Idle Process, and `live_session`
   neither lists it nor attaches to it. [4760f864](https://github.com/Albasha0x0/Corvus/commit/4760f864)
 - **unload_assembly:** closes an open dump id. [cdd47b37](https://github.com/Albasha0x0/Corvus/commit/cdd47b37)
@@ -389,6 +393,9 @@
 - **Stops on 32-bit Linux:** a stop reports the stop point's own address as its first frame and as pc and eip, so a
   stop in a child session (where the parent's agent stays loaded) no longer names an address no module covers. Verified
   on Ubuntu 24.04 (glibc 2.39) with Frida 17.24.3. [91daec47](https://github.com/Albasha0x0/Corvus/commit/91daec47)
+- **Session opens on Linux:** the agent reads thread ids from `/proc` and scans it for thread ends instead of a Frida
+  helper process inside the program, so a session open no longer hangs under load. A workaround for
+  frida/frida-gum#1196. Verified on Ubuntu 24.04 x64 and x86 with Frida 17.24.3. [e7c1a1b5](https://github.com/Albasha0x0/Corvus/commit/e7c1a1b5)
 - **Session timeouts:** a call Frida gave up waiting on (its 25 s D-Bus limit, reported as `TransportError: timeout was
   reached`) is a retryable `timeout` whose Next line says to call again, not `failed`; a program the session started is
   still ended. Verified with Frida 17.24.3 on Windows 11 x64. [ae992e95](https://github.com/Albasha0x0/Corvus/commit/ae992e95)
@@ -425,8 +432,9 @@
   unavailableTools is not repeated. [f6085507](https://github.com/Albasha0x0/Corvus/commit/f6085507)
 - **server_status wait:** status waits at most 5 s for the engine and external program checks; a version check still
   running reports the program usable with its version unknown, an engine check still running keeps the engine's tools
-  listed, and the next call reads the finished result. Verified on Windows 11 x64, including a contract sweep
-  limited to two cores. [2efbd420](https://github.com/Albasha0x0/Corvus/commit/2efbd420)
+  listed, and the next call reads the finished result; a cache folder's first count runs on a thread of its own, so a
+  small folder answers within its 2 s wait on a busy machine. Verified on Windows 11 x64, including a contract sweep
+  limited to two cores. [2efbd420](https://github.com/Albasha0x0/Corvus/commit/2efbd420) [91f7a047](https://github.com/Albasha0x0/Corvus/commit/91f7a047)
 
 ## 2.4.0
 
