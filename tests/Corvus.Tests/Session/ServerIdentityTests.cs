@@ -36,6 +36,15 @@ public class ServerIdentityTests
         Assert.True(File.Exists(ServerIdentity.Executable), ServerIdentity.Executable);
     }
 
+#if DEBUG
+    [Fact]
+    public void A_debug_build_names_no_commit_so_a_new_commit_alone_rebuilds_nothing()
+    {
+        Assert.Null(ServerIdentity.Commit);
+        Assert.DoesNotContain('+', ServerIdentity.InformationalVersion);
+    }
+#endif
+
     [Fact]
     public void SamePathNormalizesAndFollowsLinks()
     {
