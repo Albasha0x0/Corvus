@@ -1,3 +1,4 @@
+using Corvus.Native.Providers.Ida;
 using ModelContextProtocol.Protocol;
 
 namespace Corvus.Tests;
@@ -161,7 +162,9 @@ public sealed class RawImageEngineTests(Xunit.Abstractions.ITestOutputHelper out
         var functions = await Call(server, "list_functions", new() { ["image"] = "prog.exe[dos-mz@0x0]", ["engine"] = "ghidra" });
         Assert.False(functions.IsError, functions.Text);
         Assert.Contains("1 function", functions.Text);
-        Assert.Contains("engine=ghidra", (await Call(server, "list_functions", new() { ["image"] = "prog.exe[dos-mz@0x0]", ["engine"] = "ida" })).Text);
+        // IDA's refusal names Ghidra only where IDA is installed; elsewhere it says IDA is unavailable.
+        if (IdaInstallation.Locate(null, out _, out _) != null)
+            Assert.Contains("engine=ghidra", (await Call(server, "list_functions", new() { ["image"] = "prog.exe[dos-mz@0x0]", ["engine"] = "ida" })).Text);
     }
 
     private async Task Engine(string engine)
