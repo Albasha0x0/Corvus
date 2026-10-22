@@ -348,8 +348,7 @@ public sealed class LiveCoverageTests : IDisposable
         Assert.Equal((counted + LiveSessionService.SetBatch - 1) / LiveSessionService.SetBatch, Count("set_many"));
     }
 
-    /// <summary>A run of every function sets a stop point per function, one request each: thousands of them.</summary>
-    [Trait("Speed", "Slow")]
+    /// <summary>A run of every function sets a stop point per function, in batches: thousands of them.</summary>
     [Fact]
     public async Task A_run_of_every_function_is_too_large_to_draw()
     {
@@ -357,6 +356,7 @@ public sealed class LiveCoverageTests : IDisposable
         await _tools.LiveCoverage("live-1", "start");
         var all = _service.GetCoverage("cov-1").Placed.Count;
         Assert.True(all > 200, $"{all} functions");
+        Assert.Equal((all + LiveSessionService.SetBatch - 1) / LiveSessionService.SetBatch, Count("set_many"));
         var dot = await Assert.ThrowsAsync<ToolError>(() => _tools.LiveCoverage(action: "report", run: "cov-1", show: "all", format: "dot"));
         Assert.Equal(ErrorCode.LimitExceeded, dot.Code);
         Assert.Contains("match=", dot.Remediation);
