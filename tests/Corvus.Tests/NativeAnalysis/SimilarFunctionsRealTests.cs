@@ -81,9 +81,13 @@ public partial class SimilarFunctionsRealTests(ITestOutputHelper output)
         var times = new List<double>();
         foreach (var q in sample)
         {
+            long decodes = o.Prints.Decodes;
             var sw = Stopwatch.StartNew();
-            var hits = SimilarFunctions.Similar(o.Prints, q, [o.Prints], 0.5, MinInstructions, 200, default, out _);
+            var hits = SimilarFunctions.Similar(o.Prints, q, [o.Prints], 0.5, MinInstructions, 200, default, out int compared);
             times.Add(sw.Elapsed.TotalMilliseconds);
+            // Sketches rank every function; only the query and at most 200 candidates are decoded for exact scores.
+            Assert.InRange(o.Prints.Decodes - decodes, 1, 201);
+            Assert.True(compared > 10 * 201, $"{compared} functions compared");
             var family = families[familyOf[q]];
             if (hits.Count > 0 && family.Contains(hits[0].Index)) top1++;
             if (hits.Take(5).Any(h => family.Contains(h.Index))) top5++;
@@ -158,9 +162,12 @@ public partial class SimilarFunctionsRealTests(ITestOutputHelper output)
         var times = new List<double>();
         foreach (var q in eligible.Where((_, k) => k % Math.Max(1, eligible.Count / 50) == 0))
         {
+            long decodes = prints.Decodes;
             var qsw = Stopwatch.StartNew();
-            SimilarFunctions.Similar(prints, q, [prints], 0.5, 5, 200, default, out _);
+            SimilarFunctions.Similar(prints, q, [prints], 0.5, 5, 200, default, out int compared);
             times.Add(qsw.Elapsed.TotalMilliseconds);
+            Assert.InRange(prints.Decodes - decodes, 1, 201);
+            Assert.True(compared > 10 * 201, $"{compared} functions compared");
         }
         sw.Restart();
         var duplicates = SimilarFunctions.Duplicates(prints, 5, default);

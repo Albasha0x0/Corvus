@@ -60,6 +60,13 @@ public sealed class ImagePrints
 
     public FunctionPrint? At(uint start) => ByStart.TryGetValue(start, out var i) ? Functions[i] : null;
 
+    private long _decodes;
+
+    /// <summary>Functions of this image decoded again for exact similarity scores; the sketches need no decode.</summary>
+    internal long Decodes => Interlocked.Read(ref _decodes);
+
+    internal void CountDecode() => Interlocked.Increment(ref _decodes);
+
     /// <summary>The prints of <paramref name="index"/>, computed on first use (in parallel, cancellable).</summary>
     public static ImagePrints Of(NativeCodeIndex index, CancellationToken ct, IProgress<int>? progress = null)
     {

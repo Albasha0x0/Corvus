@@ -196,6 +196,7 @@ public static class SimilarFunctions
         try
         {
             decoder ??= new MaskedDecoder(image.Index.Image, image.Index);
+            image.CountDecode();
             return CodeSketch.Shingles(FunctionCode.Instructions(image.Index, decoder, p.Function, ct, out _));
         }
         catch (Exception ex) when (ex is not OperationCanceledException) { return []; }
