@@ -28,6 +28,7 @@ public sealed class FridaFactAttribute : FactAttribute
 /// </summary>
 [Trait("Speed", "Slow")]
 [Trait("Data", "Real")]
+[Permit("live")]
 public sealed class LiveFridaRealTests(ITestOutputHelper output) : IDisposable
 {
     private const string Source = """

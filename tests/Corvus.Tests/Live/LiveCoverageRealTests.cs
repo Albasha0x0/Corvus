@@ -10,6 +10,7 @@ namespace Corvus.Tests;
 /// <summary>Code coverage through Frida on a program built here: two inputs, the functions only each one ran, drawn on the static call graph.</summary>
 [Trait("Speed", "Slow")]
 [Trait("Data", "Real")]
+[Permit("live")]
 public sealed class LiveCoverageRealTests(ITestOutputHelper output) : IDisposable
 {
     private const string Source = """

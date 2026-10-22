@@ -8,6 +8,7 @@ namespace Corvus.Tests;
 /// <summary>An activity trace through event tracing of a program built here: the file it writes and the registry value it reads, by name.</summary>
 [Trait("Speed", "Slow")]
 [Trait("Data", "Real")]
+[Permit("live")]
 public sealed class LiveTimelineRealTests(ITestOutputHelper output) : IDisposable
 {
     private const string Source = """
