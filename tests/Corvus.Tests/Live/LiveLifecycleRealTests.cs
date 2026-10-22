@@ -47,11 +47,11 @@ public sealed class LiveLifecycleRealTests(ITestOutputHelper output) : LiveToolC
 
     // ---- a return from main while watched calls are still queued to be sent
 
-    [LiveTargetFact("win-x64")] public Task Exit_with_calls_queued_on_win_x64() => ExitWithCallsQueued(LiveTarget.WinX64);
-    [LiveTargetFact("win-x86")] public Task Exit_with_calls_queued_on_win_x86() => ExitWithCallsQueued(LiveTarget.WinX86);
-    [LiveTargetFact("win-arm64")] public Task Exit_with_calls_queued_on_win_arm64() => ExitWithCallsQueued(LiveTarget.WinArm64);
-    [LiveTargetFact("linux-x64")] public Task Exit_with_calls_queued_on_linux_x64() => ExitWithCallsQueued(LiveTarget.LinuxX64);
-    [LiveTargetFact("osx-arm64")] public Task Exit_with_calls_queued_on_osx_arm64() => ExitWithCallsQueued(LiveTarget.MacArm64);
+    [LiveTargetFact("win-x64")] [Trait(PerfBudget.Trait, PerfBudget.Timing)] public Task Exit_with_calls_queued_on_win_x64() => ExitWithCallsQueued(LiveTarget.WinX64);
+    [LiveTargetFact("win-x86")] [Trait(PerfBudget.Trait, PerfBudget.Timing)] public Task Exit_with_calls_queued_on_win_x86() => ExitWithCallsQueued(LiveTarget.WinX86);
+    [LiveTargetFact("win-arm64")] [Trait(PerfBudget.Trait, PerfBudget.Timing)] public Task Exit_with_calls_queued_on_win_arm64() => ExitWithCallsQueued(LiveTarget.WinArm64);
+    [LiveTargetFact("linux-x64")] [Trait(PerfBudget.Trait, PerfBudget.Timing)] public Task Exit_with_calls_queued_on_linux_x64() => ExitWithCallsQueued(LiveTarget.LinuxX64);
+    [LiveTargetFact("osx-arm64")] [Trait(PerfBudget.Trait, PerfBudget.Timing)] public Task Exit_with_calls_queued_on_osx_arm64() => ExitWithCallsQueued(LiveTarget.MacArm64);
 
     private async Task ExitWithCallsQueued(LiveTarget target)
     {
@@ -67,7 +67,7 @@ public sealed class LiveLifecycleRealTests(ITestOutputHelper output) : LiveToolC
             var sw = Stopwatch.StartNew();
             var ended = await Ok(server, "live_break", new() { ["session"] = session, ["action"] = "continue", ["wait"] = true, ["waitSeconds"] = 120 });
             Output.WriteLine($"run {run}: the wait returned {sw.ElapsedMilliseconds} ms after the start");
-            Assert.True(sw.Elapsed < TimeSpan.FromSeconds(60), $"the wait took {sw.Elapsed}");
+            PerfBudget.Check(sw.Elapsed < TimeSpan.FromSeconds(60), $"the wait took {sw.Elapsed}", Output);
             Assert.Contains("the program ended before a stop", ended);
             Assert.Matches(@"exit code 5(?![0-9xX])", await UntilExited(server, session, seconds: 30));
             Assert.Equal(calls, await Watched(server, session));
@@ -153,11 +153,11 @@ public sealed class LiveLifecycleRealTests(ITestOutputHelper output) : LiveToolC
 
     // ---- termination from outside, with a wait outstanding
 
-    [LiveTargetFact("win-x64")] public Task Terminated_on_win_x64() => Terminated(LiveTarget.WinX64);
-    [LiveTargetFact("win-x86")] public Task Terminated_on_win_x86() => Terminated(LiveTarget.WinX86);
-    [LiveTargetFact("win-arm64")] public Task Terminated_on_win_arm64() => Terminated(LiveTarget.WinArm64);
-    [LiveTargetFact("linux-x64")] public Task Terminated_on_linux_x64() => Terminated(LiveTarget.LinuxX64);
-    [LiveTargetFact("osx-arm64")] public Task Terminated_on_osx_arm64() => Terminated(LiveTarget.MacArm64);
+    [LiveTargetFact("win-x64")] [Trait(PerfBudget.Trait, PerfBudget.Timing)] public Task Terminated_on_win_x64() => Terminated(LiveTarget.WinX64);
+    [LiveTargetFact("win-x86")] [Trait(PerfBudget.Trait, PerfBudget.Timing)] public Task Terminated_on_win_x86() => Terminated(LiveTarget.WinX86);
+    [LiveTargetFact("win-arm64")] [Trait(PerfBudget.Trait, PerfBudget.Timing)] public Task Terminated_on_win_arm64() => Terminated(LiveTarget.WinArm64);
+    [LiveTargetFact("linux-x64")] [Trait(PerfBudget.Trait, PerfBudget.Timing)] public Task Terminated_on_linux_x64() => Terminated(LiveTarget.LinuxX64);
+    [LiveTargetFact("osx-arm64")] [Trait(PerfBudget.Trait, PerfBudget.Timing)] public Task Terminated_on_osx_arm64() => Terminated(LiveTarget.MacArm64);
 
     private async Task Terminated(LiveTarget target)
     {
@@ -177,7 +177,7 @@ public sealed class LiveLifecycleRealTests(ITestOutputHelper output) : LiveToolC
             var (ended, failed) = await wait;
             Output.WriteLine($"run {run}: the wait returned {sw.ElapsedMilliseconds} ms after the kill");
             Assert.False(failed, ended);
-            Assert.True(sw.Elapsed < TimeSpan.FromSeconds(15), $"the wait returned {sw.Elapsed} after the kill");
+            PerfBudget.Check(sw.Elapsed < TimeSpan.FromSeconds(15), $"the wait returned {sw.Elapsed} after the kill", Output);
             Assert.Contains("the program ended before a stop", ended);
             var exited = await UntilExited(server, session, seconds: 30);
             if (target.Windows) Assert.Contains("exit code 0xFFFFFFFF", exited);
@@ -187,11 +187,11 @@ public sealed class LiveLifecycleRealTests(ITestOutputHelper output) : LiveToolC
 
     // ---- a close at the start of the exit of a program the session attached to: the program finishes its exit by itself
 
-    [LiveTargetFact("win-x64")] public Task Close_during_exit_on_win_x64() => CloseDuringExit(LiveTarget.WinX64);
-    [LiveTargetFact("win-x86")] public Task Close_during_exit_on_win_x86() => CloseDuringExit(LiveTarget.WinX86);
-    [LiveTargetFact("win-arm64")] public Task Close_during_exit_on_win_arm64() => CloseDuringExit(LiveTarget.WinArm64);
-    [LiveTargetFact("linux-x64")] public Task Close_during_exit_on_linux_x64() => CloseDuringExit(LiveTarget.LinuxX64);
-    [LiveTargetFact("osx-arm64")] public Task Close_during_exit_on_osx_arm64() => CloseDuringExit(LiveTarget.MacArm64);
+    [LiveTargetFact("win-x64")] [Trait(PerfBudget.Trait, PerfBudget.Timing)] public Task Close_during_exit_on_win_x64() => CloseDuringExit(LiveTarget.WinX64);
+    [LiveTargetFact("win-x86")] [Trait(PerfBudget.Trait, PerfBudget.Timing)] public Task Close_during_exit_on_win_x86() => CloseDuringExit(LiveTarget.WinX86);
+    [LiveTargetFact("win-arm64")] [Trait(PerfBudget.Trait, PerfBudget.Timing)] public Task Close_during_exit_on_win_arm64() => CloseDuringExit(LiveTarget.WinArm64);
+    [LiveTargetFact("linux-x64")] [Trait(PerfBudget.Trait, PerfBudget.Timing)] public Task Close_during_exit_on_linux_x64() => CloseDuringExit(LiveTarget.LinuxX64);
+    [LiveTargetFact("osx-arm64")] [Trait(PerfBudget.Trait, PerfBudget.Timing)] public Task Close_during_exit_on_osx_arm64() => CloseDuringExit(LiveTarget.MacArm64);
 
     private async Task CloseDuringExit(LiveTarget target)
     {
@@ -218,7 +218,7 @@ public sealed class LiveLifecycleRealTests(ITestOutputHelper output) : LiveToolC
                 Assert.True(program.WaitForExit(20_000), $"run {run}: the program did not finish its exit after the close");
                 Output.WriteLine($"run {run}: close {closeMs} ms, program ended {sw.ElapsedMilliseconds} ms after the close began");
                 var closeTime = MachineLoad.Check(TimeSpan.FromMilliseconds(closeMs), TimeSpan.FromSeconds(15), load);
-                Assert.True(closeTime.Within, $"close took {closeTime.Note}");
+                PerfBudget.Check(closeTime.Within, $"close took {closeTime.Note}", Output);
                 Assert.Equal(5, program.ExitCode);
                 Assert.Contains("lines 50", program.StandardOutput.ReadToEnd());
                 var s = server.Services.GetRequiredService<LiveSessionService>().Get(session);
@@ -235,12 +235,12 @@ public sealed class LiveLifecycleRealTests(ITestOutputHelper output) : LiveToolC
 
     // ---- an exit held in a module's shutdown is ended after 10 s with the exit code the program chose (Windows)
 
-    [LiveTargetFact("win-x64")] public Task Stuck_exit_of_a_started_program_on_win_x64() => StuckExit(LiveTarget.WinX64, attach: false);
-    [LiveTargetFact("win-x86")] public Task Stuck_exit_of_a_started_program_on_win_x86() => StuckExit(LiveTarget.WinX86, attach: false);
-    [LiveTargetFact("win-arm64")] public Task Stuck_exit_of_a_started_program_on_win_arm64() => StuckExit(LiveTarget.WinArm64, attach: false);
-    [LiveTargetFact("win-x64")] public Task Stuck_exit_of_an_attached_program_on_win_x64() => StuckExit(LiveTarget.WinX64, attach: true);
-    [LiveTargetFact("win-x86")] public Task Stuck_exit_of_an_attached_program_on_win_x86() => StuckExit(LiveTarget.WinX86, attach: true);
-    [LiveTargetFact("win-arm64")] public Task Stuck_exit_of_an_attached_program_on_win_arm64() => StuckExit(LiveTarget.WinArm64, attach: true);
+    [LiveTargetFact("win-x64")] [Trait(PerfBudget.Trait, PerfBudget.Timing)] public Task Stuck_exit_of_a_started_program_on_win_x64() => StuckExit(LiveTarget.WinX64, attach: false);
+    [LiveTargetFact("win-x86")] [Trait(PerfBudget.Trait, PerfBudget.Timing)] public Task Stuck_exit_of_a_started_program_on_win_x86() => StuckExit(LiveTarget.WinX86, attach: false);
+    [LiveTargetFact("win-arm64")] [Trait(PerfBudget.Trait, PerfBudget.Timing)] public Task Stuck_exit_of_a_started_program_on_win_arm64() => StuckExit(LiveTarget.WinArm64, attach: false);
+    [LiveTargetFact("win-x64")] [Trait(PerfBudget.Trait, PerfBudget.Timing)] public Task Stuck_exit_of_an_attached_program_on_win_x64() => StuckExit(LiveTarget.WinX64, attach: true);
+    [LiveTargetFact("win-x86")] [Trait(PerfBudget.Trait, PerfBudget.Timing)] public Task Stuck_exit_of_an_attached_program_on_win_x86() => StuckExit(LiveTarget.WinX86, attach: true);
+    [LiveTargetFact("win-arm64")] [Trait(PerfBudget.Trait, PerfBudget.Timing)] public Task Stuck_exit_of_an_attached_program_on_win_arm64() => StuckExit(LiveTarget.WinArm64, attach: true);
 
     private async Task StuckExit(LiveTarget target, bool attach)
     {
@@ -283,7 +283,8 @@ public sealed class LiveLifecycleRealTests(ITestOutputHelper output) : LiveToolC
                     Assert.Contains("called ExitProcess(7) but its exit did not finish in 10 s", await Events(server, session, kind: "error"));
                     Ended(pid);
                 }
-                Assert.InRange(sw.Elapsed.TotalSeconds, 9.5, 40);
+                Assert.True(sw.Elapsed.TotalSeconds >= 9.5, $"exited {sw.Elapsed} after the start");
+                PerfBudget.Check(sw.Elapsed.TotalSeconds <= 40, $"exited {sw.Elapsed} after the start", Output);
                 foreach (var (session, pid, _) in sessions) await CloseReleased(server, session, pid);
             }
             finally
