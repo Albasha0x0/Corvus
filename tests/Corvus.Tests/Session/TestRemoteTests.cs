@@ -149,6 +149,8 @@ public sealed class TestRemoteTests : IDisposable
             'total=' + ([xml](Get-Content {{Quote(local)}} -Raw)).TestRun.ResultSummary.Counters.total
             Save-RemoteRecord {{Quote(_dir.Path)}} ([ordered]@{ target = 'github'; commit = 'abc'; at = 'now'; classes = 3; state = 'FAILED (exit 1)'; seconds = 12.5; note = $null })
             'status=' + (Get-RemoteStatus {{Quote(_dir.Path)}})
+            Save-RemoteRecord {{Quote(_dir.Path)}} ([ordered]@{ target = 'github'; commit = 'def'; at = 'now'; classes = 3; state = 'running'; seconds = $null; note = $null })
+            'running=' + (Get-RemoteStatus {{Quote(_dir.Path)}})
             """);
         if (lines is ["skip"]) return;
         // ToolSweepTests skipped a test there that ran here last time; LocalSkipTests skips here too; EarlyTests took 1 s
@@ -159,6 +161,7 @@ public sealed class TestRemoteTests : IDisposable
         Assert.Contains("classes=FormatSweepTests,LocalSkipTests,PlainTests,RoundTripTests", lines);
         Assert.Contains("total=4", lines);
         Assert.Contains("status=github: FAILED (exit 1) on abc at now (3 classes, 12.5 s)", lines);
+        Assert.Contains("running=github: running (results joined when the local tests end) on def at now (3 classes)", lines);
     }
 
     [Fact]

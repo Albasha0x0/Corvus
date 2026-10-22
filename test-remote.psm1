@@ -260,7 +260,9 @@ function Save-RemoteRecord([string]$gitDir, [System.Collections.IDictionary]$rec
 function Get-RemoteStatus([string]$gitDir) {
     Get-ChildItem (Join-Path $gitDir $script:RecordFolder) -Filter *.json -ErrorAction SilentlyContinue | Sort-Object Name | ForEach-Object {
         $r = Get-Content $_.FullName -Raw | ConvertFrom-Json
-        "$($r.target): $($r.state) on $($r.commit) at $($r.at) ($($r.classes) classes$(if ($null -ne $r.seconds) { ", $($r.seconds) s" }))$(if ($r.note) { "; $($r.note)" })"
+        # The run reads the offloaded results only after its own tests end, so "running" covers both halves.
+        $state = if ($r.state -eq 'running') { 'running (results joined when the local tests end)' } else { $r.state }
+        "$($r.target): $state on $($r.commit) at $($r.at) ($($r.classes) classes$(if ($null -ne $r.seconds) { ", $($r.seconds) s" }))$(if ($r.note) { "; $($r.note)" })"
     }
 }
 
