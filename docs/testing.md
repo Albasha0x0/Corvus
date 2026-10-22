@@ -87,7 +87,10 @@
   authorized keys; its engine and live permits are its own. With `CORVUS_TEST_REMOTE` naming such a host (`user@host`)
   and the host answering over ssh, a whole-suite run sends its offloaded classes there instead of waiting for GitHub:
   one `dotnet test` run, one at a time, at below-normal priority in a worktree of the host's clone, with the TRX results
-  copied back by scp and joined as above.
+  copied back by scp and joined as above. Run a filter repeatedly on the host:
+  `./test.ps1 -Remote -Filter <filter> -Repeat <n>` sends the working tree as it is (uncommitted changes included, as a
+  git bundle; nothing is pushed), builds it there once and runs the filter `n` times, printing each run's exit code and
+  copying the TRX files of failed runs to `TestResults/remote`.
 - **Run times.** Every run but a coverage run records its test times from its TRX results in
   `.git/corvus-test-history.jsonl` (the last 30 runs of each mode: commit gate, push, full, perf and filtered runs; a
   test that passed in under a second is kept in its class's total) and rewrites `.git/corvus-time-report.md`: each

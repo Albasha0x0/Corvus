@@ -290,11 +290,12 @@ function Get-OffloadTarget([string]$repo, [bool]$releaseTier) {
 function Start-Offload($target, [string]$commit, [string[]]$classes, [bool]$releaseTier, [string]$module) {
     switch ($target.Kind) {
         'ssh' {
-            $script = Get-RemoteRunScript $commit (Get-ClassFilter $classes $releaseTier)
-            Start-ThreadJob -ArgumentList $module, $target.Host, $script -ScriptBlock {
-                param($module, $remoteHost, $script)
+            $id = [guid]::NewGuid().ToString('N').Substring(0, 12)
+            $script = Get-RemoteRunScript $commit (Get-ClassFilter $classes $releaseTier) $id
+            Start-ThreadJob -ArgumentList $module, $target.Host, $script, $id -ScriptBlock {
+                param($module, $remoteHost, $script, $id)
                 Import-Module $module
-                Invoke-RemoteRun $remoteHost $script
+                Invoke-RemoteRun $remoteHost $script $id
             }
         }
         'github' {
@@ -329,53 +330,128 @@ function Test-RemoteHost([string]$remoteHost) {
     $LASTEXITCODE -eq 0
 }
 
-# The script a test host runs: wait for $commit on origin, check it out in the host's worktree and run $filter there
-# at below-normal priority, one run at a time. Its output names the start ("corvus-remote: started") and the end
-# ("corvus-remote-exit <code>"); a run that never starts names why.
-function Get-RemoteRunScript([string]$commit, [string]$filter) {
+# The script a test host runs: wait for $commit on origin (or take it from the bundle sent beside the script), check it
+# out in the host's worktree, build once and run $filter $repeat times there at below-normal priority, one script at a
+# time. Its output names the start ("corvus-remote: started"), each run ("corvus-remote-run <n> <exit code>") and the
+# end ("corvus-remote-exit <worst exit code>"); a script that never starts a run names why. Results go to
+# results/<id>/run-<n>.trx under the host folder.
+function Get-RemoteRunScript([string]$commit, [string]$filter, [string]$id, [int]$repeat = 1, [switch]$Bundle) {
     $quoted = $filter.Replace("'", "''")
     @"
 `$ErrorActionPreference = 'Continue'
 (Get-Process -Id `$PID).PriorityClass = 'BelowNormal'
 `$base = Join-Path `$HOME '$script:HostFolder'
-`$clone = Join-Path `$base 'repo'; `$tree = Join-Path `$base 'run'; `$out = Join-Path `$base 'results'
-# One run at a time: a push run and an on-demand run share the worktree.
+`$clone = Join-Path `$base 'repo'; `$tree = Join-Path `$base 'run'; `$out = Join-Path `$base 'results/$id'
+`$bundle = Join-Path `$base '$id.bundle'
+# One script at a time: push runs and lanes' loops share the worktree and the machine.
 `$lock = [Threading.Mutex]::new(`$false, 'Global\corvus-test-host')
 try { [void]`$lock.WaitOne() } catch [Threading.AbandonedMutexException] { }
 try {
-    `$deadline = (Get-Date).AddSeconds($script:FetchWaitSeconds)
+    Get-ChildItem (Join-Path `$base 'results') -Directory -ErrorAction SilentlyContinue | Where-Object LastWriteTime -lt (Get-Date).AddDays(-1) | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
+    `$deadline = (Get-Date).AddSeconds($(if ($Bundle) { 0 } else { $script:FetchWaitSeconds }))
     while (`$true) {
         git -C `$clone fetch --quiet origin 2>`$null
+        if (Test-Path `$bundle) { git -C `$clone fetch --quiet `$bundle 'refs/corvus/remote-$($id):refs/corvus/remote-$id' 2>`$null }
         git -C `$clone cat-file -e '$commit^{commit}' 2>`$null
         if (`$LASTEXITCODE -eq 0) { break }
-        if ((Get-Date) -gt `$deadline) { 'corvus-remote: the commit did not reach origin in $script:FetchWaitSeconds s'; exit 0 }
+        if ((Get-Date) -gt `$deadline) { 'corvus-remote: the commit did not reach the host$(if (-not $Bundle) { " from origin in $script:FetchWaitSeconds s" })'; exit 0 }
         Start-Sleep -Seconds 10
     }
     if (Test-Path (Join-Path `$tree '.git')) { git -C `$tree checkout --quiet --detach --force '$commit'; git -C `$tree clean -fdq }
     else { git -C `$clone worktree prune; git -C `$clone worktree add --detach `$tree '$commit' | Out-Null }
     if ((git -C `$tree rev-parse HEAD) -ne '$commit') { 'corvus-remote: the checkout failed'; exit 0 }
-    Remove-Item -Recurse -Force `$out -ErrorAction SilentlyContinue
+    New-Item -ItemType Directory -Force `$out | Out-Null
+    `$log = Join-Path `$out 'console.log'
+    & dotnet build (Join-Path `$tree 'tests/Corvus.Tests') --nologo -c Release *> `$log
+    if (`$LASTEXITCODE -ne 0) { 'corvus-remote: the build failed (see results/$id/console.log)'; exit 0 }
     'corvus-remote: started'
     `$env:CORVUS_ALL_TESTS = '1'
-    & dotnet test (Join-Path `$tree 'tests/Corvus.Tests') --nologo -c Release --filter '$quoted' --logger 'trx;LogFileName=remote.trx' --results-directory `$out ``
-        --blame-hang --blame-hang-timeout 30m --blame-hang-dump-type mini *> (Join-Path `$base 'console.log')
-    "corvus-remote-exit `$LASTEXITCODE"
+    `$worst = 0
+    for (`$n = 1; `$n -le $repeat; `$n++) {
+        & dotnet test (Join-Path `$tree 'tests/Corvus.Tests') --nologo --no-build -c Release --filter '$quoted' --logger "trx;LogFileName=run-`$n.trx" ``
+            --results-directory `$out --blame-hang --blame-hang-timeout 30m --blame-hang-dump-type mini *>> `$log
+        "corvus-remote-run `$n `$LASTEXITCODE"
+        if (`$LASTEXITCODE -ne 0) { `$worst = `$LASTEXITCODE }
+    }
+    "corvus-remote-exit `$worst"
 }
-finally { `$lock.ReleaseMutex() }
+finally {
+    `$lock.ReleaseMutex()
+    Remove-Item `$bundle -Force -ErrorAction SilentlyContinue
+    git -C `$clone update-ref -d 'refs/corvus/remote-$id' 2>`$null
+}
 "@
 }
 
-# Copies $script to the host and runs it there with its PowerShell 7 (the setup puts it on the user's PATH):
-# @{ Kind; Host; Output }.
-function Invoke-RemoteRun([string]$remoteHost, [string]$script) {
-    $file = Join-Path ([IO.Path]::GetTempPath()) "corvus-remote-$([guid]::NewGuid().ToString('N')).ps1"
+# Copies $script (and $bundle, when given) to the host and runs it there with its PowerShell 7 (the setup puts it on
+# the user's PATH): @{ Kind; Host; Id; Output }. -Stream also prints each line as it arrives.
+function Invoke-RemoteRun([string]$remoteHost, [string]$script, [string]$id, [string]$bundle = '', [switch]$Stream) {
+    $file = Join-Path ([IO.Path]::GetTempPath()) "corvus-remote-$id.ps1"
     try {
         Set-Content $file $script -Encoding utf8
-        $output = @(Invoke-Transport $script:ScpVariable 'scp' (@($script:SshOptions) + @($file, "${remoteHost}:$script:HostFolder/run.ps1")) 2>&1 | ForEach-Object { "$_" })
-        if ($LASTEXITCODE -eq 0) { $output = @(Invoke-Transport $script:SshVariable 'ssh' (@($script:SshOptions) + @($remoteHost, "pwsh -NoProfile -NonInteractive -File $script:HostFolder/run.ps1")) 2>&1 | ForEach-Object { "$_" }) }
+        $sources = @($file) + @(if ($bundle) { $bundle })
+        $output = @(Invoke-Transport $script:ScpVariable 'scp' (@($script:SshOptions) + $sources + @("${remoteHost}:$script:HostFolder/")) 2>&1 | ForEach-Object { "$_" })
+        if ($LASTEXITCODE -eq 0) {
+            $output = @(Invoke-Transport $script:SshVariable 'ssh' (@($script:SshOptions) + @($remoteHost, "pwsh -NoProfile -NonInteractive -File $script:HostFolder/$(Split-Path $file -Leaf)")) 2>&1 |
+                ForEach-Object { if ($Stream) { Write-Host "  $_" }; "$_" })
+            $null = Invoke-Transport $script:SshVariable 'ssh' (@($script:SshOptions) + @($remoteHost, "pwsh -NoProfile -NonInteractive -Command Remove-Item $script:HostFolder/$(Split-Path $file -Leaf)")) 2>$null
+        }
     }
     finally { Remove-Item $file -Force -ErrorAction SilentlyContinue }
-    @{ Kind = 'ssh'; Host = $remoteHost; Output = $output }
+    @{ Kind = 'ssh'; Host = $remoteHost; Id = $id; Output = $output }
+}
+
+# A commit holding $repo's working tree as it is (tracked changes and untracked files outside .gitignore), made without
+# touching its index or branches: HEAD itself when the tree is clean. Returns @{ Commit; Bundle }, Bundle being a
+# bundle file of the commits origin/main lacks, or empty when origin has the commit already.
+function New-RemoteSnapshot([string]$repo, [string]$id) {
+    $index = Join-Path ([IO.Path]::GetTempPath()) "corvus-remote-$id.index"
+    try {
+        Copy-Item (git -C $repo rev-parse --path-format=absolute --git-path index) $index
+        $env:GIT_INDEX_FILE = $index
+        git -C $repo add -A 2>$null
+        $tree = (git -C $repo write-tree).Trim()
+    }
+    finally { Remove-Item Env:GIT_INDEX_FILE -ErrorAction SilentlyContinue; Remove-Item $index -Force -ErrorAction SilentlyContinue }
+    $head = (git -C $repo rev-parse HEAD).Trim()
+    $commit = if ($tree -eq (git -C $repo rev-parse 'HEAD^{tree}').Trim()) { $head } else { (git -C $repo commit-tree $tree -p $head -m 'Working tree sent to a test host').Trim() }
+    git -C $repo merge-base --is-ancestor $commit origin/main 2>$null
+    if ($LASTEXITCODE -eq 0) { return @{ Commit = $commit; Bundle = '' } }
+    $bundle = Join-Path ([IO.Path]::GetTempPath()) "$id.bundle"
+    git -C $repo update-ref "refs/corvus/remote-$id" $commit
+    try { git -C $repo bundle create --quiet $bundle "refs/corvus/remote-$id" '^origin/main' 2>$null }
+    finally { git -C $repo update-ref -d "refs/corvus/remote-$id" }
+    if ($LASTEXITCODE -ne 0) { throw "Bundling $commit failed." }
+    @{ Commit = $commit; Bundle = $bundle }
+}
+
+# Runs $filter $repeat times on the test host from $repo's working tree as it is (test.ps1 -Remote), printing a line per
+# run and copying the TRX files of failed runs into $folder. Returns 0 when every run passed, 1 when any failed, and 2
+# when no run started there.
+function Invoke-RemoteFilter([string]$repo, [string]$remoteHost, [string]$filter, [int]$repeat, [string]$folder) {
+    $id = [guid]::NewGuid().ToString('N').Substring(0, 12)
+    $snapshot = New-RemoteSnapshot $repo $id
+    try {
+        Write-Host "Sending $(if ($snapshot.Bundle) { "the working tree ($($snapshot.Commit.Substring(0, 8)))" } else { $snapshot.Commit.Substring(0, 8) }) to $remoteHost`: $filter, $repeat run$(if ($repeat -ne 1) { 's' })."
+        $state = Invoke-RemoteRun $remoteHost (Get-RemoteRunScript $snapshot.Commit $filter $id $repeat -Bundle:([bool]$snapshot.Bundle)) $id $snapshot.Bundle -Stream
+    }
+    finally { if ($snapshot.Bundle) { Remove-Item $snapshot.Bundle -Force -ErrorAction SilentlyContinue } }
+    $runs = @($state.Output | Where-Object { $_ -match '^corvus-remote-run (\d+) (-?\d+)$' } | ForEach-Object { [pscustomobject]@{ Run = [int]$Matches[1]; Code = [int]$Matches[2] } })
+    if ($state.Output -notcontains 'corvus-remote: started') {
+        $why = $state.Output | Where-Object { $_ -like 'corvus-remote: *' } | Select-Object -Last 1
+        Write-Host "No run started on $remoteHost`: $(if ($why) { $why -replace '^corvus-remote: ', '' } else { "ssh failed$(if ($state.Output) { ": $($state.Output[-1])" })" })" -ForegroundColor Red
+        return 2
+    }
+    $failed = @($runs | Where-Object Code -ne 0)
+    if ($failed) {
+        New-Item -ItemType Directory -Force $folder | Out-Null
+        foreach ($run in $failed) {
+            $null = Invoke-Transport $script:ScpVariable 'scp' (@($script:SshOptions) + @("${remoteHost}:$script:HostFolder/results/$id/run-$($run.Run).trx", (Join-Path $folder "run-$($run.Run).trx"))) 2>$null
+        }
+    }
+    $missing = $repeat - $runs.Count
+    Write-Host "$($runs.Count) of $repeat runs on $remoteHost`: $($runs.Count - $failed.Count) passed, $($failed.Count) failed$(if ($failed) { " (runs $(($failed.Run) -join ', '); TRX in $folder)" })$(if ($missing -gt 0) { "; $missing did not run (the connection ended)" })."
+    if ($failed -or $missing -gt 0) { 1 } else { 0 }
 }
 
 # Brings a test host's results back into $folder: @{ Started; Trx; Failed; Note } as Receive-GitHubRun returns it.
@@ -393,7 +469,7 @@ function Receive-RemoteRun($state, [string]$folder) {
     $result.Note = if ($exit) { "exit $($exit -replace '^corvus-remote-exit ', '')" } else { 'the connection ended before the run did' }
     New-Item -ItemType Directory -Force $folder | Out-Null
     $trx = Join-Path $folder 'offload.trx'
-    $null = Invoke-Transport $script:ScpVariable 'scp' (@($script:SshOptions) + @("$($state.Host):$script:HostFolder/results/remote.trx", $trx)) 2>$null
+    $null = Invoke-Transport $script:ScpVariable 'scp' (@($script:SshOptions) + @("$($state.Host):$script:HostFolder/results/$($state.Id)/run-1.trx", $trx)) 2>$null
     if ($LASTEXITCODE -eq 0 -and (Test-Path $trx)) {
         $result.Trx = $trx
         $result.Failed = @(Get-ClassOutcomes $trx | Where-Object Failed | ForEach-Object { [pscustomobject]@{ Class = $_.Class; Platform = 'host' } })
@@ -463,4 +539,4 @@ function Receive-GitHubRun($state, [string]$folder) {
     $result
 }
 
-Export-ModuleMember -Function Invoke-Transport, Test-RemoteHost, Get-RemoteRunScript, Invoke-RemoteRun, Receive-RemoteRun, Invoke-Gh, Wait-GitHubRun, Receive-GitHubRun, Get-RemoteClasses, Get-RemoteShard, Get-LocalFilter, Get-ClassFilter, Get-ClassOutcomes, Get-TestOutcomes, Get-SkippedOnHost, Get-SkippedOnBoth, Get-RerunClasses, Get-MixedClasses, Get-FailedThereNote, Join-TrxFiles, Get-TargetFileName, Save-RemoteRecord, Get-RemoteStatus, Get-OffloadTarget, Start-Offload, Receive-Offload
+Export-ModuleMember -Function Invoke-Transport, Test-RemoteHost, Get-RemoteRunScript, Invoke-RemoteRun, Receive-RemoteRun, New-RemoteSnapshot, Invoke-RemoteFilter, Invoke-Gh, Wait-GitHubRun, Receive-GitHubRun, Get-RemoteClasses, Get-RemoteShard, Get-LocalFilter, Get-ClassFilter, Get-ClassOutcomes, Get-TestOutcomes, Get-SkippedOnHost, Get-SkippedOnBoth, Get-RerunClasses, Get-MixedClasses, Get-FailedThereNote, Join-TrxFiles, Get-TargetFileName, Save-RemoteRecord, Get-RemoteStatus, Get-OffloadTarget, Start-Offload, Receive-Offload

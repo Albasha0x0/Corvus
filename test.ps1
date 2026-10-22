@@ -17,6 +17,7 @@
 #         ./test.ps1 -Perf                # the speed measurements with their budgets, alone on the machine (nightly, after -Full)
 #         ./test.ps1 -Stamp               # records the last full run's passes when its recording step failed (same tree only)
 #         ./test.ps1 -RemoteRun -Group sweep -Shard 0/2  # CI: one shard of a group a push run offloads (test-remote.psm1)
+#         ./test.ps1 -Remote -Filter <filter> -Repeat 20  # runs the filter 20 times on the test host CORVUS_TEST_REMOTE names, from this working tree
 #         ./test.ps1 -Full -Coverage      # also collects line coverage (coverlet) and checks Ratchets/coverage.txt
 #         ./test.ps1 -CoverageMap         # which source files each family's tests (and each slow class) run (a whole background run refreshes it weekly): -Reuse keys on them
 #         ./test.ps1 -Mutation [-Target sqlite,pe]  # mutation testing of the core readers (Stryker.NET; tests/mutation.json),
@@ -42,6 +43,8 @@ param(
     [switch]$Stamp,
     [switch]$Perf,
     [switch]$RemoteRun,
+    [switch]$Remote,
+    [int]$Repeat = 1,
     [string]$Group = '',
     [string]$Shard = '0/1',
     [switch]$CrossPlatform,
@@ -73,13 +76,23 @@ function Import-UserTestVariables {
         if (($name -like 'CORVUS_*' -or $name -eq 'GHIDRA_INSTALL_DIR') -and -not [Environment]::GetEnvironmentVariable($name)) { Set-Item "env:$name" $user[$name] }
     }
 }
-if ($Full -or $Background -or $Perf) { Import-UserTestVariables }
+if ($Full -or $Background -or $Perf -or $Remote) { Import-UserTestVariables }
 
 # Test runs yield to the desktop: the builds, test hosts and engine workers they start inherit the lowered priority. The
 # perf run keeps normal priority: it measures alone on the machine.
 if (-not $Perf) {
     Import-Module (Join-Path $root 'test-reuse.psm1') -Force
     Set-RunPriority
+}
+
+# A filter run on the test host (test-remote.psm1): the working tree as it is, $Repeat times, one script at a time
+# there; failed runs' TRX files come back to TestResults/remote.
+if ($Remote) {
+    Import-Module (Join-Path $root 'test-remote.psm1') -Force
+    $target = "$env:CORVUS_TEST_REMOTE".Trim()
+    if (-not $target) { Write-Host 'Set CORVUS_TEST_REMOTE to the test host (user@host; test-remote-setup.ps1 prepares it).' -ForegroundColor Red; exit 2 }
+    if (-not $Filter) { Write-Host 'Name the tests: -Filter <dotnet test filter>.' -ForegroundColor Red; exit 2 }
+    exit (Invoke-RemoteFilter $root $target $Filter ([math]::Max(1, $Repeat)) (Join-Path $root 'TestResults/remote'))
 }
 
 # One shard of the offloaded classes, as the CI offload job runs it: results in TestResults/offload.trx.

@@ -209,14 +209,14 @@ public sealed class TestRemoteTests : IDisposable
             $line = $args -join ' '
             if ($line -match 'down ') { exit 255 }
             if ($line -match ' exit 0$') { exit 0 }
-            if ($line -match '-File corvus-test-host/run.ps1$') { 'corvus-remote: started'; 'corvus-remote-exit 1'; exit 0 }
+            if ($line -match '-File corvus-test-host/corvus-remote-\w+\.ps1$') { 'corvus-remote: started'; 'corvus-remote-run 1 1'; 'corvus-remote-exit 1'; exit 0 }
             exit 1
             """);
         var scp = _dir.File("scp.ps1");
         File.WriteAllText(scp, $$"""
             $from = $args[-2]; $to = $args[-1]
-            if ($to -like '*:corvus-test-host/run.ps1') { Copy-Item $from {{Quote(sent)}}; exit 0 }
-            if ($from -like '*:corvus-test-host/results/remote.trx') { Copy-Item {{Quote(trx)}} $to; exit 0 }
+            if ($to -like '*:corvus-test-host/') { $args | Where-Object { "$_" -like '*corvus-remote-*.ps1' } | ForEach-Object { Copy-Item $_ {{Quote(sent)}} }; exit 0 }
+            if ($from -like '*:corvus-test-host/results/*/run-1.trx') { Copy-Item {{Quote(trx)}} $to; exit 0 }
             exit 1
             """);
         var lines = TestReuseTests.Run($$"""
@@ -231,7 +231,7 @@ public sealed class TestRemoteTests : IDisposable
             'script=' + $script.Contains("cat-file -e 'abc123^{commit}'") + ',' + $script.Contains("--filter '(FullyQualifiedName~.FormatSweepTests|FullyQualifiedName~.RoundTripTests)&Tier!=Release'")
             $env:CORVUS_TEST_REMOTE = 'tester@down'
             'down=' + ((Get-OffloadTarget {{Quote(DocsTests.RepoRoot())}} $false).Kind -ne 'ssh')
-            $late = Receive-RemoteRun @{ Kind = 'ssh'; Host = 'tester@host2'; Output = @('corvus-remote: the commit did not reach origin in 120 s') } {{Quote(Path.Combine(_dir.Path, "late"))}}
+            $late = Receive-RemoteRun @{ Kind = 'ssh'; Host = 'tester@host2'; Output = @('corvus-remote: the commit did not reach the host from origin in 120 s') } {{Quote(Path.Combine(_dir.Path, "late"))}}
             'late=' + $late.Started + ',' + $late.Note
             $lost = Receive-RemoteRun @{ Kind = 'ssh'; Host = 'tester@host2'; Output = @('Connection refused') } {{Quote(Path.Combine(_dir.Path, "lost"))}}
             'lost=' + $lost.Started + ',' + $lost.Note
@@ -241,8 +241,67 @@ public sealed class TestRemoteTests : IDisposable
         Assert.Contains("got=True,exit 1,FormatSweepTests@host,2", lines);
         Assert.Contains("script=True,True", lines);
         Assert.Contains("down=True", lines);
-        Assert.Contains("late=False,the commit did not reach origin in 120 s", lines);
+        Assert.Contains("late=False,the commit did not reach the host from origin in 120 s", lines);
         Assert.Contains("lost=False,ssh tester@host2 failed: Connection refused", lines);
+    }
+
+    [Fact]
+    [Trait("Speed", "Slow")]
+    public void A_filter_runs_repeatedly_on_the_host_from_the_working_tree_and_failed_runs_come_back()
+    {
+        var repo = Path.Combine(_dir.Path, "repo");
+        Directory.CreateDirectory(repo);
+        var trx = _dir.File("run.trx");
+        File.WriteAllText(trx, Trx(("FormatSweepTests", "Failed")));
+        var sent = _dir.File("sent-run.ps1");
+        var bundles = _dir.File("bundles.txt");
+        // The stand-in ssh reports two runs of which the second failed; the stand-in scp keeps the run script, notes
+        // each bundle it is sent and hands back any run's TRX.
+        var ssh = _dir.File("ssh.ps1");
+        File.WriteAllText(ssh, """
+            if (($args -join ' ') -match '-File corvus-test-host/corvus-remote-\w+\.ps1$') { 'corvus-remote: started'; 'corvus-remote-run 1 0'; 'corvus-remote-run 2 1'; 'corvus-remote-exit 1' }
+            exit 0
+            """);
+        var scp = _dir.File("scp.ps1");
+        File.WriteAllText(scp, $$"""
+            $from = $args[-2]; $to = $args[-1]
+            if ($to -like '*:corvus-test-host/') {
+                $args | Where-Object { "$_" -like '*corvus-remote-*.ps1' } | ForEach-Object { Copy-Item $_ {{Quote(sent)}} }
+                $args | Where-Object { "$_" -like '*.bundle' } | ForEach-Object { Add-Content {{Quote(bundles)}} (Test-Path $_) }
+                exit 0
+            }
+            if ($from -like '*:corvus-test-host/results/*/run-*.trx') { Copy-Item {{Quote(trx)}} $to; exit 0 }
+            exit 1
+            """);
+        var back = Path.Combine(_dir.Path, "back");
+        var lines = TestReuseTests.Run($$"""
+            Import-Module {{Module}}
+            $env:CORVUS_TEST_SSH = {{Quote(ssh)}}; $env:CORVUS_TEST_SCP = {{Quote(scp)}}
+            Set-Location {{Quote(repo)}}
+            git init -q; git config user.email t@t; git config user.name t
+            Set-Content a.txt one; git add a.txt; git commit -q -m a
+            $head = (git rev-parse HEAD).Trim(); git update-ref refs/remotes/origin/main $head
+            $clean = New-RemoteSnapshot {{Quote(repo)}} 'clean1'
+            'clean=' + ($clean.Commit -eq $head) + ',' + ($clean.Bundle -eq '')
+            Set-Content a.txt two; Set-Content b.txt new
+            $dirty = New-RemoteSnapshot {{Quote(repo)}} 'dirty1'
+            'dirty=' + ($dirty.Commit -ne $head) + ',' + (Test-Path $dirty.Bundle) + ',' + ((git show "$($dirty.Commit):b.txt").Trim()) + ',' + ((git status --porcelain) -join '|')
+            Remove-Item $dirty.Bundle
+            $code = Invoke-RemoteFilter {{Quote(repo)}} 'tester@host2' 'FullyQualifiedName~FormatSweepTests' 2 {{Quote(back)}} 6>$null
+            'code=' + $code + ',' + ((Get-ChildItem {{Quote(back)}}).Name -join ',')
+            'bundle=' + ((Get-Content {{Quote(bundles)}}) -join ',')
+            $script = Get-Content {{Quote(sent)}} -Raw
+            'script=' + $script.Contains('-le 2;') + ',' + $script.Contains("--filter 'FullyQualifiedName~FormatSweepTests'") + ',' + $script.Contains('AddSeconds(0)')
+            """);
+        // Git writes its objects read-only.
+        foreach (var f in Directory.EnumerateFiles(repo, "*", SearchOption.AllDirectories)) File.SetAttributes(f, FileAttributes.Normal);
+        if (lines is ["skip"]) return;
+        Assert.Contains("clean=True,True", lines);
+        // The snapshot leaves the index and the working tree as they were.
+        Assert.Contains("dirty=True,True,new, M a.txt|?? b.txt", lines);
+        Assert.Contains("code=1,run-2.trx", lines);
+        Assert.Contains("bundle=True", lines);
+        Assert.Contains("script=True,True,True", lines);
     }
 
     /// <summary>A script standing in for gh: one CI run whose first offload job ended with <paramref name="conclusion"/>;
