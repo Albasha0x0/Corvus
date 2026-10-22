@@ -12,7 +12,7 @@ namespace Corvus.Tests;
 /// </summary>
 [Trait("Speed", "Slow")]
 [Trait("Data", "Real")]
-[Collection(LiveSessions.Collection)]
+[Permit("live")]
 public sealed class LiveTargetRealTests(ITestOutputHelper output) : LiveToolCalls(output), IDisposable
 {
     private readonly TempDir _dir = new();
@@ -441,11 +441,4 @@ public sealed class LiveTargetRealTests(ITestOutputHelper output) : LiveToolCall
         Assert.Contains("\"code\":\"provider_unavailable\"", console);
         await Ok(server, "live_session", new() { ["action"] = "close", ["session"] = "live-1" });
     }
-}
-
-/// <summary>The real session tests run one at a time: each holds programs, stop points and an event-tracing session.</summary>
-[CollectionDefinition(Collection, DisableParallelization = true)]
-public sealed class LiveSessions
-{
-    public const string Collection = "Live sessions";
 }

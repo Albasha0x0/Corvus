@@ -14,7 +14,7 @@ namespace Corvus.Tests;
 /// </summary>
 [Trait("Speed", "Slow")]
 [Trait("Data", "Real")]
-[Collection(LiveSessions.Collection)]
+[Permit("live")]
 public sealed class LiveLifecycleRealTests(ITestOutputHelper output) : LiveToolCalls(output), IDisposable
 {
     private const int Runs = 10;

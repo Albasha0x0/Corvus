@@ -150,7 +150,7 @@ public sealed class FrameworkNativeImageFactAttribute : FactAttribute
 /// </summary>
 [Trait("Speed", "Slow")]
 [Trait("Data", "Real")]
-[Collection(LiveSessions.Collection)]
+[Permit("live")]
 public sealed class LiveDotnetRealTests(ITestOutputHelper output) : LiveToolCalls(output), IDisposable
 {
     private readonly TempDir _dir = new();

@@ -11,7 +11,7 @@ namespace Corvus.Tests;
 /// </summary>
 [Trait("Speed", "Slow")]
 [Trait("Data", "Real")]
-[Collection(LiveSessions.Collection)]
+[Permit("live")]
 public sealed class LiveSessionOptionsRealTests(ITestOutputHelper output) : LiveToolCalls(output), IDisposable
 {
     private readonly TempDir _dir = new();

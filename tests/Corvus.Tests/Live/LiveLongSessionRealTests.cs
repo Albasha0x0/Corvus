@@ -13,7 +13,9 @@ namespace Corvus.Tests;
 /// </summary>
 [Trait("Speed", "Slow")]
 [Trait("Data", "Real")]
-[Collection(LiveSessions.Collection)]
+[Permit("live")]
+// It measures the whole process's heap and working set, so nothing may run beside it.
+[Collection(SweepCollection.Name)]
 public sealed class LiveLongSessionRealTests(ITestOutputHelper output) : LiveToolCalls(output), IDisposable
 {
     /// <summary>Minutes the observed program runs under its session (default 2).</summary>
