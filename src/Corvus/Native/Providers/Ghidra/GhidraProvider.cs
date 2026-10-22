@@ -361,9 +361,10 @@ public sealed class GhidraProvider(GhidraProviderOptions? options = null) : INat
         ["JAVA_TOOL_OPTIONS"] = null,
         ["_JAVA_OPTIONS"] = null,
         ["JDK_JAVA_OPTIONS"] = null,
-        // PyGhidra 3.1 serializes its start on a file lock in the temporary folder, held while Ghidra builds its
-        // class path: with the user's folder every worker on the machine waited in one line. The lock guards the
-        // extensions in the settings folder, which these directories own.
+        // Workaround for NationalSecurityAgency/ghidra#9988 (tested PyGhidra 3.1.0, no fix yet): PyGhidra serializes
+        // its start on a file lock in the temporary folder, held while Ghidra builds its class path, so with the
+        // user's folder every worker on the machine waited in one line. The lock guards the extensions in the
+        // settings folder, which these directories own.
         ["TEMP"] = dirs.Temp,
         ["TMP"] = dirs.Temp,
         ["TMPDIR"] = dirs.Temp,
