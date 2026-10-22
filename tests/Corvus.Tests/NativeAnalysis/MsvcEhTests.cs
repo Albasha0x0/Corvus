@@ -231,6 +231,23 @@ public class MsvcEhTests(ITestOutputHelper output)
         Assert.True(ThreadCpuClock.Now() - cpu is var took && took < TimeSpan.FromSeconds(10), $"took {took} of CPU");
     }
 
+    // Regression: a fuzzed header gave sections of 1 GB at RVA 0x3F3F3F3F, and list_functions passed its 30 s limit.
+    [Fact]
+    public void An_x86_code_section_past_the_image_is_not_read()
+    {
+        var bytes = NativePeTests.KitchenSink(false);
+        int pe = BinaryPrimitives.ReadInt32LittleEndian(bytes.AsSpan(0x3C));
+        int table = pe + 24 + BinaryPrimitives.ReadUInt16LittleEndian(bytes.AsSpan(pe + 20));
+        int last = table + 40 * (BinaryPrimitives.ReadUInt16LittleEndian(bytes.AsSpan(pe + 6)) - 1);
+        // VirtualSize, VirtualAddress, SizeOfRawData, PointerToRawData, then executable code characteristics.
+        foreach (int field in new[] { 8, 12, 16, 20 }) BinaryPrimitives.WriteUInt32LittleEndian(bytes.AsSpan(last + field), 0x3F3F3F3F);
+        BinaryPrimitives.WriteUInt32LittleEndian(bytes.AsSpan(last + 36), 0x60000020);
+        var image = PeFile.FromBytes(bytes);
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        MsvcEh.Analyze(image, new AlignedView());
+        Assert.True(GC.GetAllocatedBytesForCurrentThread() - before < 64 << 20, $"{(GC.GetAllocatedBytesForCurrentThread() - before) >> 20} MB allocated");
+    }
+
     [Fact]
     public void Implausible_counts_are_rejected_with_a_reason()
     {

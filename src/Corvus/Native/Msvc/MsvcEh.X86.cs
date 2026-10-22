@@ -81,8 +81,11 @@ public static partial class MsvcEh
             var relocations = image.RelocationRvas;
             foreach (var section in image.Sections)
             {
-                if (!section.IsExecutable || section.MappedSize < 6) continue;
-                int size = (int)Math.Min(section.MappedSize, (ulong)Math.Max(0, budget));
+                if (!section.IsExecutable || section.MappedSize < 6 || section.Rva >= image.SizeOfImage) continue;
+                // Instructions are file bytes: the zero fill past them, or past SizeOfImage, holds none.
+                long backed = image.FileBackedLength(section.Rva, Math.Min(section.MappedSize, (long)image.SizeOfImage - section.Rva));
+                if (backed < 6) continue;
+                int size = (int)Math.Min(backed, Math.Max(0, budget));
                 if (size < 6) yield break;
                 budget -= size;
                 var bytes = _r.Window(section.Rva, size);
