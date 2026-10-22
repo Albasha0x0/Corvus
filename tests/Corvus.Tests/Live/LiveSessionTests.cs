@@ -18,6 +18,8 @@ internal sealed class ScriptedLiveBackend(string mainPath, ulong mainBase, uint 
     public readonly List<string> Ops = [];
     /// <summary>Stop points set bare (no stack or registers sent).</summary>
     public readonly HashSet<string> Bare = [];
+    /// <summary>The hit limit each counted point was set with.</summary>
+    public readonly Dictionary<string, int> Limits = [];
     public string? Missing { get; init; }
     /// <summary>The arguments of the last open request (what the backend was asked to start or attach to).</summary>
     public JsonObject? LastOpen { get; private set; }
@@ -73,6 +75,13 @@ internal sealed class ScriptedLiveBackend(string mainPath, ulong mainBase, uint 
         ["event"] = "stop", ["point"] = id, ["tid"] = thread, ["hits"] = 1,
         ["registers"] = new JsonObject { ["pc"] = $"0x{_points.GetValueOrDefault(id, caller):x}", ["rcx"] = "0x5000", ["rsp"] = "0x9000" },
         ["frames"] = new JsonArray($"0x{_points.GetValueOrDefault(id, caller):x}", $"0x{caller:x}", "0x7ffe00001234"),
+    });
+
+    /// <summary>A thread passing counted point <paramref name="id"/>, which reports the hit and holds no thread.</summary>
+    public void Pass(string id, long thread) => Worker!.Emit(new JsonObject
+    {
+        ["event"] = "stop", ["point"] = id, ["tid"] = thread, ["hits"] = 1, ["registers"] = new JsonObject(),
+        ["frames"] = new JsonArray($"0x{_points[id]:x}"), ["counted"] = true,
     });
 
     /// <summary>A thread hitting stop point <paramref name="id"/> with the given stack values, as the worker reports them.</summary>
@@ -149,6 +158,7 @@ internal sealed class ScriptedLiveBackend(string mainPath, ulong mainBase, uint 
             case "set":
                 _points[(string)args["id"]!] = Convert.ToUInt64(((string)args["address"]!)[2..], 16);
                 if (args["bare"] is { } bare && (bool)bare) lock (Bare) Bare.Add((string)args["id"]!);
+                if (args["limit"] is { } limit) lock (Limits) Limits[(string)args["id"]!] = (int)limit;
                 return true;
             case "set_many" when !Batches: return null;
             case "set_many":

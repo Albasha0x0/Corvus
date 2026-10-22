@@ -216,8 +216,8 @@ its caller: `orders.exe!main+0xDC: AddLine(o=0xE1BAFFE50, qty=3) -> 3`.
 
 `live_coverage` collects code coverage the way a coverage profiler does, from stop events: a stop point at the start
 of each function of the program's image (`match=` narrows by name, `module!part` counts another module), each stop
-counted and resumed at once, the point cleared after `hitLimit` stops (default 100), so a count at the limit reads
-"100+". A loaded module's image is read from its file when it is not loaded yet, as a `module!name` stop point reads it. A module the program has not loaded yet is counted from its first call once its image is loaded with
+counted in the program without holding its thread, the point cleared there after `hitLimit` stops (default 100), so a
+count at the limit reads "100+" and the program runs at its own speed however busy the server is. A loaded module's image is read from its file when it is not loaded yet, as a `module!name` stop point reads it. A module the program has not loaded yet is counted from its first call once its image is loaded with
 `load_assembly`: the run waits for the module's load, as a deferred stop point does. A run counts at most 5,000 functions;
 a match over that is refused with the number matched and narrower matches drawn from the image's names (name prefixes
 and namespaces, `sub_` address prefixes), each with its count. Functions reached from TLS callbacks or a DLL's entry point are left out, since they also run at process exit;

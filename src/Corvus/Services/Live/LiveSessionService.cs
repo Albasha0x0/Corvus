@@ -680,7 +680,7 @@ public sealed partial class LiveSessionService(AssemblyWorkspace workspace, Nati
                 var point = body.GetProperty("point").GetString() ?? "";
                 if (session.CoveragePoints.TryGetValue(point, out var run))
                 {
-                    CoverageStop(session, run, point, Thread());
+                    CoverageStop(session, run, point, Thread(), body.TryGetProperty("counted", out var c) && c.ValueKind == JsonValueKind.True);
                     break;
                 }
                 // A thread already inside a point's hook when the point was cleared

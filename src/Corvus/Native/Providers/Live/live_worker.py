@@ -155,7 +155,7 @@ class Session:
             return
         payload = message.get("payload") or {}
         kind = payload.pop("type", "message")
-        if kind == "stop":
+        if kind == "stop" and not payload.get("counted"):
             with self.lock:
                 self.held.add(payload.get("tid"))
             if data:
@@ -574,7 +574,7 @@ def set_each(agent, points):
     results = []
     for p in points:
         try:
-            agent.set(p["id"], p["address"], bool(p.get("bare", False)))
+            agent.set(p["id"], p["address"], bool(p.get("bare", False)), int(p.get("limit", 0)))
             results.append({"id": p["id"], "ok": True})
         except Failure as e:
             results.append({"id": p["id"], "ok": False, "error": {"code": e.code, "message": str(e)}})
@@ -595,7 +595,7 @@ def handle(state, op, args):
     if op == "info":
         return state.require().info()
     if op == "set":
-        return state.require().set(args["id"], args["address"], bool(args.get("bare", False)))
+        return state.require().set(args["id"], args["address"], bool(args.get("bare", False)), int(args.get("limit", 0)))
     if op == "set_many":
         return {"results": set_each(state.require(), args["points"])}
     if op == "clear":

@@ -360,7 +360,7 @@ public sealed partial class LiveSessionService
                 {
                     reply = await session.Worker.RequestAsync("set_many", new JsonObject
                     {
-                        ["points"] = new JsonArray([.. batch.Select(p => (JsonNode)new JsonObject { ["id"] = p.Id, ["address"] = $"0x{moduleBase + p.Rva:X}", ["bare"] = true })]),
+                        ["points"] = new JsonArray([.. batch.Select(p => (JsonNode)new JsonObject { ["id"] = p.Id, ["address"] = $"0x{moduleBase + p.Rva:X}", ["bare"] = true, ["limit"] = run.HitLimit })]),
                     }, RequestTimeout, ct).ConfigureAwait(false);
                 }
                 catch (ToolError e) when (e.Code is ErrorCode.InvalidArgument or ErrorCode.NotFound && e.Message.StartsWith("unknown op", StringComparison.Ordinal))
@@ -378,7 +378,7 @@ public sealed partial class LiveSessionService
             // A backend without batches sets the rest a request each.
             foreach (var (id, rva) in due.Skip(next))
             {
-                try { await session.Worker.RequestAsync("set", new JsonObject { ["id"] = id, ["address"] = $"0x{moduleBase + rva:X}", ["bare"] = true }, RequestTimeout, ct).ConfigureAwait(false); }
+                try { await session.Worker.RequestAsync("set", new JsonObject { ["id"] = id, ["address"] = $"0x{moduleBase + rva:X}", ["bare"] = true, ["limit"] = run.HitLimit }, RequestTimeout, ct).ConfigureAwait(false); }
                 catch (ToolError e) { Refuse(id, rva, e); }
             }
         }
@@ -616,9 +616,15 @@ public sealed partial class LiveSessionService
         }
     }
 
-    /// <summary>A stop at a coverage point: counted, the thread resumed at once, the point cleared at the hit limit.</summary>
-    private static void CoverageStop(LiveSession session, LiveCoverageRun run, string point, long? thread)
+    /// <summary>A stop at a coverage point: counted; a held thread resumed at once, the point cleared at the hit limit.</summary>
+    private static void CoverageStop(LiveSession session, LiveCoverageRun run, string point, long? thread, bool counted)
     {
+        // A counted stop held no thread, and its point clears itself at the limit.
+        if (counted)
+        {
+            run.Hit(point);
+            return;
+        }
         if (run.IsExit(point))
         {
             _ = Task.Run(async () =>

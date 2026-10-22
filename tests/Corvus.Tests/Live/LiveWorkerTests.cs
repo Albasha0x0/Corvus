@@ -78,7 +78,7 @@ public sealed class LiveWorkerTests : IDisposable
         class _Exports:
             def info(self):
                 return {"pid": 4242, "arch": "x64", "platform": "windows", "modules": []}
-            def set(self, id, address, bare):
+            def set(self, id, address, bare, limit=0):
                 if address == "0xbad":
                     raise InvalidOperationError("unable to intercept instruction at 0xbad; please file a bug")
                 return True
@@ -88,6 +88,54 @@ public sealed class LiveWorkerTests : IDisposable
             exports_sync = _Exports()
             def on(self, *args): pass
             def load(self): pass
+
+
+        class _Session:
+            def on(self, *args): pass
+            def create_script(self, source): return _Script()
+            def detach(self): pass
+
+
+        class _Device:
+            def on(self, *args): pass
+            def attach(self, pid): return _Session()
+
+
+        def get_local_device():
+            return _Device()
+        """;
+
+    // The stand-in's script reports a stop from each point as it is set: a
+    // counted one, as the agent sends for a point with a hit limit, from thread
+    // 7, and a held one from thread 8.
+    private const string CountingFrida = """
+        __version__ = "17.24.3"
+
+
+        class ProcessNotFoundError(Exception): pass
+        class PermissionDeniedError(Exception): pass
+        class InvalidOperationError(Exception): pass
+
+
+        class _Exports:
+            def info(self):
+                return {"pid": 4242, "arch": "x64", "platform": "windows", "modules": []}
+            def set(self, id, address, bare, limit=0):
+                stop = {"type": "stop", "point": id, "tid": 7 if limit > 0 else 8, "hits": 1, "registers": {}, "frames": [address]}
+                if limit > 0:
+                    stop["counted"] = True
+                _Script.receive({"type": "send", "payload": stop}, None)
+                return True
+
+
+        class _Script:
+            exports_sync = _Exports()
+            receive = None
+            def on(self, signal, callback):
+                if signal == "message":
+                    _Script.receive = callback
+            def load(self): pass
+            def post(self, message): pass
 
 
         class _Session:
@@ -141,6 +189,24 @@ public sealed class LiveWorkerTests : IDisposable
             Assert.Contains("""{"id":"a","ok":true}""", reply);
             Assert.Contains("""{"id":"b","ok":false,"error":{"code":"failed","message":"InvalidOperationError: unable to intercept instruction at 0xbad; please file a bug"}}""", reply);
             Assert.Contains("""{"id":"c","ok":true}""", reply);
+        }
+        finally
+        {
+            p.Kill();
+            p.WaitForExit(10_000);
+        }
+    }
+
+    [Fact]
+    public void A_counted_stop_leaves_its_thread_running_and_a_held_stop_holds_it()
+    {
+        using var p = StartWorker(CountingFrida);
+        try
+        {
+            Assert.Contains("\"ok\":true", Request(p, 1, "open", """{"attach":"4242"}"""));
+            Assert.Contains("\"ok\":true", Request(p, 2, "set_many", """{"points":[{"id":"a","address":"0x10","bare":true,"limit":1}]}"""));
+            Assert.Contains("\"ok\":true", Request(p, 3, "set", """{"id":"b","address":"0x20","bare":true}"""));
+            Assert.Contains("\"resumed\":[8]", Request(p, 4, "resume", "{}"));
         }
         finally
         {

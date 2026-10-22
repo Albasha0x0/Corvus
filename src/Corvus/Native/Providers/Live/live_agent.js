@@ -59,6 +59,24 @@ function stopsIn(id, context, at, bare) {
   waitFor('resume-' + tid);
 }
 
+// A counted point reports each hit without holding the thread and clears
+// itself at its hit limit, so the program does not wait on the server.
+function countsIn(id, context, at, limit) {
+  const p = points[id];
+  if (!p || p.spent) return;
+  hits[id] = (hits[id] || 0) + 1;
+  send({ type: 'stop', point: id, tid: Process.getCurrentThreadId(), hits: hits[id], registers: {}, frames: [(at || context.pc).toString()], counted: true });
+  if (hits[id] < limit) return;
+  p.spent = true;
+  // The hook is undone once this thread has left it, from the script's own
+  // thread.
+  setTimeout(() => {
+    if (points[id] !== p) return;
+    p.detach();
+    delete points[id];
+  }, 0);
+}
+
 function moduleRow(m) {
   return { name: m.name, base: m.base.toString(), size: m.size, path: m.path };
 }
@@ -552,10 +570,14 @@ rpc.exports = {
     return { arch: Process.arch, platform: Process.platform, pointerSize: Process.pointerSize, pid: Process.id,
       modules: loadedModules() };
   },
-  set(id, address, bare) {
+  // A bare point with a hit limit is counted rather than held (countsIn).
+  set(id, address, bare, limit) {
     const p = ptr(address), hook = hookAt(p), elsewhere = hook.at.equals(p) ? null : p;
+    const counted = bare === true && limit > 0;
     // a probe: the onEnter form takes the stack top for a return address, which past a function's start is a saved register
-    const listener = Interceptor.attach(hook.at, function () { stopsIn(id, this.context, elsewhere, bare === true); });
+    const listener = Interceptor.attach(hook.at, counted
+      ? function () { countsIn(id, this.context, elsewhere, limit); }
+      : function () { stopsIn(id, this.context, elsewhere, bare === true); });
     const prior = points[id];
     points[id] = { detach() { hook.undo(); listener.detach(); if (prior) prior.detach(); } };
     return true;

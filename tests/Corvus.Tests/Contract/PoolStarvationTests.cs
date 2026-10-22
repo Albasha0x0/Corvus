@@ -13,7 +13,7 @@ public class PoolStarvationTests
     /// Blocks the pool: more queued blockers than it injects threads during a test. The event is never disposed: blockers
     /// still queued at the release start later and wait on it.
     /// </summary>
-    private static ManualResetEventSlim Starve()
+    internal static ManualResetEventSlim Starve()
     {
         var release = new ManualResetEventSlim();
         for (int i = 0; i < ThreadPool.ThreadCount + 1000; i++) ThreadPool.UnsafeQueueUserWorkItem(_ => release.Wait(), null);

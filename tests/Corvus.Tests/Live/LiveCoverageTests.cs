@@ -95,6 +95,26 @@ public sealed class LiveCoverageTests : IDisposable
     }
 
     [Fact]
+    public async Task A_counted_stop_is_counted_with_no_resume_or_clear()
+    {
+        await _tools.LiveSession("attach", program: "4242");
+        var start = await _tools.LiveCoverage("live-1", "start", match: "sqlite3_open", hitLimit: 2);
+        var n = int.Parse(Regex.Match(start, @"cov-1 counting (\d+) functions").Groups[1].Value);
+        // Each function start goes with its limit, so the agent counts there.
+        lock (_backend.Limits) Assert.Equal(n, _backend.Limits.Count(l => l.Key.StartsWith("cov-1.", StringComparison.Ordinal) && l.Value == 2));
+
+        var open = _service.GetCoverage("cov-1").Points.Select((p, i) => (p, i)).Single(x => x.p.Name == "sqlite3_open");
+        var id = $"cov-1.{open.i + 1}";
+        for (int i = 0; i < 2; i++) _backend.Pass(id, 7);
+        // The second hit reaches the limit, which retires the point.
+        await Until(() => !_service.GetCoverage("cov-1").Armed.Contains(id));
+        Assert.Matches(@"\s2\+\s+0x[0-9A-F]+\s+sqlite3_open\n", await _tools.LiveCoverage(action: "report", run: "cov-1"));
+        Assert.Equal(0, Count("resume"));
+        Assert.Equal(0, Count("clear"));
+        Assert.Empty(_service.Get("live-1").Held);
+    }
+
+    [Fact]
     public async Task A_run_whose_program_ended_stays_ended_when_stopped()
     {
         await _tools.LiveSession("attach", program: "4242");
