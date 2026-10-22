@@ -322,10 +322,12 @@ public sealed class LiveWorkerTests : IDisposable
         }
     }
 
-    // The stand-in reports child 999999 when gating is enabled, reaches a hold
-    // script's code at its load, and logs each attach, resume, unload and detach.
+    // The stand-in reports child 999999 when gating is enabled, 0.3 s late as on
+    // a busy runner, reaches a hold script's code at its load, and logs each
+    // attach, resume, unload and detach.
     private const string StandInGate = """
         import os
+        import time
 
         __version__ = "17.24.3"
         _log = os.path.join(os.path.dirname(__file__), "calls.txt")
@@ -345,7 +347,11 @@ public sealed class LiveWorkerTests : IDisposable
 
 
         class _Child:
-            pid, parent_pid, origin, path, argv, identifier = 999999, 100, "spawn", "/app/child", ["child"], None
+            pid, parent_pid, path, argv, identifier = 999999, 100, "/app/child", ["child"], None
+            @property
+            def origin(self):
+                time.sleep(0.3)
+                return "spawn"
 
 
         class _Exports:
@@ -400,19 +406,27 @@ public sealed class LiveWorkerTests : IDisposable
         using var p = Process.Start(new ProcessStartInfo(python.Executable, new[] { "-u", worker, agent })
             { RedirectStandardInput = true, RedirectStandardOutput = true, UseShellExecute = false })!;
         var id = 0;
+        var seen = new List<string>();
+        string Until(string text)
+        {
+            if (seen.FirstOrDefault(l => l.Contains(text, StringComparison.Ordinal)) is { } earlier) return earlier;
+            string? line;
+            while ((line = p.StandardOutput.ReadLine()) != null && !line.Contains(text, StringComparison.Ordinal)) seen.Add(line);
+            Assert.NotNull(line);
+            return line;
+        }
         string Call(string op, string args)
         {
             p.StandardInput.WriteLine($$"""{"id":{{++id}},"op":"{{op}}","args":{{args}}}""");
             p.StandardInput.Flush();
-            string? line;
-            while ((line = p.StandardOutput.ReadLine()) != null && !line.Contains($"\"id\":{id},", StringComparison.Ordinal)) { }
-            Assert.NotNull(line);
-            return line;
+            return Until($"\"id\":{id},");
         }
         string[] Calls() => File.ReadAllLines(_dir.File("calls.txt"));
         try
         {
             Call("open", """{"attach":"100","children":{}}""");
+            // The worker takes a child on a thread of its own; the server resumes one only after its child event.
+            Until("\"event\":\"child\"");
             Assert.Contains("\"held\":true", Call("resume_child", """{"pid":999999,"hold":true}"""));
             Assert.Contains("\"held\":true", Call("resume_child", """{"pid":999999,"hold":true}"""));
             Assert.Equal(["attach 100", "attach 999999", "resume 999999"], Calls());
