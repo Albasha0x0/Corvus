@@ -16,6 +16,7 @@ every child still held.
 import json
 import os
 import signal
+import subprocess
 import sys
 import threading
 
@@ -41,6 +42,31 @@ def image_of(pid):
         return os.readlink("/proc/%d/exe" % pid)
     except OSError:
         return None
+
+
+def descendants(root):
+    """The processes below root as {pid: command}, read from ps (macOS, Linux); None where ps cannot be read."""
+    if os.name == "nt":
+        return None
+    try:
+        ps = subprocess.Popen(["ps", "-A", "-o", "pid=,ppid=,comm="], stdout=subprocess.PIPE, text=True)
+        listed = ps.communicate(timeout=10)[0]
+    except (OSError, subprocess.SubprocessError):
+        return None
+    parents, names = {}, {}
+    for line in listed.splitlines():
+        fields = line.split(None, 2)
+        if len(fields) == 3 and fields[0].isdigit() and fields[1].isdigit():
+            parents[int(fields[0])] = int(fields[1])
+            names[int(fields[0])] = fields[2]
+    below, found = {root}, True
+    while found:
+        found = False
+        for pid, ppid in parents.items():
+            if ppid in below and pid not in below:
+                below.add(pid)
+                found = True
+    return {pid: names[pid] for pid in below - {root, ps.pid}}
 
 
 def emit(obj):
@@ -71,6 +97,7 @@ class Session:
         self.script = None
         self.pid = None
         self.spawned = False
+        self.spawn_retried = None  # why the first start was ended and tried again
         self.suspended = False
         self.exited = False
         self.ended = threading.Event()  # the process is gone
@@ -223,10 +250,7 @@ class Session:
             # W^X keeps .NET JIT code in a shared memory view that hooks cannot write; the caller may still turn it back on.
             env["DOTNET_EnableWriteXorExecute"] = "0"
             env.update({k: v for k, v in (args.get("environment") or {}).items() if v is not None})
-            try:
-                self.pid = self.device.spawn(argv, stdio="pipe", env=env or None, cwd=args.get("cwd") or None)
-            except frida.ExecutableNotFoundError as e:
-                raise Failure("not_found", str(e))
+            self.pid = self.spawn(argv, env, args.get("cwd"))
             self.spawned = True
             self.suspended = True
         else:
@@ -270,7 +294,34 @@ class Session:
             self.script = self.session = None
             raise
         result["suspended"] = self.suspended
+        if self.spawn_retried:
+            result["spawn_retried"] = self.spawn_retried
         return result
+
+    def spawn(self, argv, env, cwd):
+        """Starts argv suspended; a start Frida timed out on is ended and tried once more (seen on macOS ARM64)."""
+        before = descendants(os.getpid())
+        try:
+            return self.device.spawn(argv, stdio="pipe", env=env or None, cwd=cwd or None)
+        except frida.ExecutableNotFoundError as e:
+            raise Failure("not_found", str(e))
+        except frida.TimedOutError as e:
+            after = descendants(os.getpid())
+            if before is None or after is None:
+                raise
+            # Frida's own helpers stay; the rest is the half-started program.
+            left = sorted(pid for pid, name in after.items() if pid not in before and "frida" not in os.path.basename(name).lower())
+            for pid in left:
+                try:
+                    os.kill(pid, signal.SIGKILL)
+                except OSError:
+                    pass
+            ended = "ended process%s %s" % ("es" if len(left) > 1 else "", ", ".join(map(str, left))) if left else "found no half-started process"
+            self.spawn_retried = "%s; %s and started the program again" % (e, ended)
+        try:
+            return self.device.spawn(argv, stdio="pipe", env=env or None, cwd=cwd or None)
+        except frida.ExecutableNotFoundError as e:
+            raise Failure("not_found", str(e))
 
     def load_script(self, args):
         # a script the user supplied (the server allows it only with --live-scripting); its messages become events
