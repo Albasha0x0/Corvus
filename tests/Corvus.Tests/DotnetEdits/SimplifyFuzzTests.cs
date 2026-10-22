@@ -12,7 +12,6 @@ namespace Corvus.Tests;
 /// A failure names its seed.
 /// </summary>
 [Trait("Speed", "Slow")]
-[Collection(SweepCollection.Name)]
 public sealed class SimplifyFuzzTests(ITestOutputHelper output) : IDisposable
 {
     private const int MethodsPerSeed = 8;

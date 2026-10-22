@@ -711,8 +711,7 @@ public sealed class ContractSweepCoreTests(Xunit.Abstractions.ITestOutputHelper 
     }
 }
 
-/// <summary>The full argument matrix over every tool (CORVUS_ALL_TESTS=1). Each call has a time limit, so it runs alone.</summary>
-[Collection(SweepCollection.Name)]
+/// <summary>The full argument matrix over every tool (CORVUS_ALL_TESTS=1), each call within its time limit.</summary>
 public sealed class ContractSweepFullTests(Xunit.Abstractions.ITestOutputHelper output)
 {
     private readonly Xunit.Abstractions.ITestOutputHelper _output = output;

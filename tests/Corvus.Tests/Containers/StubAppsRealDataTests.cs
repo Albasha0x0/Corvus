@@ -13,7 +13,6 @@ namespace Corvus.Tests;
 /// raised dnlib's LockException on LINQPad 5.52.01 and Codist 9.0). CORVUS_STUB_APPS: <c>;</c>-separated entries
 /// <c>assembly path|member token|method token|type token</c>, e.g. <c>LINQPad.exe|0x06000413|0x06001AFA|0x020001FF</c>.
 /// </summary>
-[Collection(SweepCollection.Name)]
 public class StubAppsRealDataTests(ITestOutputHelper output)
 {
     private const string Variable = "CORVUS_STUB_APPS";

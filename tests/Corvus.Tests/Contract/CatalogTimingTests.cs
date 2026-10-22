@@ -9,7 +9,6 @@ namespace Corvus.Tests;
 /// time (the release figure); without it the test build runs through dotnet and only tools/list is held to its target.
 /// </summary>
 [Trait("Speed", "Slow")]
-[Collection(nameof(SerialTimingTests))]
 public class CatalogTimingTests(Xunit.Abstractions.ITestOutputHelper output)
 {
     public const string ServerExeVariable = "CORVUS_SERVER_EXE";

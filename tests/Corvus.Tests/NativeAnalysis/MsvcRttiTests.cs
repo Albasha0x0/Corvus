@@ -304,8 +304,7 @@ public class MsvcRttiTests(ITestOutputHelper output)
     }
 }
 
-/// <summary>The System32 / SysWOW64 RTTI sweep: timed per file, so it runs alone after the parallel tests.</summary>
-[Collection(SweepCollection.Name)]
+/// <summary>The System32 / SysWOW64 RTTI sweep, timed per file.</summary>
 public class MsvcRttiSweepTests(ITestOutputHelper output)
 {
     /// <summary>

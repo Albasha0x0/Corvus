@@ -202,7 +202,6 @@ public sealed class LiveProcessTests(ITestOutputHelper output)
 /// Every process of this session inspected with stacks: each call either succeeds with every handle closed or fails
 /// with a typed error (access denied, exited); prints the runner numbers (processes, frames, named frames, time).
 /// </summary>
-[Collection(SweepCollection.Name)]
 [Trait("Speed", "Slow")]
 public sealed class LiveProcessSweepTests(ITestOutputHelper output)
 {

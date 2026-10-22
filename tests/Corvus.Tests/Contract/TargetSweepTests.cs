@@ -9,7 +9,6 @@ namespace Corvus.Tests;
 /// Every tool with a target parameter, through a real server: an unloaded real file there loads (never not_loaded), and a
 /// missing file in any input path parameter is the one not_found text with its Next (CORVUS_ALL_TESTS=1).
 /// </summary>
-[Collection(SweepCollection.Name)]
 public sealed class TargetSweepTests(Xunit.Abstractions.ITestOutputHelper output)
 {
     private static readonly string[] AssemblyParameters = ["assembly", "oldAssembly", "newAssembly"];

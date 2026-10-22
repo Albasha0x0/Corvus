@@ -309,8 +309,7 @@ public sealed class SqliteDepthTests(ITestOutputHelper output) : IDisposable
     }
 }
 
-/// <summary>Paging time on a database over 100 MB, measured without other tests running.</summary>
-[Collection(nameof(SerialTimingTests))]
+/// <summary>Paging time on a database over 100 MB, held to its budget in the perf run, which runs alone.</summary>
 public sealed class SqlitePagingTimingTests(ITestOutputHelper output) : IDisposable
 {
     private readonly TempDir _dir = new();

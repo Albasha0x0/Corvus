@@ -254,8 +254,7 @@ public sealed class StreamedSummaryTests : IDisposable
     }
 }
 
-/// <summary>The memory ceiling of a streamed summary, measured without other tests running (the working set is the process's).</summary>
-[Collection(nameof(SerialTimingTests))]
+/// <summary>The memory ceiling of a streamed summary, each test in a process of its own (the working set is the process's).</summary>
 public sealed class StreamedSummaryMemoryTests(ITestOutputHelper output) : IDisposable
 {
     private readonly TempDir _dir = new();

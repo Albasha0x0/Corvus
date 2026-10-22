@@ -29,7 +29,6 @@ namespace Corvus.Tests;
 /// CORVUS_PIPELINE_KEEP, keep the work files.
 /// </remarks>
 [Trait("Speed", "Slow")]
-[Collection(SweepCollection.Name)]
 [Permit("reference-tool")]
 public sealed class PipelineRoundTripTests(ITestOutputHelper output) : IDisposable
 {

@@ -6,12 +6,14 @@ using Xunit.Abstractions;
 
 namespace Corvus.Tests;
 
-/// <summary>Timing-sensitive real-data tests run without parallelism so CPU contention cannot skew them.</summary>
+/// <summary>
+/// Tests that run alone after the parallel ones: deadline and cancellation timings, which parallel classes delay by
+/// starving the process's thread pool, and tests that rebuild repository folders other classes read.
+/// </summary>
 [CollectionDefinition(nameof(SerialTimingTests), DisableParallelization = true)]
 public class SerialTimingCollection;
 
 [Trait("Speed", "Slow")]
-[Collection(nameof(SerialTimingTests))]
 public class SerialTimingTests(ITestOutputHelper output)
 {
     /// <summary>Path search stays fast on a cyclic real call graph (target: CORVUS_CALLPATH_TARGET or auto-picked).</summary>

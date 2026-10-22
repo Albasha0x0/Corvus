@@ -11,7 +11,6 @@ using Xunit.Abstractions;
 
 namespace Corvus.Tests;
 
-[Collection(SweepCollection.Name)]
 public sealed class NativeLinkManagedSweepTests(ITestOutputHelper output)
 {
     /// <summary>System DLL file names differ in case between imports, API set hosts and the disk.</summary>

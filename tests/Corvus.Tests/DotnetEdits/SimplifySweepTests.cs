@@ -11,7 +11,6 @@ namespace Corvus.Tests;
 /// CORVUS_SWEEP=full adds the largest ones.
 /// </summary>
 [Trait("Speed", "Slow")]
-[Collection(SweepCollection.Name)]
 public sealed class SimplifySweepTests(ITestOutputHelper output)
 {
     /// <summary>

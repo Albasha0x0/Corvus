@@ -16,7 +16,6 @@ namespace Corvus.Tests;
 /// CORVUS_NATIVE_TOOL_FUZZ_SEED the base seed; CORVUS_NATIVE_TOOL_FUZZ_DUMP a folder that receives the failing inputs.
 /// </summary>
 [Trait("Speed", "Slow")]
-[Collection(SweepCollection.Name)]
 public class NativeToolFuzzTests(ITestOutputHelper output)
 {
     [Fact]

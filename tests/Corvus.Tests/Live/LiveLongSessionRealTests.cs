@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Globalization;
+using System.Runtime.CompilerServices;
 using System.Text.RegularExpressions;
 using Corvus.Services;
 using Xunit.Abstractions;
@@ -9,13 +10,12 @@ namespace Corvus.Tests;
 /// <summary>
 /// Sessions over time on a native program per target: a watched program observed for minutes (status latency, cursor
 /// continuity of the event pages, a stop point each minute, the test process's memory growth), the session deadline
-/// closing a session by itself, and two sessions at once.
+/// closing a session by itself, and two sessions at once. The first two run in a process of their own: one measures the
+/// process's heap and working set, the other sets a variable of the process.
 /// </summary>
 [Trait("Speed", "Slow")]
 [Trait("Data", "Real")]
 [Permit("live")]
-// It measures the whole process's heap and working set, so nothing may run beside it.
-[Collection(SweepCollection.Name)]
 public sealed class LiveLongSessionRealTests(ITestOutputHelper output) : LiveToolCalls(output), IDisposable
 {
     /// <summary>Minutes the observed program runs under its session (default 2).</summary>
@@ -35,8 +35,9 @@ public sealed class LiveLongSessionRealTests(ITestOutputHelper output) : LiveToo
     [LiveTargetFact("linux-x64")] [Trait(PerfBudget.Trait, PerfBudget.Timing)] public Task Observed_for_minutes_on_linux_x64() => Observed(LiveTarget.LinuxX64);
     [LiveTargetFact("linux-x86")] [Trait(PerfBudget.Trait, PerfBudget.Timing)] public Task Observed_for_minutes_on_linux_x86() => Observed(LiveTarget.LinuxX86);
 
-    private async Task Observed(LiveTarget target)
+    private async Task Observed(LiveTarget target, [CallerMemberName] string test = "")
     {
+        if (ChildTest.Rerun(this, Output, method: test)) return;
         var minutes = double.TryParse(Environment.GetEnvironmentVariable(SoakMinutesVariable), NumberStyles.Float, CultureInfo.InvariantCulture, out var m) && m > 0 ? m : 2;
         var exe = target.Build(_dir, "orders", LivePrograms.Orders);
         var name = Regex.Escape(target.Exe("orders"));
@@ -138,11 +139,12 @@ public sealed class LiveLongSessionRealTests(ITestOutputHelper output) : LiveToo
     [LiveTargetFact("osx-arm64")] public Task Deadline_closes_the_session_on_osx_arm64() => Deadline(LiveTarget.MacArm64);
     [LiveTargetFact("linux-x86")] public Task Deadline_closes_the_session_on_linux_x86() => Deadline(LiveTarget.LinuxX86);
 
-    private async Task Deadline(LiveTarget target)
+    private async Task Deadline(LiveTarget target, [CallerMemberName] string test = "")
     {
+        if (ChildTest.Rerun(this, Output, method: test)) return;
         var exe = target.Build(_dir, "orders", LivePrograms.Orders);
         await using var server = await Server();
-        // read when the session opens; the collection runs alone, so the variable is set for this open only
+        // read when the session opens; the process is this test's own, so the variable is set for this open only
         var saved = Environment.GetEnvironmentVariable(LiveSessionService.MaxMinutesVariable);
         int pid;
         Environment.SetEnvironmentVariable(LiveSessionService.MaxMinutesVariable, "1");

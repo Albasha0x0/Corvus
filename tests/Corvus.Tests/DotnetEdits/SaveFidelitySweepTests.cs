@@ -12,7 +12,6 @@ namespace Corvus.Tests;
 /// are checked in parallel, largest first, each in its own workspace; nothing here is timed.
 /// </summary>
 [Trait("Speed", "Slow")]
-[Collection(SweepCollection.Name)]
 public sealed class SaveFidelitySweepTests(ITestOutputHelper output)
 {
     private sealed record Row(SweepCatalog.Entry Entry, int Methods, int Kept, int Changed, int Unexplained, bool OriginalSaved, bool SameSurvey, TimeSpan Write, string? Example);

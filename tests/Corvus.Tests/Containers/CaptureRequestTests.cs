@@ -12,7 +12,6 @@ namespace Corvus.Tests;
 /// search_container kind=request on HAR, mitmproxy and .saz captures (names only unless values=true, GraphQL operations,
 /// WebSocket messages, SSE and NDJSON shapes), and kind=endpoint comparing two captures.
 /// </summary>
-[Collection(nameof(SerialTimingTests))] // the 500 MB budget measures the whole process
 public sealed class CaptureRequestTests(ITestOutputHelper output) : IDisposable
 {
     private readonly TempDir _dir = new();

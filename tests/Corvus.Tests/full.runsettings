@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- CORVUS_ALL_TESTS=1: the sweeps spread their own work over every processor and run alone in SweepCollection, after the
-     parallel classes. The others run one class per processor: engines, real programs and reference tools are bounded by
-     machine-wide permits (Support/MachinePermits.cs), not by the thread count. -->
+<!-- CORVUS_ALL_TESTS=1: one class per processor; engines, real programs and reference tools are bounded by machine-wide
+     permits (Support/MachinePermits.cs), not by the thread count. Tests that measure the whole process run in a process
+     of their own (Support/ChildTest.cs). -->
 <RunSettings>
   <!-- Tells the tests they run in the full set, however it was started (fuzz entries then run every iteration). -->
   <RunConfiguration>

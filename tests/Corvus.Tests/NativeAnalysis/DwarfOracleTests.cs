@@ -239,8 +239,7 @@ public sealed partial class DwarfOracleTests(ITestOutputHelper output)
     }
 }
 
-/// <summary>A debug file of a gigabyte read with a bounded working set (no other test runs meanwhile: the working set is the process's).</summary>
-[Collection(nameof(SerialTimingTests))]
+/// <summary>A debug file of a gigabyte read with a bounded working set, in a process of its own (the working set is the process's).</summary>
 public sealed class DwarfMemoryTests(ITestOutputHelper output)
 {
     /// <summary>One DWARF 4 unit of about 64 KB: a long producer string, a struct of 50 members, one function.</summary>

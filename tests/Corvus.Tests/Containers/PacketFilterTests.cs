@@ -79,8 +79,7 @@ public sealed class PacketFilterTests : IDisposable
     }
 }
 
-/// <summary>Filter throughput on a 1 GiB pcapng, measured without other tests running.</summary>
-[Collection(nameof(SerialTimingTests))]
+/// <summary>Filter throughput on a 1 GiB pcapng, held to its budget in the perf run, which runs alone.</summary>
 public sealed class PacketFilterSpeedTests(ITestOutputHelper output) : IDisposable
 {
     private readonly TempDir _dir = new();

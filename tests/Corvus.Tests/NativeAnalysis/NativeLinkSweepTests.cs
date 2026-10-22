@@ -6,7 +6,6 @@ using Xunit.Abstractions;
 
 namespace Corvus.Tests;
 
-[Collection(SweepCollection.Name)]
 public sealed class NativeLinkSweepTests(ITestOutputHelper output)
 {
     /// <summary>

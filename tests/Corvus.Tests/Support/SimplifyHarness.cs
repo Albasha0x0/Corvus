@@ -12,16 +12,6 @@ using Corvus.Services.Simplify;
 namespace Corvus.Tests;
 
 /// <summary>
-/// Timed or memory-measured runs (simplify fuzz and sweep, the native tool sweeps, fuzz, stdio and stress runs): they run
-/// alone, after the parallel tests, so other tests in the process do not distort their clocks and heap readings.
-/// </summary>
-[CollectionDefinition(Name, DisableParallelization = true)]
-public sealed class SweepCollection
-{
-    public const string Name = "simplify sweep";
-}
-
-/// <summary>
 /// Runs the simplify_methods engine over every method of an assembly, as the tool does, and checks the result: no
 /// crash, each method within its limits, and an image that the product's writer saves and both dnlib and the
 /// decompiler's reader load back with exactly the bodies that were written.

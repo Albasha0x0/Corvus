@@ -270,7 +270,6 @@ public sealed class UnityOverviewTests : IDisposable
 /// unity_overview over the Unity titles installed on this machine: Steam library folders (from the Steam registry key) and
 /// CORVUS_UNITY_TITLES (';'-separated game folders). Prints per-title results and timings; each overview must finish in seconds.
 /// </summary>
-[Collection(SweepCollection.Name)]
 [Trait("Speed", "Slow")]
 [Permit("reference-tool")]
 public sealed class UnityOverviewRealTests(ITestOutputHelper output)

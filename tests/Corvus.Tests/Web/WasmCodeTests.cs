@@ -136,8 +136,7 @@ public sealed class WasmCodeTests(ITestOutputHelper output) : IDisposable
     }
 }
 
-/// <summary>Index time of a Unity-WebGL-size module, measured without other tests running.</summary>
-[Collection(nameof(SerialTimingTests))]
+/// <summary>Index time of a Unity-WebGL-size module, held to its budget in the perf run, which runs alone.</summary>
 public sealed class WasmIndexSpeedTests(ITestOutputHelper output)
 {
     [Fact]

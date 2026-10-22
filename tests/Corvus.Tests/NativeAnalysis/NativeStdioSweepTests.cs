@@ -17,7 +17,6 @@ namespace Corvus.Tests;
 /// <see cref="MaxSilence"/>. CORVUS_NATIVE_STDIO_SAMPLE sets the images per directory (default 25).
 /// </summary>
 [Trait("Speed", "Slow")]
-[Collection(SweepCollection.Name)]
 public class NativeStdioSweepTests(ITestOutputHelper output)
 {
     private static readonly TimeSpan MaxSilence = TimeSpan.FromSeconds(15);

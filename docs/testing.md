@@ -72,6 +72,12 @@
   last test ends (`Support/MachinePermits.cs`: IDA 2, Ghidra 2, live 2, reference tools 4). Every test process on the
   machine takes the same permits, so lanes' runs and the background run together never exceed them. The wait stays out
   of the tests' times, and the time report lists it per resource.
+- **Tests in a process of their own.** A test that measures the whole process (heap growth, retained memory, working
+  set) or sets a variable of the process reruns its body in a process of its own (`Support/ChildTest.cs`), so it runs
+  beside the parallel classes instead of alone after them. The sweeps, fuzzers and timed tests run in parallel too; a
+  timing budget holds only in the perf run, which runs alone. What still runs alone after the parallel classes:
+  deadline and cancellation timings (parallel classes starve the thread pool), tests that rebuild `samples/` and the
+  relay's real-server run.
 - **Shared engine analyses.** IDA and Ghidra tests on the System32 sample start from a copy of one saved analysis per
   engine, engine install and server build (`Support/EngineSeed.cs`, kept under `corvus-test-data/engine-seed` in the
   temporary folder), instead of analysing it again in every empty cache: about half the time of those classes. Tests

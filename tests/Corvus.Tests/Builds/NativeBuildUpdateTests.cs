@@ -511,7 +511,6 @@ public class NativeBuildUpdateTests(ITestOutputHelper output)
 
 /// <summary>update_to_new_build on real build pairs (the pairs the native-diff tests discover), with counts and timings.</summary>
 [Trait("Speed", "Slow")]
-[Collection(SweepCollection.Name)]
 public class NativeBuildUpdateRealTests(ITestOutputHelper output)
 {
     [WindowsFact]

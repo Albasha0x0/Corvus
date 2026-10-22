@@ -14,7 +14,6 @@ namespace Corvus.Tests;
 /// relocations, TLS, .pdata, CodeView, resources) and dumpbin (imports incl. delay-load, exports, load config).
 /// CORVUS_PE_SWEEP_LIMIT caps the file count; CORVUS_PE_SWEEP_REPORT names a file for the full report.
 /// </summary>
-[Collection(SweepCollection.Name)]
 public sealed class NativePeSweepTests(ITestOutputHelper output)
 {
     [WindowsFact]

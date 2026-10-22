@@ -7,7 +7,6 @@ namespace Corvus.Tests;
 
 /// <summary>Every crash dump found on this machine (WER and CrashDumps folders): read, summarized and walked without an internal error.</summary>
 [Trait("Speed", "Slow")]
-[Collection(SweepCollection.Name)]
 public sealed class MinidumpSweepTests(ITestOutputHelper output)
 {
     private static IEnumerable<string> Dumps()

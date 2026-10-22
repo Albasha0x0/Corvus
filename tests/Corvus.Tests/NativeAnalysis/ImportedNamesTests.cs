@@ -108,8 +108,7 @@ public class ImportedNamesTests(ITestOutputHelper output)
     }
 }
 
-/// <summary>Saved imported names on real data; timed, so they run in the sweep collection.</summary>
-[Collection(SweepCollection.Name)]
+/// <summary>Saved imported names on real data, with their timings.</summary>
 public class ImportedNamesRealDataTests(ITestOutputHelper output)
 {
     /// <summary>
@@ -165,6 +164,8 @@ public class ImportedNamesRealDataTests(ITestOutputHelper output)
     [Trait("Speed", "Slow")]
     public async Task RealPdbNamesRestoreWithoutThePdb()
     {
+        // It sets a variable of the process, so it runs in a process of its own.
+        if (ChildTest.Rerun(this, output)) return;
         string? dll = null, pdb = null;
         var candidates = new[] { Environment.SpecialFolder.System, Environment.SpecialFolder.SystemX86 }
             .Select(Environment.GetFolderPath).Where(Directory.Exists).Distinct()
