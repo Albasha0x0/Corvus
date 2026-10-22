@@ -12,6 +12,11 @@ namespace Corvus.Tests;
 [Collection(nameof(SerialTimingTests))]
 public sealed class DeadlineTests
 {
+    // The pool as the class found it: a late answer then names work an earlier class left running.
+    private static readonly Lazy<string> PoolAtStart = new(ThreadPoolSnapshot.Describe);
+
+    private static string Late(TimeSpan elapsed) => $"answered after {elapsed}; at the class start, {PoolAtStart.Value}; now, {ThreadPoolSnapshot.Describe()}";
+
     private static ServiceProvider Services(ServerOptions options) =>
         new ServiceCollection().AddSingleton(options).AddSingleton<ResultStore>().BuildServiceProvider();
 
@@ -54,8 +59,9 @@ public sealed class DeadlineTests
     [Fact]
     public async Task AShortClientDeadline_IsAnsweredWithAMarginLeft()
     {
+        _ = PoolAtStart.Value;
         var (elapsed, error) = await SlowCallUnder(6, "export_project");
-        Assert.True(elapsed <= TimeSpan.FromSeconds(2), $"answered after {elapsed}");
+        Assert.True(elapsed <= TimeSpan.FromSeconds(2), Late(elapsed));
         Assert.Equal("timeout", error.GetProperty("code").GetString());
         Assert.True(error.GetProperty("details").GetProperty("stillRunning").GetBoolean());
         Assert.False(error.GetProperty("details").GetProperty("partial").GetBoolean());
@@ -67,8 +73,9 @@ public sealed class DeadlineTests
     [Trait("Speed", "Slow")]
     public async Task AFakeTenSecondClient_GetsItsAnswerFiveSecondsEarly()
     {
+        _ = PoolAtStart.Value;
         var (elapsed, error) = await SlowCallUnder(10, "export_project");
-        Assert.True(elapsed <= TimeSpan.FromSeconds(5.2), $"answered after {elapsed}");
+        Assert.True(elapsed <= TimeSpan.FromSeconds(5.2), Late(elapsed));
         Assert.True(elapsed >= TimeSpan.FromSeconds(3), $"answered after {elapsed}");
         Assert.True(error.GetProperty("details").GetProperty("stillRunning").GetBoolean());
     }
@@ -122,6 +129,7 @@ public sealed class DeadlineTests
     [Fact]
     public async Task ACallLeftAtTheClientDeadline_IsPickedUpByTheSameCallAgain()
     {
+        _ = PoolAtStart.Value;
         using var services = Services(new ServerOptions { TimeoutSeconds = 3600, ClientTimeoutSeconds = 6 });
         int runs = 0;
         var release = new TaskCompletionSource();
@@ -138,9 +146,11 @@ public sealed class DeadlineTests
         var leftovers = LeftoverWork.For(services.GetRequiredService<ServerOptions>());
         Assert.Equal(1, leftovers.Running);
 
+        var clock = Stopwatch.StartNew();
         var again = Run(services, "search_strings", Work, arguments).AsTask();
         release.SetResult();
-        Assert.Equal("finished", ((TextContentBlock)(await again.WaitAsync(TimeSpan.FromMinutes(1))).Content[0]).Text);
+        var text = ((TextContentBlock)(await again.WaitAsync(TimeSpan.FromMinutes(1))).Content[0]).Text;
+        Assert.True(text == "finished", $"{text}; {Late(clock.Elapsed)}");
         Assert.Equal(1, runs);
         Assert.Equal(1, leftovers.Total);
     }
