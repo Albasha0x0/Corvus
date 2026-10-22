@@ -88,6 +88,7 @@ public sealed class AppGraphTests(Xunit.Abstractions.ITestOutputHelper output) :
 
     /// <summary>The packages under CORVUS_MOBILE_APPS (two levels deep): each graph within 5 s on a quiet machine (MachineLoad scales it), with the edge kinds their runtimes need.</summary>
     [Trait("Speed", "Slow")]
+    [Trait(PerfBudget.Trait, PerfBudget.Timing)]
     [RequiresRealDataFact(RealData.MobileApps)]
     public void Real_packages_graph_within_five_seconds()
     {
@@ -98,8 +99,8 @@ public sealed class AppGraphTests(Xunit.Abstractions.ITestOutputHelper output) :
         foreach (var apk in apks.OrderByDescending(a => new FileInfo(a).Length))
         {
             // An Il2Cpp game is read once first, as load_assembly does; the graph joins its methods from the cache.
-            if (Il2CppPackages.Extract(apk, null) is { } root && Il2CppGameFiles.Find(root) is { Binary.Length: > 0 } files)
-                loader.Load(files, loadBinary: false, null, default);
+            var files = Il2CppPackages.Extract(apk, null) is { } root && Il2CppGameFiles.Find(root) is { Binary.Length: > 0 } found ? found : null;
+            if (files != null) loader.Load(files, loadBinary: false, null, default);
             var before = MachineLoad.Factor();
             var paused = GC.GetTotalPauseDuration();
             var watch = Stopwatch.StartNew();
@@ -113,7 +114,9 @@ public sealed class AppGraphTests(Xunit.Abstractions.ITestOutputHelper output) :
                              string.Join("; ", g.EdgeKinds.Select(k => $"{k.Kind} {k.Edges}/{k.Candidates} {k.Coverage}")));
             if (watch.Elapsed > budget) slow.Add($"{Path.GetFileName(apk)} {watch.Elapsed.TotalSeconds:0.0} s, budget {budget.TotalSeconds:0.0} s ({load}; {span})");
             foreach (var k in g.EdgeKinds) Assert.True(k.Edges <= k.Candidates || k.Kind == "jni", $"{apk}: {k.Kind}");
+            // The graph joins the game's methods from the cache the load filled; it reads no metadata itself.
+            if (files != null) Assert.True(g.Layers.Single(l => l.Layer == "il2cpp").Items > 0, $"{apk}: the Il2Cpp layer was not joined from the cache");
         }
-        Assert.True(slow.Count == 0, string.Join("\n", slow));
+        PerfBudget.Check(slow.Count == 0, slow.Count == 0 ? $"{apks.Count} packages within their budgets" : string.Join("\n", slow), output);
     }
 }

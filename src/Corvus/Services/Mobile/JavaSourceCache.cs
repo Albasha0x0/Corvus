@@ -15,6 +15,11 @@ public sealed class JavaSourceCache(string root)
 
     public string Root { get; } = root;
 
+    private int _inputsHashed;
+
+    /// <summary>Input files hashed by this instance; a warm read leaves it unchanged.</summary>
+    internal int InputsHashed => Volatile.Read(ref _inputsHashed);
+
     /// <summary>The configured folder: <see cref="FolderVariable"/> (<c>off</c> disables it), else <c>java-sources</c> in the data folder.</summary>
     public static JavaSourceCache? Default() =>
         Environment.GetEnvironmentVariable(FolderVariable) is { Length: > 0 } v
@@ -70,6 +75,7 @@ public sealed class JavaSourceCache(string root)
             content = Convert.ToHexStringLower(SHA256.HashData(stream));
         }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException) { return null; }
+        Interlocked.Increment(ref _inputsHashed);
         Write(memo, content);
         return content;
     }

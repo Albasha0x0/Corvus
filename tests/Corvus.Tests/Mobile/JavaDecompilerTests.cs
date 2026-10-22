@@ -32,8 +32,12 @@ public sealed class JavaDecompilerTests(Xunit.Abstractions.ITestOutputHelper out
         return (new JavaDecompilerService(new DexService()) { Environment = _fake.Environment, Cache = new JavaSourceCache(_dir.File("java-cache")) }, env);
     }
 
-    /// <summary>A later server answers from the disk cache without starting JADX, under 50 ms; a changed package is decompiled again.</summary>
+    /// <summary>
+    /// A later server answers from the disk cache without starting JADX, hashing the package or indexing its DEX, under
+    /// 50 ms; a changed package is decompiled again.
+    /// </summary>
     [Fact]
+    [Trait(PerfBudget.Trait, PerfBudget.Timing)]
     public async Task DiskCache_AnswersAcrossServers_WithoutJadx()
     {
         var (first, env) = Fake();
@@ -43,7 +47,9 @@ public sealed class JavaDecompilerTests(Xunit.Abstractions.ITestOutputHelper out
             string cold;
             using (first) cold = await first.Decompile(apk, "com.example.app.Main", true, default);
             int starts = _fake.ArgumentLists.Count(a => a.Contains("-jar"));
-            using var second = new JavaDecompilerService(new DexService()) { Environment = _fake.Environment, Cache = first.Cache };
+            int hashed = first.Cache!.InputsHashed;
+            var dex = new DexService();
+            using var second = new JavaDecompilerService(dex) { Environment = _fake.Environment, Cache = first.Cache };
             await second.Decompile(apk, "com.example.app.Main", true, default); // the JIT's first pass
             var before = MachineLoad.Factor();
             // The read's cost is the best of 5 calls: one call can also hold a blocking GC or a descheduled thread that
@@ -57,9 +63,10 @@ public sealed class JavaDecompilerTests(Xunit.Abstractions.ITestOutputHelper out
                 Assert.Equal(cold, warm);
             }
             var (budget, load) = MachineLoad.Budget(TimeSpan.FromMilliseconds(50), before, MachineLoad.Factor());
-            output.WriteLine($"warm {best.TotalMilliseconds:0.0} ms, budget {budget.TotalMilliseconds:0} ms ({load})");
-            Assert.True(best < budget, $"{best.TotalMilliseconds:0.0} ms, budget {budget.TotalMilliseconds:0} ms ({load})");
             Assert.Equal(starts, _fake.ArgumentLists.Count(a => a.Contains("-jar")));
+            Assert.Equal(hashed, first.Cache.InputsHashed);
+            Assert.Empty(dex.Cached());
+            PerfBudget.Check(best < budget, $"warm {best.TotalMilliseconds:0.0} ms, budget {budget.TotalMilliseconds:0} ms ({load})", output);
             File.SetLastWriteTimeUtc(apk, DateTime.UtcNow.AddMinutes(1));
             File.AppendAllText(apk, "x");
             _fake.Set("crashOnLoad", true);
