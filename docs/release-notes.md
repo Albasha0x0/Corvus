@@ -1,5 +1,274 @@
 # Release notes
 
+## 2.5.0
+
+165 tools and 15 prompts, as in 2.4.0: everything new is a parameter, an action, a view or a kind of an existing tool.
+
+### Highlights
+
+- Stop at a .NET method's first call by `Ns.Type::Method` and read its managed frames in a session, 32-bit programs included.
+- Open sessions and save snapshots on macOS and Windows ARM64, and read macOS core dumps.
+- Hold, list and open the child processes a program starts, and read a running .NET program's heap without stopping it.
+- List and extract installers and frozen Python programs, and write a CycloneDX SBOM of the components a file ships,
+  with their advisories checked offline.
+
+### Breaking changes
+
+- **live_watch:** the separate `deferred` list is gone; deferred and failed watches are rows with `state`, and `address`,
+  `prototype` and `decoding` can be null. `live_break` rows carry `state` too. [3de6df7e](https://github.com/Albasha0x0/Corvus/commit/3de6df7e)
+  - Before: `live_watch session=live-1 action=list` → `{"watches":[...set rows...],"deferred":["w2 app.dll!Run"]}`
+  - After: `live_watch session=live-1 action=list` → `{"watches":[...,{"id":"w2","where":"app.dll!Run","address":null,"state":"deferred"}]}`
+- **save_assembly, save_native:** `overwrite=true` no longer replaces the loaded file; that takes `replaceOriginal=true`
+  and the server switch `--allow-replace-original`. [1899d87a](https://github.com/Albasha0x0/Corvus/commit/1899d87a) [f37e24ff](https://github.com/Albasha0x0/Corvus/commit/f37e24ff)
+  - Before: `save_assembly assembly=app.dll outputPath=<path of app.dll> overwrite=true`
+  - After: `save_assembly assembly=app.dll replaceOriginal=true` (server started with `--allow-replace-original`)
+- **live_session:** attaching needs `--allow-live-attach`; `--allow-live` alone lists processes. [e63e805a](https://github.com/Albasha0x0/Corvus/commit/e63e805a)
+  - Before: server `--allow-live`, then `live_session action=attach process=1234`
+  - After: server `--allow-live-attach`, then `live_session action=attach process=1234`
+- **live_read:** registers come only when asked, and the result pages as bytes (`offset`, `nextOffset`). [9e871e40](https://github.com/Albasha0x0/Corvus/commit/9e871e40)
+  - Before: `live_read session=live-1 memory=rsp` → registers of the held thread and the memory
+  - After: `live_read session=live-1 memory=rsp registers=all` → the same; without `registers=` only the memory
+- **Frida:** a Frida older than 17.0 is refused with `provider_unavailable`; one outside 17.24.3 to 17.x opens with an
+  error event naming both versions. [52679133](https://github.com/Albasha0x0/Corvus/commit/52679133)
+  - Before: any Frida with Python bindings started a session
+  - After: `python -m pip install "frida>=17.24.3,<18"`, or start the server with `--live-install-frida`
+- **File tools:** `summarize_file`, `list_assemblies path=`, `unpack_container`, `search_container` and the dump reads
+  read untrusted files in a corvus worker process with its memory capped; a worker that cannot start is refused as
+  `provider_unavailable`, with no silent fallback to the server process. [5a6a7ee6](https://github.com/Albasha0x0/Corvus/commit/5a6a7ee6)
+  - Before: `summarize_file path=app.exe` parsed the file in the server process
+  - After: the same call reads it in a worker; start the server with `--in-process-parsing` (or
+    `CORVUS_IN_PROCESS_PARSING=1`) to read in the server process, or `CORVUS_WORKER_HOST=0` to turn every worker off
+- **inspect_process:** a `live-N` id resolves only through its session; an ended session's id is refused. [eec4b54e](https://github.com/Albasha0x0/Corvus/commit/eec4b54e)
+  - Before: `inspect_process process=live-1` after the session closed named whatever process reused the pid
+  - After: the same call answers `not_found`; pass the process id
+
+### Changes
+
+- **Upgrade:** the native code index is built again once (persist format 17), Il2Cpp games read by the built-in reader are
+  read again once, and `bucket_minidumps` computes cached signatures again once. [2a6b25dd](https://github.com/Albasha0x0/Corvus/commit/2a6b25dd) [35de67ea](https://github.com/Albasha0x0/Corvus/commit/35de67ea) [99e838dc](https://github.com/Albasha0x0/Corvus/commit/99e838dc)
+- **Sessions, .NET:** stops name JIT-compiled and ReadyToRun frames through the runtime's DAC, and `live_break` and
+  `live_watch` take `Ns.Type::Method`, stopping at the first call (`Main` included) and following tiered recompiles.
+  Verified on .NET 10 x64 on Windows 11 x64; not supported on Linux targets. [0adca182](https://github.com/Albasha0x0/Corvus/commit/0adca182) [e874ead6](https://github.com/Albasha0x0/Corvus/commit/e874ead6)
+- **Sessions, 32-bit .NET:** the 32-bit decoder process reads a 32-bit runtime under the 64-bit server for frames, coverage
+  and heap reads, each read within 15 s. Verified on .NET Framework 4.8 x86 on Windows 11 x64. [7260b18f](https://github.com/Albasha0x0/Corvus/commit/7260b18f) [6c777c9a](https://github.com/Albasha0x0/Corvus/commit/6c777c9a)
+- **Sessions, single-file and Framework apps:** methods of a single-file bundle and of a Framework assembly loaded as its
+  native image take stop points; `live_session downloadDac=true` fetches a missing DAC (off by default, refused under
+  `CORVUS_OFFLINE=1`). [a82f007a](https://github.com/Albasha0x0/Corvus/commit/a82f007a) [5eee839d](https://github.com/Albasha0x0/Corvus/commit/5eee839d) [719ecde0](https://github.com/Albasha0x0/Corvus/commit/719ecde0)
+- **Heap of a running program:** `dump_heap` and `dump_object` take a session id (x64, and x86 through the decoder
+  process). [3652cf43](https://github.com/Albasha0x0/Corvus/commit/3652cf43)
+- **Child processes:** `live_session childNames` holds children at their start; `action=children`, `attach_child`,
+  `release_child`. Verified on Windows 11 x64 and Linux x64 (fork and exec, `posix_spawn`, `/proc/self/exe`).
+  [957d6fb1](https://github.com/Albasha0x0/Corvus/commit/957d6fb1) [49e33e73](https://github.com/Albasha0x0/Corvus/commit/49e33e73) [c6efa8b5](https://github.com/Albasha0x0/Corvus/commit/c6efa8b5)
+- **Sandboxed processes:** children under a restricted token or AppContainer load the agent; a refusal names the token.
+  Verified with Chromium child processes on Windows 11 x64. [cc0c3501](https://github.com/Albasha0x0/Corvus/commit/cc0c3501) [5480446f](https://github.com/Albasha0x0/Corvus/commit/5480446f)
+- **Stop points and watches:** points defer until a module loads or a method compiles and report `state`; `name+0xN`;
+  points on a jump follow it; points through a delay-load pointer move when it is rebound; a point in a packed DLL is set
+  once its entry point returns. [82569e67](https://github.com/Albasha0x0/Corvus/commit/82569e67) [3de6df7e](https://github.com/Albasha0x0/Corvus/commit/3de6df7e) [0747b876](https://github.com/Albasha0x0/Corvus/commit/0747b876) [4329023d](https://github.com/Albasha0x0/Corvus/commit/4329023d)
+- **Watches:** a function with no prototype records raw argument and return values; DWARF prototypes decode System V x64
+  float and aggregate parameters. [fc8e83d9](https://github.com/Albasha0x0/Corvus/commit/fc8e83d9) [c6481ed9](https://github.com/Albasha0x0/Corvus/commit/c6481ed9)
+- **live_read:** any address, a module by name, 256-byte rows, `cstring` / `utf16` to the terminator, C-style arrays,
+  `registers=all`. [9e871e40](https://github.com/Albasha0x0/Corvus/commit/9e871e40) [3013c8a6](https://github.com/Albasha0x0/Corvus/commit/3013c8a6) [e47f744f](https://github.com/Albasha0x0/Corvus/commit/e47f744f)
+- **live_coverage:** waits for a module loaded later, covers managed assemblies from the runtime's record, suggests narrower
+  matches over its 5,000-function cap, and sets bare points (a program under coverage starts and exits several times
+  faster). [096e5567](https://github.com/Albasha0x0/Corvus/commit/096e5567) [058e28cd](https://github.com/Albasha0x0/Corvus/commit/058e28cd) [330e75b2](https://github.com/Albasha0x0/Corvus/commit/330e75b2) [652e6244](https://github.com/Albasha0x0/Corvus/commit/652e6244)
+- **live_timeline:** leaves out the session's own helper files and records a started program's process id. [0b819d2f](https://github.com/Albasha0x0/Corvus/commit/0b819d2f)
+  [1d970f15](https://github.com/Albasha0x0/Corvus/commit/1d970f15)
+- **Sessions on macOS and Windows ARM64:** `live_session` opens on macOS and saves snapshots through lldb; `module!export`
+  resolves as the program's loader does (the dyld shared cache, the x64 or x86 view of ARM64X and CHPE system DLLs); a
+  Mach-O symbol is found by its C name (`open` for `_open`); an ARM64 program's exit status is read from x0, and a stop at
+  a function's first instruction names its caller. Programs emulated on ARM64: a snapshot is refused (it would hold the
+  emulator's threads), and a deferred point in a DLL whose entry point writes its code fails with the reason. Verified in
+  the live CI job on Windows x64, Windows ARM64, Ubuntu and macOS arm64 (lldb-2100.0.17.203). [048992fe](https://github.com/Albasha0x0/Corvus/commit/048992fe)
+  [5a4c6079](https://github.com/Albasha0x0/Corvus/commit/5a4c6079) [a9fa6e6e](https://github.com/Albasha0x0/Corvus/commit/a9fa6e6e) [d81bb276](https://github.com/Albasha0x0/Corvus/commit/d81bb276) [a5dd8851](https://github.com/Albasha0x0/Corvus/commit/a5dd8851) [7438fcc2](https://github.com/Albasha0x0/Corvus/commit/7438fcc2) [95b06f04](https://github.com/Albasha0x0/Corvus/commit/95b06f04) [953f42cd](https://github.com/Albasha0x0/Corvus/commit/953f42cd) [d2c2ed27](https://github.com/Albasha0x0/Corvus/commit/d2c2ed27)
+  - On macOS arm64, supported: spawn and attach, stop points by name, address and line, deferred points, watches with raw
+    values, `live_read`, scripts, `live_coverage`, snapshots through lldb (the core keeps lldb's registers; the stop is
+    not recorded as an exception), session deadlines and two sessions at once.
+  - On macOS, not supported: following child processes (`childNames` refused: Frida's child gating misses a fork there),
+    .NET method stops and managed frame names (the runtime decoder runs on Windows only), `live_timeline` (no activity
+    trace reader off Windows) and `live_console` (the console host is the Windows pseudoconsole).
+- **live_events:** call events have a ring of their own (10,000) beside the other events (10,000), so output, stops and
+  exits survive a flood of calls; a page marks what each ring dropped ("N call events dropped (ring capacity 10,000)"),
+  and `dropped` is that total between the cursor and the end of the page. [60df8c18](https://github.com/Albasha0x0/Corvus/commit/60df8c18)
+- **Sessions on Linux:** `file:line` from DWARF, CFI-unwound stops, exit status from `_exit`, thread starts, `ptrace_scope`
+  refusals named, statically linked programs refused before a worker starts (Frida cannot load into them,
+  frida/frida#2533). Verified on Linux x64 and x86 (glibc 2.39), linux-arm64 smoke test in an emulated VM; musl: attach
+  only. [fda1fd00](https://github.com/Albasha0x0/Corvus/commit/fda1fd00) [635708e5](https://github.com/Albasha0x0/Corvus/commit/635708e5) [d451d936](https://github.com/Albasha0x0/Corvus/commit/d451d936) [a9a2a00b](https://github.com/Albasha0x0/Corvus/commit/a9a2a00b) [053f382e](https://github.com/Albasha0x0/Corvus/commit/053f382e)
+- **Snapshots at a stop:** the stop is the dump's exception (x64, x86 under WoW64) or the core's signal with the stop's
+  registers (Linux); a snapshot of a program changing during the read is retried. [02a58f2b](https://github.com/Albasha0x0/Corvus/commit/02a58f2b) [8b242284](https://github.com/Albasha0x0/Corvus/commit/8b242284)
+  [7737ae1e](https://github.com/Albasha0x0/Corvus/commit/7737ae1e) [f1c9f16b](https://github.com/Albasha0x0/Corvus/commit/f1c9f16b)
+- **Il2Cpp and NativeAOT stacks:** session frames named by method from the code index. [ce09a2a9](https://github.com/Albasha0x0/Corvus/commit/ce09a2a9)
+- **Program allow list:** `--live-allow <program or folder>` limits spawn, attach and `live_console`, compared by final
+  path. [e63e805a](https://github.com/Albasha0x0/Corvus/commit/e63e805a) [e27efe55](https://github.com/Albasha0x0/Corvus/commit/e27efe55)
+- **Pinned Frida:** `--live-install-frida` (off by default) installs Frida 17.24.3 from hash-checked wheels into a private
+  Python environment; `server_status` shows the version against the tested range 17.24.3 to 17.x. [0700c27c](https://github.com/Albasha0x0/Corvus/commit/0700c27c)
+  [52679133](https://github.com/Albasha0x0/Corvus/commit/52679133)
+- **Installers:** NSIS, Inno Setup (data formats 5.5.0 to 7.1), WiX Burn, Squirrel and ClickOnce list and extract under
+  their install paths; LZX decodes faster (a 14.1 s cabinet listing in 11.2 s). Compared with 7-Zip, innounp 2.71.2,
+  lessmsi 2.x and wix burn extract 5.0.2. [72efd8e5](https://github.com/Albasha0x0/Corvus/commit/72efd8e5) [f6ec02d4](https://github.com/Albasha0x0/Corvus/commit/f6ec02d4) [65b572ac](https://github.com/Albasha0x0/Corvus/commit/65b572ac) [7fb9c460](https://github.com/Albasha0x0/Corvus/commit/7fb9c460) [83fcd283](https://github.com/Albasha0x0/Corvus/commit/83fcd283)
+  [ee8ce050](https://github.com/Albasha0x0/Corvus/commit/ee8ce050) [a8ceb8ec](https://github.com/Albasha0x0/Corvus/commit/a8ceb8ec)
+- **Python programs:** PyInstaller, py2exe, cx_Freeze, Nuitka onefile and library zips list every file with its role and
+  Python version; `summarize_file view=python` disassembles `.pyc` as `dis` of its version prints it (2.7, 3.0 to
+  3.14); `CORVUS_PY_DECOMPILER` adds the source, with the decompiler named and its warnings kept as a note (an exit
+  other than 0 marks the source as possibly partial). [3b3fdd3a](https://github.com/Albasha0x0/Corvus/commit/3b3fdd3a) [2ca14eb5](https://github.com/Albasha0x0/Corvus/commit/2ca14eb5) [00eea165](https://github.com/Albasha0x0/Corvus/commit/00eea165) [a378c054](https://github.com/Albasha0x0/Corvus/commit/a378c054)
+- **Packages and images:** Godot packs, Flatpak bundles, apk v3, Debian packages, ar libraries and JMOD files list and
+  extract; WebAssembly components open as their core modules. [4fa10d46](https://github.com/Albasha0x0/Corvus/commit/4fa10d46) [34f5043a](https://github.com/Albasha0x0/Corvus/commit/34f5043a) [8f3c4b3d](https://github.com/Albasha0x0/Corvus/commit/8f3c4b3d) [709e895b](https://github.com/Albasha0x0/Corvus/commit/709e895b)
+  [cd5c13fa](https://github.com/Albasha0x0/Corvus/commit/cd5c13fa) [18180675](https://github.com/Albasha0x0/Corvus/commit/18180675)
+- **Firmware:** permission bits on every filesystem entry, a zip after a vendor header carved at the image's level,
+  Sercomm headers sized, empty UBI volumes listed. [29131322](https://github.com/Albasha0x0/Corvus/commit/29131322) [68e215c3](https://github.com/Albasha0x0/Corvus/commit/68e215c3) [4ef64f85](https://github.com/Albasha0x0/Corvus/commit/4ef64f85) [abbec909](https://github.com/Albasha0x0/Corvus/commit/abbec909)
+- **Captures:** TLS 1.3 early data decrypts; HTTP/1.x request bodies export under `requests/`; acknowledged TCP holes become
+  gaps at once. Compared with `tshark --export-objects http`. [9f2d35ac](https://github.com/Albasha0x0/Corvus/commit/9f2d35ac) [ba43bbf5](https://github.com/Albasha0x0/Corvus/commit/ba43bbf5) [86917711](https://github.com/Albasha0x0/Corvus/commit/86917711) [4e5ea498](https://github.com/Albasha0x0/Corvus/commit/4e5ea498)
+- **Security:** the file tools (`summarize_file`, `list_assemblies path=`, `unpack_container`, `search_container`, dump
+  reads) read untrusted files in a corvus worker process by default; `CORVUS_IN_PROCESS_PARSING=1` restores in-process
+  reading, `CORVUS_WORKER_HOST=0` turns every worker off. A worker shares concurrent calls, and a crash, memory limit or
+  deadline ends the worker, not the server; text and structured output are the same as in process. Reads that stay in
+  the server (`load_assembly` and tools over loaded images, `dump_stack`, `bucket_minidumps`, dump reads while images
+  are loaded) are listed in SECURITY.md. A request whose shared worker was stopped for another request runs again on a
+  fresh worker. Verified on win-x64 (0.2 ms per warm read, 485 ms for a worker's start and first read). [c74f0cb5](https://github.com/Albasha0x0/Corvus/commit/c74f0cb5)
+  [bd40b2dd](https://github.com/Albasha0x0/Corvus/commit/bd40b2dd) [02991ccf](https://github.com/Albasha0x0/Corvus/commit/02991ccf) [5a6a7ee6](https://github.com/Albasha0x0/Corvus/commit/5a6a7ee6) [9fe4bb04](https://github.com/Albasha0x0/Corvus/commit/9fe4bb04) [a4e073c6](https://github.com/Albasha0x0/Corvus/commit/a4e073c6)
+- **Dependencies:** `summarize_file view=dependencies` lists the components a file ships, each with its evidence, and
+  `sbomPath` writes them as a CycloneDX 1.6 SBOM. Package URLs come only from package-level evidence: a deps.json
+  (`pkg:nuget` with the package SHA-512 and dependency edges), an assembly's informational version, Go build information
+  or Rust crates; an assembly version alone leaves the package version unknown. An Il2Cpp game lists Unity and the
+  assemblies its metadata names. A frozen Python program (PyInstaller, py2exe, cx_Freeze, Nuitka) lists its interpreter
+  and its distributions as `pkg:pypi` from their metadata, other packages by import name with the version their
+  `__version__` binds. An APK or app bundle lists its Maven libraries (`pkg:maven`), AndroidX version files, native
+  libraries with their ABIs and the OpenSSL, zlib, libpng, libcurl and libjpeg-turbo versions compiled into them; a split
+  set (.xapk, .apks, .apkm) is read as one app. With osv-scanner 2 or newer (`CORVUS_OSV_SCANNER` or PATH) the view reports each
+  component's advisories from the databases the user downloaded, run with `--offline`; without it, advisories read
+  "not checked" with the reason. Corvus makes no network request. SBOMs validated with CycloneDX.Core 12.1.2; compared
+  with osv-scanner 2.7.0. [b210a387](https://github.com/Albasha0x0/Corvus/commit/b210a387) [3a57d562](https://github.com/Albasha0x0/Corvus/commit/3a57d562) [c58e3b55](https://github.com/Albasha0x0/Corvus/commit/c58e3b55) [00b0df27](https://github.com/Albasha0x0/Corvus/commit/00b0df27) [674577d6](https://github.com/Albasha0x0/Corvus/commit/674577d6) [07a4ca34](https://github.com/Albasha0x0/Corvus/commit/07a4ca34)
+- **YARA rules:** `search_container kind=yara` runs YARA-X 1.22.0 rules (a file, a folder of `.yar` / `.yara` files, or
+  rule text in `query`) against a file, every member its container walk reads, or a dump's captured memory at virtual
+  addresses. Rules compile from source on every call; a rule that does not compile is named with its line and the rest
+  still run. The engine runs in a corvus worker process, so an engine fault ends the worker, not the server; it is on
+  by default, and `CORVUS_WORKER_HOST=0` turns it off. The library ships in the release archives and the .NET tool for win-x64, win-arm64,
+  linux-x64, linux-arm64 (glibc 2.34 or newer), osx-x64 and osx-arm64; musl archives carry none and the scan is refused
+  naming the platform. Matches equal the `yr` 1.22.0 command line on the test rules (Windows x64). [f398695f](https://github.com/Albasha0x0/Corvus/commit/f398695f)
+  [668d271b](https://github.com/Albasha0x0/Corvus/commit/668d271b) [76e4dd95](https://github.com/Albasha0x0/Corvus/commit/76e4dd95) [84e9ea57](https://github.com/Albasha0x0/Corvus/commit/84e9ea57) [6449ae46](https://github.com/Albasha0x0/Corvus/commit/6449ae46)
+- **Region-set dumps:** a JSON manifest of memory region files (base address, size, protection, optional modules) saved
+  by any tool opens through `open_minidump` and `read_dump_memory` at its real addresses; modules are rebuilt from the
+  memory, views that need threads report them as unknown, and a missing region file reads as unknown. [97580469](https://github.com/Albasha0x0/Corvus/commit/97580469)
+- **macOS and ARM64 dumps:** macOS Mach-O core dumps (ARM64, x86_64) open in the dump tools; ARM64 minidumps walk past
+  the first frame, and a snapshot at an ARM64 stop records the stop. [5b9e7ab3](https://github.com/Albasha0x0/Corvus/commit/5b9e7ab3) [4a3c4bc1](https://github.com/Albasha0x0/Corvus/commit/4a3c4bc1)
+- **x86 dump stacks:** walks use the module PDB's frame data, continue at an exception's context record, match import
+  calls read from a rebased module file, follow tail jumps through an import slot and find the caller of a thread stopped
+  at a block entry; frames chained from a scan's guess are marked inferred. Compared with cdb 10.0.26100.6584 (x86).
+  [18e8f15b](https://github.com/Albasha0x0/Corvus/commit/18e8f15b) [6506e5ef](https://github.com/Albasha0x0/Corvus/commit/6506e5ef) [de228012](https://github.com/Albasha0x0/Corvus/commit/de228012)
+  [034cb6d1](https://github.com/Albasha0x0/Corvus/commit/034cb6d1) [9881013b](https://github.com/Albasha0x0/Corvus/commit/9881013b) [c8e0230b](https://github.com/Albasha0x0/Corvus/commit/c8e0230b)
+- **Dumps:** `dump_heap` and `dump_object` read Linux cores of .NET processes with the Windows-hosted DAC for Linux targets
+  (server on Windows only); a single-file app's runtime is found; Mono frames name Mono's own report; COFF symbols name
+  frames. [65342d36](https://github.com/Albasha0x0/Corvus/commit/65342d36) [d1d5c0f4](https://github.com/Albasha0x0/Corvus/commit/d1d5c0f4) [dfeb86b3](https://github.com/Albasha0x0/Corvus/commit/dfeb86b3) [9e2e7333](https://github.com/Albasha0x0/Corvus/commit/9e2e7333)
+- **Native:** `list_cpp_classes` reads Delphi and Free Pascal VMTs; MIPS imports from the global GOT; ARM64 `.pdata` /
+  `.xdata` handlers in `get_exception_info`. [551ad882](https://github.com/Albasha0x0/Corvus/commit/551ad882) [81fd2e59](https://github.com/Albasha0x0/Corvus/commit/81fd2e59) [ecf87e7c](https://github.com/Albasha0x0/Corvus/commit/ecf87e7c)
+- **Il2Cpp:** builds that fill the code registration at run time map their generic method bodies, and builds before
+  metadata 27 read; the known limit "generic method bodies with runtime-filled registration are not mapped" is removed.
+  [c1a2a07e](https://github.com/Albasha0x0/Corvus/commit/c1a2a07e) [7f8ef5ba](https://github.com/Albasha0x0/Corvus/commit/7f8ef5ba)
+- **Engines:** IDA analyses an open within a budget and saves a partial analysis that the next open or
+  `reanalyze_native` continues; timeouts name the limit that ran out. Verified on IDA 9.3 and Ghidra 12.0.4 on Windows 11
+  x64. [ea0fb99c](https://github.com/Albasha0x0/Corvus/commit/ea0fb99c) [6075deb2](https://github.com/Albasha0x0/Corvus/commit/6075deb2) [31037bcc](https://github.com/Albasha0x0/Corvus/commit/31037bcc) [1384d85d](https://github.com/Albasha0x0/Corvus/commit/1384d85d) [ddc6e532](https://github.com/Albasha0x0/Corvus/commit/ddc6e532)
+- **Engine line:** a saved IDA or Ghidra analysis that an open's time limit cut short reads "partial" and names
+  `reanalyze_native`; nothing completes it unasked. [3f77e47d](https://github.com/Albasha0x0/Corvus/commit/3f77e47d)
+- **Ghidra time limits:** a worker stopped for time reports its heap and up to three busy Ghidra threads, read by the
+  JDK's jcmd, or jhsdb when jcmd gets no answer, from the process of the worker tree that hosts the JVM (a PyGhidra
+  worker included); a report that reads nothing says "worker state unknown" with the reason. The full thread dump is
+  saved under the analysis cache's `ghidra/stalls`, or in `CORVUS_STALL_DIR` when set. [08f2735f](https://github.com/Albasha0x0/Corvus/commit/08f2735f) [0206cd6e](https://github.com/Albasha0x0/Corvus/commit/0206cd6e)
+  [40f45445](https://github.com/Albasha0x0/Corvus/commit/40f45445) [cbdbf18f](https://github.com/Albasha0x0/Corvus/commit/cbdbf18f) [c400d8af](https://github.com/Albasha0x0/Corvus/commit/c400d8af)
+- **Package review:** `view=package` reads more install-time behaviour (downloads run, reverse shells, detached processes,
+  decoded commands, secrets sent to chat webhooks, zero-width display names). [6c57bdd6](https://github.com/Albasha0x0/Corvus/commit/6c57bdd6) [44f62a27](https://github.com/Albasha0x0/Corvus/commit/44f62a27) [023a1f0e](https://github.com/Albasha0x0/Corvus/commit/023a1f0e)
+- **Edits:** every edit carries a content digest, the same in its dry run, the applied edit and `list_edits`; saves list
+  the edits they wrote. [14d22758](https://github.com/Albasha0x0/Corvus/commit/14d22758)
+- **Comparisons:** `compare_folders noDiffs=true`; `diff_function` compares a kept result with a loaded image.
+  [1545f272](https://github.com/Albasha0x0/Corvus/commit/1545f272) [942166ea](https://github.com/Albasha0x0/Corvus/commit/942166ea)
+- **Catalog:** shorter tool and parameter descriptions: model-facing catalog 151,600 bytes, tools/list 308,415, lean
+  37,178, core 88,307. [be75e4c1](https://github.com/Albasha0x0/Corvus/commit/be75e4c1) [7513ca65](https://github.com/Albasha0x0/Corvus/commit/7513ca65)
+- **Batch scans:** `corvus batch --file <path> --json` runs a fixed set of read-only steps (`summarize_file`, the
+  container listing when the file is one, strings of a .NET assembly) and prints one `corvus.batch/1` document with the
+  file's hashes, the limits used and a status per section (complete, partial with the limit reached, not_applicable,
+  unavailable, error, timeout). `--time-limit` (default 120 s) ends the run with exit code 124 and the document still
+  written. `batch --file --rules <file|folder>` adds YARA rule matches to the corvus.batch/1 document
+  (`--limit yaraMatches=N`, default 500). [3ce1d488](https://github.com/Albasha0x0/Corvus/commit/3ce1d488) [ce4908b9](https://github.com/Albasha0x0/Corvus/commit/ce4908b9)
+- **server_status:** the first call checks the engines and the external programs side by side, so it waits for the
+  slowest check rather than their sum. [b40bcf0a](https://github.com/Albasha0x0/Corvus/commit/b40bcf0a)
+- **Repository tests:** `./test.ps1 -Perf` runs the timing tests alone, one at a time, and fails only on a test over
+  budget in most of 5 samples and in the perf run before; `./test.ps1 -Status` shows the last perf verdict and the last
+  nightly step. `./nightly.ps1 -Register` (opt-in, Windows scheduled task, `-Unregister` removes it) runs a whole full
+  run and then the perf run each night. A whole run takes the machine-wide heavy lock and push runs no longer do; the
+  sweep and timing classes run beside the parallel classes instead of after them; background runs keep one worktree
+  between runs and refresh the coverage map once it is 6 days old. `release.ps1` ships on any whole-suite pass on a clean
+  tree (background, nightly or foreground) on the release's history, at most 50 commits back (`-MaxBehind`).
+  Every test run lowers its priority (BelowNormal on Windows, nice 10 elsewhere; `CORVUS_TEST_PRIORITY=normal` keeps
+  normal; the perf run keeps normal); a class waiting over 10 minutes for a machine permit fails naming the slot and its
+  holder; `-Perf` also flags a measurement whose median slows past 1.5 times its per-OS baseline in two runs in a row.
+  [bc1a1888](https://github.com/Albasha0x0/Corvus/commit/bc1a1888) [25c2773d](https://github.com/Albasha0x0/Corvus/commit/25c2773d) [23af2523](https://github.com/Albasha0x0/Corvus/commit/23af2523) [fa39d88b](https://github.com/Albasha0x0/Corvus/commit/fa39d88b) [002d29b4](https://github.com/Albasha0x0/Corvus/commit/002d29b4) [63e0d3ad](https://github.com/Albasha0x0/Corvus/commit/63e0d3ad) [70a35f6e](https://github.com/Albasha0x0/Corvus/commit/70a35f6e) [b08ef2b2](https://github.com/Albasha0x0/Corvus/commit/b08ef2b2)
+  [5f1e7707](https://github.com/Albasha0x0/Corvus/commit/5f1e7707) [59f73928](https://github.com/Albasha0x0/Corvus/commit/59f73928)
+- **Generated assemblies:** Il2Cpp dummies and reference stubs take MVID and PE timestamp from their content, so a rebuild
+  gives the same bytes. [9c73d883](https://github.com/Albasha0x0/Corvus/commit/9c73d883)
+
+### Fixes
+
+- **Dump stacks:** x86 walks reach the program's frames past a thread held in a hook; a scanned copy of a return address is
+  not a second frame. [a029d53a](https://github.com/Albasha0x0/Corvus/commit/a029d53a) [012b765d](https://github.com/Albasha0x0/Corvus/commit/012b765d) [c10acba8](https://github.com/Albasha0x0/Corvus/commit/c10acba8)
+- **Engines:** a function over Hex-Rays' MAX_FUNCSIZE is `limit_exceeded`; Itanium RTTI duplicate names no longer fail the
+  class analysis; IDA's extern segment is left out of function lists; Ghidra opens files whose names it rejects.
+  [ca4c91ec](https://github.com/Albasha0x0/Corvus/commit/ca4c91ec) [6264eb3e](https://github.com/Albasha0x0/Corvus/commit/6264eb3e) [2aebf983](https://github.com/Albasha0x0/Corvus/commit/2aebf983) [15520dff](https://github.com/Albasha0x0/Corvus/commit/15520dff)
+- **Session stops:** a thread that reaches a point after it was cleared is released, so the program runs on and exits; a
+  failed deferred point always names its next step. [81b06731](https://github.com/Albasha0x0/Corvus/commit/81b06731) [d7a211c0](https://github.com/Albasha0x0/Corvus/commit/d7a211c0) [200faba0](https://github.com/Albasha0x0/Corvus/commit/200faba0)
+- **Session frames:** a return address is named by its call, and a library with no loaded image by its symbol table
+  (`.symtab`, `.dynsym`), so a stop reads the same live and in its snapshot. [9b2cb02a](https://github.com/Albasha0x0/Corvus/commit/9b2cb02a)
+- **32-bit .NET sessions:** one failed read of the runtime no longer stops the decoder for the session; the note that
+  coverage counts first compiles comes once that counting is armed. [390a88ad](https://github.com/Albasha0x0/Corvus/commit/390a88ad) [1f857b4b](https://github.com/Albasha0x0/Corvus/commit/1f857b4b)
+- **Linux snapshots:** a program waiting in vfork is refused after 10 s instead of hanging gcore, and is left running.
+  [6999b5af](https://github.com/Albasha0x0/Corvus/commit/6999b5af)
+- **live_coverage:** a leading endbr64 or endbr32 does not count toward a hook's 5 bytes of room, so CET stubs are left
+  out before any point is set, with the instructions named. [b8f374e0](https://github.com/Albasha0x0/Corvus/commit/b8f374e0)
+- **Engines:** an open reports "start" before the engine's open call returns; a worker that exits or crashes is named
+  with its exit code and stderr tail on every path that sees it (macOS and Linux included); a timed-out request names
+  its last stage and how long the worker had been quiet. [1e1c3d5e](https://github.com/Albasha0x0/Corvus/commit/1e1c3d5e) [30707e76](https://github.com/Albasha0x0/Corvus/commit/30707e76) [2f2088b5](https://github.com/Albasha0x0/Corvus/commit/2f2088b5) [c1852fa5](https://github.com/Albasha0x0/Corvus/commit/c1852fa5)
+  [c75aa025](https://github.com/Albasha0x0/Corvus/commit/c75aa025)
+- **IDA opens:** a fatal IDA error that ends the worker is named in the error, and an open that loses IDA's registry race
+  ("Fatal registry error") starts a new worker, at most twice. Verified on IDA 9.3. [c91989fb](https://github.com/Albasha0x0/Corvus/commit/c91989fb) [aba393c4](https://github.com/Albasha0x0/Corvus/commit/aba393c4)
+- **Snapshots of a starting program:** a snapshot waits up to 10 s for the program's loader instead of failing with
+  "the program changed while it was read"; a program held at its start is refused with a timeout naming
+  `live_break action=continue`. Verified on win-x64 and win-x86. [51e5cc1c](https://github.com/Albasha0x0/Corvus/commit/51e5cc1c)
+- **Session starts on macOS:** a start Frida 17.24.3 times out on ("unexpectedly timed out while initializing suspended
+  process") is ended and tried once more; the session names what it ended. Not on Windows, where this timeout has not
+  been seen. [ccc4abd8](https://github.com/Albasha0x0/Corvus/commit/ccc4abd8)
+- **get_pe_info:** the PDB line reports the finished automatic search (waiting up to 30 s, else "PDB search pending").
+  [637cb40e](https://github.com/Albasha0x0/Corvus/commit/637cb40e)
+- **Workspace shutdown:** waits up to 10 s for calls holding or queued for the workspace lock before disposing it.
+  [c79fabb0](https://github.com/Albasha0x0/Corvus/commit/c79fabb0)
+- **Pattern matching:** the built-in patterns (endpoint scans, package review rules, script tokens, stack text formats,
+  values and member names, documents and databases, feature rules, package and class wildcards) have no match timeout,
+  so a loaded machine no longer loses rows. A pattern from a caller or an analyzed script runs without backtracking
+  where it allows; otherwise a timeout is reported as a partial result or as a timeout error naming the pattern.
+  [80ef98c1](https://github.com/Albasha0x0/Corvus/commit/80ef98c1) [f38ff5f5](https://github.com/Albasha0x0/Corvus/commit/f38ff5f5) [a359a15d](https://github.com/Albasha0x0/Corvus/commit/a359a15d) [9bdcb230](https://github.com/Albasha0x0/Corvus/commit/9bdcb230) [818a1e60](https://github.com/Albasha0x0/Corvus/commit/818a1e60) [1333603c](https://github.com/Albasha0x0/Corvus/commit/1333603c) [a43e61e7](https://github.com/Albasha0x0/Corvus/commit/a43e61e7) [bbd950ac](https://github.com/Albasha0x0/Corvus/commit/bbd950ac)
+  [440c9c06](https://github.com/Albasha0x0/Corvus/commit/440c9c06) [795abf97](https://github.com/Albasha0x0/Corvus/commit/795abf97)
+- **Long patterns:** wildcard and substring arguments of `list_android_resources`, `list_dex_classes`, `search_dex` and
+  `search_il` of any length match without a regex; a 100,000-character argument no longer fails as an internal error.
+  [678a26dc](https://github.com/Albasha0x0/Corvus/commit/678a26dc)
+- **External tools:** callers probing one tool at once share one version check, and a version check slower than 15 s
+  leaves the tool usable with its version unknown ("its version check timed out after 15 s"), checked again on the next
+  call, instead of unavailable for the server's life. [eaf5e2fe](https://github.com/Albasha0x0/Corvus/commit/eaf5e2fe) [eef57b52](https://github.com/Albasha0x0/Corvus/commit/eef57b52)
+- **PyGhidra workers:** each Ghidra worker keeps its temporary files, and so PyGhidra's start lock, in its own folder, so
+  workers on one machine no longer queue behind one lock and miss the 2 min start limit. A workaround for
+  NationalSecurityAgency/ghidra#9988; verified with Ghidra 12.1.4 and PyGhidra 3.1.0. [ea53b9a0](https://github.com/Albasha0x0/Corvus/commit/ea53b9a0) [b25bb7c0](https://github.com/Albasha0x0/Corvus/commit/b25bb7c0)
+- **Managed frames:** a frame whose method start ClrMD does not give falls back to the method's native code or its IL
+  map, else reads "(offset unknown)" instead of claiming the method's entry. [7c568d52](https://github.com/Albasha0x0/Corvus/commit/7c568d52)
+- **unload_assembly:** closes an open dump id. [cdd47b37](https://github.com/Albasha0x0/Corvus/commit/cdd47b37)
+- **save_assembly, save_native:** a second save over the original replaces this server's own earlier save. [aeeb5026](https://github.com/Albasha0x0/Corvus/commit/aeeb5026)
+- **Paged session results:** `live_events`, `live_console` and `live_timeline` pages no longer skip rows the output budget
+  cut. [df9d008f](https://github.com/Albasha0x0/Corvus/commit/df9d008f)
+- **Live sessions (Windows):** a program's exit no longer hangs the session after a watch burst or a close during the
+  exit; the agent lets Frida's threads settle for 0.3 s first, a workaround for frida/frida-gum#1192 (Frida 17.24.0 to
+  17.24.3). Verified on win-x64 and win-x86. [0dde7bac](https://github.com/Albasha0x0/Corvus/commit/0dde7bac) [03aa5b70](https://github.com/Albasha0x0/Corvus/commit/03aa5b70)
+- **Stuck exits:** a program held in its exit is ended by the stuck exit check even when Frida reports it terminated
+  before the exit finished. Verified with Frida 17.24.3 on Windows. [ab58b956](https://github.com/Albasha0x0/Corvus/commit/ab58b956) [7519c6cd](https://github.com/Albasha0x0/Corvus/commit/7519c6cd)
+- **Results:** control characters in file text are written as `\uXXXX`, and list rows cannot start a marker line.
+  [6ae387b8](https://github.com/Albasha0x0/Corvus/commit/6ae387b8)
+- **server_status:** fits its report budget again with every external tool configured. A tool set in its variable is
+  named by that variable, the workers section lists at most 3 processes per program, and a fix already given in
+  unavailableTools is not repeated. [f6085507](https://github.com/Albasha0x0/Corvus/commit/f6085507)
+
 ## 2.4.0
 
 165 tools and 15 prompts (2.3.0 had 156): nine session tools are new, in the `live` family and off by default. Record
