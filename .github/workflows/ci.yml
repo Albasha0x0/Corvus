@@ -72,6 +72,15 @@ jobs:
         run: |
           nohup bash -c 'while true; do echo "$(date +%T) $(memory_pressure | grep -i "free percentage") | swap $(sysctl -n vm.swapusage)"; sleep 15; done' > "$RUNNER_TEMP/memory.log" 2>&1 &
 
+      # The pinned YARA-X builds upstream publishes for this platform, checked against their recorded SHA-256
+      # (tests/Corvus.Tests/Support/yara-x-assets.json); the YARA tests of a platform without one skip with the reason.
+      - name: YARA-X test builds
+        shell: pwsh
+        run: |
+          $dir = Join-Path $env:RUNNER_TEMP 'yara-x'
+          ./tests/Corvus.Tests/Support/fetch-yara-x.ps1 -Destination $dir
+          "CORVUS_TEST_YARA_X=$dir" >> $env:GITHUB_ENV
+
       # Tests that need local data (CORVUS_* variables) are skipped. Generated C / C++ / Python is compiled or parsed
       # when clang and python are installed.
       - name: Test

@@ -344,6 +344,13 @@ distinct `package:` and `dart:` URI and identifier token with its offset (the qu
 e.g. `identifier`). `kind=hermes` lists the strings and function names of a Hermes bytecode bundle (or the one in an APK or `.ipa`) with their ids and use counts. `compare_folders` compares two
 `.asar` archives entry by entry without extracting (the app's declared SHA-256 per file, or the hashed data).
 
+**YARA rules** (`search_container kind=yara`, with `CORVUS_WORKER_HOST=1`): the query is a rule file or a folder of
+`.yar` and `.yara` files, compiled and run by YARA-X 1.22.0 in a `corvus worker` process, so a fault in the engine ends
+the worker and not the server. Each row is a rule that matched, with its namespace, tags, metadata and every pattern
+match as offset and length (at most 100 per pattern). A rule that does not compile is named with its file, line,
+column and error, and the other rules still run. Modules `pe`, `elf`, `macho`, `dotnet`, `dex`, `hash`, `math`,
+`time` and `lnk` are available; `cuckoo` and `vt` are not. On the fixture rules the matches equal those of `yr scan`.
+
 **ReadyToRun** (`readyToRun`): the image carries precompiled native code next to its IL (crossgen2,
 `PublishReadyToRun`, and the shared framework itself). The IL is still there and decompiles normally.
 

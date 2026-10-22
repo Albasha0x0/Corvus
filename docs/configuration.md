@@ -235,6 +235,7 @@ Untrusted work runs in `corvus worker` child processes, so a crash or memory exh
 | `CORVUS_WORKER_HOST` | off | `1`: start worker processes for untrusted work. |
 | `CORVUS_WORKER_MEMORY_MB` | ½ of available | Memory limit of each worker (Windows job object, Linux RLIMIT_DATA, macOS footprint watchdog), at least 256; `0`: none. A worker that reaches it fails its call with `limit_exceeded` and is replaced. |
 | `CORVUS_WORKER_FIXTURE_OPS` | off | `1` in a worker's environment: it also answers the fixture ops the tests use. |
+| `CORVUS_YARA_LIBRARY` | shipped build | Full path of a libyara_x_capi 1.22.0 build for `search_container kind=yara` on a platform without one. |
 | `CORVUS_CHILD_DATA_KB` | — | Set by Corvus for a Linux child it caps; becomes the child's RLIMIT_DATA and is not passed on. |
 
 ### Install and update

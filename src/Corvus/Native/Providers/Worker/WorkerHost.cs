@@ -40,10 +40,10 @@ public static class WorkerHost
         return Run(input, protocol, Ops(Environment.GetEnvironmentVariable(FixtureOpsVariable) == "1"));
     }
 
-    /// <summary>The ops this worker answers: ping always, the fixture ops when <paramref name="fixtures"/>.</summary>
+    /// <summary>The ops this worker answers: ping and the YARA scan always, the fixture ops when <paramref name="fixtures"/>.</summary>
     internal static IReadOnlyDictionary<string, WorkerOp> Ops(bool fixtures)
     {
-        var ops = new Dictionary<string, WorkerOp>(StringComparer.Ordinal) { ["ping"] = Ping };
+        var ops = new Dictionary<string, WorkerOp>(StringComparer.Ordinal) { ["ping"] = Ping, [Yara.YaraOps.ScanOp] = Yara.YaraOps.Scan };
         if (fixtures)
         {
             ops["fixture_allocate"] = Allocate;

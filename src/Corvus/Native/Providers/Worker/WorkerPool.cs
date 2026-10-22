@@ -35,6 +35,25 @@ public sealed class WorkerPool(WorkerPoolOptions? options = null) : IDisposable
     /// <summary>The smallest limit applied: below it the runtime itself does not start under RLIMIT_DATA.</summary>
     public const long MinimumMemoryBytes = 256L << 20;
 
+    private static readonly WorkerPool Default = new();
+    private static readonly AsyncLocal<WorkerPool?> SharedOverride = new();
+
+    /// <summary>The server's pool, configured from the environment; its workers end with the server.</summary>
+    public static WorkerPool Shared => SharedOverride.Value ?? Default;
+
+    /// <summary>Tests: <paramref name="pool"/> serves <see cref="Shared"/> in the calling flow until disposed.</summary>
+    internal static IDisposable UseShared(WorkerPool pool)
+    {
+        var before = SharedOverride.Value;
+        SharedOverride.Value = pool;
+        return new RestoreShared(before);
+    }
+
+    private sealed class RestoreShared(WorkerPool? before) : IDisposable
+    {
+        public void Dispose() => SharedOverride.Value = before;
+    }
+
     private readonly WorkerPoolOptions _options = options ?? new WorkerPoolOptions();
     private readonly Dictionary<string, Slot> _slots = [];
     private int _disposed;
