@@ -81,8 +81,15 @@ public sealed class LiveChildrenRealTests(ITestOutputHelper output) : LiveToolCa
         await using var server = await Server();
         var parent = await SpawnFollowing(server, launcher, orders, restricted);
         var child = await HeldChild(server, orders);
+        using var watched = Watch(child);
 
-        var attached = await Ok(server, "live_session", new() { ["action"] = "attach_child", ["session"] = "live-1", ["program"] = child.ToString(CultureInfo.InvariantCulture) });
+        string attached;
+        try { attached = await Ok(server, "live_session", new() { ["action"] = "attach_child", ["session"] = "live-1", ["program"] = child.ToString(CultureInfo.InvariantCulture) }); }
+        catch (Xunit.Sdk.XunitException e)
+        {
+            var state = watched == null ? "unknown (no handle)" : watched.HasExited ? $"exited with code 0x{watched.ExitCode:X8}" : "still running";
+            throw new Xunit.Sdk.XunitException($"{e.Message}\nheld child {child}: {state}\n{await Events(server, "live-1", log: false)}");
+        }
         Assert.Contains($"live-2 (frida): {child} pid {child}, suspended", attached);
         Assert.Contains("(held by live-1)", attached);
         Assert.Contains("s1 set at", await Ok(server, "live_break", new() { ["session"] = "live-2", ["action"] = "set", ["at"] = "AddLine" }));
@@ -156,6 +163,18 @@ public sealed class LiveChildrenRealTests(ITestOutputHelper output) : LiveToolCa
         }
         await Ok(server, "live_session", new() { ["action"] = "close", ["session"] = "live-1" });
         Ended(program);
+    }
+
+    /// <summary>The child's process, its handle taken now so its exit code stays readable; null when it cannot be opened.</summary>
+    private static Process? Watch(int pid)
+    {
+        try
+        {
+            var process = Process.GetProcessById(pid);
+            _ = process.SafeHandle;
+            return process;
+        }
+        catch (Exception e) when (e is ArgumentException or InvalidOperationException or System.ComponentModel.Win32Exception) { return null; }
     }
 
     [System.Runtime.Versioning.SupportedOSPlatform("windows")]
