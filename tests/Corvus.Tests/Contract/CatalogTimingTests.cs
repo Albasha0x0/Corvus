@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using Microsoft.Extensions.DependencyInjection;
 using ModelContextProtocol.Client;
 
 namespace Corvus.Tests;
@@ -14,6 +15,7 @@ public class CatalogTimingTests(Xunit.Abstractions.ITestOutputHelper output)
     public const string ServerExeVariable = "CORVUS_SERVER_EXE";
 
     [Fact]
+    [Trait(PerfBudget.Trait, PerfBudget.Timing)]
     public async Task InitializeAndToolsListAreFast()
     {
         var exe = Environment.GetEnvironmentVariable(ServerExeVariable);
@@ -43,7 +45,15 @@ public class CatalogTimingTests(Xunit.Abstractions.ITestOutputHelper output)
         var (listBudget, load) = MachineLoad.Budget(TimeSpan.FromMilliseconds(50), before, after);
         var (initializeBudget, _) = MachineLoad.Budget(TimeSpan.FromSeconds(1), before, after);
         output.WriteLine($"{exe ?? "dotnet corvus.dll"}: initialize {initialize.TotalMilliseconds:0} ms, first tools/list {times[0]:0} ms, p50 {p50:0.0} ms ({load})");
-        Assert.True(p50 <= listBudget.TotalMilliseconds, $"tools/list p50 {p50:0.0} ms, over {listBudget.TotalMilliseconds:0} ms ({load})");
-        if (exe != null) Assert.True(initialize <= initializeBudget, $"initialize {initialize.TotalMilliseconds:0} ms, over {initializeBudget.TotalMilliseconds:0} ms ({load})");
+        PerfBudget.Check(p50 <= listBudget.TotalMilliseconds, $"tools/list p50 {p50:0.0} ms, budget {listBudget.TotalMilliseconds:0} ms ({load})", output);
+        if (exe != null) PerfBudget.Check(initialize <= initializeBudget, $"initialize {initialize.TotalMilliseconds:0} ms, budget {initializeBudget.TotalMilliseconds:0} ms ({load})", output);
+
+        // tools/list is answered from one serialized listing built at start, not from the tools on each request.
+        await using var server = await InProcessServer.StartAsync();
+        var mcp = server.Services.GetRequiredService<Microsoft.Extensions.Options.IOptions<ModelContextProtocol.Server.McpServerOptions>>().Value;
+        var (built, served) = Corvus.Mcp.ToolListCache.Counts(mcp);
+        for (int i = 0; i < 21; i++) Assert.NotEmpty(await server.Client.ListToolsAsync());
+        Assert.Equal((built, served + 21), Corvus.Mcp.ToolListCache.Counts(mcp));
+        Assert.Equal(1, built);
     }
 }

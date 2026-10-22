@@ -22,6 +22,7 @@ public static class ToolListCache
     private sealed class State
     {
         public readonly ConcurrentDictionary<string, Lazy<Listing>> ByProfile = new(StringComparer.Ordinal);
+        public int Built, Served;
     }
 
     private static readonly ConditionalWeakTable<McpServerOptions, State> States = new();
@@ -33,6 +34,7 @@ public static class ToolListCache
             && context.Server?.ServerOptions is { ToolCollection: not null } options)
         {
             var listing = For(options, Profile(context.Services, context.Server.ClientInfo?.Name));
+            Interlocked.Increment(ref StateOf(options).Served);
             // The server routes the response by the request's own transport; only transports set Context.
             await context.Server.SendMessageAsync(new JsonRpcResponse { Id = request.Id, Result = JsonNode.Parse(listing.Result) }, ct).ConfigureAwait(false);
             return;
@@ -58,14 +60,27 @@ public static class ToolListCache
     /// <summary>The cached listing of <paramref name="options"/>' tools in <paramref name="profile"/> (null: all registered).</summary>
     public static Listing For(McpServerOptions options, string? profile)
     {
-        var state = States.GetValue(options, o =>
+        var state = StateOf(options);
+        return state.ByProfile.GetOrAdd(profile ?? "", _ => new Lazy<Listing>(() =>
         {
-            var s = new State();
-            if (o.ToolCollection is { } tools) tools.Changed += (_, _) => s.ByProfile.Clear();
-            return s;
-        });
-        return state.ByProfile.GetOrAdd(profile ?? "", _ => new Lazy<Listing>(() => Build(options, profile))).Value;
+            Interlocked.Increment(ref state.Built);
+            return Build(options, profile);
+        })).Value;
     }
+
+    /// <summary>Listings built and tools/list requests answered from the cache for <paramref name="options"/>.</summary>
+    internal static (int Built, int Served) Counts(McpServerOptions options)
+    {
+        var state = StateOf(options);
+        return (Volatile.Read(ref state.Built), Volatile.Read(ref state.Served));
+    }
+
+    private static State StateOf(McpServerOptions options) => States.GetValue(options, o =>
+    {
+        var s = new State();
+        if (o.ToolCollection is { } tools) tools.Changed += (_, _) => s.ByProfile.Clear();
+        return s;
+    });
 
     private static Listing Build(McpServerOptions options, string? profile)
     {
