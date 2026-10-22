@@ -10,27 +10,49 @@ public sealed class JavaThreadDumpTests
 {
     private static readonly Lazy<JavaRuntime?> Found = new(() => JavaRuntime.Locate(null, 21, null, []));
 
+    /// <summary>A JVM that sleeps for two minutes, started from source.</summary>
+    private static Process StartHold(JavaRuntime java, TempDir dir, params string[] vmArgs)
+    {
+        var source = dir.File("Hold.java");
+        File.WriteAllText(source, "class Hold { public static void main(String[] a) throws Exception { Thread.sleep(120_000); } }");
+        return Process.Start(new ProcessStartInfo(java.Java, [.. vmArgs, source]) { UseShellExecute = false, CreateNoWindow = true })!;
+    }
+
+    /// <summary>
+    /// Reports until <paramref name="done"/> holds or a minute and a half passed (the source launcher compiles first);
+    /// each dump is read and deleted, so the shared stall folder keeps only real stalls.
+    /// </summary>
+    private static (string Report, string? File, string Dump) Take(JavaRuntime java, IReadOnlyList<int> pids, TempDir dir, Func<string, string, bool> done)
+    {
+        (string, string?, string) last = ("", null, "");
+        for (var clock = Stopwatch.StartNew(); clock.Elapsed < TimeSpan.FromSeconds(90); Thread.Sleep(1000))
+        {
+            var report = JavaThreadDump.Report(java.Java, pids, dir.File("stalls"));
+            var at = report.IndexOf("full dump: ", StringComparison.Ordinal);
+            var file = at < 0 ? null : report[(at + "full dump: ".Length)..];
+            var dump = file != null && File.Exists(file) ? File.ReadAllText(file) : "";
+            if (file != null) File.Delete(file);
+            last = (report, file, dump);
+            if (done(report, dump)) break;
+        }
+        return last;
+    }
+
+    private static bool Answered(string report, string dump) => !report.StartsWith(WorkerConnection.StateUnknown, StringComparison.Ordinal);
+
     [Fact]
     public void A_running_jvm_reports_its_heap_and_saves_its_thread_dump()
     {
         if (Found.Value is not { } java) return;
         using var dir = new TempDir();
-        var source = dir.File("Hold.java");
-        File.WriteAllText(source, "class Hold { public static void main(String[] a) throws Exception { Thread.sleep(120_000); } }");
-        using var jvm = Process.Start(new ProcessStartInfo(java.Java, [source]) { UseShellExecute = false, CreateNoWindow = true })!;
+        using var jvm = StartHold(java, dir);
         try
         {
-            // jcmd attaches once the JVM has started; the source launcher compiles first.
-            string? report = null;
-            for (var clock = Stopwatch.StartNew(); (report == null || report.StartsWith(WorkerConnection.StateUnknown, StringComparison.Ordinal)) && clock.Elapsed < TimeSpan.FromSeconds(60); Thread.Sleep(1000))
-                report = JavaThreadDump.Report(java.Java, [jvm.Id], dir.File("stalls"));
-            Assert.NotNull(report);
+            var (report, file, dump) = Take(java, [jvm.Id], dir, Answered);
             Assert.StartsWith("heap: ", report);
-            var file = report[(report.IndexOf("full dump: ", StringComparison.Ordinal) + "full dump: ".Length)..];
-            Assert.Contains("java.lang.Thread.State", File.ReadAllText(file));
+            Assert.Contains("java.lang.Thread.State", dump);
             // Test runs keep dumps in CORVUS_STALL_DIR, outside the test's own folder.
             Assert.Equal(Environment.GetEnvironmentVariable(JavaThreadDump.FolderVariable), Path.GetDirectoryName(file));
-            File.Delete(file);
         }
         finally { jvm.Kill(); }
     }
@@ -40,16 +62,11 @@ public sealed class JavaThreadDumpTests
     {
         if (Found.Value is not { } java) return;
         using var dir = new TempDir();
-        var source = dir.File("Hold.java");
-        File.WriteAllText(source, "class Hold { public static void main(String[] a) throws Exception { Thread.sleep(120_000); } }");
-        using var jvm = Process.Start(new ProcessStartInfo(java.Java, [source]) { UseShellExecute = false, CreateNoWindow = true })!;
+        using var jvm = StartHold(java, dir);
         try
         {
             // The test process hosts no JVM, like the Python launcher in front of a PyGhidra worker.
-            string? report = null;
-            for (var clock = Stopwatch.StartNew(); (report == null || report.StartsWith(WorkerConnection.StateUnknown, StringComparison.Ordinal)) && clock.Elapsed < TimeSpan.FromSeconds(60); Thread.Sleep(1000))
-                report = JavaThreadDump.Report(java.Java, [Environment.ProcessId, jvm.Id], dir.File("stalls"));
-            Assert.NotNull(report);
+            var (report, _, _) = Take(java, [Environment.ProcessId, jvm.Id], dir, Answered);
             Assert.StartsWith("heap: ", report);
             Assert.Contains($"worker-{jvm.Id}-", report);
         }
@@ -61,20 +78,11 @@ public sealed class JavaThreadDumpTests
     {
         if (Found.Value is not { } java || !File.Exists(Path.Combine(java.Home, "bin", OperatingSystem.IsWindows() ? "jhsdb.exe" : "jhsdb"))) return;
         using var dir = new TempDir();
-        var source = dir.File("Hold.java");
-        File.WriteAllText(source, "class Hold { public static void main(String[] a) throws Exception { Thread.sleep(120_000); } }");
         // Without the attach mechanism jcmd gets no answer, as from a JVM that does not reach a safepoint.
-        using var jvm = Process.Start(new ProcessStartInfo(java.Java, ["-XX:+DisableAttachMechanism", source]) { UseShellExecute = false, CreateNoWindow = true })!;
+        using var jvm = StartHold(java, dir, "-XX:+DisableAttachMechanism");
         try
         {
-            string? report = null, dump = null;
-            for (var clock = Stopwatch.StartNew(); dump?.Contains("java.lang.Thread.State", StringComparison.Ordinal) != true && clock.Elapsed < TimeSpan.FromSeconds(90); Thread.Sleep(1000))
-            {
-                report = JavaThreadDump.Report(java.Java, [jvm.Id], dir.File("stalls"));
-                var file = report?[(report.IndexOf("full dump: ", StringComparison.Ordinal) + "full dump: ".Length)..];
-                dump = file != null && File.Exists(file) ? File.ReadAllText(file) : null;
-            }
-            Assert.NotNull(report);
+            var (report, _, dump) = Take(java, [jvm.Id], dir, (_, d) => d.Contains("java.lang.Thread.State", StringComparison.Ordinal));
             Assert.Contains($"jcmd Thread.print of {jvm.Id} failed", report);
             Assert.Contains("java.lang.Thread.State", dump);
         }
