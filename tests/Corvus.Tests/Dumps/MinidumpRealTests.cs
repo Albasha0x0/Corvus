@@ -263,6 +263,27 @@ public sealed class MinidumpRealTests(ITestOutputHelper output)
         using var dir = new TempDir();
         if (Build(dir, "x86") is not { } exe) return;
         var dump = SelfDump(exe, "av", dir.File("x86.dmp"));
+        // Without the PDB there is no frame data: the frames come from the EBP chain.
+        var pdb = dir.File("crash.pdb");
+        Directory.CreateDirectory(dir.File("hidden"));
+        File.Move(pdb, dir.File(Path.Combine("hidden", "crash.pdb")));
+        MinidumpService.StackReport chain;
+        using (var service = new MinidumpService()) chain = await service.Stack(dump, null, true, 128, 0, 128, null, default);
+        Print(chain);
+        File.Move(dir.File(Path.Combine("hidden", "crash.pdb")), pdb);
+        using var named = new MinidumpService();
+        var stack = await named.Stack(dump, null, true, 128, 0, 128, null, default);
+        Assert.Equal(CrashFrames, Functions(stack).Take(4));
+        Assert.Equal(stack.Items.Take(5).Select(f => f.Address), chain.Items.Take(5).Select(f => f.Address));
+        Assert.Equal(["frame_pointer", "frame_pointer", "frame_pointer"], chain.Items.Skip(1).Take(3).Select(f => f.Method));
+    }
+
+    [Fact]
+    public async Task X86_self_dump_walks_the_pdb_frame_data()
+    {
+        using var dir = new TempDir();
+        if (Build(dir, "x86") is not { } exe) return;
+        var dump = SelfDump(exe, "av", dir.File("x86.dmp"));
         using var service = new MinidumpService();
         var summary = await service.Summarize(dump, null, default);
         Assert.Equal("x86", summary.System!.Architecture);
@@ -272,7 +293,7 @@ public sealed class MinidumpRealTests(ITestOutputHelper output)
         var stack = await service.Stack(dump, null, true, 128, 0, 128, null, default);
         Print(stack);
         Assert.Equal(CrashFrames, Functions(stack).Take(4));
-        Assert.Equal("frame_pointer", stack.Items[1].Method);
+        Assert.Equal(["frame_data", "frame_data", "frame_data"], stack.Items.Skip(1).Take(3).Select(f => f.Method));
         Assert.Contains(stack.Items, f => f.Function == "BaseThreadInitThunk"); // SysWOW64 images for a 32-bit process
         CompareWithCdb(dump, dir.Path, summary, stack);
     }
