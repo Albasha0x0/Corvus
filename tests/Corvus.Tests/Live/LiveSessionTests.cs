@@ -720,6 +720,29 @@ public sealed class LiveSessionTests : IDisposable
         Assert.Equal(ErrorCode.Unsupported, (await Assert.ThrowsAsync<ToolError>(() => _tools.LiveWatchCalls("live-1", "set", at: $"0x{Base + shortest.Start:X}"))).Code);
     }
 
+    // R-39: Frida reported process-terminated after the agent's exit status, before the exit code was set.
+    [Fact]
+    public async Task An_exit_reported_after_the_exit_status_waits_for_the_process_to_end()
+    {
+        if (!OperatingSystem.IsWindows()) return;
+        using var child = Process.Start(new ProcessStartInfo(Path.Combine(Environment.SystemDirectory, "findstr.exe"), "x")
+            { RedirectStandardInput = true, UseShellExecute = false, CreateNoWindow = true })!;
+        var backend = new ScriptedLiveBackend(Sqlite, Base, 0x200000) { ProcessId = child.Id };
+        using var service = new LiveSessionService(_workspace, new NativeCodeService(_workspace, new ServerOptions())) { Backend = backend };
+        var tools = new LiveSessionTools(new ServerOptions { AllowLive = true, AllowLiveAttach = true }, service);
+        await tools.LiveSession("attach", program: child.Id.ToString());
+        // The program is still running, as one whose exit has begun but whose exit code is not yet set.
+        backend.Worker!.Emit(new JsonObject { ["event"] = "exit_status", ["code"] = 1 });
+        backend.Worker!.Emit(new JsonObject { ["event"] = "exit", ["reason"] = "process-terminated" });
+        await Task.Delay(1500);
+        Assert.Contains(", running", await tools.LiveSession("status", session: "live-1"));
+        child.StandardInput.Close();
+        await child.WaitForExitAsync();
+        for (var until = DateTime.UtcNow.AddSeconds(10); DateTime.UtcNow < until; await Task.Delay(50))
+            if ((await tools.LiveSession("status", session: "live-1")).Contains(", exited")) break;
+        Assert.Contains("exited: process-terminated, exit code 1", await tools.LiveEvents("live-1", kind: "exit"));
+    }
+
     [Fact]
     public async Task The_exit_event_carries_the_exit_code_the_system_reports()
     {
