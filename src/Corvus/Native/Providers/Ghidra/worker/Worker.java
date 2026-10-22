@@ -194,7 +194,7 @@ public class Worker implements GhidraLaunchable {
                 continue;
             }
             CompletionPass pass = completion;
-            if (pass != null) pass.activity();
+            if (pass != null) pass.arrived();
             running.put(r.id, r); // registered before it runs, so a cancel that follows at once finds it
             executor.submit(() -> handle(r));
         }

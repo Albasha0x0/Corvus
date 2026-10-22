@@ -2,6 +2,7 @@ using System.Text;
 using System.Text.Json;
 using Iced.Intel;
 using Corvus.Core;
+using Corvus.Native.Providers;
 using Corvus.Native.Providers.Ghidra;
 using Corvus.Native.Providers.Ida;
 using Corvus.Services;
@@ -116,6 +117,9 @@ public sealed class NativeEmulationGhidraTests(ITestOutputHelper output, NativeE
         }
 
         public NativeEmulationTools Tools => _rig.Value.Tools;
+
+        /// <summary>Requests sent to the image's Ghidra worker so far.</summary>
+        public long WorkerRequests => ((WorkerSessionBase)_rig.Value.Engines.OpenSession(_rig.Value.Workspace.Read(() => _rig.Value.Workspace.Natives[0]), "ghidra")!).Worker!.Requests;
 
         public void Dispose()
         {
@@ -256,6 +260,7 @@ public sealed class NativeEmulationGhidraTests(ITestOutputHelper output, NativeE
     }
 
     [GhidraFact]
+    [Trait(PerfBudget.Trait, PerfBudget.Timing)]
     public async Task A_hundred_argument_sets_run_in_one_request_faster_than_a_hundred_calls()
     {
         await Run("Fnv1a", args: "\"warm\"");
@@ -263,14 +268,16 @@ public sealed class NativeEmulationGhidraTests(ITestOutputHelper output, NativeE
         await Run("Fnv1a", args: $"\"{HashInput}\"");
         one.Stop();
         var inputs = Enumerable.Range(0, 100).Select(i => $"name{i}.dll").ToList();
+        long requests = rig.WorkerRequests;
         var all = System.Diagnostics.Stopwatch.StartNew();
         var text = await rig.Tools.EmulateNative("emu.dll", "Fnv1a", candidates: string.Join("; ", inputs.Select(i => $"\"{i}\"")));
         all.Stop();
+        Assert.Equal(requests + 1, rig.WorkerRequests);
         output.WriteLine($"one call {one.ElapsedMilliseconds} ms, 100 sets {all.ElapsedMilliseconds} ms\n{text[..Math.Min(text.Length, 400)]}");
         Assert.Contains("100 argument sets, 100 returned", text);
         for (int i = 0; i < inputs.Count; i++) Assert.Contains($"#{i + 1} (\"{inputs[i]}\"): returned 0x{Fnv1a(inputs[i]):x},", text);
         // One emulator for the batch, reset between sets: about 6 ms a set against about 10-20 ms for a call of its own.
-        Assert.True(all.Elapsed < 100 * one.Elapsed, $"100 sets took {all.ElapsedMilliseconds} ms, one call {one.ElapsedMilliseconds} ms");
+        PerfBudget.Check(all.Elapsed < 100 * one.Elapsed, $"100 sets took {all.ElapsedMilliseconds} ms, one call {one.ElapsedMilliseconds} ms", output);
     }
 
     [GhidraFact]

@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Text.RegularExpressions;
 using Xunit.Abstractions;
 using static Corvus.Tests.ToolRealDataTests;
 
@@ -16,6 +17,7 @@ public sealed class CompletionPassTests(ITestOutputHelper output) : IDisposable
     public void Dispose() => _dir.Dispose();
 
     [GhidraFact]
+    [Trait(PerfBudget.Trait, PerfBudget.Timing)]
     public async Task The_pass_yields_to_requests_and_ends_full()
     {
         var image = _dir.File("jitinterface_x64.dll");
@@ -28,18 +30,21 @@ public sealed class CompletionPassTests(ITestOutputHelper output) : IDisposable
         string status = "";
         var clock = Stopwatch.StartNew();
         double slowest = 0;
+        int beside = 0;
         for (int i = 0; clock.Elapsed < TimeSpan.FromMinutes(5); i++)
         {
             var call = Stopwatch.StartNew();
             await Call(c, "find_xrefs", new() { ["image"] = "jitinterface_x64.dll", ["address"] = addresses[i % addresses.Count], ["engine"] = "ghidra" });
             slowest = Math.Max(slowest, call.Elapsed.TotalSeconds);
             (status, _) = await Call(c, "get_engine_status", new() { ["image"] = "jitinterface_x64.dll" });
+            if (Regex.Match(status, @"([\d,]+) requests ran beside a slice") is { Success: true } m) beside = Math.Max(beside, int.Parse(m.Groups[1].Value.Replace(",", "")));
             if (status.Contains("standard→full")) break;
             await Task.Delay(2000);
         }
         output.WriteLine($"{clock.Elapsed.TotalSeconds:0} s; slowest find_xrefs during the pass {slowest:0.00} s\n{status}");
         Assert.Contains("profile standard→full", status);
-        // a request cancels the running slice instead of waiting for it
-        Assert.True(slowest < 5, $"find_xrefs took {slowest:0.00} s during the pass");
+        // Reads share the program with a running slice instead of waiting for it.
+        Assert.True(beside > 0, "no request ran beside a slice of the pass");
+        PerfBudget.Check(slowest < 5, $"slowest find_xrefs during the pass {slowest:0.00} s, budget 5 s; {beside} requests beside a slice", output);
     }
 }

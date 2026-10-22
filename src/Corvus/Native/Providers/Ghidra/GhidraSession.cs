@@ -656,9 +656,16 @@ internal sealed class GhidraSession(GhidraProvider provider, GhidraInstallation 
         {
             "done" => "→full",
             "off" or null => null,
-            "running" or "pending" => $" (completion pass: {r.GetProperty("done").GetInt32():N0} of {r.GetProperty("total").GetInt32():N0} functions)",
+            "running" or "pending" => $" (completion pass: {r.GetProperty("done").GetInt32():N0} of {r.GetProperty("total").GetInt32():N0} functions{Shared(r)})",
             var other => $" (completion pass {other})",
         };
+    }
+
+    // The requests that ran beside a slice and the slices that gave way to a writer; empty when there were none.
+    private static string Shared(System.Text.Json.JsonElement r)
+    {
+        int beside = r.TryGetProperty("beside", out var b) ? b.GetInt32() : 0, yielded = r.TryGetProperty("yielded", out var y) ? y.GetInt32() : 0;
+        return (beside > 0 ? $"; {beside:N0} requests ran beside a slice" : "") + (yielded > 0 ? $"; {yielded:N0} slices gave way to a writer" : "");
     }
 
     /// <summary>Saves the program and writes it to <paramref name="path"/> as a packed Ghidra archive (.gzf); returns the path and size.</summary>

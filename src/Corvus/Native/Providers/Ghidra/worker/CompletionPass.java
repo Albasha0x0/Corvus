@@ -3,6 +3,7 @@ package corvus.ghidra;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import com.google.gson.JsonObject;
 
@@ -38,6 +39,8 @@ final class CompletionPass {
     private volatile long lastActivity = System.nanoTime();
     private volatile String state = "pending";
     private volatile int done, total;
+    // Requests that arrived while a slice ran, and slices cancelled for a writer.
+    private final AtomicInteger beside = new AtomicInteger(), yielded = new AtomicInteger();
 
     CompletionPass(Worker w, Program program) {
         this.w = w;
@@ -53,11 +56,19 @@ final class CompletionPass {
         lastActivity = System.nanoTime();
     }
 
+    /** A request arrived: as {@link #activity}, counting it when a slice is running beside it. */
+    void arrived() {
+        if (slice != null) beside.incrementAndGet();
+        activity();
+    }
+
     JsonObject status() {
         JsonObject o = new JsonObject();
         o.addProperty("state", state);
         o.addProperty("done", done);
         o.addProperty("total", total);
+        o.addProperty("beside", beside.get());
+        o.addProperty("yielded", yielded.get());
         return o;
     }
 
@@ -81,7 +92,10 @@ final class CompletionPass {
             while (!over()) {
                 Thread.sleep(20);
                 Worker.Monitor m = slice;
-                if (m != null && w.lock.hasQueuedThreads() && System.nanoTime() - sliceStarted >= GRACE_NANOS) m.cancel();
+                if (m != null && !m.isCancelled() && w.lock.hasQueuedThreads() && System.nanoTime() - sliceStarted >= GRACE_NANOS) {
+                    m.cancel();
+                    yielded.incrementAndGet();
+                }
             }
         }
         catch (InterruptedException e) {

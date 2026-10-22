@@ -112,6 +112,11 @@ public sealed class WorkerConnection : IDisposable
 
     /// <summary>Requests waiting for a serial connection to finish the running one.</summary>
     public int Waiting => Volatile.Read(ref _waiting);
+
+    private long _requests;
+
+    /// <summary>Requests sent through <see cref="RequestAsync"/> since the worker started.</summary>
+    internal long Requests => Interlocked.Read(ref _requests);
     public IReadOnlyList<int> TreeProcessIds() => _process.TreeProcessIds();
     public Task Closed => _closed.Task;
 
@@ -157,6 +162,7 @@ public sealed class WorkerConnection : IDisposable
         {
             if (!IsAlive) throw Died(op);
             id = Interlocked.Increment(ref _nextId);
+            Interlocked.Increment(ref _requests);
             var tcs = new TaskCompletionSource<WorkerMessage.Response>(TaskCreationOptions.RunContinuationsAsynchronously);
             lock (_sync)
             {
