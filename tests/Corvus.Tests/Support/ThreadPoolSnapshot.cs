@@ -5,7 +5,7 @@ namespace Corvus.Tests;
 /// <summary>
 /// This process's thread pool at one moment: its thread and pending work counts, and the stack of every thread pool
 /// thread that is running work rather than waiting for it. Timing tests name it in a failure, so work an earlier test
-/// left running is seen with its caller; the stacks read "unknown" where the process cannot be read.
+/// left running is seen with its caller; the stacks read "unknown" where the process cannot be read, and off Windows.
 /// </summary>
 internal static class ThreadPoolSnapshot
 {
@@ -13,6 +13,8 @@ internal static class ThreadPoolSnapshot
     public static string Describe()
     {
         var text = $"thread pool: {ThreadPool.ThreadCount} threads, {ThreadPool.PendingWorkItemCount} pending";
+        // Off Windows the snapshot is a dump written through the diagnostics port, which a changed TMPDIR cannot reach.
+        if (!OperatingSystem.IsWindows()) return text + ", busy threads unknown (read on Windows only)";
         try
         {
             using var target = DataTarget.CreateSnapshotAndAttach(Environment.ProcessId);
@@ -33,7 +35,8 @@ internal static class ThreadPoolSnapshot
             return busy.Count == 0 ? text + ", none busy"
                 : text + $", {busy.Count} busy:\n" + string.Join("\n", busy.GroupBy(b => b).Select(g => $"  {g.Count()} x {g.Key}"));
         }
-        catch (Exception e) when (e is ClrDiagnosticsException or InvalidOperationException or IOException or UnauthorizedAccessException or IndexOutOfRangeException or NotSupportedException)
+        // A failed read never fails the timing test the snapshot describes.
+        catch (Exception e)
         {
             return text + ", busy threads unknown (" + e.GetType().Name + ")";
         }
