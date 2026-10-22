@@ -129,6 +129,30 @@ public sealed class UnityOverviewTests : IDisposable
         Assert.EndsWith("Title.exe", d.Executable);
     }
 
+    /// <summary>A zipped title past the 260-character limit: folders above the zip and inside it are each over 100 characters.</summary>
+    [Fact]
+    public void A_zipped_title_under_a_deep_path_is_read_from_a_short_cache_path()
+    {
+        var deep = Path.Combine(_dir.Path, new string('a', 100), new string('b', 100), new string('c', 100));
+        Directory.CreateDirectory(deep);
+        var zip = Path.Combine(deep, "title.zip");
+        var top = new string('t', 120) + "/" + new string('u', 120) + "/";
+        byte[] header = [.. "UnityFS\0"u8, 0, 0, 0, 8, .. "5.x.x\0"u8, .. "2021.1.5f1\0"u8, 0, 0, 0, 0];
+        using (var archive = System.IO.Compression.ZipFile.Open(zip, System.IO.Compression.ZipArchiveMode.Create))
+            foreach (var (name, bytes) in new[] { (top + "Title.exe", File.ReadAllBytes(Path.Combine(Path.GetDirectoryName(Env.FixturePath)!, "Corvus.Tests.dll"))),
+                         (top + "Title_Data/data.unity3d", header), (top + "Title_Data/Managed/Assembly-CSharp.dll", File.ReadAllBytes(Env.FixturePath)) })
+            {
+                using var s = archive.CreateEntry(name).Open();
+                s.Write(bytes);
+            }
+        Assert.True(zip.Length > 300 && (top + "Title_Data/Managed/Assembly-CSharp.dll").Length > 260);
+        var r = UnityOverview.Inspect(zip, false, default);
+        Assert.Equal(("mono", "2021.1.5f1"), (r.Backend.Kind, r.Engine.Version));
+        Assert.EndsWith("Title.exe", r.Executable);
+        var game = Path.GetDirectoryName(r.Executable)!;
+        Assert.All(Directory.EnumerateFiles(game, "*", SearchOption.AllDirectories), f => Assert.True(f.Length < 260, f));
+    }
+
     [Fact]
     public void WebGl_build_reads_its_data_file_and_names_the_wasm()
     {
