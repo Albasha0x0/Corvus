@@ -312,6 +312,61 @@ public class TestReuseTests
         finally { Directory.Delete(dir, true); }
     }
 
+    [Fact]
+    [Trait("Speed", "Slow")]
+    public void A_tool_changed_in_place_changes_the_run_environment()
+    {
+        var module = Path.Combine(DocsTests.RepoRoot(), "test-reuse.psm1");
+        var dir = Path.Combine(Path.GetTempPath(), $"corvus-reuse-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(dir);
+        var tool = Path.Combine(dir, "tool.exe");
+        File.WriteAllText(tool, "v1");
+        try
+        {
+            var lines = Run($$"""
+                Import-Module '{{module.Replace("'", "''")}}'
+                $env:CORVUS_ZZ_TOOL = '{{tool}}'
+                $env:CORVUS_ZZ_FOLDER = '{{dir}}'
+                $before = Get-RunEnvironment
+                'same=' + ($before -eq (Get-RunEnvironment))
+                (Get-Item '{{tool}}').LastWriteTimeUtc = [datetime]::UtcNow.AddDays(-1)
+                'tool=' + ($before -ne (Get-RunEnvironment))
+                $folderBefore = Get-RunEnvironment
+                Set-Content '{{Path.Combine(dir, "new.dll")}}' 'x'
+                (Get-Item '{{Path.Combine(dir, "new.dll")}}').LastWriteTimeUtc = [datetime]::UtcNow.AddDays(1)
+                'folder=' + ($folderBefore -ne (Get-RunEnvironment))
+                'text=' + (Get-PathStamp 'not a path')
+                """);
+            if (lines is ["skip"]) return; // no pwsh on this machine
+            string Line(string name) => lines.Single(l => l.StartsWith(name + "=")).Substring(name.Length + 1);
+            Assert.Equal("True", Line("same"));
+            Assert.Equal("True", Line("tool"));
+            Assert.Equal("True", Line("folder"));
+            Assert.Equal("", Line("text"));
+        }
+        finally { Directory.Delete(dir, true); }
+    }
+
+    [Fact]
+    [Trait("Speed", "Slow")]
+    public void A_failure_under_the_key_of_a_recorded_pass_is_a_selection_miss()
+    {
+        var module = Path.Combine(DocsTests.RepoRoot(), "test-reuse.psm1");
+        var lines = Run($$"""
+            Import-Module '{{module.Replace("'", "''")}}'
+            $classMap = @{ Engines = @('EngineB'); Dotnet = @('DotnetA'); Contract = @('C'); 'class:SlowD' = @('SlowD') }
+            $keys = @{ Engines = 'k1'; Dotnet = 'k2'; Contract = 'k3'; 'class:SlowD' = 'k4' }
+            $stamps = [pscustomobject]@{ Engines = @{ key = 'k1' }; Dotnet = @{ key = 'old' }; Contract = @{ key = 'k3' }; 'class:SlowD' = @{ key = 'k4' } }
+            $failed = 'Corvus.Tests.EngineB+Nested.M', 'Corvus.Tests.DotnetA.M', 'Corvus.Tests.C.M', 'Corvus.Tests.SlowD.M', 'Corvus.Tests.Unknown.M'
+            'misses=' + (@(Get-SelectionMisses $failed $classMap $keys $stamps) -join ',')
+            'none=' + @(Get-SelectionMisses $failed $classMap $keys $null).Count
+            """);
+        if (lines is ["skip"]) return; // no pwsh on this machine
+        // Dotnet's key changed and Contract always runs; Engines and the class keyed on its own were reused.
+        Assert.Equal(["Engines", "class:SlowD"], lines.Single(l => l.StartsWith("misses=")).Substring(7).Split(',').Order(StringComparer.Ordinal));
+        Assert.Contains("none=0", lines);
+    }
+
     private static string[] Run(string script)
     {
         ProcessStartInfo start = new("pwsh") { RedirectStandardOutput = true, RedirectStandardError = true };

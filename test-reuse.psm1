@@ -64,14 +64,35 @@ function Get-RootReaders([string]$testsDir) {
     } | ForEach-Object Name
 }
 
-# The inputs every family key shares: SDK, OS build and the settings, with $override in place of the current values.
+# The last change of a file or folder a setting names (a tool, an engine install, a data folder), so a tool or engine
+# updated in place changes every key: a file's size and time, a folder's newest entry one level deep. $null for a
+# value that names no existing path.
+function Get-PathStamp([string]$value) {
+    if (-not $value -or $value.IndexOfAny([IO.Path]::GetInvalidPathChars()) -ge 0) { return $null }
+    try {
+        $item = Get-Item -LiteralPath $value -Force -ErrorAction Stop
+        if (-not $item.PSIsContainer) { return "$($item.Length) $($item.LastWriteTimeUtc.Ticks)" }
+        $newest = $item.LastWriteTimeUtc
+        foreach ($entry in $item.EnumerateFileSystemInfos()) { if ($entry.LastWriteTimeUtc -gt $newest) { $newest = $entry.LastWriteTimeUtc } }
+        return "$($newest.Ticks)"
+    }
+    catch { return $null }
+}
+
+# The inputs every family key shares: SDK, OS build and the settings (with the last change of the paths they name),
+# with $override in place of the current values.
 function Get-RunEnvironment([hashtable]$override = @{}) {
     $os = if ($IsWindows) { $v = Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion'; "windows $($v.CurrentBuild).$($v.UBR)" } else { uname -srm }
     $values = @{}
-    Get-ChildItem env: | Where-Object { ($_.Name -like 'CORVUS_*' -and $_.Name -notin 'CORVUS_ALL_TESTS', 'CORVUS_SWEEP', 'CORVUS_UPDATE_DOCS', 'CORVUS_BACKGROUND_DIR', 'CORVUS_HEAVY_LOCK', 'CORVUS_PERMIT_LOG', 'CORVUS_TEST_HISTORY', 'CORVUS_TEST_MODE') -or $_.Name -eq 'JAVA_HOME' } |
+    Get-ChildItem env: | Where-Object { ($_.Name -like 'CORVUS_*' -and $_.Name -notin 'CORVUS_ALL_TESTS', 'CORVUS_SWEEP', 'CORVUS_UPDATE_DOCS', 'CORVUS_BACKGROUND_DIR', 'CORVUS_HEAVY_LOCK', 'CORVUS_PERMIT_LOG', 'CORVUS_TEST_HISTORY', 'CORVUS_TEST_MODE', 'CORVUS_STALL_DIR', 'CORVUS_PERMITS_HELD') -or $_.Name -in 'JAVA_HOME', 'GHIDRA_INSTALL_DIR' } |
         ForEach-Object { $values[$_.Name] = $_.Value }
+    # The IDA install the tests find without CORVUS_IDA_DIR: the one IDA's own configuration names.
+    $idaConfig = if ($IsWindows) { Join-Path "$env:APPDATA" 'Hex-Rays/IDA Pro/ida-config.json' } else { Join-Path $HOME '.idapro/ida-config.json' }
+    if (-not $values['CORVUS_IDA_DIR'] -and (Test-Path $idaConfig)) {
+        try { $values['ida-config'] = (Get-Content $idaConfig -Raw | ConvertFrom-Json).Paths.'ida-install-dir' } catch { }
+    }
     foreach ($name in $override.Keys) { $values[$name] = $override[$name] }
-    $settings = $values.Keys | Sort-Object | ForEach-Object { "$_=$($values[$_])" }
+    $settings = $values.Keys | Sort-Object | ForEach-Object { "$_=$($values[$_])" + $(if ($stamp = Get-PathStamp $values[$_]) { " @$stamp" }) }
     (@("sdk $(dotnet --version)", $os) + $settings) -join "`n"
 }
 
@@ -208,6 +229,15 @@ function Get-PassedFamilies([string]$trxPath, [hashtable]$classMap, [int]$exitCo
     @($ran.Keys | Where-Object { -not $failed[$_] } | Sort-Object)
 }
 
+# Families with a failed test although their recorded pass is on the same key: a run reusing passes would have skipped
+# them, so selection would have missed the failure. Empty without failures; the always-run folders never count.
+function Get-SelectionMisses([string[]]$failedTests, [hashtable]$classMap, [hashtable]$keys, $stamps) {
+    if (-not $stamps) { return @() }
+    $familyOf = @{}; foreach ($f in $classMap.Keys) { foreach ($c in $classMap[$f]) { $familyOf[$c] = $f } }
+    $failed = @($failedTests | ForEach-Object { $familyOf[($_ -split '\.')[-2] -replace '\+.*$', ''] } | Where-Object { $_ } | Sort-Object -Unique)
+    @($failed | Where-Object { $_ -notin $script:AlwaysRunFolders -and $stamps.$_ -and $stamps.$_.key -eq $keys[$_] })
+}
+
 # Records the families a run passed in the stamps file -Reuse reads; a sampled pass never replaces an exhaustive one on the same key.
 function Save-FamilyPasses([string]$stampsPath, [string[]]$passed, [hashtable]$keys, [string]$mode, [string]$commit) {
     $stamps = if (Test-Path $stampsPath) { Get-Content $stampsPath -Raw | ConvertFrom-Json -AsHashtable } else { @{} }
@@ -314,4 +344,4 @@ function Exit-HeavyLock([string]$name) {
     if ($env:CORVUS_HEAVY_LOCK) { & $env:CORVUS_HEAVY_LOCK release $name | Out-Host }
 }
 
-Export-ModuleMember -Function Enter-HeavyLock, Exit-HeavyLock, Get-RunEnvironment, Get-ReuseScope, Get-ClassMap, Get-SlowClasses, Test-AlwaysRunFolder, Read-ClassCoverage, Split-ClassMap, Add-ClassTestScopes, Get-RootReaders, Get-FamilyKeys, Read-CoverageMap, Get-CoveredFiles, Get-StaleFamilies, Get-ReuseFilter, Get-PassedFamilies, Save-FamilyPasses, Test-DocsOnly, Get-FailedTests, Get-PassedTests, Test-RunCompleted, Get-FailureLabels, Read-Quarantine, Split-Quarantined
+Export-ModuleMember -Function Get-SelectionMisses, Get-PathStamp, Enter-HeavyLock, Exit-HeavyLock, Get-RunEnvironment, Get-ReuseScope, Get-ClassMap, Get-SlowClasses, Test-AlwaysRunFolder, Read-ClassCoverage, Split-ClassMap, Add-ClassTestScopes, Get-RootReaders, Get-FamilyKeys, Read-CoverageMap, Get-CoveredFiles, Get-StaleFamilies, Get-ReuseFilter, Get-PassedFamilies, Save-FamilyPasses, Test-DocsOnly, Get-FailedTests, Get-PassedTests, Test-RunCompleted, Get-FailureLabels, Read-Quarantine, Split-Quarantined

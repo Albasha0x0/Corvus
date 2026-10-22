@@ -91,6 +91,8 @@ if ($Status) {
     Import-Module (Join-Path $root 'test-time.psm1') -Force
     $times = @(Get-TimeSummary $timeHistory)
     if ($times) { Write-Host "Run times ($timeReport):"; $times | ForEach-Object { Write-Host "  $_" } }
+    $misses = Join-Path $gitDir 'corvus-selection-misses.txt'
+    if (Test-Path $misses) { Write-Host "Last selection miss: $(Get-Content $misses -Tail 1)" }
     $verdicts = Join-Path $gitDir 'corvus-perf-verdicts.json'
     if (Test-Path $verdicts) {
         $last = Get-Content $verdicts -Raw | ConvertFrom-Json
@@ -427,6 +429,7 @@ if ($Full -and $IfChanged) {
 # Per-family passes: every full run on a clean tree records which families passed under which input key (SDK, OS build,
 # engine settings and the family's files; test-reuse.psm1), and -Reuse runs only the families whose key changed.
 $familyStamps = Join-Path $gitDir 'corvus-family-stamps.json'
+$selectionMisses = Join-Path $gitDir 'corvus-selection-misses.txt'
 $coverageMapFile = Join-Path $gitDir 'corvus-coverage-map.json'
 $mode = if ($Exhaustive) { 'exhaustive' } else { 'sampled' }
 $familyKeys = $null
@@ -618,6 +621,15 @@ try {
         Set-Content -Path $lastRun -Value ($run | ConvertTo-Json -Depth 3) -NoNewline
         try {
             $passed = Get-PassedFamilies $trx $classMap $code
+            # A run that reused nothing checks the selection: a failure under a recorded pass's key is a miss.
+            if (-not $Filter) {
+                $before = if (Test-Path $familyStamps) { Get-Content $familyStamps -Raw | ConvertFrom-Json } else { $null }
+                $misses = @(Get-SelectionMisses @(Get-FailedTests $trx) $classMap $familyKeys $before)
+                if ($misses) {
+                    Add-Content -Path $selectionMisses -Value "$commit $(Get-Date -Format 'yyyy-MM-dd HH:mm') $($misses -join ' ')"
+                    Write-Host "Selection would have missed failures in $($misses -join ', '): passes on these inputs were recorded ($selectionMisses)." -ForegroundColor Red
+                }
+            }
             Save-FamilyPasses $familyStamps $passed $familyKeys $mode $commit
             Write-Host "Recorded $mode passes for $($passed.Count) families."
         }
