@@ -155,13 +155,11 @@
               },
               "inlined": {
                 "description": "DWARF inlined frames, innermost first: name at file:line.",
-                "$ref": "#/properties/inlined",
-                "items": {}
+                "$ref": "#/properties/inlined"
               },
               "results": {
                 "description": "With addresses: one item per address, in order, with its record or its error.",
-                "$ref": "#/properties/results",
-                "items": {}
+                "$ref": "#/properties/results"
               },
               "failed": {
                 "description": "With addresses: how many failed.",

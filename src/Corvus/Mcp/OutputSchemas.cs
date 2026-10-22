@@ -174,6 +174,8 @@ public static class OutputSchemas
                     o.Remove("items");
                 }
                 foreach (var (_, child) in o.ToList()) DropDanglingReferences(child, root);
+                // An empty items schema accepts any value, as no items keyword does.
+                if (o["items"] is JsonObject { Count: 0 }) o.Remove("items");
                 break;
             case JsonArray a:
                 foreach (var child in a) DropDanglingReferences(child, root);

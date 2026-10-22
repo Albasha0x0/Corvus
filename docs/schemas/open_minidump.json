@@ -290,13 +290,11 @@
                     "type": "integer"
                   },
                   "stack": {
-                    "$ref": "#/properties/managed/properties/exception/properties/stack",
-                    "items": {}
+                    "$ref": "#/properties/managed/properties/exception/properties/stack"
                   },
                   "inner": {
                     "description": "Inner exceptions, outermost first (up to 5).",
-                    "$ref": "#/properties/managed/properties/exception/properties/inner",
-                    "items": {}
+                    "$ref": "#/properties/managed/properties/exception/properties/inner"
                   }
                 },
                 "required": [
@@ -511,8 +509,7 @@
     },
     "items": {
       "description": "List views: module, thread, memory or unloaded module rows.",
-      "type": "array",
-      "items": {}
+      "type": "array"
     },
     "offset": {
       "type": "integer"

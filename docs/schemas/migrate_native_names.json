@@ -15,8 +15,7 @@
     },
     "editIds": {
       "description": "The journaled edits (undo_native_edit): names and comments, user types.",
-      "type": "array",
-      "items": {}
+      "type": "array"
     },
     "set": {
       "type": "integer"

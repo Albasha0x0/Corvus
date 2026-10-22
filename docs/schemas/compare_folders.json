@@ -83,8 +83,7 @@
           "type": "integer"
         },
         "problems": {
-          "$ref": "#/properties/old/properties/problems",
-          "items": {}
+          "$ref": "#/properties/old/properties/problems"
         }
       },
       "required": [
@@ -360,8 +359,7 @@
               "type": "string"
             },
             "inputs": {
-              "$ref": "#/properties/evidence/properties/old/properties/inputs",
-              "items": {}
+              "$ref": "#/properties/evidence/properties/old/properties/inputs"
             },
             "created": {
               "type": "string",

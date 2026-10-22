@@ -32,15 +32,13 @@
       }
     },
     "editIds": {
-      "type": "array",
-      "items": {}
+      "type": "array"
     },
     "failed": {
       "type": "integer"
     },
     "items": {
-      "type": "array",
-      "items": {}
+      "type": "array"
     },
     "resultId": {
       "type": "string"
