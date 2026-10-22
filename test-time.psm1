@@ -87,6 +87,80 @@ function Get-MachineLoad {
 # Starts sampling the machine's load on a thread of its own, so the sample costs a run no time; Receive-Job returns it.
 function Start-MachineLoad { Start-ThreadJob -ScriptBlock ${function:Get-MachineLoad} }
 
+# Writes a line to $log every $seconds while the calling process runs: the milliseconds to create, write and delete a
+# small file in each of $folders (-1 when that failed), the disk queue length and idle percent of the last folder's
+# volume, free memory in MB and pages per second (-1 where a counter cannot be read).
+function Invoke-IoSampler([string]$log, [string[]]$folders, [int]$seconds = 10) {
+    $volume = if ($IsWindows) { Split-Path -Qualifier $folders[-1] } else { $null }
+    $counters = if ($volume) { "\LogicalDisk($volume)\Avg. Disk Queue Length", "\LogicalDisk($volume)\% Idle Time", '\Memory\Available MBytes', '\Memory\Pages/sec' } else { @() }
+    $invariant = [cultureinfo]::InvariantCulture
+    while ($true) {
+        $started = [Diagnostics.Stopwatch]::StartNew()
+        $fields = @((Get-Date).ToString('yyyy-MM-dd HH:mm:ss', $invariant))
+        foreach ($folder in $folders) {
+            $probe = Join-Path $folder "corvus-io-probe-$PID.tmp"
+            $watch = [Diagnostics.Stopwatch]::StartNew()
+            $ms = try { [IO.File]::WriteAllBytes($probe, [byte[]]::new(64)); [IO.File]::Delete($probe); [int]$watch.ElapsedMilliseconds } catch { -1 }
+            $fields += "open=$ms"
+        }
+        $values = @(-1, -1, -1, -1)
+        if ($counters) {
+            try { $values = @((Get-Counter -Counter $counters -MaxSamples 1 -ErrorAction Stop).CounterSamples | ForEach-Object CookedValue) } catch { }
+        }
+        $fields += ('queue=' + ([double]$values[0]).ToString('0.##', $invariant)), "idle=$([int]$values[1])", "freeMB=$([int]$values[2])", "pages=$([int]$values[3])"
+        Add-Content -Path $log -Value ($fields -join "`t")
+        $left = $seconds * 1000 - $started.ElapsedMilliseconds
+        if ($left -gt 0) { Start-Sleep -Milliseconds $left }
+    }
+}
+
+# Starts Invoke-IoSampler on a thread of its own; it ends with the process, or with Stop-Job on the returned job.
+function Start-IoSampler([string]$log, [string[]]$folders) {
+    Set-Content -Path $log -Value $null
+    Start-ThreadJob -ScriptBlock ${function:Invoke-IoSampler} -ArgumentList $log, $folders
+}
+
+# The windows of consecutive samples in an Invoke-IoSampler log where a file took over $limitMs, one line each with
+# the worst disk and memory values seen in it ("unknown" where no sample could read one); empty when there is none or
+# no log.
+function Get-IoStalls([string]$log, [int]$limitMs = 1000) {
+    if (-not (Test-Path $log)) { return @() }
+    # The worse of a window's value and a sample's; a sample's -1 is unreadable and leaves the window's value.
+    function Worse($known, [double]$sample, [bool]$higher) {
+        if ($sample -lt 0) { return $known }
+        if ($null -eq $known) { return $sample }
+        if ($higher) { [math]::Max($known, $sample) } else { [math]::Min($known, $sample) }
+    }
+    function Shown($value, [string]$text) { if ($null -eq $value) { 'unknown' } else { $text } }
+    $window = $null
+    foreach ($line in @(Get-Content $log) + @('')) {
+        $parts = $line -split "`t"
+        $values = @{ opens = @() }
+        foreach ($part in $parts | Select-Object -Skip 1) {
+            $name, $value = $part -split '=', 2
+            if ($name -eq 'open') { $values.opens += [int]$value } else { $values[$name] = [double]::Parse($value, $script:Invariant) }
+        }
+        $worst = ($values.opens | Measure-Object -Maximum).Maximum
+        if ($worst -gt $limitMs) {
+            if (-not $window) { $window = @{ From = $parts[0]; Samples = 0; Open = 0; Queue = $null; Idle = $null; Free = $null; Pages = $null } }
+            $window.To = $parts[0]; $window.Samples++
+            $window.Open = [math]::Max($window.Open, $worst)
+            $window.Queue = Worse $window.Queue $values.queue $true
+            $window.Idle = Worse $window.Idle $values.idle $false
+            $window.Free = Worse $window.Free $values.freeMB $false
+            $window.Pages = Worse $window.Pages $values.pages $true
+            continue
+        }
+        if ($window) {
+            $w = $window
+            "$($w.From) to $($w.To) ($($w.Samples) samples): a file took up to $(Format-Seconds ($w.Open / 1000)); " +
+                "disk queue $(Shown $w.Queue "up to $(Format-Number $w.Queue)"), idle $(Shown $w.Idle "down to $($w.Idle)%"); " +
+                "free memory $(Shown $w.Free "down to $($w.Free) MB"), pages/s $(Shown $w.Pages "up to $($w.Pages)")"
+            $window = $null
+        }
+    }
+}
+
 # Runs a block while holding the history's named mutex: lanes' runs share the repository's .git.
 function Invoke-HistoryLocked([scriptblock]$action) {
     $mutex = [System.Threading.Mutex]::new($false, 'Global\corvus-test-history')
@@ -439,4 +513,4 @@ function Update-PerfVerdicts([string]$path, [string[]]$over, [string]$commit) {
     @($over | Where-Object { $_ -in $before })
 }
 
-Export-ModuleMember -Function Get-PermitCounts, Enter-AllPermits, Exit-AllPermits, Get-PerfOverBudget, Update-PerfVerdicts, Read-TestTimes, Get-MachineLoad, Start-MachineLoad, Add-TestHistory, Read-TestHistory, Get-CriticalPath, Get-Concurrency, Save-TestTimes, Get-TimeSummary
+Export-ModuleMember -Function Get-PermitCounts, Enter-AllPermits, Exit-AllPermits, Get-PerfOverBudget, Update-PerfVerdicts, Read-TestTimes, Get-MachineLoad, Start-MachineLoad, Invoke-IoSampler, Start-IoSampler, Get-IoStalls, Add-TestHistory, Read-TestHistory, Get-CriticalPath, Get-Concurrency, Save-TestTimes, Get-TimeSummary

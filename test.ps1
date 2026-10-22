@@ -121,6 +121,8 @@ if ($Status) {
     }
     Write-Host $text
     if (Test-Path $log) { Get-Content $log -Tail 5 | Where-Object { $_ -match '\[FAIL\]|Passed!|Failed!|Stamped' } | ForEach-Object { Write-Host "  $_" } }
+    Import-Module (Join-Path $root 'test-time.psm1') -Force
+    Get-IoStalls "$log.io" | ForEach-Object { Write-Host "  Slow file opens: $_" }
     $dumps = @(Get-ChildItem (Join-Path $gitDir 'corvus-stalls') -File -ErrorAction SilentlyContinue)
     if ($dumps) { Write-Host "  Worker thread dumps: $($dumps.Count) in $(Join-Path $gitDir 'corvus-stalls')" }
     if (Test-Path "$log.previous") {
@@ -128,7 +130,6 @@ if ($Status) {
         Write-Host "Previous: $(($before | Select-Object -Last 1) -replace '^Result: ', '')"
         $before | Where-Object { $_ -match '\[FAIL\]|Failed!' } | Select-Object -First 10 | ForEach-Object { Write-Host "  $_" }
     }
-    Import-Module (Join-Path $root 'test-time.psm1') -Force
     $times = @(Get-TimeSummary $timeHistory)
     if ($times) { Write-Host "Run times ($timeReport):"; $times | ForEach-Object { Write-Host "  $_" } }
     $misses = Join-Path $gitDir 'corvus-selection-misses.txt'
@@ -360,13 +361,20 @@ if ($Background) {
     Set-Content -Path $result -Value "$short running since $(Get-Date -Format 'yyyy-MM-dd HH:mm')" -NoNewline
     # Thread dumps of engine workers stopped for time stay next to the log.
     $stalls = Join-Path $gitDir 'corvus-stalls'
+    # File open times in the permit folder and the temporary folder, with disk and memory counters, every 10 s of the
+    # run (test-time.psm1 Invoke-IoSampler), so a stalled run shows its window.
+    $permitDir = Join-Path $tempRoot 'corvus-test-data/permits'
+    New-Item -ItemType Directory -Force $permitDir | Out-Null
     # A whole run also refreshes a coverage map 6 days old (-Reuse drops one at 7), while its record keeps pushes queued.
     $script = @"
 Set-Location '$dir'
 `$env:CORVUS_STALL_DIR = '$stalls'
 `$env:CORVUS_TEST_PUSH_RUN = '1'
+Import-Module ./test-time.psm1
+`$sampler = Start-IoSampler '$log.io' @('$permitDir', '$tempRoot')
 & ./test.ps1 $flags *> '$log'
 `$code = `$LASTEXITCODE
+Stop-Job `$sampler; Remove-Job `$sampler -Force
 Set-Content -Path '$result' -Value ('$short ' + `$(if (`$code -eq 0) { 'passed' } else { 'FAILED (exit ' + `$code + ')' }) + ' at ' + (Get-Date -Format 'yyyy-MM-dd HH:mm')) -NoNewline
 if (`$code -eq 0) { Set-Content -Path '$lastPassed' -Value '$commit' -NoNewline }
 `$map = '$(Join-Path $gitDir 'corvus-coverage-map.json')'
