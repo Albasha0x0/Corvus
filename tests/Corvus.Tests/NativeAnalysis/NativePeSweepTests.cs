@@ -18,6 +18,7 @@ namespace Corvus.Tests;
 public sealed class NativePeSweepTests(ITestOutputHelper output)
 {
     [WindowsFact]
+    [Permit("reference-tool")]
     [Trait("Speed", "Slow")]
     public void System32AndSysWow64AgreeWithOracles()
     {

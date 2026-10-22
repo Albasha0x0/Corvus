@@ -348,6 +348,7 @@ public sealed class MachOFileTests(ITestOutputHelper output)
 
     /// <summary>Every dylib of the osx-arm64 runtime pack (libcoreclr.dylib and friends) parses cleanly, and agrees with LLVM's fixups when CORVUS_LLVM_BIN is set.</summary>
     [Fact]
+    [Permit("reference-tool")]
     [Trait("Speed", "Slow")]
     public void RuntimePack_Dylibs()
     {
@@ -405,6 +406,7 @@ public sealed class MachOFileTests(ITestOutputHelper output)
 
     /// <summary>Dylibs linked by ld64.lld with chained fixups (arm64) and with dyld info opcodes (x86_64) agree with llvm-objdump (needs CORVUS_LLVM_BIN with clang).</summary>
     [Fact]
+    [Permit("reference-tool")]
     [Trait("Speed", "Slow")]
     public void ClangBuilds_AgreeWithLlvm()
     {

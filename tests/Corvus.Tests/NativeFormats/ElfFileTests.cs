@@ -349,6 +349,7 @@ public sealed class ElfFileTests(ITestOutputHelper output)
 
     /// <summary>Every shared object of the linux-arm64 runtime pack (libcoreclr.so and friends) agrees with LibObjectFile, and with LLVM when CORVUS_LLVM_BIN is set.</summary>
     [Fact]
+    [Permit("reference-tool")]
     [Trait("Speed", "Slow")]
     public void RuntimePack_SharedObjects()
     {
@@ -409,6 +410,7 @@ public sealed class ElfFileTests(ITestOutputHelper output)
     /// readers: relocations (APS2 and RELR expanded), dynamic symbols, PLT stubs and unwind starts (needs CORVUS_LLVM_BIN with clang).
     /// </summary>
     [Fact]
+    [Permit("reference-tool")]
     [Trait("Speed", "Slow")]
     public void ClangBuilds_AgreeWithLlvm()
     {

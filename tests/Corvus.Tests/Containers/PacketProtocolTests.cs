@@ -258,6 +258,7 @@ public sealed class PacketTSharkTests(ITestOutputHelper output) : IDisposable
     }
 
     /// <summary>TShark (CORVUS_TSHARK) selects the same frames as the in-process fields on every fixture capture.</summary>
+    [Permit("reference-tool")]
     [Trait("Speed", "Slow")]
     [RequiresRealDataFact("CORVUS_TSHARK")]
     public void In_process_fields_select_what_tshark_selects()

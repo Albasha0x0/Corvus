@@ -168,6 +168,7 @@ public sealed partial class HermesTests(ITestOutputHelper output) : IDisposable
     /// hbcdump (CORVUS_HBC_DISASSEMBLER: one build, or a folder of builds for several versions) decodes the same instructions
     /// at the same offsets with the same operands, for every fixture a build reads and every bundle under CORVUS_HBC_DIR.
     /// </summary>
+    [Permit("reference-tool")]
     [Trait("Speed", "Slow")]
     [RequiresRealDataFact("CORVUS_HBC_DISASSEMBLER")]
     public void Disassembly_equals_hbcdump()
@@ -233,6 +234,7 @@ public sealed partial class HermesTests(ITestOutputHelper output) : IDisposable
         : long.Parse(s, NumberStyles.HexNumber, CultureInfo.InvariantCulture);
 
     /// <summary>Every bundle under CORVUS_HBC_DIR: read and indexed in under a second (10 MB scale), every function decompiled.</summary>
+    [Permit("reference-tool")]
     [Trait("Speed", "Slow")]
     [RequiresRealDataFact("CORVUS_HBC_DIR")]
     [Trait(PerfBudget.Trait, PerfBudget.Timing)]

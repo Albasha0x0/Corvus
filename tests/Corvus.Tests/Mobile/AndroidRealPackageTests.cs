@@ -10,6 +10,7 @@ namespace Corvus.Tests;
 /// </summary>
 [Trait("Speed", "Slow")]
 [Trait("Data", "Real")]
+[Permit("reference-tool")]
 public sealed class AndroidRealPackageTests(Xunit.Abstractions.ITestOutputHelper output) : IDisposable
 {
     private const string Ref = "Microsoft.Android.Ref.35", Runtime = "Microsoft.Android.Runtime.35.android-arm64", Version = "35.0.105";

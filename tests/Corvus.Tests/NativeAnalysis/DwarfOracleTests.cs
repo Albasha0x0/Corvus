@@ -15,6 +15,7 @@ namespace Corvus.Tests;
 /// debug file of a gigabyte read within the memory budget.
 /// </summary>
 [Trait("Speed", "Slow")]
+[Permit("reference-tool")]
 public sealed partial class DwarfOracleTests(ITestOutputHelper output)
 {
     private static readonly string[] Libraries =

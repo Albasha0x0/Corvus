@@ -272,6 +272,7 @@ public sealed class UnityOverviewTests : IDisposable
 /// </summary>
 [Collection(SweepCollection.Name)]
 [Trait("Speed", "Slow")]
+[Permit("reference-tool")]
 public sealed class UnityOverviewRealTests(ITestOutputHelper output)
 {
     [Fact]

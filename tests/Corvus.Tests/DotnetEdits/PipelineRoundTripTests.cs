@@ -30,6 +30,7 @@ namespace Corvus.Tests;
 /// </remarks>
 [Trait("Speed", "Slow")]
 [Collection(SweepCollection.Name)]
+[Permit("reference-tool")]
 public sealed class PipelineRoundTripTests(ITestOutputHelper output) : IDisposable
 {
     public const string ToolVariable = "CORVUS_PIPELINE_TOOL";

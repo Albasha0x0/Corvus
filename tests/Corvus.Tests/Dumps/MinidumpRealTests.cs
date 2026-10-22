@@ -16,6 +16,7 @@ namespace Corvus.Tests;
 /// installed, is the oracle for the faulting frames and the module list. Skipped without the MSVC build tools.
 /// </summary>
 [Trait("Speed", "Slow")]
+[Permit("reference-tool")]
 public sealed class MinidumpRealTests(ITestOutputHelper output)
 {
     private const string Source = """

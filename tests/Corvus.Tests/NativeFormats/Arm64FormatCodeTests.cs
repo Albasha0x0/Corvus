@@ -50,6 +50,7 @@ public sealed class Arm64FormatCodeTests(ITestOutputHelper output)
     }
 
     /// <summary>Call arguments on a real library: imports called with signatures, string arguments recovered through ADRP pairs.</summary>
+    [Permit("reference-tool")]
     [Trait("Speed", "Slow")]
     [Fact]
     public void Call_arguments_on_a_real_library()
@@ -95,6 +96,7 @@ public sealed class Arm64FormatCodeTests(ITestOutputHelper output)
     }
 
     /// <summary>Both slices of a large universal dylib (x86_64 through the x86 decoder, arm64): function starts are declared, code decodes cleanly.</summary>
+    [Permit("reference-tool")]
     [Trait("Speed", "Slow")]
     [Theory]
     [InlineData("arm64")]
@@ -113,6 +115,7 @@ public sealed class Arm64FormatCodeTests(ITestOutputHelper output)
     }
 
     /// <summary>Every instruction of every function we decode against llvm-objdump's mnemonic at the same address (aliases aside).</summary>
+    [Permit("reference-tool")]
     [Trait("Speed", "Slow")]
     [Theory]
     [InlineData("so")]

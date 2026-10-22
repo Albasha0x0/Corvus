@@ -15,6 +15,7 @@ namespace Corvus.Tests;
 /// </summary>
 [Trait("Speed", "Slow")]
 [Trait("Data", "Real")]
+[Permit("reference-tool")]
 public sealed class ProtobufRealTests : IDisposable
 {
     private const string GrpcTools = "2.84.0";

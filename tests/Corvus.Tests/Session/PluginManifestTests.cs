@@ -59,6 +59,7 @@ public class PluginManifestTests
 
     /// <summary>Claude Code's own validator, when the claude CLI is on PATH (CORVUS_CLAUDE names another).</summary>
     [Fact]
+    [Permit("reference-tool")]
     [Trait("Speed", "Slow")]
     public async Task ClaudeCodeValidatesTheManifests()
     {

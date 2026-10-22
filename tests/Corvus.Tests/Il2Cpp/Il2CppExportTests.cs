@@ -51,6 +51,7 @@ public class Il2CppExportTests : IDisposable
     private const string Clang = @"C:\Program Files\LLVM\bin\clang.exe";
 
     /// <summary>For a real dump the header compiles and the scripts are valid Python.</summary>
+    [Permit("reference-tool")]
     [Trait("Speed", "Slow")]
     [RequiresRealDataFact(RealData.Il2CppDummyDir)]
     public void RealDumpHeaderCompilesAndScriptsParse()

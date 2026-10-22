@@ -13,6 +13,7 @@ public sealed class WasmValidationTests(ITestOutputHelper output) : IDisposable
     [Fact]
     public void Valid_fixtures_validate() => Validates(WasmTextTests.Fixtures());
 
+    [Permit("reference-tool")]
     [Trait("Speed", "Slow")]
     [RequiresRealDataFact("CORVUS_WASM_DIR")]
     public void Real_builds_validate() => Validates(WasmTextTests.RealBuilds());
@@ -69,6 +70,7 @@ public sealed class WasmValidationTests(ITestOutputHelper output) : IDisposable
     }
 
     /// <summary>wasm-validate (CORVUS_WASM_VALIDATOR) gives the same verdict on the valid and broken fixtures and the real builds (a component's core modules).</summary>
+    [Permit("reference-tool")]
     [Trait("Speed", "Slow")]
     [RequiresRealDataFact("CORVUS_WASM_VALIDATOR")]
     public void Verdicts_equal_wasm_validate()

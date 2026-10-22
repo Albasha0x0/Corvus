@@ -63,6 +63,7 @@ public sealed class CaptureObjectsTSharkTests(ITestOutputHelper output) : IDispo
         return [.. cases.Select((c, i) => (c.Item1, Pcap(Connection((ushort)(52000 + i), 80, c.Item2, c.Item3, c.Item4))))];
     }
 
+    [Permit("reference-tool")]
     [Trait("Speed", "Slow")]
     [RequiresRealDataFact("CORVUS_TSHARK")]
     public void Synthetic_captures_export_the_objects_tshark_exports()
@@ -77,6 +78,7 @@ public sealed class CaptureObjectsTSharkTests(ITestOutputHelper output) : IDispo
         output.WriteLine(Report(results));
     }
 
+    [Permit("reference-tool")]
     [Trait("Speed", "Slow")]
     [RequiresRealDataFact("CORVUS_TSHARK", "CORVUS_CAPTURES")]
     public void Real_captures_export_every_object_tshark_exports()

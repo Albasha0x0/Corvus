@@ -143,6 +143,7 @@ public sealed class ItaniumDemangleTests(ITestOutputHelper output)
 
     /// <summary>Every C++ symbol of the linux-arm64 and osx-arm64 runtime packs and of SkiaSharp against llvm-cxxfilt (needs CORVUS_LLVM_BIN).</summary>
     [Fact]
+    [Permit("reference-tool")]
     [Trait("Speed", "Slow")]
     public void RuntimePackSymbols_MatchLlvm()
     {

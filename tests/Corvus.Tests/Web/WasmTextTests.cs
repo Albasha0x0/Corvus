@@ -100,6 +100,7 @@ public sealed partial class WasmTextTests(ITestOutputHelper output) : IDisposabl
     /// wasm2wat (CORVUS_WASM_TO_TEXT) writes byte-equal text for every module of the corpus. The Windows build's MSVC printf
     /// spells NaN comments "-nan(ind)" and "nan(snan)"; they are read as glibc's "-nan" and "nan", which the Linux and macOS builds write.
     /// </summary>
+    [Permit("reference-tool")]
     [Trait("Speed", "Slow")]
     [RequiresRealDataFact("CORVUS_WASM_TO_TEXT")]
     public void Text_equals_wasm2wat()

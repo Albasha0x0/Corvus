@@ -147,6 +147,7 @@ public sealed class JavaDecompilerTests(Xunit.Abstractions.ITestOutputHelper out
     }
 
     /// <summary>The real JADX server's source of an R8-shaped class, with the mapping's names put into it.</summary>
+    [Permit("reference-tool")]
     [Trait("Speed", "Slow")]
     [RequiresRealDataFact("CORVUS_JAVA_DECOMPILER")]
     public async Task RealJadx_MappingNamesInTheSource()
@@ -320,6 +321,7 @@ public sealed class JavaDecompilerTests(Xunit.Abstractions.ITestOutputHelper out
     }
 
     /// <summary>decompile_java asks JADX for smali where Java fails unless javaOnly (the default of the former smaliFallback=true).</summary>
+    [Permit("reference-tool")]
     [Trait("Speed", "Slow")]
     [Fact]
     public async Task DecompileJava_SmaliFallbackByDefault_JavaOnlyTurnsItOff()
@@ -373,6 +375,7 @@ public sealed class JavaDecompilerTests(Xunit.Abstractions.ITestOutputHelper out
     }
 
     /// <summary>The real Vineflower (CORVUS_JAVA_DECOMPILER2) decompiles a class of a jar.</summary>
+    [Permit("reference-tool")]
     [Trait("Speed", "Slow")]
     [RequiresRealDataFact("CORVUS_JAVA_DECOMPILER2")]
     public async Task RealVineflower()
@@ -387,6 +390,7 @@ public sealed class JavaDecompilerTests(Xunit.Abstractions.ITestOutputHelper out
     }
 
     /// <summary>The real JADX server (CORVUS_JAVA_DECOMPILER) decompiles the sample and picks the overload asked for.</summary>
+    [Permit("reference-tool")]
     [Trait("Speed", "Slow")]
     [RequiresRealDataFact("CORVUS_JAVA_DECOMPILER")]
     public async Task RealJadx()

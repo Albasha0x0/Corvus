@@ -33,6 +33,7 @@ public sealed class JvmClassTests(Xunit.Abstractions.ITestOutputHelper output)
         return path;
     }
 
+    [Permit("reference-tool")]
     [Trait("Speed", "Slow")]
     [JavapTheory]
     [MemberData(nameof(RealJars))]
@@ -46,6 +47,7 @@ public sealed class JvmClassTests(Xunit.Abstractions.ITestOutputHelper output)
     }
 
     /// <summary>Jars of a local corpus (CORVUS_JAVA_JARS, a folder searched three levels deep): shaded and transformed builds.</summary>
+    [Permit("reference-tool")]
     [Trait("Speed", "Slow")]
     [RequiresRealDataFact(JavaJars)]
     public void Listing_equals_javap_on_the_local_corpus()

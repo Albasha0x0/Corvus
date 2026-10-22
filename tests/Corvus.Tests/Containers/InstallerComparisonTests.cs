@@ -11,6 +11,7 @@ namespace Corvus.Tests;
 /// tool is not set is skipped.
 /// </summary>
 [Trait("Speed", "Slow")]
+[Permit("reference-tool")]
 public sealed class InstallerComparisonTests(ITestOutputHelper output)
 {
     /// <summary>A reference tool for the reader of one kind: its variable, native arguments ({input}, {output}, {work}: an existing scratch folder), and how its output becomes (name, size) rows.</summary>

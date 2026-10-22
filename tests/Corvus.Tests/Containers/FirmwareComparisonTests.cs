@@ -13,6 +13,7 @@ namespace Corvus.Tests;
 /// ungzipped first) and CORVUS_FS_REFERENCE the program that runs the script as root: sh on Linux, wsl.exe on Windows.
 /// </summary>
 [Trait("Speed", "Slow")]
+[Permit("reference-tool")]
 public sealed class FirmwareComparisonTests(ITestOutputHelper output)
 {
     /// <summary>Reader kinds and the script's format names.</summary>

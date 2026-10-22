@@ -103,6 +103,7 @@ public sealed class DalvikDisassemblerTests(Xunit.Abstractions.ITestOutputHelper
     }
 
     /// <summary>baksmali 2.5 (CORVUS_DEX_DISASSEMBLER, its jar) writes the same text for every class of the sample, and of the first DEX of CORVUS_ANDROID_PACKAGE.</summary>
+    [Permit("reference-tool")]
     [Trait("Speed", "Slow")]
     [RequiresRealDataFact("CORVUS_DEX_DISASSEMBLER")]
     public void MatchesBaksmali()
