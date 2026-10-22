@@ -75,6 +75,8 @@ if ($Status) {
     }
     Write-Host $text
     if (Test-Path $log) { Get-Content $log -Tail 5 | Where-Object { $_ -match '\[FAIL\]|Passed!|Failed!|Stamped' } | ForEach-Object { Write-Host "  $_" } }
+    $dumps = @(Get-ChildItem (Join-Path $gitDir 'corvus-stalls') -File -ErrorAction SilentlyContinue)
+    if ($dumps) { Write-Host "  Worker thread dumps: $($dumps.Count) in $(Join-Path $gitDir 'corvus-stalls')" }
     if (Test-Path "$log.previous") {
         $before = Get-Content "$log.previous"
         Write-Host "Previous: $(($before | Select-Object -Last 1) -replace '^Result: ', '')"
@@ -159,10 +161,13 @@ if ($Background) {
         if (Test-Path $result) { Add-Content -Path "$log.previous" -Value "Result: $((Get-Content $result -Raw).Trim())" }
     }
     Set-Content -Path $result -Value "$short running since $(Get-Date -Format 'yyyy-MM-dd HH:mm')" -NoNewline
+    # Thread dumps of engine workers stopped for time stay next to the log.
+    $stalls = Join-Path $gitDir 'corvus-stalls'
     # Below-normal priority, inherited by the test hosts and engine workers, keeps the machine responsive meanwhile.
     $script = @"
 (Get-Process -Id `$PID).PriorityClass = 'BelowNormal'
 Set-Location '$dir'
+`$env:CORVUS_STALL_DIR = '$stalls'
 & ./test.ps1 $flags *> '$log'
 `$code = `$LASTEXITCODE
 Set-Content -Path '$result' -Value ('$short ' + `$(if (`$code -eq 0) { 'passed' } else { 'FAILED (exit ' + `$code + ')' }) + ' at ' + (Get-Date -Format 'yyyy-MM-dd HH:mm')) -NoNewline

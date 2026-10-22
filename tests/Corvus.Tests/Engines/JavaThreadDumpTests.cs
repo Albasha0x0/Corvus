@@ -25,9 +25,11 @@ public sealed class JavaThreadDumpTests
                 report = JavaThreadDump.Report(java.Java, jvm.Id, dir.File("stalls"));
             Assert.NotNull(report);
             Assert.StartsWith("heap: ", report);
-            var file = Assert.Single(Directory.GetFiles(dir.File("stalls")));
-            Assert.Contains($"full dump: {file}", report);
+            var file = report[(report.IndexOf("full dump: ", StringComparison.Ordinal) + "full dump: ".Length)..];
             Assert.Contains("java.lang.Thread.State", File.ReadAllText(file));
+            // Test runs keep dumps in CORVUS_STALL_DIR, outside the test's own folder.
+            Assert.Equal(Environment.GetEnvironmentVariable(JavaThreadDump.FolderVariable), Path.GetDirectoryName(file));
+            File.Delete(file);
         }
         finally { jvm.Kill(); }
     }

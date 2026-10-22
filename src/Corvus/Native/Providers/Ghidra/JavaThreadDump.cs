@@ -8,9 +8,13 @@ internal static partial class JavaThreadDump
 {
     private static readonly TimeSpan Limit = TimeSpan.FromSeconds(20);
 
+    /// <summary>Folder for the dumps in place of the provider's own (a test run keeps it past its temporary caches).</summary>
+    public const string FolderVariable = "CORVUS_STALL_DIR";
+
     /// <summary>
-    /// Saves jcmd's thread dump and heap summary of process <paramref name="pid"/> under <paramref name="folder"/> and
-    /// returns the heap line, the busiest Ghidra threads and the file; null when the JDK has no jcmd or it cannot attach.
+    /// Saves jcmd's thread dump and heap summary of process <paramref name="pid"/> under <see cref="FolderVariable"/>,
+    /// else <paramref name="folder"/>, and returns the heap line, the busiest Ghidra threads and the file; null when
+    /// the JDK has no jcmd or it cannot attach.
     /// </summary>
     public static string? Report(string java, int pid, string folder)
     {
@@ -20,6 +24,7 @@ internal static partial class JavaThreadDump
         if (threads == null) return null;
         var heap = Run(jcmd, pid, "GC.heap_info") ?? "";
         string? file = null;
+        if (Environment.GetEnvironmentVariable(FolderVariable) is { Length: > 0 } chosen) folder = chosen;
         try
         {
             Directory.CreateDirectory(folder);

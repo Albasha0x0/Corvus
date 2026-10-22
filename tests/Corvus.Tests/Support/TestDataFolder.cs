@@ -14,6 +14,10 @@ internal static class TestDataFolder
     {
         if (Environment.GetEnvironmentVariable(DataFolder.RootVariable) is not { Length: > 0 })
             Environment.SetEnvironmentVariable(DataFolder.RootVariable, Path.Combine(Path.GetTempPath(), "corvus-test-data"));
+        // Stall dumps outlive the per-test caches they would otherwise go into.
+        if (Environment.GetEnvironmentVariable(Native.Providers.Ghidra.JavaThreadDump.FolderVariable) is not { Length: > 0 })
+            Environment.SetEnvironmentVariable(Native.Providers.Ghidra.JavaThreadDump.FolderVariable,
+                Path.Combine(Environment.GetEnvironmentVariable(DataFolder.RootVariable)!, "stalls"));
         // Ghidra's answers stay fixed within a test; CompletionPassTests turns the pass on
         Environment.SetEnvironmentVariable("CORVUS_GHIDRA_COMPLETION", "off");
     }

@@ -182,6 +182,7 @@ Variables of the options above are listed with them. A program variable takes th
 | `CORVUS_ENGINE_MEMORY_MB` | ¾ of available | Memory limit of each IDA or Ghidra worker (Windows job object); `0`: none. |
 | `CORVUS_ENGINE_REQUEST_TIMEOUT` | 120 | Seconds per engine request; a stopped request returns what it found. |
 | `CORVUS_ENGINE_OPEN_TIMEOUT` | 1200 | Seconds for an engine's start plus auto-analysis. |
+| `CORVUS_STALL_DIR` | `<analysis cache>/ghidra/stalls` | Where the thread dump of a Ghidra worker stopped for time is saved. |
 
 ### External programs
 
