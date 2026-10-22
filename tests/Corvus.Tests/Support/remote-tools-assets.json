@@ -7,6 +7,41 @@
       "sha256": "ddac49f903da9d5bac833e5cc79395098b9c33cfd3279be5f31bd00387d2d4db",
       "folder": "ghidra_12.1.4_PUBLIC",
       "variable": "CORVUS_GHIDRA_DIR"
+    },
+    {
+      "name": "jdk",
+      "version": "24.0.1+9",
+      "url": "https://github.com/adoptium/temurin24-binaries/releases/download/jdk-24.0.1%2B9/OpenJDK24U-jdk_x64_windows_hotspot_24.0.1_9.zip",
+      "sha256": "2ef7f20c00577747d23999c7b29a0d35d73aeeb9d67aec0aa9825e59084447c3",
+      "folder": "jdk-24.0.1+9",
+      "variable": "CORVUS_GHIDRA_JAVA"
+    },
+    {
+      "name": "pwsh",
+      "version": "7.6.7",
+      "url": "https://github.com/PowerShell/PowerShell/releases/download/v7.6.7/PowerShell-7.6.7-win-x64.zip",
+      "sha256": "d2f952ebdbf24386cb8923553aa58e41a846db35a6155ea04c58142a4b16dbb7",
+      "folder": "pwsh-7.6.7",
+      "into": "pwsh-7.6.7",
+      "bin": "."
+    },
+    {
+      "name": "git",
+      "version": "2.56.0.2",
+      "url": "https://github.com/git-for-windows/git/releases/download/v2.56.0.windows.2/MinGit-2.56.0.2-64-bit.zip",
+      "sha256": "da35e72aa21c005a5a0d298cfbae110bc1609a815730ea0dde84b01a1b3cd3be",
+      "folder": "mingit-2.56.0.2",
+      "into": "mingit-2.56.0.2",
+      "bin": "cmd"
+    },
+    {
+      "name": "python",
+      "version": "3.13.16",
+      "url": "https://www.nuget.org/api/v2/package/python/3.13.16",
+      "sha256": "95fad176338f1d6a799e45946488063f4aa61764e6cff2f132ddeffbf7a04c34",
+      "folder": "python-3.13.16",
+      "into": "python-3.13.16",
+      "bin": "tools"
     }
   ]
 }

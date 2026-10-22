@@ -159,17 +159,11 @@ jobs:
           if (-not (Get-ChildItem $dir -File -ErrorAction SilentlyContinue)) { ./tests/Corvus.Tests/Support/fetch-yara-x.ps1 -Destination $dir }
           "CORVUS_TEST_YARA_X=$dir" >> $env:GITHUB_ENV
 
-      # The JDK release the local Ghidra runs on, and the Ghidra release pinned in remote-tools-assets.json.
-      - uses: actions/setup-java@v6
-        if: matrix.group == 'ghidra'
-        with:
-          distribution: temurin
-          java-version: '24.0.1+9'
-
+      # The Ghidra release and the JDK it runs on, pinned in remote-tools-assets.json as on a test host.
       - name: Ghidra
         if: matrix.group == 'ghidra'
         shell: pwsh
-        run: ./tests/Corvus.Tests/Support/fetch-remote-tools.ps1 -Destination (Join-Path $env:RUNNER_TEMP 'test-tools') -Name ghidra >> $env:GITHUB_ENV
+        run: ./tests/Corvus.Tests/Support/fetch-remote-tools.ps1 -Destination (Join-Path $env:RUNNER_TEMP 'test-tools') -Name ghidra, jdk >> $env:GITHUB_ENV
 
       # The Frida release the live tests are written against, as in the live job.
       - uses: actions/setup-python@v6

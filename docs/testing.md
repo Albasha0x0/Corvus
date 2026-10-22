@@ -77,6 +77,14 @@
   that does not appear within 2 minutes, a failed or cancelled job); its result here is the one that counts. `-Status`
   shows one `github` line, and it and the time report name each class that failed there with its result here;
   `CORVUS_TEST_OFFLOAD=0` runs everything here.
+- **Test host.** `./test-remote-setup.ps1 -Target user@host` prepares a second Windows machine over OpenSSH: the
+  PowerShell 7, MinGit, Python, JDK and Ghidra releases pinned with their SHA-256 in `Support/remote-tools-assets.json`
+  (under `~/corvus-test-host/tools`), the Frida release the server pins, a clone of the repository, the .NET SDK
+  `global.json` names with the x64 and x86 runtimes the tests start programs on (checked against Microsoft's release
+  metadata), and the Visual C++ build tools (the bootstrapper's Microsoft signature is checked). A step keeps what is
+  already there, so running it again fills only the gaps; `-Check` changes nothing and names what is missing. The host
+  needs OpenSSH Server, an administrator account and this machine's key in its authorized keys; its engine and live
+  permits are its own.
 - **Run times.** Every run but a coverage run records its test times from its TRX results in
   `.git/corvus-test-history.jsonl` (the last 30 runs of each mode: commit gate, push, full, perf and filtered runs; a
   test that passed in under a second is kept in its class's total) and rewrites `.git/corvus-time-report.md`: each
