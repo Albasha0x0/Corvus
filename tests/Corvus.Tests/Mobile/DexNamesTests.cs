@@ -84,6 +84,7 @@ public sealed class DexNamesTests : IDisposable
     /// <summary>A mapping of 50,000 classes and 500,000 members is read and applied in under a second of CPU (Release; the Debug build is allowed 3 s).</summary>
     [Trait("Speed", "Slow")]
     [Fact]
+    [Trait(PerfBudget.Trait, PerfBudget.Timing)]
     public void Large_Mapping_IsAppliedFast()
     {
         var text = new StringBuilder();
@@ -100,7 +101,7 @@ public sealed class DexNamesTests : IDisposable
         var names = DexNames.Read(path, index, default);
         var took = ThreadCpuClock.Now() - cpu;
         Assert.Equal("com.example.p0.Class100.method3(com.example.p0.Class0, int) : int", names.Display("La100/a;->m3(La0/a;I)I"));
-        Assert.True(took < TimeSpan.FromSeconds(3), $"{took.TotalMilliseconds:0} ms of CPU");
+        PerfBudget.Check(took < TimeSpan.FromSeconds(3), $"{took.TotalMilliseconds:0} ms of CPU");
     }
 
     [Fact]

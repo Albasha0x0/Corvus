@@ -249,6 +249,7 @@ public sealed class FlutterViewTests
     /// <summary>The pool scan of a 100 MB isolate snapshot dense with strings.</summary>
     [Trait("Speed", "Slow")]
     [Fact]
+    [Trait(PerfBudget.Trait, PerfBudget.Timing)]
     public void Pool_scan_of_100_MB_is_fast()
     {
         var unit = new List<byte>();
@@ -269,6 +270,6 @@ public sealed class FlutterViewTests
         var took = ThreadCpuClock.Now() - cpu;
         Assert.Equal(50, pool.Packages.Count);
         // the target is 1 s in a Release build (about 0.5 s measured); the Debug test build runs about 3x slower
-        Assert.True(took < TimeSpan.FromSeconds(3), $"{took.TotalMilliseconds:0} ms of CPU");
+        PerfBudget.Check(took < TimeSpan.FromSeconds(3), $"{took.TotalMilliseconds:0} ms of CPU");
     }
 }

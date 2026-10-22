@@ -211,6 +211,7 @@ public sealed class MobileRulesTests(ITestOutputHelper output) : IDisposable
 
     [RequiresRealDataFact(RealData.MobileApps)]
     [Trait("Speed", "Slow")]
+    [Trait(PerfBudget.Trait, PerfBudget.Timing)]
     public void Real_apps_per_rule_counts_and_time()
     {
         var root = RealData.Path(RealData.MobileApps);
@@ -228,7 +229,7 @@ public sealed class MobileRulesTests(ITestOutputHelper output) : IDisposable
             var r = inspection.SurveyFeatures(null, app, "all", default);
             clock.Stop();
             if (app.EndsWith(".apk", StringComparison.OrdinalIgnoreCase) && new FileInfo(app).Length <= 32 << 20)
-                Assert.True(clock.Elapsed < TimeSpan.FromSeconds(5), $"{app}: {clock.ElapsedMilliseconds} ms (target 2 s; 5 s allowed on a loaded machine)");
+                PerfBudget.Check(clock.Elapsed < TimeSpan.FromSeconds(5), $"{app}: {clock.ElapsedMilliseconds} ms (target 2 s; 5 s allowed on a loaded machine)", output);
             output.WriteLine($"{Path.GetFileName(app)} {new FileInfo(app).Length / 1048576.0:0.0} MB {clock.ElapsedMilliseconds} ms, {r.MethodsScanned} methods");
             foreach (var f in r.Features.Where(f => f.Rule != null))
             {

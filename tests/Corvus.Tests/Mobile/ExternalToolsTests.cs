@@ -85,6 +85,7 @@ public class ExternalToolsTests
     }
 
     [Fact]
+    [Trait(PerfBudget.Trait, PerfBudget.Timing)]
     public void Run_StopsAtTheOutputBudget_AndAtTheTimeout()
     {
         using var fake = new FakeTool();
@@ -96,7 +97,9 @@ public class ExternalToolsTests
         var watch = System.Diagnostics.Stopwatch.StartNew();
         var slow = ExternalTools.Run(FakeTool.Executable, ["slow"], TimeSpan.FromMilliseconds(500), 1000, default, fake.Environment);
         Assert.True(slow.TimedOut);
-        Assert.True(watch.Elapsed < TimeSpan.FromSeconds(10));
+        // The child prints only after its 20 s sleep, so no output means it was ended at the timeout.
+        Assert.DoesNotContain("late", slow.Text);
+        PerfBudget.Check(watch.Elapsed < TimeSpan.FromSeconds(10), $"timed out after {watch.Elapsed}");
 
         using var cts = new CancellationTokenSource(TimeSpan.FromMilliseconds(300));
         Assert.ThrowsAny<OperationCanceledException>(() => ExternalTools.Run(FakeTool.Executable, ["slow"], TimeSpan.FromSeconds(30), 1000, cts.Token, fake.Environment));
