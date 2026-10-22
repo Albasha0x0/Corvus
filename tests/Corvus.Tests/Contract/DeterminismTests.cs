@@ -83,8 +83,11 @@ public class DeterminismTests
         int run = 0;
         async Task<List<string>> RunAsync()
         {
+            // Each process gets a temporary folder of its own: get_pe_info counts the symbol stores that exist, and an
+            // engine test of this run can create one (IDA's %TEMP%\ida) in the shared folder between the two processes.
+            var temp = Directory.CreateDirectory(dir.File($"temp{++run}")).FullName;
             await using var client = await McpProtocolTests.StartServerAsync(null, null, ["--no-watch"],
-                new Dictionary<string, string?> { [Corvus.Native.Providers.DataFolder.RootVariable] = dir.File($"data{++run}") });
+                new Dictionary<string, string?> { [Corvus.Native.Providers.DataFolder.RootVariable] = dir.File($"data{run}"), ["TMP"] = temp, ["TEMP"] = temp, ["TMPDIR"] = temp });
             var answers = new List<string>();
             foreach (var (tool, args) in calls)
             {
