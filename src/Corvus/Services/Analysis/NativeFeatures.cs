@@ -54,12 +54,9 @@ internal sealed class NativeFeatureScan(NativeCodeIndex index, CancellationToken
                 break;
             case "str":
             {
-                var regex = new Regex(pattern, RegexOptions.CultureInvariant, TimeSpan.FromSeconds(1));
+                var regex = Features.RulePattern(pattern);
                 foreach (var (rva, text) in Strings())
-                {
-                    try { if (regex.IsMatch(text)) Hit($"\"{Clip(text)}\" @{Va(rva)}" + (FirstReference(rva) is { } r ? $" in {Where(r)}" : "")); }
-                    catch (RegexMatchTimeoutException) { }
-                }
+                    if (regex.IsMatch(text)) Hit($"\"{Clip(text)}\" @{Va(rva)}" + (FirstReference(rva) is { } r ? $" in {Where(r)}" : ""));
                 break;
             }
             case "arg":
@@ -70,12 +67,9 @@ internal sealed class NativeFeatureScan(NativeCodeIndex index, CancellationToken
                 break;
             case "rtti":
             {
-                var regex = new Regex(pattern, RegexOptions.CultureInvariant, TimeSpan.FromSeconds(1));
+                var regex = Features.RulePattern(pattern);
                 foreach (var c in Classes())
-                {
-                    try { if (regex.IsMatch(c.Name)) Hit($"class {c.Name}" + (c.Vtables.Count > 0 ? $" (vftable @{Va(c.Vtables[0].VftableRva)})" : "")); }
-                    catch (RegexMatchTimeoutException) { }
-                }
+                    if (regex.IsMatch(c.Name)) Hit($"class {c.Name}" + (c.Vtables.Count > 0 ? $" (vftable @{Va(c.Vtables[0].VftableRva)})" : ""));
                 break;
             }
         }
@@ -167,8 +161,7 @@ internal sealed class NativeFeatureScan(NativeCodeIndex index, CancellationToken
             }
             else if (pattern.StartsWith("name=", StringComparison.Ordinal))
             {
-                try { if (Regex.IsMatch(s.Name, pattern[5..], RegexOptions.CultureInvariant, TimeSpan.FromSeconds(1))) hit($"section {s.Name}", 1); }
-                catch (RegexMatchTimeoutException) { }
+                if (Features.RulePattern(pattern[5..]).IsMatch(s.Name)) hit($"section {s.Name}", 1);
             }
             else if (pattern == "wx" && (s.Access & SectionAccess.Write) != 0 && s.IsExecutable)
                 hit($"section {s.Name} is writable and executable", 1);

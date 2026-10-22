@@ -56,7 +56,7 @@ internal sealed class DexRuleScan
             {
                 case "call": _calls.Add(ParseCall(f, pattern)); break;
                 case "field": _fields.Add((f, pattern)); break;
-                case "str": _strings.Add((f, new Regex(pattern, RegexOptions.CultureInvariant, TimeSpan.FromSeconds(1)))); break;
+                case "str": _strings.Add((f, Features.RulePattern(pattern))); break;
                 case "class": _classes.Add((f, pattern)); break;
                 case "check": break;
                 default: throw new InvalidOperationException($"Unknown dex feature: {f}");
@@ -92,7 +92,7 @@ internal sealed class DexRuleScan
         {
             arg = int.Parse(pattern.AsSpan(hash + 1, eq - hash - 1), System.Globalization.CultureInfo.InvariantCulture);
             var value = pattern[(eq + 1)..];
-            if (value.StartsWith("s:", StringComparison.Ordinal)) { argKind = "s"; text = new Regex(value[2..], RegexOptions.CultureInvariant, TimeSpan.FromSeconds(1)); }
+            if (value.StartsWith("s:", StringComparison.Ordinal)) { argKind = "s"; text = Features.RulePattern(value[2..]); }
             else if (value.StartsWith("i:", StringComparison.Ordinal)) { argKind = "i"; number = long.Parse(value[2..], System.Globalization.CultureInfo.InvariantCulture); }
             else argKind = value;
             pattern = pattern[..hash];
@@ -127,10 +127,7 @@ internal sealed class DexRuleScan
             var s = dex.String(i);
             if (s.Length is 0 or > MaxStringChars) continue;
             foreach (var (f, regex) in _strings)
-            {
-                try { if (regex.IsMatch(s)) (stringsOf[i] ??= []).Add(f); }
-                catch (RegexMatchTimeoutException) { }
-            }
+                if (regex.IsMatch(s)) (stringsOf[i] ??= []).Add(f);
         }
 
         foreach (var c in dex.Classes)
@@ -253,17 +250,11 @@ internal sealed class DexRuleScan
         var value = reg(args[c.Arg]);
         return c.ArgKind switch
         {
-            "s" when value is string s && Safe(c.ArgText!, s) => $"(\"{Clip(s)}\")",
+            "s" when value is string s && c.ArgText!.IsMatch(s) => $"(\"{Clip(s)}\")",
             "i" when value is long n && n == c.ArgInt => $"({n})",
             "literal" when value is Literal { Length: > 0 } l => $": {l.Origin}, {l.Length * 8} bits",
             _ => null,
         };
-    }
-
-    private static bool Safe(Regex regex, string s)
-    {
-        try { return regex.IsMatch(s); }
-        catch (RegexMatchTimeoutException) { return false; }
     }
 
     private static readonly string[] TrustManagers = ["Ljavax/net/ssl/X509TrustManager;", "Ljavax/net/ssl/X509ExtendedTrustManager;", "Ljavax/net/ssl/TrustManager;"];

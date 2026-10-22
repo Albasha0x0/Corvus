@@ -163,7 +163,7 @@ internal sealed class MobileRules : ISurveyRuleProvider
             @"dex:call:Ljava/security/MessageDigest;->getInstance(*#0=s:(?i)^(?:MD2|MD4|MD5|SHA-?1|SHA)$"),
         Android("android-weak-cipher", "MASVS-CRYPTO-1", "medium", "encrypt with a weak cipher or ECB mode",
             "DES, 3DES, RC4 and Blowfish are weak; ECB (also bare \"AES\") leaks patterns. Check what the cipher protects.",
-            @"dex:call:Ljavax/crypto/Cipher;->getInstance(*#0=s:(?i)^(?:DES|DESede|TripleDES|RC4|ARCFOUR|RC2|Blowfish)(?:/.*)?$|^(?!RSA)[^/]+/ECB/|^AES$"),
+            @"dex:call:Ljavax/crypto/Cipher;->getInstance(*#0=s:(?i)^(?:DES|DESede|TripleDES|RC4|ARCFOUR|RC2|Blowfish)(?:/.*)?$|^(?:R|RS|(?:[^R/]|R[^S/]|RS[^A/])[^/]*)/ECB/|^AES$"),
         Android("android-hardcoded-key", "MASVS-CRYPTO-2", "high", "build a key or IV from a literal",
             "A key in the app is readable by anyone with the APK; check whether it protects anything beyond local obfuscation.",
             "dex:call:Ljavax/crypto/spec/SecretKeySpec;-><init>([B*#1=literal", "dex:call:Ljavax/crypto/spec/IvParameterSpec;-><init>([B*#1=literal",
@@ -341,14 +341,10 @@ internal sealed class MobileRules : ISurveyRuleProvider
 
     private static Evidence? Symbols(NativeCodeIndex index, string feature, string pattern)
     {
-        var regex = new Regex(pattern, RegexOptions.CultureInvariant, TimeSpan.FromSeconds(1));
+        var regex = Features.RulePattern(pattern);
         var found = new List<string>();
         int count = 0;
-        bool Match(string name)
-        {
-            try { return regex.IsMatch(name.StartsWith('_') ? name[1..] : name); }
-            catch (RegexMatchTimeoutException) { return false; }
-        }
+        bool Match(string name) => regex.IsMatch(name.StartsWith('_') ? name[1..] : name);
         var seen = new HashSet<string>(StringComparer.Ordinal);
         foreach (var imp in index.Image.Imports)
         {

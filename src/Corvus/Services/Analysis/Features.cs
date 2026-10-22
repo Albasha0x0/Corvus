@@ -334,12 +334,9 @@ public static class Features
             }
             case "str":
             {
-                var regex = StringRule(pattern);
+                var regex = RulePattern(pattern);
                 foreach (var s in scan.Strings)
-                {
-                    try { if (s.Value.Length <= 64 * 1024 && regex.IsMatch(s.Value)) Hit($"{s.Location.Where}: \"{Clip(s.Value)}\""); }
-                    catch (RegexMatchTimeoutException) { }
-                }
+                    if (s.Value.Length <= 64 * 1024 && regex.IsMatch(s.Value)) Hit($"{s.Location.Where}: \"{Clip(s.Value)}\"");
                 break;
             }
             default:
@@ -357,15 +354,20 @@ public static class Features
         return a.Equals(expected, StringComparison.OrdinalIgnoreCase);
     }
 
-    private static readonly Dictionary<string, Regex> StringRules = [];
+    private static readonly Dictionary<string, Regex> RulePatterns = [];
 
-    /// <summary>A "str:" rule's expression, parsed once.</summary>
-    private static Regex StringRule(string pattern)
+    /// <summary>
+    /// A rule's regular expression (str:, rtti:, sym:, section:name=, a dex string), parsed once. Throws
+    /// NotSupportedException for a construct NonBacktracking does not take; a test keeps every rule clear of them.
+    /// </summary>
+    internal static Regex RulePattern(string pattern)
     {
-        lock (StringRules)
+        // Rules run over every string and name of a file: NonBacktracking
+        // matches in linear time, so they take no match timeout.
+        lock (RulePatterns)
         {
-            if (!StringRules.TryGetValue(pattern, out var regex))
-                StringRules[pattern] = regex = new Regex(pattern, RegexOptions.CultureInvariant, TimeSpan.FromSeconds(1));
+            if (!RulePatterns.TryGetValue(pattern, out var regex))
+                RulePatterns[pattern] = regex = new Regex(pattern, RegexOptions.CultureInvariant | RegexOptions.NonBacktracking);
             return regex;
         }
     }

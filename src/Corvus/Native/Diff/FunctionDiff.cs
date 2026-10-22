@@ -167,7 +167,7 @@ public sealed class FunctionDiff(MatchResult match)
     }
 
     private static readonly Regex Address = new(@"\b(?:sub|loc|off|unk|byte|word|dword|qword|stru|asc|j_sub|nullsub)_([0-9A-Fa-f]{4,16})\b|\b0x([0-9A-Fa-f]{6,16})\b",
-        RegexOptions.CultureInvariant, TimeSpan.FromSeconds(2));
+        RegexOptions.CultureInvariant | RegexOptions.NonBacktracking);
 
     /// <summary>Pseudocode with in-image addresses (sub_X, loc_X, 0x...) replaced by the names <see cref="Name"/> gives, so both builds read alike.</summary>
     public string NormalizePseudocode(string text, bool old, CancellationToken ct)
