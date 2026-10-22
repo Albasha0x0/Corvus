@@ -12,7 +12,9 @@ public class BackgroundRunStatusTests
         using var dir = new TempDir();
         // No git on this machine.
         if (!Git(dir.Path, "init", "-q")) return;
-        File.Copy(Path.Combine(DocsTests.RepoRoot(), "test.ps1"), Path.Combine(dir.Path, "test.ps1"));
+        // test.ps1 with the modules it imports, as they sit beside it in the repository.
+        foreach (var file in Directory.GetFiles(DocsTests.RepoRoot(), "test*.ps*1"))
+            File.Copy(file, Path.Combine(dir.Path, Path.GetFileName(file)));
         var gitDir = Path.Combine(dir.Path, ".git");
         File.WriteAllText(Path.Combine(gitDir, "corvus-background.result"), "0123abcd running since 2026-01-01 00:00");
         // This process with another start time: the recorded process is gone.
