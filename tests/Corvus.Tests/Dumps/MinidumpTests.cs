@@ -429,6 +429,62 @@ public sealed class MinidumpTests
     }
 
     /// <summary>
+    /// entry32.dll: Top calls Outer (an EBP frame), which calls Inner; the thread is stopped at Inner's first instruction,
+    /// a push esi, and Inner's frame data describes an EBP frame it has not built yet.
+    /// </summary>
+    [Fact]
+    public async Task X86_stop_at_a_function_entry_finds_its_caller_despite_frame_data()
+    {
+        var walk = await EntryWalk(returnSlot: true);
+        Assert.Equal(["entry32!Inner", "entry32!Outer+0x8", "entry32!Top+0x5"], walk.Items.Take(3).Select(f => f.Symbol));
+    }
+
+    /// <summary>The same thread with a zero return slot: a thread that has not started yet.</summary>
+    [Fact]
+    public async Task X86_thread_at_an_entry_with_a_zero_return_slot_ends_the_stack()
+    {
+        var walk = await EntryWalk(returnSlot: false);
+        Assert.Equal(["entry32!Inner"], walk.Items.Select(f => f.Symbol));
+        Assert.Equal("end_of_stack", walk.Stop);
+    }
+
+    private static async Task<MinidumpService.StackReport> EntryWalk(bool returnSlot)
+    {
+        const uint Base = 0x1400_0000;
+        var guid = new Guid("6b6b6b6b-1111-2222-3333-444455556666");
+        using var dir = new TempDir();
+        File.WriteAllBytes(Path.Combine(dir.Path, "entry32.dll"), SyntheticCrashX86.Pe32("entry32.dll", Base, _ =>
+        {
+            var text = new byte[0x30];
+            new byte[] { 0x55, 0x8B, 0xEC, 0xE8 }.CopyTo(text, 0); // Outer: push ebp; mov ebp, esp; call Inner; pop ebp; ret
+            BinaryPrimitives.WriteInt32LittleEndian(text.AsSpan(4), 0x10 - 8);
+            new byte[] { 0x5D, 0xC3 }.CopyTo(text, 8);
+            new byte[] { 0x56, 0x55, 0x8B, 0xEC, 0x5D, 0x5E, 0xC3 }.CopyTo(text, 0x10); // Inner: push esi; push ebp; mov ebp, esp; pop ebp; pop esi; ret
+            text[0x20] = 0xE8; // Top: call Outer; ret
+            BinaryPrimitives.WriteInt32LittleEndian(text.AsSpan(0x21), 0 - 0x25);
+            text[0x25] = 0xC3;
+            return text;
+        }, [("Outer", 0x1000), ("Inner", 0x1010), ("Top", 0x1020)], null, (guid, 1, @"C:\build\entry32.pdb")));
+        var pdb = new PdbBuilder { Guid = guid, Age = 1 };
+        pdb.FrameData.Add((0x1010, 7, 0, 0, 4, "$T0 $ebp = $eip $T0 4 + ^ = $ebp $T0 ^ = $esp $T0 8 + ="));
+        File.WriteAllBytes(Path.Combine(dir.Path, "entry32.pdb"), pdb.Build());
+        var stack = new byte[0x100];
+        void Put(int at, uint v) => BinaryPrimitives.WriteUInt32LittleEndian(stack.AsSpan(at), v);
+        if (returnSlot) Put(0x00, Base + 0x1008);
+        Put(0x44, Base + 0x1025);
+        var d = new MinidumpBuilder { FullMemory = true, ProcessorArchitecture = 0 };
+        d.Modules.Add(new MinidumpBuilder.Module(Base, 0x3000, 0, @"Z:\nowhere\entry32.dll"));
+        d.Memory.Add((SyntheticCrashX86.Stack, stack));
+        d.Regions.Add(new MinidumpBuilder.Region(SyntheticCrashX86.Stack, 0x100, 0x04));
+        d.Threads.Add(new MinidumpBuilder.Thread(109, SyntheticCrashX86.Stack,
+            MinidumpBuilder.ContextX86(Base + 0x1010, SyntheticCrashX86.Stack, ebp: SyntheticCrashX86.Stack + 0x40)));
+        var path = dir.File("entry32.dmp");
+        File.WriteAllBytes(path, d.Build());
+        using var service = new MinidumpService();
+        return await service.Stack(path, "109", true, 64, 0, 64, dir.Path, default);
+    }
+
+    /// <summary>
     /// ntdll.dll: KiUserExceptionDispatcher calls RtlDispatchException, stopped in its prolog; the kernel copied the
     /// EXCEPTION_RECORD and CONTEXT above the dispatcher's two arguments.
     /// </summary>

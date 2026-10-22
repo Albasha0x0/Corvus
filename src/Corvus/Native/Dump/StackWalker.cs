@@ -410,6 +410,22 @@ public sealed class StackWalker
             return (faulted, FrameMethod.MachineFrame, false, "the exception's register context (KiUserExceptionDispatcher)");
         var record = _frameData?.Invoke(top ? ctx.Ip : ctx.Ip - 1);
         _calleeParams = record?.Params ?? 0;
+        // A thread stopped at a block's first instruction or in its prolog has not
+        // built the frame its data describes; the checks below find the caller.
+        if (top && record != null && _dump.ModuleAt(ctx.Ip) is { } module && ctx.Ip - module.Base - record.Rva is var offset
+            && offset < Math.Max(record.Prolog, 1u))
+        {
+            record = null;
+            // A zero return slot at a block's first instruction is a thread that has
+            // not started yet: its stack ends here.
+            if (offset == 0 && _dump.TryReadU32(ctx.Sp, out uint slot) && slot == 0)
+            {
+                var start = ctx.Clone();
+                start.Ip = 0;
+                start.Sp = ctx.Sp + 4;
+                return (start, FrameMethod.Leaf, false, null);
+            }
+        }
         if (top)
         {
             // at the first instruction(s) of a standard prolog the caller's frame pointer is still live
