@@ -44,6 +44,9 @@ public sealed record DependencyFacts(DependencyComponent? Subject, int Component
     [JsonIgnore] public IReadOnlyList<DependencyComponent> All { get; init; } = [];
 
     [JsonIgnore] public IReadOnlyList<DependencyEdge> Edges { get; init; } = [];
+
+    /// <summary>The advisory check; null when the dependencies view was not asked for, so nothing was checked.</summary>
+    public DependencyAdvisories? Advisories { get; init; }
 }
 
 /// <summary>Builds a file's <see cref="DependencyFacts"/> from what summarize_file already unpacked and the native image's build records.</summary>
@@ -93,7 +96,11 @@ internal static class DependencyInventory
         var edges = b.Edges.Select(e => new DependencyEdge(e.Key, e.Value)).ToList();
         if (b.Components.Count > MaxListed) b.Notes.Add($"components: the first {MaxListed} of {b.Components.Count:N0} listed; sbomPath writes all");
         return new DependencyFacts(b.Subject, b.Components.Count, b.Components.Count(c => c.Purl != null), [.. b.Components.Take(MaxListed)],
-            edges.Sum(e => e.To.Count), b.Sources, b.Notes) { All = b.Components, Edges = edges };
+            edges.Sum(e => e.To.Count), b.Sources, b.Notes)
+        {
+            All = b.Components, Edges = edges,
+            Advisories = input.Options.Wants("dependencies") ? OsvAdvisories.Check(b.Components, ct) : null,
+        };
     }
 
     /// <summary>Packages, runtime packs and projects of a deps.json; assemblies its assets name are claimed.</summary>

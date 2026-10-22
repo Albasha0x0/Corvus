@@ -146,6 +146,7 @@ public class ServerStatusToolVariableTests
             ["CORVUS_PY_DECOMPILER"] = Place("pycdc"),
             ["CORVUS_ADB"] = Place("adb"),
             ["CORVUS_TSHARK"] = Place("tshark"),
+            ["CORVUS_OSV_SCANNER"] = Place("osv-scanner"),
         };
         var tools = Corvus.Native.Providers.ExternalTools.Table.Where(t => !t.TestOracle).ToList();
         Assert.Equal(tools.Select(t => t.Variable).Order(), variables.Keys.Order());

@@ -197,6 +197,7 @@ Optional. `server_status` shows where each was found, its version, or the fix.
 | `CORVUS_PY_DECOMPILER` | [pycdc](https://github.com/zrax/pycdc), or a program that prints the source of the `.pyc` it is given | Python source beside the disassembly in `summarize_file view=python`; used only when set. |
 | `CORVUS_ADB` | `adb` (`PATH`, Android SDK) | The Android device tools. |
 | `CORVUS_TSHARK` | `tshark` 3+ (`PATH`, Wireshark folder) | Packet filters on fields not decoded in-process. |
+| `CORVUS_OSV_SCANNER` | [osv-scanner](https://github.com/google/osv-scanner) 2+ (`PATH`), with offline databases downloaded beforehand (`osv-scanner scan source --offline-vulnerabilities --download-offline-databases`; `OSV_SCANNER_LOCAL_DB_CACHE_DIRECTORY` names their folder and is passed on) | Advisories of the components in `summarize_file view=dependencies`, matched offline by package URL; without it they are reported not checked. |
 | `CORVUS_DIE` | Detect It Easy `diec` | `unity_overview detectItEasy=true`. |
 | `CORVUS_CLR32` | `Corvus.Clr32.exe` (`clr32/` beside the server) | Decoding 32-bit .NET dumps. |
 | `CORVUS_AAPT2`, `CORVUS_APKSIGNER`, `CORVUS_DEX_DISASSEMBLER`, `CORVUS_PROTO_COMPILER`, `CORVUS_WASM_TO_TEXT`, `CORVUS_WASM_VALIDATOR`, `CORVUS_HBC_DISASSEMBLER`, `CORVUS_DEPENDENCY_LISTER` | aapt2, apksigner, baksmali, protoc, wasm2wat, wasm-validate, hbcdump, syft | Test oracles only. |

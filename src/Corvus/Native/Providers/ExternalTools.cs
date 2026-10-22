@@ -132,8 +132,13 @@ public static partial class ExternalTools
         ["hbcdump" + Exe], ["-version"], 0, "oracle for the Hermes bytecode disassembler in tests", true,
         Ops(("objdump", ["-objdump-disassemble", "-c", "disassemble;quit", "{file}"])));
 
+    // Offline only: it matches against databases the user downloaded and never fetches them.
+    public static readonly ExternalTool OsvScanner = new("osv-scanner", "osv-scanner 2+ (OSV advisories, offline)", "CORVUS_OSV_SCANNER", ExternalToolKind.Executable,
+        ["osv-scanner" + Exe], ["--version"], 2, "summarize_file view=dependencies advisories", false,
+        Ops(("scan", ["scan", "source", "--offline", "--format", "json", "-L", "{file}"])));
+
     /// <summary>Every external program, in display order.</summary>
-    public static readonly IReadOnlyList<ExternalTool> Table = [Java, JavaDecompiler, JavaDecompiler2, PythonDecompiler, Adb, TShark, Aapt2, ApkSigner, DexDisassembler, ProtoCompiler, WasmText, WasmValidator, HbcDisassembler];
+    public static readonly IReadOnlyList<ExternalTool> Table = [Java, JavaDecompiler, JavaDecompiler2, PythonDecompiler, Adb, TShark, OsvScanner, Aapt2, ApkSigner, DexDisassembler, ProtoCompiler, WasmText, WasmValidator, HbcDisassembler];
 
     private static IEnumerable<(string, string)> WiresharkDirectories()
     {

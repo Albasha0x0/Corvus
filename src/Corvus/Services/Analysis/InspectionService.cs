@@ -552,7 +552,9 @@ public sealed class InspectionService(AssemblyWorkspace workspace, NativeCodeSer
                 if (Dependencies.DepsJson.Parse(m.Path, m.Bytes) is { } deps) parsed.Add(deps);
                 else notes.Add($"{m.Path}: not a readable deps.json; its packages are unknown.");
             }
-            if (Dependencies.DependencyInventory.Of(input, assemblies, parsed, views, ct) is { } facts) views["dependencies"] = new FileView(facts, []);
+            if (Dependencies.DependencyInventory.Of(input, assemblies, parsed, views, ct) is { } facts)
+                views["dependencies"] = new FileView(facts, facts.Advisories is { Findings.Count: > 0 } a
+                    ? [$"{a.Findings.Count} advisories for {a.Findings.Select(f => f.Component).Distinct().Count()} components ({a.Checker})."] : []);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
