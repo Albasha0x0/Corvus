@@ -324,7 +324,7 @@ read, or a "Read by" cell that differs from the classes and scripts that read it
 | `CORVUS_TEST_OFFLOAD` | `0` keeps the offloaded classes in the local run. | test-remote.psm1 |
 | `CORVUS_TEST_PRIORITY` | `normal` keeps a test run at normal priority. | test-reuse.psm1 |
 | `CORVUS_TEST_YARA_X` | The folder fetch-yara-x.ps1 fills with the YARA-X builds the tests use. | YaraTestTools, tests/Corvus.Tests/Support/fetch-yara-x.ps1 |
-| `CORVUS_UNITY_TITLES` | `;`-separated Unity game folders, overviewed beside the game libraries found on the machine. | UnityOverviewTests |
+| `CORVUS_UNITY_TITLES` | `;`-separated Unity game folders, overviewed beside the game libraries found on the machine, and their MonoBehaviour assets read by view=unity. | UnityFieldTests, UnityOverviewTests |
 | `CORVUS_UPDATE_DOCS` | `1` rewrites the generated documents instead of failing on a difference. | DocsTests, ErrorContractTests, MigrationReasonTests, ProtocolSampleTests, SampleDocsTests, SaveFidelityTests, SchemaDocsTests, SimplifyContractTests, SkillTests, release.ps1, test-reuse.psm1 |
 | `CORVUS_UPDATE_RATCHETS` | `1` drops ratchet entries that now comply and writes a missing list from the current state. | CountRatchet, Ratchet |
 | `CORVUS_VCALL_IMAGE` | A real C++ image for the virtual call acceptance run. | VirtualCallTests |

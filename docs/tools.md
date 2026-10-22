@@ -553,15 +553,16 @@ File inspection, containers and wrapped apps, Unity overview.
 
 **Summarize file** (read-only, idempotent)
 
-First look at a file or loaded assembly (never executed): type, hashes, signature, containers, assemblies, highlights (toolchain, capability features, packaging tools), entry points. view=: managed, dependencies, native, android, apple, electron, flutter, go, layers, nib, pcap, package (review before install), plist, protobuf, rust, script (layers peeled), sqlite (table= pages rows), sqlite-recover, all; views lists those that apply.
+First look at a file or loaded assembly (never executed): type, hashes, signature, containers, assemblies, highlights (toolchain, capability features, packaging tools), entry points. view=: managed, dependencies, native, android, apple, electron, flutter, go, layers, nib, pcap, package (review before install), plist, protobuf, rust, script (layers peeled), sqlite (table= pages rows), sqlite-recover, unity (MonoBehaviour fields), all; views lists those that apply.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `path` | string |  |  | File (assembly, bundle, .nupkg, .apk, .ipa, zip, .asar, executable) or .app folder. |
 | `assembly` | string |  |  | A loaded assembly; pass this or path. |
-| `view` | string |  | `overview` | A view the overview lists. Values: overview, managed, dependencies, android, apple, electron, firmware, flutter, go, hermes, installer, layers, lnk, native, nib, office, package, pcap, pdf, plist, protobuf, python, rust, script, sqlite, sqlite-recover, wasm, xbf, all. |
+| `view` | string |  | `overview` | A view the overview lists. Values: overview, managed, dependencies, android, apple, electron, firmware, flutter, go, hermes, installer, layers, lnk, native, nib, office, package, pcap, pdf, plist, protobuf, python, rust, script, sqlite, sqlite-recover, unity, wasm, xbf, all. |
 | `table` | string |  |  | sqlite, sqlite-recover: table to page. |
 | `columns` | string[] |  |  | With table=: these columns (rowid too). |
+| `script` | string |  |  | unity: only assets of this script class. |
 | `offset` | integer |  |  |  |
 | `limit` | integer |  |  |  |
 | `sbomPath` | string |  |  | Write the dependencies view here (CycloneDX 1.6). |

@@ -64,11 +64,22 @@ public sealed class Il2CppRawLoader(AssemblyWorkspace workspace, string? cacheRo
     public Il2CppGameModel? Cached(Il2CppGameFiles files)
     {
         var dir = Path.Combine(Path.GetFullPath(cacheRoot ?? DefaultRoot), Key(files));
-        if (ReadMarker(dir) is not { } marker || marker.Format != CacheFormat || marker.Reader != ReaderVersion
-            || marker.BinaryStamp != Stamp(files.Binary) || marker.MetadataStamp != Stamp(files.Metadata)) return null;
+        if (!Current(dir, files)) return null;
         try { return Model(Path.Combine(dir, Il2CppGameModel.FileName)); }
         catch (IOException) { return null; }
     }
+
+    /// <summary>The dummy assembly folder of <paramref name="files"/> when a load already read it into the default cache; null otherwise (nothing is read).</summary>
+    public static string? CachedDummies(Il2CppGameFiles files)
+    {
+        var dir = Path.Combine(Path.GetFullPath(DefaultRoot), Key(files));
+        var dummy = Path.Combine(dir, DummyFolder);
+        return Current(dir, files) && Directory.Exists(dummy) ? dummy : null;
+    }
+
+    private static bool Current(string dir, Il2CppGameFiles files) =>
+        ReadMarker(dir) is { } marker && marker.Format == CacheFormat && marker.Reader == ReaderVersion
+        && marker.BinaryStamp == Stamp(files.Binary) && marker.MetadataStamp == Stamp(files.Metadata);
 
     private static string Stamp(string path) => path.Length > 0 && new FileInfo(path) is { Exists: true } f ? $"{f.Length}:{f.LastWriteTimeUtc.Ticks}" : "-";
 

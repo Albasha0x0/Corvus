@@ -46,7 +46,8 @@ Blazor WebAssembly (_framework/*.wasm, Webcil): load_assembly does not read thes
 Any other .wasm loads as a native image: disassemble gives a function's WAT (as wasm2wat), decompile_native a lifted view,
 find_xrefs / native_call_tree its calls (call_indirect by type), globals and data; summarize_file view=wasm validates it
 and joins its imports to the JS glue beside it (Emscripten, wasm-bindgen, Go) by name.
-Unity builds: unity_overview first.
+Unity builds: unity_overview first; summarize_file view=unity on a .assets, levelN or bundle file lists MonoBehaviour assets with
+their script fields (script= one class), laid out from the type tree, the Managed assemblies or a loaded game's Il2Cpp metadata.
 Android packages (.apk, .aab, split sets), read natively: get_android_manifest (components, exported state, permissions, deep links),
 list_android_resources and get_android_resource (decoded XML, @type/name values). DEX code: list_dex_classes, get_dex_class (exact
 method ids), disassemble_dex (smali of one method or class; a jar of .class files or a .class: the javap -c -p listing), decompile_java

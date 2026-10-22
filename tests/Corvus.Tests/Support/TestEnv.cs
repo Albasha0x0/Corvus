@@ -211,6 +211,8 @@ public static class RealData
 
     /// <summary>A native C++ image whose virtual calls are resolved and checked against IDA on a sample.</summary>
     public const string VirtualCallImage = "CORVUS_VCALL_IMAGE";
+    /// <summary>A Mono Unity title's folder; its serialized files and bundles that keep type trees are compared with the scripts' assemblies.</summary>
+    public const string UnityTitle = "CORVUS_UNITY_TITLE";
 
     public static string? Get(string variable) => Environment.GetEnvironmentVariable(variable) is { Length: > 0 } v ? v : null;
 

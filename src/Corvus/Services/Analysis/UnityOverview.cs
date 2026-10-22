@@ -288,26 +288,12 @@ public static class UnityOverview
     }
 
     /// <summary>The engine version string in a serialized file's header (format 9 and later), or null.</summary>
-    internal static string? SerializedVersion(string file)
-    {
-        var head = ReadHead(file, 256);
-        if (head.Length < 24) return null;
-        uint format = BinaryPrimitives.ReadUInt32BigEndian(head.AsSpan(8));
-        int at = format is >= 9 and < 22 ? 20 : format is >= 22 and < 100 ? 48 : -1;
-        return at < 0 ? null : CString(head, at) is { } s && VersionPattern.IsMatch(s) ? s : null;
-    }
+    internal static string? SerializedVersion(string file) =>
+        Core.Unity.SerializedFile.VersionOf(ReadHead(file, 256)) is { } s && VersionPattern.IsMatch(s) ? s : null;
 
     /// <summary>The engine version in a UnityFS / UnityWeb / UnityRaw bundle header, or null.</summary>
-    internal static string? BundleVersion(string file)
-    {
-        var head = ReadHead(file, 256);
-        var sig = CString(head, 0);
-        if (sig is not ("UnityFS" or "UnityWeb" or "UnityRaw")) return null;
-        int at = sig.Length + 1 + 4;
-        var player = CString(head, at);
-        if (player == null) return null;
-        return CString(head, at + player.Length + 1) is { } s && VersionPattern.IsMatch(s) ? s : null;
-    }
+    internal static string? BundleVersion(string file) =>
+        Core.Unity.UnityFsBundle.VersionOf(ReadHead(file, 256)) is { } s && VersionPattern.IsMatch(s) ? s : null;
 
     internal static string? Normalize(string version)
     {
@@ -876,15 +862,6 @@ public static class UnityOverview
             return read == buffer.Length ? buffer : buffer[..read];
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { return []; }
-    }
-
-    private static string? CString(byte[] data, int at)
-    {
-        if (at < 0 || at >= data.Length) return null;
-        int end = Array.IndexOf(data, (byte)0, at);
-        if (end < 0 || end - at > 128) return null;
-        var s = Encoding.ASCII.GetString(data, at, end - at);
-        return s.All(c => c >= 0x20 && c < 0x7F) ? s : null;
     }
 
     private static bool IsElf(string path) => ReadHead(path, 4) is [0x7F, (byte)'E', (byte)'L', (byte)'F'];
