@@ -44,6 +44,63 @@ public sealed class TestRemoteSetupTests : IDisposable
 
     [Fact]
     [Trait("Speed", "Slow")]
+    public void Real_data_is_copied_where_the_host_lacks_it_and_refused_when_space_runs_short()
+    {
+        var log = _dir.File("transport.log");
+        var assemblies = Path.Combine(_dir.Path, "asm");
+        var bundles = Path.Combine(_dir.Path, "pairs");
+        Directory.CreateDirectory(assemblies);
+        Directory.CreateDirectory(bundles);
+        File.WriteAllText(Path.Combine(assemblies, "a.dll"), "abc");
+        File.WriteAllText(Path.Combine(bundles, "old.js"), "12345");
+        // The stand-in ssh decodes each host script: the query is answered with a host that holds the assemblies
+        // folder's copy already and has the free space the free.txt file names; every other script is logged.
+        var free = _dir.File("free.txt");
+        var ssh = _dir.File("ssh.ps1");
+        File.WriteAllText(ssh, $$"""
+            if (($args -join ' ') -notmatch '-EncodedCommand (\S+)') { exit 1 }
+            $script = [Text.Encoding]::Unicode.GetString([Convert]::FromBase64String($Matches[1]))
+            if ($script -match 'ConvertTo-Json') {
+                $assemblies = @{ Value = 'C:\Users\t\corvus-data\CORVUS_ASSEMBLY_DIR\asm'; Exists = $true; Marker = '3 asm' }
+                @{ Home = 'C:\Users\t'; Free = [long](Get-Content {{Quote(free)}}); Vars = @{ CORVUS_ASSEMBLY_DIR = $assemblies } } | ConvertTo-Json -Compress -Depth 4
+                exit 0
+            }
+            Add-Content {{Quote(log)}} ("ssh " + $script.Replace("`n", ' '))
+            exit 0
+            """);
+        var scp = _dir.File("scp.ps1");
+        File.WriteAllText(scp, $$"""
+            Add-Content {{Quote(log)}} ("scp " + (($args | Select-Object -Last 3 | ForEach-Object { [IO.Path]::GetFileName("$_".TrimEnd('/')) }) -join ' '))
+            exit 0
+            """);
+        var lines = TestReuseTests.Run($$"""
+            $env:CORVUS_TEST_SSH = {{Quote(ssh)}}; $env:CORVUS_TEST_SCP = {{Quote(scp)}}
+            Get-ChildItem Env:CORVUS_* | Where-Object Name -notlike 'CORVUS_TEST_*' | ForEach-Object { Remove-Item "Env:$($_.Name)" }
+            $env:CORVUS_ASSEMBLY_DIR = {{Quote(assemblies)}}; $env:CORVUS_BUNDLE_PAIRS = {{Quote(bundles)}}
+            Set-Content {{Quote(free)}} 100
+            & {{Script}} -Target tester@host2 -Data
+            'refused=' + $LASTEXITCODE
+            Set-Content {{Quote(free)}} (100GB)
+            & {{Script}} -Target tester@host2 -Data
+            'copied=' + $LASTEXITCODE
+            if (Test-Path {{Quote(log)}}) { Get-Content {{Quote(log)}} }
+            """);
+        if (lines is ["skip"]) return;
+        Assert.Contains(lines, l => l.StartsWith("Refused: the copy would leave under 10 GB free on tester@host2"));
+        Assert.Contains("refused=1", lines);
+        Assert.Contains(lines, l => l.StartsWith("Real data: 1 to copy (0.0 GB), 1 kept; 100.0 GB free on tester@host2."));
+        Assert.Contains("- copied CORVUS_BUNDLE_PAIRS (0 MB)", lines);
+        Assert.Contains("copied=0", lines);
+        Assert.Contains(lines, l => l.Contains("not copied, programs the host installs itself:") && l.Contains("CORVUS_TSHARK"));
+        // Only the missing folder travels, after its old copy is cleared, and its variable is set to the copy.
+        Assert.Contains("scp -q pairs CORVUS_BUNDLE_PAIRS", lines);
+        Assert.DoesNotContain(lines, l => l.StartsWith("scp ") && l.Contains("asm"));
+        Assert.Contains(lines, l => l.StartsWith("ssh ") && l.Contains("Remove-Item") && l.Contains(@"corvus-data\CORVUS_BUNDLE_PAIRS"));
+        Assert.Contains(lines, l => l.StartsWith("ssh ") && l.Contains(@"SetEnvironmentVariable('CORVUS_BUNDLE_PAIRS', (Join-Path $HOME 'corvus-data\CORVUS_BUNDLE_PAIRS\pairs'), 'User')") && l.Contains("'5 pairs'"));
+    }
+
+    [Fact]
+    [Trait("Speed", "Slow")]
     public void A_check_of_an_empty_host_folder_names_each_missing_tool_and_changes_nothing()
     {
         var host = Path.Combine(_dir.Path, "host");

@@ -49,6 +49,11 @@ public sealed class TestRemoteTests : IDisposable
         Source("Containers", "public class CorpusSweepTests { [RequiresRealDataFact(\"CORVUS_X\")] public void M() { } }");
         Source("NativeFormats", "public class PeSweepTests { [WindowsFact] public void M() { } }");
         Source("Session", "public sealed class DeadlineTests { }\npublic sealed class ContractSweepFullTests { }", "S.cs");
+        Source("Support", "public static class RealData { public const string Apps = \"CORVUS_APPS\"; }", "TestEnv.cs");
+        Source("Mobile", "public class AppTests { const string Var = \"CORVUS_JARS\"; [RequiresRealDataFact(RealData.Apps, Var)] public void M() { } }", "A.cs");
+        Source("Mobile", "public class OddTests { [RequiresRealDataFact(Pick())] public void M() { } }", "O.cs");
+        Source("Web", "public class CaptureTests { [RequiresRealDataFact(\"CORVUS_TSHARK\")] public void M() { } }", "C.cs");
+        Source("Mobile", "public class IdaDataTests { [RequiresRealDataFact(\"CORVUS_X\")] [IdaFact] public void M() { } }", "I.cs");
         var lines = TestReuseTests.Run($$"""
             Import-Module {{Module}}
             'classes=' + ((Get-RemoteClasses {{Quote(tests)}}) -join ',')
@@ -59,6 +64,9 @@ public sealed class TestRemoteTests : IDisposable
             'live=' + ((Get-RemoteClasses {{Quote(tests)}} live -CrossPlatform) -join ',')
             'host=' + ((Get-RemoteClasses {{Quote(tests)}} host) -join ',')
             'testhost=' + ((Get-RemoteClasses {{Quote(tests)}} -TestHost) -join ',')
+            'withdata=' + ((Get-RemoteClasses {{Quote(tests)}} host -TestHost) -join ',') + ';' + ((Get-RemoteClasses {{Quote(tests)}} -TestHost -hostVariables CORVUS_X, CORVUS_APPS, CORVUS_JARS | Where-Object { $_ -in 'CorpusSweepTests', 'AppTests', 'OddTests' }) -join ',')
+            'held=' + ((Get-HeldClasses {{Quote(tests)}} CORVUS_APPS) -join ';')
+            'variables=' + ((Get-RealDataVariables {{Quote(tests)}}) -join ',') + ';' + ((Get-RealDataVariables {{Quote(tests)}} -Tools) -join ',')
             'mixed=' + ((Get-MixedClasses {{Quote(tests)}}) -join ',')
             'shard0=' + ((Get-RemoteShard $sweep 0 2) -join ',')
             'shard1=' + ((Get-RemoteShard $sweep 1 2) -join ',')
@@ -77,7 +85,13 @@ public sealed class TestRemoteTests : IDisposable
         Assert.Contains("cross=ContractSweepFullTests,EngineMixTests,FormatSweepTests,GhidraReadTests,LiveMatrixTests,PipelineRoundTripTests", lines);
         Assert.Contains("sweep=ContractSweepFullTests,FormatSweepTests,PeSweepTests,PipelineRoundTripTests", lines);
         // A host class goes to a test host only, never in a run that offloads to GitHub.
-        Assert.Contains("host=DeadlineTests", lines);
+        Assert.Contains("host=AppTests,CaptureTests,CorpusSweepTests,DeadlineTests,OddTests", lines);
+        // A real-data class goes to a host that has every variable its facts name; one whose variable cannot be read
+        // from its facts, or that also needs IDA, stays here.
+        Assert.Contains("withdata=AppTests,CaptureTests,CorpusSweepTests,DeadlineTests,OddTests;AppTests,CorpusSweepTests", lines);
+        Assert.Contains("held=AppTests (CORVUS_JARS);CaptureTests (CORVUS_TSHARK);CorpusSweepTests (CORVUS_X);OddTests (?)", lines);
+        // A variable that names a program is no data to copy.
+        Assert.Contains("variables=CORVUS_APPS,CORVUS_JARS,CORVUS_X;CORVUS_TSHARK", lines);
         Assert.Contains("testhost=ContractSweepFullTests,DeadlineTests,EngineMixTests,FormatSweepTests,GhidraReadTests,LiveMatrixTests,PeSweepTests,PipelineRoundTripTests", lines);
         Assert.Contains("ghidra=EngineMixTests,GhidraReadTests", lines);
         Assert.Contains("mixed=EngineMixTests", lines);
@@ -211,13 +225,15 @@ public sealed class TestRemoteTests : IDisposable
         var trx = _dir.File("host.trx");
         File.WriteAllText(trx, Trx(("FormatSweepTests", "Failed"), ("RoundTripTests", "Passed")));
         var sent = _dir.File("sent-run.ps1");
-        // The stand-in ssh answers its probe unless the host is "down", and reports a started run that exited 1; the
-        // stand-in scp keeps the run script it is sent and hands back the host's TRX.
+        // The stand-in ssh answers its probe unless the host is "down", names one real-data variable set there, and
+        // reports a started run that exited 1; the stand-in scp keeps the run script it is sent and hands back the
+        // host's TRX.
         var ssh = _dir.File("ssh.ps1");
         File.WriteAllText(ssh, """
             $line = $args -join ' '
             if ($line -match 'down ') { exit 255 }
             if ($line -match ' exit 0$') { exit 0 }
+            if ($line -match '-EncodedCommand ') { 'CORVUS_APPS'; 'a line that names no variable'; exit 0 }
             if ($line -match '-File corvus-test-host/corvus-remote-\w+\.ps1$') { 'corvus-remote: started'; 'corvus-remote-run 1 1'; 'corvus-remote-exit 1'; exit 0 }
             exit 1
             """);
@@ -233,7 +249,7 @@ public sealed class TestRemoteTests : IDisposable
             $env:CORVUS_TEST_SSH = {{Quote(ssh)}}; $env:CORVUS_TEST_SCP = {{Quote(scp)}}; $env:CORVUS_TEST_PUSH_RUN = '1'
             $env:CORVUS_TEST_REMOTE = 'tester@host2'
             $target = Get-OffloadTarget {{Quote(DocsTests.RepoRoot())}} $false
-            'target=' + $target.Kind + ',' + $target.Name
+            'target=' + $target.Kind + ',' + $target.Name + ',' + ($target.Variables -join ',')
             $got = Receive-Offload (Start-Offload $target 'abc123' @('FormatSweepTests', 'RoundTripTests') $false {{Module}}) {{Quote(Path.Combine(_dir.Path, "back"))}}
             'got=' + $got.Started + ',' + $got.Note + ',' + (($got.Failed | ForEach-Object { "$($_.Class)@$($_.Platform)" }) -join ',') + ',' + ([xml](Get-Content $got.Trx -Raw)).TestRun.ResultSummary.Counters.total
             $script = Get-Content {{Quote(sent)}} -Raw
@@ -246,7 +262,7 @@ public sealed class TestRemoteTests : IDisposable
             'lost=' + $lost.Started + ',' + $lost.Note
             """);
         if (lines is ["skip"]) return;
-        Assert.Contains("target=ssh,tester@host2", lines);
+        Assert.Contains("target=ssh,tester@host2,CORVUS_APPS", lines);
         Assert.Contains("got=True,exit 1,FormatSweepTests@host,2", lines);
         Assert.Contains("script=True,True", lines);
         Assert.Contains("down=True", lines);

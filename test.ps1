@@ -666,9 +666,11 @@ $runFilter = if ($Full -and -not $Exhaustive -and -not $Coverage -and -not $PSBo
 $offload = if ($wholeSuite -and -not $Coverage) { Import-Module (Join-Path $root 'test-remote.psm1') -Force; Get-OffloadTarget $root $Exhaustive.IsPresent } else { $null }
 $offloadHandle = $null; $sent = @(); $offloadRecord = $null; $offloadClock = $null
 if ($offload) {
-    $candidates = @(Get-RemoteClasses $tests -TestHost:($offload.Kind -eq 'ssh')); $mixed = @(Get-MixedClasses $tests)
+    $candidates = @(Get-RemoteClasses $tests -TestHost:($offload.Kind -eq 'ssh') -hostVariables $offload.Variables); $mixed = @(Get-MixedClasses $tests)
+    $held = if ($offload.Kind -eq 'ssh' -and -not $Filter) { @(Get-HeldClasses $tests $offload.Variables) } else { @() }
+    if ($held) { Write-Host "Kept here, their real-data variables not set on $($offload.Name): $($held -join '; ')." }
     $sent = if ($Filter) { @([regex]::Matches($Filter, 'FullyQualifiedName~\.(\w+)') | ForEach-Object { $_.Groups[1].Value } | Where-Object { $_ -in $candidates }) } else { $candidates }
-    $offloadRecord = [ordered]@{ target = $offload.Name; commit = (git -C $root rev-parse --short HEAD).Trim(); at = (Get-Date -Format 'yyyy-MM-dd HH:mm'); classes = $sent.Count; state = 'running'; seconds = $null; note = $null }
+    $offloadRecord = [ordered]@{ target = $offload.Name; commit = (git -C $root rev-parse --short HEAD).Trim(); at = (Get-Date -Format 'yyyy-MM-dd HH:mm'); classes = $sent.Count; held = $held.Count; state = 'running'; seconds = $null; note = $null }
     if ($sent) {
         $offloadClock = [Diagnostics.Stopwatch]::StartNew()
         $offloadHandle = Start-Offload $offload (git -C $root rev-parse HEAD).Trim() $sent ($runFilter -notmatch 'Tier!=Release') (Join-Path $root 'test-remote.psm1')

@@ -15,8 +15,19 @@ $script:HostGroup = 'host'
 $script:HostClasses = 'NativeToolSweepTests', 'DevRelayRealServerTests', 'DeadlineTests', 'StreamedSummaryMemoryTests'
 # Folders whose classes go only as the ghidra group (by their Ghidra facts).
 $script:EngineFolders = 'Engines'
-# Attributes that keep a class's file here: real data never leaves this machine.
-$script:LocalAttributes = 'RequiresRealDataFact', 'LiveRealDataFact'
+# Attributes that keep a class's file here: the live real-data facts.
+$script:LocalAttributes = 'LiveRealDataFact'
+# The real-data fact: its file's classes go to a test host whose user variables name an existing path for every
+# variable the file's facts name (test-remote-setup.ps1 -Data copies them), and stay here otherwise. Real data never
+# goes to GitHub.
+$script:DataAttribute = 'RequiresRealDataFact'
+# Real-data variables that name a program the tests run (reference decompilers, disassemblers, validators, a capture
+# reader, the pipeline tool) rather than inputs: -Data leaves them out, and a class that needs one goes only to a host
+# whose own install sets it.
+$script:ToolVariables = 'CORVUS_TSHARK', 'CORVUS_WASM_TO_TEXT', 'CORVUS_WASM_VALIDATOR', 'CORVUS_JAVA_DECOMPILER', 'CORVUS_JAVA_DECOMPILER2',
+    'CORVUS_DEX_DISASSEMBLER', 'CORVUS_HBC_DISASSEMBLER', 'CORVUS_PY_DECOMPILER', 'CORVUS_PIPELINE_TOOL'
+# The file that names the real-data variables (RealData.Name constants).
+$script:RealDataSource = 'Support/TestEnv.cs'
 # Classes whose inputs are this machine's own: every System32 import binding holds on a client edition only (a server
 # image lacks some DLLs), the crash dump sweep reads this machine's dumps, and the comparisons over local data folders
 # pass empty elsewhere.
@@ -56,34 +67,81 @@ $script:HostFolder = 'corvus-test-host'
 # Seconds the host waits for the commit to reach origin; a push run starts before its push lands.
 $script:FetchWaitSeconds = 120
 
-# The offloaded classes of $testsDir as @{ Class; Group; Mixed }: host, the host classes; live, the classes of the Live
-# folder; ghidra, those in files with a Ghidra fact (Mixed when the file has IDA facts too); sweep, names matching the
-# table outside the engine folder. Files with IDA facts alone or real data, and the local classes, stay here; with
-# -CrossPlatform, files with a Windows-only fact too. Only classes named *Tests count (fixtures and test bases hold no
-# test of their own; an abstract *Tests class holds nested ones).
+# The variables the real-data facts in $text name, '?' for one it cannot resolve (a fact without arguments, or an
+# argument that is no string constant): RealData.Name through $constants, a "CORVUS_..." literal, or a constant of the
+# file. Sorted, unique; empty when the file has no real-data fact.
+function Get-DataVariables([string]$text, [hashtable]$constants) {
+    $names = foreach ($fact in [regex]::Matches($text, '\[' + $script:DataAttribute + '\b(?:\(([^)]*)\))?')) {
+        if (-not $fact.Groups[1].Success -or -not $fact.Groups[1].Value.Trim()) { '?'; continue }
+        foreach ($argument in $fact.Groups[1].Value -split ',') {
+            $argument = $argument.Trim()
+            if ($argument -match '^RealData\.(\w+)$') { if ($constants.ContainsKey($Matches[1])) { $constants[$Matches[1]] } else { '?' } }
+            elseif ($argument -match '^"(CORVUS_\w+)"$') { $Matches[1] }
+            elseif ($argument -match '^\w+$' -and $text -match ('\bconst string ' + $argument + ' = "(CORVUS_\w+)"')) { $Matches[1] }
+            else { '?' }
+        }
+    }
+    @($names | Sort-Object -Unique)
+}
+
+# The offloaded classes of $testsDir as @{ Class; Group; Mixed; Variables }: host, the host classes and those in files
+# with real-data facts (Variables, the variables those facts name); live, the classes of the Live folder; ghidra, those
+# in files with a Ghidra fact (Mixed when the file has IDA facts too); sweep, names matching the table outside the
+# engine folder. Files with IDA facts alone, real data with IDA facts, live real data, and the local classes stay here;
+# with -CrossPlatform, files with a Windows-only fact too. Only classes named *Tests count (fixtures and test bases
+# hold no test of their own; an abstract *Tests class holds nested ones).
 function Get-RemoteEntries([string]$testsDir, [switch]$CrossPlatform) {
     $local = '\[(' + ($script:LocalAttributes -join '|') + $(if ($CrossPlatform) { '|WindowsFact' }) + ')\b'
+    $constants = @{}
+    $source = Join-Path $testsDir $script:RealDataSource
+    if (Test-Path $source) { [regex]::Matches((Get-Content $source -Raw), 'public const string (\w+) = "(CORVUS_\w+)"') | ForEach-Object { $constants[$_.Groups[1].Value] = $_.Groups[2].Value } }
     Get-ChildItem $testsDir -Directory | Where-Object { $_.Name -notin 'bin', 'obj' } | ForEach-Object {
         $folder = $_.Name
         Get-ChildItem $_.FullName -Recurse -Filter *.cs | ForEach-Object {
             $text = Get-Content $_.FullName -Raw
             if ($text -match $local) { return }
             $ida = $text -match '\[IdaFact\b'; $ghidra = $text -match '\[GhidraFact\b'
+            if ($text -match ('\[' + $script:DataAttribute + '\b')) {
+                if ($ida) { return }
+                $variables = @(Get-DataVariables $text $constants)
+                [regex]::Matches($text, '(?m)^public (?:sealed |abstract |partial |static )*class (\w+Tests)\b') | ForEach-Object { $_.Groups[1].Value } |
+                    Where-Object { $_ -notin $script:LocalClasses } |
+                    ForEach-Object { [pscustomobject]@{ Class = $_; Group = $script:HostGroup; Mixed = $false; Variables = $variables } }
+                return
+            }
             if ($ida -and -not $ghidra) { return }
             $of = if ($folder -eq 'Live') { 'live' } elseif ($ghidra) { 'ghidra' } elseif ($folder -notin $script:EngineFolders) { 'sweep' } else { return }
             [regex]::Matches($text, '(?m)^public (?:sealed |abstract |partial |static )*class (\w+Tests)\b') | ForEach-Object { $_.Groups[1].Value } |
                 Where-Object { $name = $_; $name -in $script:HostClasses -or ($name -notin $script:LocalClasses -and ($of -ne 'sweep' -or ($script:RemotePatterns | Where-Object { $name -like $_ }))) } |
-                ForEach-Object { [pscustomobject]@{ Class = $_; Group = $(if ($_ -in $script:HostClasses) { $script:HostGroup } else { $of }); Mixed = $ida } }
+                ForEach-Object { [pscustomobject]@{ Class = $_; Group = $(if ($_ -in $script:HostClasses) { $script:HostGroup } else { $of }); Mixed = $ida; Variables = @() } }
         }
     }
 }
 
-# The classes of $testsDir a run sends, of one group or (empty) of every group but the host group, which -TestHost adds
-# (Get-RemoteEntries). Sorted; throws for an unknown group.
-function Get-RemoteClasses([string]$testsDir, [string]$Group = '', [switch]$CrossPlatform, [switch]$TestHost) {
+# The classes of $testsDir a run sends, of one group or (empty) of every group but the host group (Get-RemoteEntries).
+# -TestHost adds the host group's classes whose real-data variables are all in $hostVariables. Sorted; throws for an
+# unknown group.
+function Get-RemoteClasses([string]$testsDir, [string]$Group = '', [switch]$CrossPlatform, [switch]$TestHost, [string[]]$hostVariables = @()) {
     if ($Group -and $Group -notin $script:Groups) { throw "Unknown offload group '$Group' (one of $($script:Groups -join ', '))." }
     @(Get-RemoteEntries $testsDir -CrossPlatform:$CrossPlatform |
-        Where-Object { if ($Group) { $_.Group -eq $Group } else { $TestHost -or $_.Group -ne $script:HostGroup } } | ForEach-Object Class | Sort-Object -Unique)
+        Where-Object { if ($Group) { $_.Group -eq $Group } else { $_.Group -ne $script:HostGroup -or ($TestHost -and -not @($_.Variables | Where-Object { $_ -notin $hostVariables })) } } |
+        ForEach-Object Class | Sort-Object -Unique)
+}
+
+# The real-data variables the host group's classes of $testsDir need that name inputs, or with -Tools those that name
+# a program. Sorted, unresolved ones ('?') left out.
+function Get-RealDataVariables([string]$testsDir, [switch]$Tools) {
+    @(Get-RemoteEntries $testsDir | ForEach-Object { $_.Variables } | Where-Object { $_ -and $_ -ne '?' -and ($_ -in $script:ToolVariables) -eq [bool]$Tools } |
+        Sort-Object -Unique)
+}
+
+# The host group's classes of $testsDir that stay here because a real-data variable they need is not in
+# $hostVariables, each as "Class (VARIABLE, ...)" ('?' for a variable the facts do not name). Sorted.
+function Get-HeldClasses([string]$testsDir, [string[]]$hostVariables = @()) {
+    @(Get-RemoteEntries $testsDir | Where-Object Group -eq $script:HostGroup | ForEach-Object {
+        $absent = @($_.Variables | Where-Object { $_ -notin $hostVariables })
+        if ($absent) { "$($_.Class) ($($absent -join ', '))" }
+    } | Sort-Object -Unique)
 }
 
 # The sent classes that use both engines: their Ghidra tests run there and their IDA tests here, joined per test. Sorted.
@@ -270,7 +328,7 @@ function Get-RemoteStatus([string]$gitDir) {
         $r = Get-Content $_.FullName -Raw | ConvertFrom-Json
         # The run reads the offloaded results only after its own tests end, so "running" covers both halves.
         $state = if ($r.state -eq 'running') { 'running (results joined when the local tests end)' } else { $r.state }
-        "$($r.target): $state on $($r.commit) at $($r.at) ($($r.classes) classes$(if ($null -ne $r.seconds) { ", $($r.seconds) s" }))$(if ($r.note) { "; $($r.note)" })"
+        "$($r.target): $state on $($r.commit) at $($r.at) ($($r.classes) classes$(if ($null -ne $r.seconds) { ", $($r.seconds) s" }))$(if ($r.held) { "; $($r.held) kept here for real-data variables not set there" })$(if ($r.note) { "; $($r.note)" })"
     }
 }
 
@@ -286,7 +344,7 @@ function Get-OffloadTarget([string]$repo, [bool]$releaseTier) {
         if ($LASTEXITCODE -ne 0) { return $null }
     }
     $remote = "$([Environment]::GetEnvironmentVariable($script:HostVariable))".Trim()
-    if ($remote -and (Test-RemoteHost $remote)) { return @{ Name = $remote; Kind = 'ssh'; Host = $remote } }
+    if ($remote -and (Test-RemoteHost $remote)) { return @{ Name = $remote; Kind = 'ssh'; Host = $remote; Variables = @(Get-HostVariables $remote) } }
     if (-not ([Environment]::GetEnvironmentVariable($script:GhVariable) -or (Get-Command gh -ErrorAction SilentlyContinue))) { return $null }
     $workflow = git -C $repo show "HEAD:.github/workflows/$script:Workflow" 2>$null
     if ($LASTEXITCODE -ne 0 -or -not ($workflow -match "^  ${script:OffloadJob}:")) { return $null }
@@ -338,6 +396,15 @@ function Invoke-Transport([string]$variable, [string]$program, [string[]]$argume
 function Test-RemoteHost([string]$remoteHost) {
     $null = Invoke-Transport $script:SshVariable 'ssh' (@($script:SshOptions) + @($remoteHost, 'exit 0')) 2>$null
     $LASTEXITCODE -eq 0
+}
+
+# The CORVUS_* user variables of the test host that name an existing path there; empty when ssh fails.
+function Get-HostVariables([string]$remoteHost) {
+    $script = "[Environment]::GetEnvironmentVariables('User').GetEnumerator() | Where-Object { `$_.Key -like 'CORVUS_*' -and `$(try { Test-Path -LiteralPath `$_.Value } catch { `$false }) } | ForEach-Object Key"
+    $encoded = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($script))
+    $names = @(Invoke-Transport $script:SshVariable 'ssh' (@($script:SshOptions) + @($remoteHost, "powershell -NoProfile -NonInteractive -EncodedCommand $encoded")) 2>$null)
+    if ($LASTEXITCODE -ne 0) { return @() }
+    @($names | ForEach-Object { "$_".Trim() } | Where-Object { $_ -match '^CORVUS_\w+$' } | Sort-Object -Unique)
 }
 
 # The script a test host runs: wait for $commit on origin (or take it from the bundle sent beside the script), check it
@@ -549,4 +616,4 @@ function Receive-GitHubRun($state, [string]$folder) {
     $result
 }
 
-Export-ModuleMember -Function Invoke-Transport, Test-RemoteHost, Get-RemoteRunScript, Invoke-RemoteRun, Receive-RemoteRun, New-RemoteSnapshot, Invoke-RemoteFilter, Invoke-Gh, Wait-GitHubRun, Receive-GitHubRun, Get-RemoteClasses, Get-RemoteShard, Get-LocalFilter, Get-ClassFilter, Get-ClassOutcomes, Get-TestOutcomes, Get-SkippedOnHost, Get-SkippedOnBoth, Get-RerunClasses, Get-MixedClasses, Get-FailedThereNote, Join-TrxFiles, Get-TargetFileName, Save-RemoteRecord, Get-RemoteStatus, Get-OffloadTarget, Start-Offload, Receive-Offload
+Export-ModuleMember -Function Invoke-Transport, Test-RemoteHost, Get-RemoteRunScript, Invoke-RemoteRun, Receive-RemoteRun, New-RemoteSnapshot, Invoke-RemoteFilter, Invoke-Gh, Wait-GitHubRun, Receive-GitHubRun, Get-RemoteClasses, Get-HeldClasses, Get-HostVariables, Get-RealDataVariables, Get-RemoteShard, Get-LocalFilter, Get-ClassFilter, Get-ClassOutcomes, Get-TestOutcomes, Get-SkippedOnHost, Get-SkippedOnBoth, Get-RerunClasses, Get-MixedClasses, Get-FailedThereNote, Join-TrxFiles, Get-TargetFileName, Save-RemoteRecord, Get-RemoteStatus, Get-OffloadTarget, Start-Offload, Receive-Offload

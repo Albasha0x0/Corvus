@@ -6,6 +6,7 @@
 # The host needs OpenSSH Server and this machine's key authorized for an administrator account (the SDK, runtimes and
 # build tools install machine-wide). Engine and live permits are the host's own (its temporary folder).
 # Usage:  ./test-remote-setup.ps1 -Target user@host [-Check]
+#         ./test-remote-setup.ps1 -Target user@host -Data [-Check]  # the real data, under ~/corvus-data there
 # On the host (run by the above):  powershell -File corvus-test-host\test-remote-setup.ps1 -OnHost -Repository <url> [-Check]
 #Requires -Version 5.1
 param(
@@ -16,7 +17,9 @@ param(
     # The host folder; the tests point it elsewhere.
     [string]$Base = (Join-Path $HOME 'corvus-test-host'),
     # Only the pinned tools, the clone and Frida, without touching the user or machine environment (the tests).
-    [switch]$ToolsOnly
+    [switch]$ToolsOnly,
+    # Copy the folders and files the real-data variables name to the host instead, and set the variables there.
+    [switch]$Data
 )
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
@@ -31,6 +34,9 @@ $runtimesX86 = @(8, 9, 10)
 $buildToolsUrl = 'https://aka.ms/vs/17/release/vs_buildtools.exe'
 $buildToolsArguments = @('--quiet', '--wait', '--norestart', '--nocache', '--add', 'Microsoft.VisualStudio.Workload.VCTools', '--includeRecommended')
 $buildToolsComponent = 'Microsoft.VisualStudio.Component.VC.Tools.x86.x64'
+# The host folder under its user's home that holds the real data (-Data), and the free space a copy must leave there.
+$dataFolder = 'corvus-data'
+$dataMarginGB = 10
 $hostFiles = @('test-remote-setup.ps1', 'tests/Corvus.Tests/Support/fetch-remote-tools.ps1', 'tests/Corvus.Tests/Support/remote-tools-assets.json')
 
 # Runs ssh or scp (or the .ps1 script standing in for it in the tests); returns its output, sets $LASTEXITCODE.
@@ -40,8 +46,65 @@ function Invoke-Transport([string]$variable, [string]$program, [string[]]$argume
     & pwsh -NoProfile -File $command @arguments
 }
 
+# Runs $script on $target under Windows PowerShell, passed encoded so no shell between reparses it; progress records
+# would reach the output as CLIXML.
+function Invoke-HostScript([string]$target, [string]$script) {
+    $encoded = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes("`$ProgressPreference = 'SilentlyContinue'`n$script"))
+    Invoke-Transport 'CORVUS_TEST_SSH' 'ssh' ($sshOptions + @($target, "powershell -NoProfile -NonInteractive -EncodedCommand $encoded"))
+}
+
+# Copies what each real-data variable the host group needs names here (one existing folder or file of inputs, links
+# followed; variables that name a program are left out) to ~/corvus-data/<variable>/ on $target and sets the variable there as a user variable. A copy whose recorded size and
+# name still match is kept. Refuses when the host's drive would keep under $dataMarginGB free. Returns 0, or 1 when it
+# refuses, a copy fails or (with -Check, which changes nothing) anything is left to copy.
+function Copy-RealData([string]$target) {
+    Import-Module (Join-Path $PSScriptRoot 'test-remote.psm1') -Force
+    $items = @(foreach ($name in Get-RealDataVariables (Join-Path $PSScriptRoot 'tests/Corvus.Tests')) {
+        $value = [Environment]::GetEnvironmentVariable($name)
+        $item = if ($value -and $value -notmatch '[|;]') { Get-Item -LiteralPath $value -Force -ErrorAction SilentlyContinue }
+        if (-not $item) { Write-Host "  not copied: $name ($(if ($value) { 'not one existing path here' } else { 'not set here' }))"; continue }
+        $bytes = if ($item.PSIsContainer) { [long](Get-ChildItem -LiteralPath $item.FullName -Recurse -File -Force -FollowSymlink | Measure-Object Length -Sum).Sum } else { $item.Length }
+        [pscustomobject]@{ Name = $name; Path = $item.FullName; Leaf = $item.Name; Bytes = $bytes; Marker = "$bytes $($item.Name)" }
+    })
+    $tools = @(Get-RealDataVariables (Join-Path $PSScriptRoot 'tests/Corvus.Tests') -Tools)
+    if ($tools) { Write-Host "  not copied, programs the host installs itself: $($tools -join ', ')" }
+    $names = ($items | ForEach-Object { "'$($_.Name)'" }) -join ','
+    $answer = Invoke-HostScript $target @"
+`$d = Join-Path `$HOME '$dataFolder'
+`$r = @{ Home = `$HOME; Free = (Get-PSDrive `$HOME.Substring(0, 1)).Free; Vars = @{} }
+foreach (`$n in @($names)) {
+    `$v = [Environment]::GetEnvironmentVariable(`$n, 'User'); `$m = Join-Path `$d "`$n.size"
+    `$r.Vars[`$n] = @{ Value = `$v; Exists = [bool](`$v -and (Test-Path -LiteralPath `$v)); Marker = `$(if (Test-Path `$m) { (Get-Content `$m -Raw).Trim() } else { '' }) }
+}
+`$r | ConvertTo-Json -Compress -Depth 4
+"@
+    if ($LASTEXITCODE -ne 0) { throw "ssh $target failed (exit $LASTEXITCODE)." }
+    $state = ($answer -join '') | ConvertFrom-Json
+    $copies = @($items | Where-Object {
+        $there = $state.Vars.($_.Name)
+        -not ($there.Exists -and $there.Marker -eq $_.Marker -and $there.Value -eq (Join-Path $state.Home "$dataFolder\$($_.Name)\$($_.Leaf)"))
+    })
+    $need = [long]($copies | Measure-Object Bytes -Sum).Sum
+    $kept = $items.Count - $copies.Count
+    Write-Host ("Real data: {0} to copy ({1:N1} GB), {2} kept; {3:N1} GB free on {4}." -f $copies.Count, ($need / 1GB), $kept, ($state.Free / 1GB), $target)
+    if ($state.Free - $need -lt $dataMarginGB * 1GB) { Write-Host "Refused: the copy would leave under $dataMarginGB GB free on $target." -ForegroundColor Red; return 1 }
+    if ($Check) { $copies | ForEach-Object { Write-Host ("  missing: {0} ({1:N0} MB)" -f $_.Name, ($_.Bytes / 1MB)) }; return [int]($copies.Count -gt 0) }
+    $failed = 0
+    foreach ($copy in $copies) {
+        $folder = "$dataFolder\$($copy.Name)"
+        $null = Invoke-HostScript $target "`$t = Join-Path `$HOME '$folder'; Remove-Item `$t, (Join-Path `$HOME '$folder.size') -Recurse -Force -ErrorAction SilentlyContinue; New-Item -ItemType Directory -Force `$t | Out-Null"
+        $null = Invoke-Transport 'CORVUS_TEST_SCP' 'scp' ($sshOptions + @('-r', '-q', $copy.Path, "${target}:$($folder.Replace('\', '/'))/"))
+        if ($LASTEXITCODE -ne 0) { Write-Host "  copy failed: $($copy.Name) (scp exit $LASTEXITCODE)" -ForegroundColor Red; $failed++; continue }
+        $leaf = $copy.Leaf.Replace("'", "''")
+        $null = Invoke-HostScript $target "[Environment]::SetEnvironmentVariable('$($copy.Name)', (Join-Path `$HOME '$folder\$leaf'), 'User'); Set-Content (Join-Path `$HOME '$folder.size') '$($copy.Marker.Replace("'", "''"))'"
+        Write-Host ("- copied {0} ({1:N0} MB)" -f $copy.Name, ($copy.Bytes / 1MB))
+    }
+    [int]($failed -gt 0)
+}
+
 if (-not $OnHost) {
     if (-not $Target) { throw 'Name the host: -Target user@host.' }
+    if ($Data) { exit (Copy-RealData $Target) }
     if (-not $Repository) { $Repository = (git -C $PSScriptRoot remote get-url origin).Trim() }
     $null = Invoke-Transport 'CORVUS_TEST_SSH' 'ssh' ($sshOptions + @($Target, 'powershell -NoProfile -Command "New-Item -ItemType Directory -Force corvus-test-host | Out-Null"'))
     if ($LASTEXITCODE -ne 0) { throw "ssh $Target failed (exit $LASTEXITCODE): is OpenSSH Server running there, with this machine's key authorized?" }

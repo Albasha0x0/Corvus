@@ -67,9 +67,9 @@
   engine-free sweeps, matrices and reference comparisons (the table in `test-remote.psm1`), the classes that use only
   Ghidra (the release pinned in `Support/remote-tools-assets.json`, on a pinned JDK), and the live family (Frida
   17.24.3). A class that uses both engines goes with the Ghidra group and keeps its IDA tests here (the trait
-  `Engine=ida` or `Engine=ghidra` of each engine fact); the two halves join per test. Tests that need real data stay
-  here. The groups are the `offload` job of `ci.yml`, dealt to Windows shards, with the cross-platform classes on Linux
-  as a check (`./test.ps1 -RemoteRun -Group <group> -Shard <i>/<n>` runs one shard). A routine whole-suite run here on a
+  `Engine=ida` or `Engine=ghidra` of each engine fact); the two halves join per test. Tests that need real data never
+  go to GitHub. The groups are the `offload` job of `ci.yml`, dealt to Windows shards, with the cross-platform classes
+  on Linux as a check (`./test.ps1 -RemoteRun -Group <group> -Shard <i>/<n>` runs one shard). A routine whole-suite run here on a
   commit that has that job (the background push run, or `-Full` on a commit on `origin/main`) leaves those classes out,
   waits for the run with `gh`, and joins its TRX results, so family passes and the tree stamp need both halves. A class
   runs once more here when it failed a test there on any platform, skipped a test there that ran here in the last whole
@@ -88,7 +88,13 @@
   and the host answering over ssh, a whole-suite run sends its offloaded classes there instead of waiting for GitHub:
   one `dotnet test` run, one at a time, at below-normal priority in a worktree of the host's clone, with the TRX results
   copied back by scp and joined as above. A test host also takes the host group, which never goes to GitHub: the
-  Program Files sweep and the timed and working-set classes, which need a machine no other run loads. Run a filter repeatedly on the host:
+  Program Files sweep and the timed and working-set classes, which need a machine no other run loads, and the classes
+  with real-data facts whose variables the host has set: copy the real data there with
+  `./test-remote-setup.ps1 -Target user@host -Data` (the folders and files the real-data variables name here, links
+  followed, into `~/corvus-data` with the variables set to the copies; a copy whose size and name still match is kept,
+  and a copy that would leave under 10 GB free is refused; `-Check` names what is missing). Variables that name a
+  program the tests run (the tool table in `test-remote.psm1`) are not copied. A class whose variable the host lacks,
+  data or program, stays here, and the run names it. Run a filter repeatedly on the host:
   `./test.ps1 -Remote -Filter <filter> -Repeat <n>` sends the working tree as it is (uncommitted changes included, as a
   git bundle; nothing is pushed), builds it there once and runs the filter `n` times, printing each run's exit code and
   copying the TRX files of failed runs to `TestResults/remote`.
@@ -260,7 +266,7 @@ read, or a "Read by" cell that differs from the classes and scripts that read it
 | `CORVUS_PIPELINE_SAMPLES` | A folder of the pipeline tool's sample projects (one Program.cs each), round-tripped beside PipelineSamples/*.cs. | PipelineRoundTripTests |
 | `CORVUS_PIPELINE_SEED` | One pipeline seed to run. | PipelineRoundTripTests |
 | `CORVUS_PIPELINE_SEEDS` | Pipeline seeds per option (default 3 in an exhaustive run, else one of the three by day). | PipelineRoundTripTests |
-| `CORVUS_PIPELINE_TOOL` | The executable of the transformation pipeline tool, which reads a .crproj project. | PipelineRoundTripTests |
+| `CORVUS_PIPELINE_TOOL` | The executable of the transformation pipeline tool, which reads a .crproj project. | PipelineRoundTripTests, test-remote.psm1 |
 | `CORVUS_R2R_COMPOSITE_DIR` | A composite ReadyToRun app: the output of a self-contained `dotnet publish` with composite ReadyToRun. | ReadyToRunTests |
 | `CORVUS_REFERENCE_SERVER` | The server the agent task runner compares against (`{"command": ..., "args": [...]}`). | tests/agents/run-tasks.ps1 |
 | `CORVUS_RELEASE_WSL` | The WSL distribution release.ps1 checks the update from the previous release in (default Ubuntu). | release.ps1 |
