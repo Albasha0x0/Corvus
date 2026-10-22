@@ -226,8 +226,12 @@ public class WorkerConnectionTests
         Assert.Equal(ErrorCode.Timeout, e.Code);
         Assert.True(c.IsAlive);
         Assert.Equal(1, worker.Cancelled);
-        using var cts = new CancellationTokenSource(TimeSpan.FromMilliseconds(200));
-        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => c.RequestAsync("sleep", new JsonObject { ["ms"] = 60_000 }, NoLimit, cts.Token));
+        // Cancelled once the worker has the request: a token cancelled sooner ends the wait for the serial gate instead.
+        using var cts = new CancellationTokenSource();
+        var second = c.RequestAsync("sleep", new JsonObject { ["ms"] = 60_000 }, NoLimit, cts.Token);
+        Assert.True(SpinWait.SpinUntil(() => worker.Received.Count == 2, TimeSpan.FromMinutes(1)));
+        cts.Cancel();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => second);
         Assert.True(c.IsAlive);
         Assert.Equal(2, worker.Cancelled);
         Assert.Empty(c.Running);
