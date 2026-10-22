@@ -418,6 +418,11 @@ their tool is missing:
   `File.WriteAllText`, `RegistryKey.GetValue` and `HttpClient.GetAsync`, must load in capa and match "write file in
   .NET", "query or enumerate registry value" and "send HTTP request" at the calling functions. Run it for each new capa release: the freeze
   format is capa's own and changes between releases.
+- **Whole-program emulation against speakeasy** (`ProgramEmulationRealTests`): with `CORVUS_EMULATOR` naming speakeasy
+  2.0.0b9, a small x86 program built by the test allocates a page, decodes a fixed text into it, writes it to a file and
+  exits; `emulate_native engine=speakeasy` must list its five kernel32 calls in order, save the file with the text, and
+  hold the text at the allocation in its region set. A second build calls a function no emulator models and must stop
+  by that function's name.
 - **Capture HTTP objects against Wireshark** (`CaptureObjectsTSharkTests`): with `CORVUS_TSHARK` set, synthetic
   captures (Content-Length, chunked, gzip / deflate / brotli, pipelining, resent segments, ranges, bodies ending at
   close, request bodies) must export exactly the files `tshark --export-objects http` exports, by SHA-256. With

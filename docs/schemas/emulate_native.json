@@ -169,6 +169,70 @@
         ]
       }
     },
+    "apiCalls": {
+      "description": "engine=speakeasy: the program's API calls in order.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "site": {
+            "type": "string"
+          },
+          "api": {
+            "type": "string"
+          },
+          "arguments": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "returned": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "site",
+          "api",
+          "arguments"
+        ]
+      }
+    },
+    "filesWritten": {
+      "description": "engine=speakeasy: files the program wrote in the emulator's file system, with their saved copies.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string"
+          },
+          "size": {
+            "type": "integer"
+          },
+          "sha256": {
+            "type": "string"
+          },
+          "savedAs": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "path",
+          "size"
+        ]
+      }
+    },
+    "regionSet": {
+      "description": "engine=speakeasy: region-set manifest of the program's image, allocations and stack after the run (open_minidump reads it).",
+      "type": "string"
+    },
+    "notes": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
     "notices": {
       "type": "array",
       "items": {

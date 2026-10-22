@@ -24,7 +24,6 @@ public static class ToolAvailability
         ["set_native_operand"] = ["ida", "ghidra"],
         ["ida_python"] = ["ida"],
         ["ghidra_script"] = ["ghidra"],
-        ["emulate_native"] = ["ghidra"],
     };
 
     /// <summary>Modes that run an engine although the tool has no engine parameter: (tool, mode, provider ids that can serve it).</summary>
@@ -40,13 +39,15 @@ public static class ToolAvailability
     private static IEnumerable<(string Tool, string? Mode, bool Found, string Reason, string Remediation)> ExternalPrograms(TimeSpan? wait = null)
     {
         var limit = wait ?? ExternalTools.StatusWait;
-        var checks = new[] { ExternalTools.JavaDecompiler, ExternalTools.Java, ExternalTools.Adb }
+        var checks = new[] { ExternalTools.JavaDecompiler, ExternalTools.Java, ExternalTools.Adb, ExternalTools.Emulator }
             .Select(tool => Task.Factory.StartNew(() => ExternalTools.Probe(tool, limit), CancellationToken.None, TaskCreationOptions.LongRunning, TaskScheduler.Default))
             .ToArray();
         yield return ("unity_overview", "detectItEasy=true", Services.Analysis.UnityOverview.FindDie() != null,
             "Detect It Easy (diec) was not found in CORVUS_DIE or on PATH", "set CORVUS_DIE to the Detect It Easy folder (or diec.exe)");
         foreach (var probe in checks[..2].Select(c => c.GetAwaiter().GetResult()))
             yield return ("decompile_java", null, probe.Usable, $"{probe.Name}: {probe.Problem}", probe.Remediation);
+        var emulator = checks[3].GetAwaiter().GetResult();
+        yield return ("emulate_native", "engine=speakeasy", emulator.Usable, $"{emulator.Name}: {emulator.Problem}", emulator.Remediation);
         var adb = checks[2].GetAwaiter().GetResult();
         foreach (var tool in DeviceTools) yield return (tool, null, adb.Usable, $"{adb.Name}: {adb.Problem}", adb.Remediation);
     }

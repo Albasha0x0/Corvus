@@ -12,12 +12,13 @@ using Corvus.Native;
 using Corvus.Native.Providers;
 using Corvus.Native.Providers.Ghidra;
 using Corvus.Services;
+using Corvus.Services.Analysis;
 
 namespace Corvus.Tools;
 
 /// <summary>Static p-code emulation of native code in the Ghidra worker.</summary>
 [McpServerToolType]
-public sealed class NativeEmulationTools(AssemblyWorkspace workspace, NativeEngineService engines, NativeCodeService? nativeCode = null, NativeNamePush? names = null)
+public sealed partial class NativeEmulationTools(AssemblyWorkspace workspace, NativeEngineService engines, NativeCodeService? nativeCode = null, NativeNamePush? names = null)
 {
     internal const int MaxScratchBytes = 1 << 20;
     internal const int MaxCandidates = 1000;
@@ -25,7 +26,8 @@ public sealed class NativeEmulationTools(AssemblyWorkspace workspace, NativeEngi
     [McpServerTool(Name = "emulate_native", Title = "Emulate native code", UseStructuredContent = true, OutputSchemaType = typeof(EmulationReport))]
     [Description("Emulate native code in the Ghidra p-code emulator: string decoders, hashes, computed constants. Memory: image, stack, given writes. " +
                  "Stops on return, stopAt or a budget. Calls run in the image or return stubs= values; an unmodelled call or unmapped read is an " +
-                 "error. Reports return value, registers, written strings, reads, trace.")]
+                 "error. Reports return value, registers, written strings, reads, trace. engine=speakeasy runs a whole PE or raw x86/x64 code with " +
+                 "Windows APIs modelled: API calls, files written, memory as a region set.")]
     public Task<string> EmulateNative(
         [Description(NativeTools.ImageDescription)] string image,
         [Description(NativeTools.AddressDescription)] string address,
@@ -39,16 +41,22 @@ public sealed class NativeEmulationTools(AssemblyWorkspace workspace, NativeEngi
         [Description("Time budget, s (1-300).")] int timeoutSeconds = 10,
         [Description("Last instructions listed (0-2000).")] int trace = 0,
         [Description("Argument sets, ;-separated, each as args; one timeoutSeconds covers all.")] string? candidates = null,
-        [Description("Default auto.")] string? engine = null,
+        [Description("auto (default: Ghidra) or speakeasy (a whole program from address; maxInstructions and timeoutSeconds apply).")] string? engine = null,
         RequestContext<CallToolRequestParams> context = null!,
         CancellationToken cancellationToken = default) => OrderedProgress.Run(context, async progress =>
     {
         var id = string.IsNullOrWhiteSpace(engine) || engine.Trim().Equals("auto", StringComparison.OrdinalIgnoreCase) ? "ghidra" : engine.Trim().ToLowerInvariant();
-        if (id != "ghidra")
-            throw new ToolError(ErrorCode.Unsupported, $"emulate_native runs in Ghidra's p-code emulator, not in '{engine!.Trim()}'.",
-                $"omit engine or pass engine=ghidra; Ghidra comes from {GhidraOptions.DirectoryVariable}");
+        if (id is not ("ghidra" or SpeakeasyEngine))
+            throw new ToolError(ErrorCode.Unsupported, $"emulate_native runs in Ghidra's p-code emulator or speakeasy, not in '{engine!.Trim()}'.",
+                $"omit engine or pass engine=ghidra (Ghidra from {GhidraOptions.DirectoryVariable}) or engine=speakeasy ({ExternalTools.Emulator.Variable})");
         if (maxInstructions is < 1 or > 50_000_000) throw new ToolError(ErrorCode.InvalidArgument, $"maxInstructions must be 1-50000000, not {maxInstructions}.");
         if (timeoutSeconds is < 1 or > 300) throw new ToolError(ErrorCode.InvalidArgument, $"timeoutSeconds must be 1-300, not {timeoutSeconds}.");
+        if (id == SpeakeasyEngine)
+        {
+            RefuseGhidraOnly(("args", args), ("registers", registers), ("memory", memory), ("stopAt", stopAt), ("stubs", stubs), ("read", read),
+                ("candidates", candidates), ("trace", trace == 0 ? null : trace.ToString(CultureInfo.InvariantCulture)));
+            return await EmulateProgramAsync(image, address, maxInstructions, timeoutSeconds, cancellationToken);
+        }
         int seconds = timeoutSeconds;
         if (trace is < 0 or > 2000) throw new ToolError(ErrorCode.InvalidArgument, $"trace must be 0-2000, not {trace}.");
         engines.Provider("ghidra");
@@ -122,6 +130,17 @@ public sealed class NativeEmulationTools(AssemblyWorkspace workspace, NativeEngi
     {
         public double? ElapsedSeconds { get; init; }
         public IReadOnlyList<EmulatedCandidate>? Candidates { get; init; }
+
+        [Description("engine=speakeasy: the program's API calls in order.")]
+        public IReadOnlyList<EmulatedApiCall>? ApiCalls { get; init; }
+
+        [Description("engine=speakeasy: files the program wrote in the emulator's file system, with their saved copies.")]
+        public IReadOnlyList<EmulatedFile>? FilesWritten { get; init; }
+
+        [Description("engine=speakeasy: region-set manifest of the program's image, allocations and stack after the run (open_minidump reads it).")]
+        public string? RegionSet { get; init; }
+
+        public IReadOnlyList<string>? Notes { get; init; }
     }
 
     internal static EmulationReport BatchReport(string imageId, IReadOnlyList<string> sets, IReadOnlyList<JsonElement> runs)

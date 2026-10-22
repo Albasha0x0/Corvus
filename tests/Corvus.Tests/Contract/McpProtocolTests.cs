@@ -371,7 +371,7 @@ public abstract class McpProtocolTests : IAsyncLifetime
         ["search_native_strings"] = (new() { ["image"] = NativeSample(dir) }, "string"),
         ["decompile_native"] = (new() { ["image"] = NativeSample(dir), ["address"] = "First", ["engine"] = "bogus" }, "Error (invalid_argument) in decompile_native: parameter 'engine' must be one of auto, ida"),
         ["search_decompiled"] = (new() { ["image"] = NativeSample(dir), ["pattern"] = "return", ["engine"] = "bogus" }, "Error (invalid_argument) in search_decompiled: parameter 'engine' must be one of auto, ida"),
-        ["emulate_native"] = (new() { ["image"] = NativeSample(dir), ["address"] = "First", ["engine"] = "ours" }, "Error (invalid_argument) in emulate_native: parameter 'engine' must be one of auto, ghidra"),
+        ["emulate_native"] = (new() { ["image"] = NativeSample(dir), ["address"] = "First", ["engine"] = "ours" }, "Error (invalid_argument) in emulate_native: parameter 'engine' must be one of auto, ghidra, speakeasy"),
         ["set_native_type"] = (new() { ["image"] = NativeSample(dir), ["address"] = "First", ["type"] = "int f(void)", ["engine"] = "bogus" },
             "Error (invalid_argument) in set_native_type: parameter 'engine' must be one of auto, ida"),
         ["set_native_local"] = (new() { ["image"] = NativeSample(dir), ["function"] = "First", ["local"] = "v1", ["newName"] = "count", ["engine"] = "bogus" },

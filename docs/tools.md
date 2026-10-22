@@ -1540,7 +1540,7 @@ Structured output: `image`, `engine`, `pattern`, `items`, `functionsTotal`, `off
 
 **Emulate native code** (read-only, idempotent, open-world, long-running)
 
-Emulate native code in the Ghidra p-code emulator: string decoders, hashes, computed constants. Memory: image, stack, given writes. Stops on return, stopAt or a budget. Calls run in the image or return stubs= values; an unmodelled call or unmapped read is an error. Reports return value, registers, written strings, reads, trace.
+Emulate native code in the Ghidra p-code emulator: string decoders, hashes, computed constants. Memory: image, stack, given writes. Stops on return, stopAt or a budget. Calls run in the image or return stubs= values; an unmodelled call or unmapped read is an error. Reports return value, registers, written strings, reads, trace. engine=speakeasy runs a whole PE or raw x86/x64 code with Windows APIs modelled: API calls, files written, memory as a region set.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -1556,9 +1556,9 @@ Emulate native code in the Ghidra p-code emulator: string decoders, hashes, comp
 | `timeoutSeconds` | integer |  | `10` | Time budget, s (1-300). |
 | `trace` | integer |  | `0` | Last instructions listed (0-2000). |
 | `candidates` | string |  |  | Argument sets, ;-separated, each as args; one timeoutSeconds covers all. |
-| `engine` | string |  |  | Default auto. Values: auto, ghidra. |
+| `engine` | string |  |  | auto (default: Ghidra) or speakeasy (a whole program from address; maxInstructions and timeoutSeconds apply). Values: auto, ghidra, speakeasy. |
 
-Structured output: `image`, `engine`, `instructions`, `stop`, `stoppedAt`, `returnRegister`, `returnValue`, `registers`, `callCount`, `calls`, `written`, `reads`, `trace`, `candidates`.
+Structured output: `image`, `engine`, `instructions`, `stop`, `stoppedAt`, `returnRegister`, `returnValue`, `registers`, `callCount`, `calls`, `written`, `reads`, `trace`, `candidates`, `apiCalls`, `filesWritten`, `regionSet`, `notes`.
 
 ### verify_native_imports
 

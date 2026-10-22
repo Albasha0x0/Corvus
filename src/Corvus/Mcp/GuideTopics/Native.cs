@@ -23,7 +23,8 @@ public static partial class Guide
         read=true adds the field values at an address), get_exception_info (MSVC try / catch, SEH scopes, funclets), find_virtual_calls (obj->vfunc() sites resolved
         through RTTI; crossCheck=true compares with IDA or Ghidra), decompile_native (C pseudocode through IDA or Ghidra when installed;
         functions=[...] decompiles several in one request, each with its own deadline; callersOf= the callers of one), search_decompiled (a regex over many functions' pseudocode; cursor= continues); emulate_native (Ghidra p-code emulation of a decoder, hash or computed constant: args,
-        registers, memory and stubs= for calls; nothing runs natively).
+        registers, memory and stubs= for calls; nothing runs natively; engine=speakeasy runs a whole PE or raw x86/x64 code with Windows APIs
+        modelled: its API calls, the files it writes and its memory as a region set for open_minidump).
         Addresses: hex VA (0x180001000) or RVA (0x1000), rva:/va:/off: prefixes, export names, module!import, sub_<rva>, function names
         (a name on several addresses is an ambiguous error listing them).
         Symbols: a matching local PDB is read with the code index (DWARF for ELF and Mach-O: its own sections, a .debug/.dbg file by

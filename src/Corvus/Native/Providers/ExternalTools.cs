@@ -151,8 +151,18 @@ public static partial class ExternalTools
         ["capa" + Exe], ["--version"], 0, "survey_features capa capabilities of Il2Cpp code", false,
         Ops(("freeze", ["-j", "{file}"])));
 
+    // Tested with speakeasy 2.0.0b9 (report format 5); it prints no version, so the report's format is checked instead.
+    // Unknown functions stop the run rather than return a guessed 1, and region contents are saved for the region set.
+    public static readonly ExternalTool Emulator = new("emulator", "speakeasy 2.0.0b9 (Windows API emulator)", "CORVUS_EMULATOR", ExternalToolKind.Executable,
+        ["speakeasy" + Exe], [], 0, "emulate_native engine=speakeasy (a whole program or raw code)", false,
+        Ops(("run", ["-t", "{input}", "--no-mp", "--snapshot-memory-regions", "--no-modules-functions-always-exist", "--timeout", "{seconds}",
+                "--max-api-count", "{apis}", "--max-instructions", "{instructions}"]),
+            ("raw", ["--raw", "--raw-offset", "{offset}", "--arch", "{arch}"]),
+            ("entry", ["--entry-point", "{rva}"]),
+            ("report", ["-o", "{report}"])));
+
     /// <summary>Every external program, in display order.</summary>
-    public static readonly IReadOnlyList<ExternalTool> Table = [Java, JavaDecompiler, JavaDecompiler2, PythonDecompiler, Adb, TShark, OsvScanner, Capa, Aapt2, ApkSigner, DexDisassembler, ProtoCompiler, WasmText, WasmValidator, HbcDisassembler];
+    public static readonly IReadOnlyList<ExternalTool> Table = [Java, JavaDecompiler, JavaDecompiler2, PythonDecompiler, Adb, TShark, OsvScanner, Emulator, Capa, Aapt2, ApkSigner, DexDisassembler, ProtoCompiler, WasmText, WasmValidator, HbcDisassembler];
 
     private static IEnumerable<(string, string)> WiresharkDirectories()
     {

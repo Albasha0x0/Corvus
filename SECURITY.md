@@ -38,6 +38,10 @@ tools have opt-ins of their own.
   Calls outside that subset are left in place and reported ([docs/simplify.md](docs/simplify.md)).
 - **`emulate_native`** interprets an image's code as Ghidra p-code in Ghidra's emulator, inside a private scratch area,
   within an instruction and time budget. Nothing runs natively, and unmodelled calls stop the emulation.
+  With `engine=speakeasy` it runs speakeasy (`CORVUS_EMULATOR`, only when set or on `PATH`) in the worker host, with a
+  minimal environment and a time, instruction and API-call budget: the program's code runs on speakeasy's CPU emulator
+  against modelled Windows APIs and a virtual file system, never natively; files it writes are saved under the data
+  folder's `emulation` folder, not on their own paths.
 - **Crash dumps.** .NET heap and stack decoding loads the dump's own runtime data-access library (DAC). It is loaded
   only after its Microsoft signature (and, for the bundled 32-bit decoder process, its hash) is verified; a DAC is
   downloaded only when a call passes `downloadDac=true`.
