@@ -22,7 +22,17 @@ var script = Environment.GetEnvironmentVariable("ADB_FAKE_SCRIPT") is { Length: 
     ? JsonNode.Parse(File.ReadAllText(path))!.AsObject()
     : new JsonObject();
 var log = script["log"]?.GetValue<string>();
-if (log != null) File.AppendAllText(log, JsonSerializer.Serialize(args) + "\n");
+// Calls started side by side (server_status probes every tool at once) share the log: each appends with the file
+// held alone, waiting while another call holds it.
+if (log != null)
+    for (var waited = System.Diagnostics.Stopwatch.StartNew(); ; Thread.Sleep(10))
+        try
+        {
+            using var f = new FileStream(log, FileMode.Append, FileAccess.Write, FileShare.None);
+            f.Write(Encoding.UTF8.GetBytes(JsonSerializer.Serialize(args) + "\n"));
+            break;
+        }
+        catch (IOException) when (waited.Elapsed < TimeSpan.FromSeconds(10)) { }
 // A barrier ("barriers": { "<joined arguments>": { "touch": file, "waitFor": file } }) shows two calls overlap: each marks
 // its start, then waits up to 20 s for the other's mark.
 if (script["barriers"]?[string.Join(' ', args)] is JsonObject barrier)

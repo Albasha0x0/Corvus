@@ -157,7 +157,10 @@ public class ServerStatusToolVariableTests
         Assert.True(code == 0, error);
         var capabilities = JsonNode.Parse(output)!["structured"]!["capabilities"]!.AsArray();
         foreach (var tool in tools)
-            Assert.True(capabilities.Any(c => ((string)c!["name"]!).StartsWith(tool.Name, StringComparison.Ordinal) && (bool)c["available"]!), tool.Name);
+        {
+            var c = capabilities.FirstOrDefault(c => ((string)c!["name"]!).StartsWith(tool.Name, StringComparison.Ordinal));
+            Assert.True(c is not null && (bool)c["available"]!, $"{tool.Name}: {c?["detail"]} {c?["remediation"]}");
+        }
         ServerStatusTests.AssertFitsWithAFolderOf260Characters(output);
     }
 }

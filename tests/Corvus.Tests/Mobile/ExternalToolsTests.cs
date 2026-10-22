@@ -122,6 +122,18 @@ public class ExternalToolsTests(ITestOutputHelper output)
     }
 
     [Fact]
+    public void Fake_tool_calls_started_side_by_side_each_answer_and_log()
+    {
+        // Regression: CI run 39774585910, a probe of the fake crashed on the shared log while another call held it.
+        using var fake = new FakeTool();
+        fake.On("^--version$", stdout: "osv-scanner version: 2.7.0");
+        var runs = Enumerable.Range(0, 16).AsParallel().WithDegreeOfParallelism(16)
+            .Select(_ => ExternalTools.Run(FakeTool.Executable, ["--version"], TimeSpan.FromSeconds(60), 1000, default, fake.Environment)).ToList();
+        Assert.All(runs, r => Assert.Equal((0, "osv-scanner version: 2.7.0"), (r.ExitCode ?? -1, r.Text)));
+        Assert.Equal(16, fake.ArgumentLists.Count);
+    }
+
+    [Fact]
     public void ServerStatus_ListsEachExternalTool_WithItsFix()
     {
         using var fake = new FakeTool();
