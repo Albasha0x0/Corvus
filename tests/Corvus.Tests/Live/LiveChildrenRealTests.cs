@@ -269,7 +269,8 @@ public sealed class LiveChildrenRealTests(ITestOutputHelper output) : LiveToolCa
         await Ok(server, "live_session", new() { ["action"] = "attach_child", ["session"] = "live-1", ["program"] = copy.ToString(CultureInfo.InvariantCulture) });
         await Ok(server, "live_break", new() { ["session"] = "live-2", ["action"] = "set", ["at"] = "libc.so.6!exit" });
         await Ok(server, "live_session", new() { ["action"] = "close", ["session"] = "live-1" });
-        var stop = await Ok(server, "live_break", new() { ["session"] = "live-2", ["action"] = "continue", ["wait"] = true, ["waitSeconds"] = 60 });
+        // The parent's close starts the copy, so its stop may already be held.
+        var stop = await Ok(server, "live_break", new() { ["session"] = "live-2", ["action"] = "list", ["wait"] = true, ["waitSeconds"] = 60 });
         Assert.Matches($@"thread {copy} stopped at s1 \(libc\.so\.6!", stop);
         await Ok(server, "live_break", new() { ["session"] = "live-2", ["action"] = "continue" });
         Assert.Matches(@"exit code 3(?![0-9xX])", await UntilExited(server, "live-2", 30));

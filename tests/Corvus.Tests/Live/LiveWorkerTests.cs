@@ -297,6 +297,27 @@ public sealed class LiveWorkerTests : IDisposable
         }
     }
 
+    [Fact]
+    public void A_close_after_a_resume_that_let_no_thread_go_unloads_at_once()
+    {
+        using var p = StartWorker(ExitingFrida);
+        try
+        {
+            Assert.Contains("\"ok\":true", Request(p, 1, "open", """{"attach":"4242"}"""));
+            Assert.Contains("\"resumed\":[]", Request(p, 2, "resume", "{}"));
+            var clock = Stopwatch.StartNew();
+            Assert.Contains("\"ok\":true", Request(p, 3, "close", "{}"));
+            // The exit grace is 1 s; no exit comes here, so a close that waits takes all of it.
+            Assert.True(clock.Elapsed < TimeSpan.FromSeconds(0.9), $"the close waited {clock.ElapsedMilliseconds} ms for an exit");
+            Assert.True(File.Exists(_dir.File("unloaded.txt")), "the close did not unload the script");
+        }
+        finally
+        {
+            if (!p.HasExited) p.Kill();
+            p.WaitForExit(10_000);
+        }
+    }
+
     [PosixFact("The worker lists the processes it started with ps.")]
     public void A_start_Frida_timed_out_on_is_ended_and_tried_once_more()
     {

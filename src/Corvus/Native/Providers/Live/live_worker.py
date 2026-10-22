@@ -27,7 +27,8 @@ import time
 
 _out = threading.Lock()
 OUTPUT_CHUNK = 4096  # bytes of one program output chunk kept in its event
-# Seconds a close waits for a program it just let go to begin its exit.
+# Seconds a close waits for a thread it just let go from a stop to begin the
+# program's exit.
 EXIT_GRACE = 1.0
 
 # Holds the first thread that runs the main module's code until release. The exec gate resumes a child past its entry
@@ -142,7 +143,7 @@ class Session:
         self.closing = False
         self.exit_released = False  # an exit_status was answered: the process is past the script's last hook
         self.exit_begun = threading.Event()
-        self.resumed_at = 0.0
+        self.released_at = 0.0  # when a resume last let threads go from their stops
         self.held = set()
         self.loading = set()  # threads held at the load of a deferred module or the compile of a watched method
         self.lock = threading.Lock()
@@ -490,7 +491,8 @@ class Session:
             self.held.difference_update(targets)
         for tid in targets:
             self.script.post({"type": "resume-%d" % tid})
-        self.resumed_at = time.monotonic()
+        if targets:
+            self.released_at = time.monotonic()
         started = self.suspended and thread is None
         if started:
             self.device.resume(self.pid)
@@ -539,11 +541,13 @@ class Session:
                     self.script.post({"type": "resume-%d" % tid})
                 for tid in loading:
                     self.script.post({"type": "load-%d" % tid})
-                # A teardown racing the exit of a program let go just now hangs
-                # or faults it: give its exit a moment to begin, so closeBegin
-                # reports it exiting. Workaround for frida/frida-gum#1192
-                # (17.24.0 to 17.24.3) and #1194 (17.23.3 to 17.24.3).
-                if held or loading or time.monotonic() - self.resumed_at < EXIT_GRACE:
+                # A teardown racing the exit of a thread let go from its stop just
+                # now hangs or faults the program: give the exit a moment to
+                # begin, so closeBegin reports it exiting. A start or a resume
+                # that let no thread go closes at once. Workaround for
+                # frida/frida-gum#1192 (17.24.0 to 17.24.3) and #1194 (17.23.3
+                # to 17.24.3).
+                if held or loading or time.monotonic() - self.released_at < EXIT_GRACE:
                     self.exit_begun.wait(EXIT_GRACE)
                 # replies still in flight (a stop, an exit or a fault the worker has not read yet) never come after the unload
                 exiting = False
