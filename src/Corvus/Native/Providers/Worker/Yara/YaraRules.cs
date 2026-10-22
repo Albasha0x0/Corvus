@@ -17,7 +17,7 @@ public sealed record YaraRuleMatch(string Namespace, string Rule, IReadOnlyList<
     IReadOnlyList<YaraPatternMatch> Patterns);
 
 /// <summary>
-/// Rules compiled once from source (a file, or every *.yar and *.yara under a folder) and scanned over buffers or files.
+/// Rules compiled once from source (rule text, a file, or every *.yar and *.yara under a folder) and scanned over buffers or files.
 /// A rule that does not compile is named in <see cref="Errors"/> and left out; the other rules still run. Compiled rules
 /// are never saved or loaded (VirusTotal/yara-x#720: a file saved by another version aborts the loader).
 /// </summary>
@@ -45,12 +45,37 @@ internal sealed partial class YaraRules : IDisposable
         Notes = notes;
     }
 
+    /// <summary>Origin of rule source passed as text rather than read from a file.</summary>
+    public const string QueryOrigin = "query";
+
     /// <summary>Compiles the rule file or folder at <paramref name="path"/>; a missing path or a folder without rules is an invalid argument.</summary>
     public static YaraRules Compile(string path)
     {
         YaraX.Load();
         var notes = new List<string>();
         var files = RuleFiles(path, notes);
+        return Build([.. files.Select(f => (f, File.ReadAllBytes(f)))], notes);
+    }
+
+    /// <summary>
+    /// Compiles <paramref name="source"/> as rule text with origin <see cref="QueryOrigin"/>; source that yields no rule is an
+    /// invalid argument naming the first error.
+    /// </summary>
+    public static YaraRules CompileSource(string source)
+    {
+        YaraX.Load();
+        var rules = Build([(QueryOrigin, Encoding.UTF8.GetBytes(source))], []);
+        if (rules.Count > 0) return rules;
+        var first = rules.Errors.FirstOrDefault();
+        rules.Dispose();
+        throw new ToolError(ErrorCode.InvalidArgument,
+            "query names no rule file or folder, so it was compiled as rule source, which gave no rules"
+            + (first != null ? $": {QueryOrigin}:{first.Line}:{first.Column}: {first.Code} {first.Message}" : "."),
+            "pass rule text, or the path of an existing .yar file or folder of rules");
+    }
+
+    private static YaraRules Build(List<(string Origin, byte[] Text)> sources, List<string> notes)
+    {
         if (YaraX.yrx_compiler_create(YaraX.RelaxedReSyntax, out var compiler) != YaraX.Success)
             throw new ToolError(ErrorCode.Failed, $"YARA-X could not create a compiler: {YaraX.LastError()}");
         try
@@ -59,18 +84,17 @@ internal sealed partial class YaraRules : IDisposable
             foreach (var module in new[] { "cuckoo", "vt" })
                 YaraX.Check(YaraX.yrx_compiler_ban_module(compiler, YaraX.Utf8(module), YaraX.Utf8($"module `{module}` is not available"),
                     YaraX.Utf8("Corvus scans files and memory only")), "ban a module");
-            var sources = new Dictionary<string, byte[]>(StringComparer.Ordinal);
-            foreach (var file in files)
+            var byOrigin = new Dictionary<string, byte[]>(StringComparer.Ordinal);
+            foreach (var (origin, text) in sources)
             {
-                var text = File.ReadAllBytes(file);
-                sources[file] = text;
+                byOrigin[origin] = text;
                 // A source that does not compile fails here; its errors are read below.
-                _ = YaraX.yrx_compiler_add_source_with_origin(compiler, [.. text, 0], YaraX.Utf8(file));
+                _ = YaraX.yrx_compiler_add_source_with_origin(compiler, [.. text, 0], YaraX.Utf8(origin));
             }
-            var errors = ReadErrors(compiler, sources, files.Count == 1 ? files[0] : null);
+            var errors = ReadErrors(compiler, byOrigin, sources.Count == 1 ? sources[0].Origin : null);
             var rules = YaraX.yrx_compiler_build(compiler);
             compiler = IntPtr.Zero;
-            return new YaraRules(rules, YaraX.yrx_rules_count(rules), files.Count, errors, notes);
+            return new YaraRules(rules, YaraX.yrx_rules_count(rules), sources.Count, errors, notes);
         }
         finally
         {

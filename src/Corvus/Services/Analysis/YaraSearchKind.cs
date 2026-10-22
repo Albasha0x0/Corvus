@@ -9,7 +9,7 @@ using Corvus.Native.Providers.Worker.Yara;
 namespace Corvus.Services.Analysis;
 
 /// <summary>
-/// search_container kind=yara: the query is a YARA rule file or a folder of them, compiled and run by YARA-X in a
+/// search_container kind=yara: the query is a YARA rule file, a folder of them, or else rule text, compiled and run by YARA-X in a
 /// <c>corvus worker</c> process over the file and each container member; rows are the rules that matched, with the file
 /// or member path, tags, metadata and pattern offsets. Rules that do not compile are named with their file, line and
 /// rule, and the rest still run.
@@ -29,15 +29,32 @@ internal sealed class YaraSearchKind : IContainerSearchKind
         var source = Directory.Exists(Path.GetFullPath(path)) ? Path.GetFullPath(path) : InputFiles.RequireRegularFile(path, "file");
         if (!File.Exists(source) && !Directory.Exists(source)) throw Targets.FileNotFound(source);
         if (string.IsNullOrWhiteSpace(query))
-            throw new ToolError(ErrorCode.InvalidArgument, "kind=yara takes the rules as query.", "pass a .yar file or a folder of .yar and .yara files as query");
-        var request = new JsonObject { ["rules"] = Path.GetFullPath(query.Trim().Trim('"')), ["path"] = source };
+            throw new ToolError(ErrorCode.InvalidArgument, "kind=yara takes the rules as query.", "pass rule text, a .yar file or a folder of .yar and .yara files as query");
+        // An existing file or folder is read; anything else is compiled as rule text.
+        var rules = RulePath(query);
+        var request = new JsonObject { ["path"] = source };
+        if (rules != null) request["rules"] = rules;
+        else request["source"] = query;
         var answer = WorkerPool.Shared.RunAsync("yara", YaraOps.ScanOp, request, ScanLimit, ct, source).GetAwaiter().GetResult();
         var result = answer.Deserialize<YaraScanResult>(YaraOps.Json)
                      ?? throw new ToolError(ErrorCode.Failed, "The yara worker answered without a result.");
         var rows = result.Hits.SelectMany(h => h.Rules.Select(r => Row(h.Path, r))).ToList();
         var files = result.Regions > 0 ? result.Regions : (Directory.Exists(source) ? 0 : 1) + result.Members;
         return new UnpackService.ContainerSearch(source, result.Regions > 0 ? "dump" : "file", files, rows.Skip(Math.Max(0, offset)).Take(limit).ToList(), Math.Max(0, offset), rows.Count,
-            Notes(result));
+            Notes(result, rules == null));
+    }
+
+    /// <summary>The full path of the rule file or folder <paramref name="query"/> names, or null when it names none.</summary>
+    private static string? RulePath(string query)
+    {
+        var candidate = query.Trim().Trim('"');
+        if (candidate.Length == 0 || candidate.Contains('\n')) return null;
+        try
+        {
+            var full = Path.GetFullPath(candidate);
+            return File.Exists(full) || Directory.Exists(full) ? full : null;
+        }
+        catch (Exception e) when (e is ArgumentException or NotSupportedException or PathTooLongException) { return null; }
     }
 
     private static ContainerMatch Row(string path, YaraRuleMatch rule) => new(path, rule.Namespace is "default" or "" ? rule.Rule : $"{rule.Namespace}:{rule.Rule}", "yara")
@@ -56,10 +73,11 @@ internal sealed class YaraSearchKind : IContainerSearchKind
         return parts.Count == 0 ? null : string.Join("; ", parts);
     }
 
-    private static List<string> Notes(YaraScanResult result)
+    private static List<string> Notes(YaraScanResult result, bool fromQuery)
     {
         var notes = new List<string>(result.Notes);
-        var summary = new StringBuilder($"YARA-X {YaraX.Version}: {result.Rules:N0} rules from {result.RuleFiles:N0} file{(result.RuleFiles == 1 ? "" : "s")}");
+        var summary = new StringBuilder($"YARA-X {YaraX.Version}: {result.Rules:N0} rules from " +
+                                        (fromQuery ? "the query text" : $"{result.RuleFiles:N0} file{(result.RuleFiles == 1 ? "" : "s")}"));
         if (result.Regions > 0) summary.Append($"; {result.Regions:N0} memory regions scanned");
         if (result.Members > 0) summary.Append($"; {result.Members:N0} container members scanned");
         if (result.Errors.Count > 0) summary.Append($"; {result.Errors.Count:N0} errors, their rules not run");

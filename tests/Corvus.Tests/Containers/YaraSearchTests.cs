@@ -188,6 +188,24 @@ public sealed class YaraSearchTests : IDisposable
         Assert.Contains(found.Notes, n => n.StartsWith("Process memory: 3 regions", StringComparison.Ordinal) && n.Contains("cross a region boundary are not matched"));
     }
 
+    [YaraFact]
+    public void Query_text_that_names_no_file_is_compiled_as_rules_and_its_errors_say_so()
+    {
+        var target = FixtureFiles()[1];
+        using var pool = Pool();
+        using var shared = WorkerPool.UseShared(pool);
+        var search = new UnpackService(_ws);
+
+        var found = search.Search(target, "rule inline_corvus { strings: $a = \"corvus\" condition: $a }", "yara", 10, AnalysisLimits.Default, default);
+        Assert.Equal("inline_corvus", found.Items.Single().Name);
+        Assert.StartsWith("YARA-X 1.22.0: 1 rules from the query text;", found.Notes[0], StringComparison.Ordinal);
+
+        // A mistyped path is neither a file nor rule text: the error says it was compiled as source.
+        var e = Assert.Throws<ToolError>(() => search.Search(target, _dir.File("missing.yar"), "yara", 10, AnalysisLimits.Default, default));
+        Assert.Equal(ErrorCode.InvalidArgument, e.Code);
+        Assert.StartsWith("query names no rule file or folder, so it was compiled as rule source, which gave no rules: query:1:", e.Message, StringComparison.Ordinal);
+    }
+
     [Fact]
     public async Task Without_the_library_the_scan_is_refused_naming_the_platform()
     {

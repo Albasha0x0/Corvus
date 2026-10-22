@@ -38,16 +38,17 @@ internal sealed class YaraOps : IWorkerOps
     public static long MaxWalkBytes => AnalysisLimits.Default.MaxItemBytes;
 
     /// <summary>
-    /// Scans the file <c>path</c> with the rules at <c>rules</c> (a file or folder), then each member of the container it
+    /// Scans the file <c>path</c> with the rules at <c>rules</c> (a file or folder) or the rule text <c>source</c>, then each member of the container it
     /// is, nested containers opened and compressed members decompressed; a folder (a Blazor or ClickOnce deployment) is
     /// scanned by its members only, and a dump file by its captured memory (<see cref="YaraMemoryScan"/>).
     /// </summary>
     public static Task<JsonNode?> Scan(JsonObject args, CancellationToken cancellationToken)
     {
-        var rulesPath = Arg(args, "rules");
+        var source = args["source"]?.GetValueKind() == JsonValueKind.String ? args["source"]!.GetValue<string>() : null;
+        var rulesPath = source == null ? Arg(args, "rules") : null;
         var target = Arg(args, "path");
         var started = Stopwatch.StartNew();
-        using var rules = YaraRules.Compile(rulesPath);
+        using var rules = source != null ? YaraRules.CompileSource(source) : YaraRules.Compile(rulesPath!);
         using var scanner = rules.Scanner(TimeSpan.FromMinutes(10));
         cancellationToken.ThrowIfCancellationRequested();
         var hits = new List<YaraHit>();

@@ -626,7 +626,7 @@ Structured output: `assembly`, `items`, `offset`, `total`, `outputDirectory`, `n
 
 **Search inside a container** (read-only, idempotent)
 
-Find types and members by name in every managed assembly inside a container (bundle, .nupkg, .apk, .aab, Costura, zip, nested) or an assembly, without extracting: substring or * / ? wildcards. kind=file: inner file paths; packet: a pcap display filter; endpoint: endpoints in code or a capture; request: capture requests; feature: JS text to native code; yara: query is a rule file or folder.
+Find types and members by name in every managed assembly inside a container (bundle, .nupkg, .apk, .aab, Costura, zip, nested) or an assembly, without extracting: substring or * / ? wildcards. kind=file: inner file paths; packet: a pcap display filter; endpoint: endpoints in code or a capture; request: capture requests; feature: JS text to native code; yara: query is a rule file or folder, else rule text.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|

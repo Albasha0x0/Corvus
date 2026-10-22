@@ -345,7 +345,7 @@ e.g. `identifier`). `kind=hermes` lists the strings and function names of a Herm
 `.asar` archives entry by entry without extracting (the app's declared SHA-256 per file, or the hashed data).
 
 **YARA rules** (`search_container kind=yara`, with `CORVUS_WORKER_HOST=1`): the query is a rule file or a folder of
-`.yar` and `.yara` files, compiled and run by YARA-X 1.22.0 in a `corvus worker` process, so a fault in the engine ends
+`.yar` and `.yara` files, or, when it names neither, the rule text itself (origin `query` in errors), compiled and run by YARA-X 1.22.0 in a `corvus worker` process, so a fault in the engine ends
 the worker and not the server. The rules run over the file, then over each member of the container it is (nested
 containers opened, compressed members decompressed; files over 512 MB are scanned as one file), so a match inside a
 compressed member is found at its member path. A minidump or core file is scanned by its captured memory: one block
