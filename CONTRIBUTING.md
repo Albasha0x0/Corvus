@@ -57,7 +57,13 @@ catalog, the client catalog, the guide) and checked by tests: after changing the
 ## Commits and pull requests
 
 - One commit per logical change, with its tests; the quick set is green at every commit.
-- Commit messages are short and mechanical: `area: what changed` (e.g. `find_xrefs: struct member targets through IDA`).
+- Commit messages: a subject `type(scope): imperative summary` of at most 72 characters, lower case after the colon
+  and no final period (e.g. `fix(live): keep deferred stop points in code an entry point writes`); types `feat`,
+  `fix`, `perf`, `test`, `docs`, `refactor`, `ci`, `chore`; scopes `live`, `dumps`, `il2cpp`, `engines`, `native`,
+  `dotnet`, `edits`, `containers`, `mobile`, `web`, `catalog`, `session`, `tests`, `release`. A body wrapped at 72
+  columns says what happened before, why it was wrong and what the code does now, then a `Verified:` paragraph naming
+  the tests run; issue references go in `Fixes #N` / `Refs #N` / `Upstream:` trailers. The commit-msg hook
+  (`.githooks/commit-msg`, enabled with the pre-push hook) rejects a subject or line width that does not follow this.
 - A pull request describes what changed and how it was tested, and keeps the README and docs in sync.
 
 ## Releasing
