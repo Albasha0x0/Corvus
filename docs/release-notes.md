@@ -273,6 +273,9 @@
   [6999b5af](https://github.com/Albasha0x0/Corvus/commit/6999b5af)
 - **live_coverage:** a leading endbr64 or endbr32 does not count toward a hook's 5 bytes of room, so CET stubs are left
   out before any point is set, with the instructions named. [b8f374e0](https://github.com/Albasha0x0/Corvus/commit/b8f374e0)
+- **live_coverage:** a function's point counts its hits in the program and clears itself at the hit limit, without
+  holding the thread for the server, so a covered program keeps its speed when the server is busy. Verified with Frida
+  17.24.3 on win-x64. [0b3428ab](https://github.com/Albasha0x0/Corvus/commit/0b3428ab)
 - **IDA opens:** a fatal IDA error that ends the worker is named in the error, and an open that loses IDA's registry race
   ("Fatal registry error") starts a new worker, at most twice. Verified on IDA 9.3. [c91989fb](https://github.com/Albasha0x0/Corvus/commit/c91989fb) [aba393c4](https://github.com/Albasha0x0/Corvus/commit/aba393c4)
 - **Snapshots of a starting program:** a snapshot waits up to 10 s for the program's loader instead of failing with
