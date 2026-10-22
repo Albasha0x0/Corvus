@@ -331,8 +331,7 @@ public sealed class GhidraProvider(GhidraProviderOptions? options = null) : INat
         start = start with
         {
             WorkingDirectory = dirs.Temp,
-            // Options a user set for their own Java programs must not reach the worker (a second -Xmx, an agent, a debugger).
-            Environment = new Dictionary<string, string?> { ["JAVA_TOOL_OPTIONS"] = null, ["_JAVA_OPTIONS"] = null, ["JDK_JAVA_OPTIONS"] = null },
+            Environment = WorkerEnvironment(dirs),
             MemoryLimitBytes = EngineMemoryLimit.Resolve(_options.MemoryLimitBytes),
         };
         Interlocked.Increment(ref _workersStarted);
@@ -352,6 +351,23 @@ public sealed class GhidraProvider(GhidraProviderOptions? options = null) : INat
                 $"Check the JDK or set {GhidraOptions.JavaVariable}.");
         }
     }
+
+    /// <summary>
+    /// Environment changes for a worker: no Java options of the user's own programs (a second -Xmx, an agent, a
+    /// debugger), and the temporary folder of <paramref name="dirs"/>.
+    /// </summary>
+    internal static Dictionary<string, string?> WorkerEnvironment(GhidraDirectories dirs) => new()
+    {
+        ["JAVA_TOOL_OPTIONS"] = null,
+        ["_JAVA_OPTIONS"] = null,
+        ["JDK_JAVA_OPTIONS"] = null,
+        // PyGhidra 3.1 serializes its start on a file lock in the temporary folder, held while Ghidra builds its
+        // class path: with the user's folder every worker on the machine waited in one line. The lock guards the
+        // extensions in the settings folder, which these directories own.
+        ["TEMP"] = dirs.Temp,
+        ["TMP"] = dirs.Temp,
+        ["TMPDIR"] = dirs.Temp,
+    };
 
     /// <summary>Worker processes this provider has started.</summary>
     internal int WorkersStarted => Volatile.Read(ref _workersStarted);

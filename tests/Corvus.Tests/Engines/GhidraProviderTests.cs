@@ -19,6 +19,15 @@ public class GhidraProviderTests
     }
 
     [Fact]
+    public void A_worker_keeps_its_temporary_files_and_start_lock_in_its_own_folder()
+    {
+        var dirs = new GhidraDirectories(Path.Combine(Path.GetTempPath(), "corvus-ghidra-env"));
+        var environment = GhidraProvider.WorkerEnvironment(dirs);
+        Assert.All(new[] { "TEMP", "TMP", "TMPDIR" }, name => Assert.Equal(dirs.Temp, environment[name]));
+        Assert.Null(environment["JAVA_TOOL_OPTIONS"]);
+    }
+
+    [Fact]
     public async Task Missing_install_is_unavailable_with_remediation()
     {
         using var tmp = new TempDir();
