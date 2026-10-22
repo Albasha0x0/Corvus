@@ -20,13 +20,54 @@ runs:
       env:
         PYTHON: ${{ steps.python.outputs.python-path }}
 
-    # Snapshots on Linux are written by gcore (GDB), gcc-multilib builds the
-    # linux-x86 programs, and attaching to a program the session did not start
-    # needs ptrace_scope 0 (the runner's is 1).
-    - name: GDB, multilib gcc and ptrace scope (Linux)
+    # Snapshots on Linux are written by gcore (GDB), and gcc-multilib builds
+    # the linux-x86 programs. Packages download at tens of kB/s from the
+    # runner's mirror at times (11 min seen), so the .deb files are cached per
+    # runner image, and nothing is installed when both already work.
+    - name: Check GDB and multilib gcc (Linux)
       if: runner.os == 'Linux'
+      id: tools
       shell: bash
       run: |
+        if command -v gdb > /dev/null && echo 'int main(void) { return 0; }' | gcc -m32 -x c - -o /dev/null 2> /dev/null; then
+          echo "install=false" >> "$GITHUB_OUTPUT"
+        else
+          echo "install=true" >> "$GITHUB_OUTPUT"
+        fi
+        echo "debs=$RUNNER_TEMP/apt-archives" >> "$GITHUB_OUTPUT"
+        echo "image=${ImageOS:-unknown}-${ImageVersion:-unknown}" >> "$GITHUB_OUTPUT"
+
+    # Restored and saved as separate steps, so a job whose tests fail still
+    # keeps the packages it downloaded.
+    - uses: actions/cache/restore@v6
+      if: runner.os == 'Linux' && steps.tools.outputs.install == 'true'
+      id: debs
+      with:
+        path: ${{ steps.tools.outputs.debs }}
+        key: apt-live-${{ runner.arch }}-${{ steps.tools.outputs.image }}
+        restore-keys: apt-live-${{ runner.arch }}-
+
+    - name: GDB and multilib gcc (Linux)
+      if: runner.os == 'Linux' && steps.tools.outputs.install == 'true'
+      shell: bash
+      env:
+        DEBS: ${{ steps.tools.outputs.debs }}
+      run: |
+        mkdir -p "$DEBS/partial"
         sudo apt-get update -q
-        sudo apt-get install -y --no-install-recommends gdb gcc-multilib
-        sudo sysctl -w kernel.yama.ptrace_scope=0
+        sudo apt-get install -y --no-install-recommends -o Dir::Cache::Archives="$DEBS" gdb gcc-multilib
+        sudo chown -R "$(id -u):$(id -g)" "$DEBS"
+        rm -rf "$DEBS/partial" "$DEBS/lock"
+
+    - uses: actions/cache/save@v6
+      if: runner.os == 'Linux' && steps.tools.outputs.install == 'true' && steps.debs.outputs.cache-hit != 'true'
+      with:
+        path: ${{ steps.tools.outputs.debs }}
+        key: apt-live-${{ runner.arch }}-${{ steps.tools.outputs.image }}
+
+    # Attaching to a program the session did not start needs ptrace_scope 0
+    # (the runner's is 1).
+    - name: ptrace scope (Linux)
+      if: runner.os == 'Linux'
+      shell: bash
+      run: sudo sysctl -w kernel.yama.ptrace_scope=0
