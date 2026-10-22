@@ -254,6 +254,19 @@ foreach ($pair in @(@($x64, 'win-x64', $runtimesX64), @($x86, 'win-x86', $runtim
         }
     }
 }
+# An apphost finds the runtime through DOTNET_ROOT (DOTNET_ROOT(x86) in a 32-bit one), then the installer's
+# InstallLocation key (32-bit registry view); a zip install writes neither, and a program started with a reduced
+# environment then has no fallback.
+foreach ($pair in @(@($x64, 'x64', 'DOTNET_ROOT'), @($x86, 'x86', 'DOTNET_ROOT(x86)'))) {
+    $root, $arch, $variable = $pair
+    if ([Environment]::GetEnvironmentVariable($variable, 'User') -ne $root) {
+        if ($Check) { Need "$variable set to $root" } else { Set-UserVariable $variable $root }
+    }
+    $key = "HKLM:\SOFTWARE\WOW6432Node\dotnet\Setup\InstalledVersions\$arch"
+    if ((Get-ItemProperty $key -Name InstallLocation -ErrorAction SilentlyContinue).InstallLocation -eq "$root\") { continue }
+    if ($Check -or -not $admin) { Need "the .NET install location ($arch) registered as the installer does" }
+    else { New-Item $key -Force | Out-Null; Set-ItemProperty $key -Name InstallLocation -Value "$root\" }
+}
 if (-not $Check -and $admin) {
     $machine = [Environment]::GetEnvironmentVariable('PATH', 'Machine')
     if (($machine -split ';') -notcontains $x64) { [Environment]::SetEnvironmentVariable('PATH', "$x64;$machine", 'Machine') }
