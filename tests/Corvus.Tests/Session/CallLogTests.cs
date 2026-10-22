@@ -106,6 +106,16 @@ public class CallLogTests
     }
 
     [Fact]
+    public void A_text_of_a_million_letters_is_masked_within_seconds()
+    {
+        // Each URL scheme candidate scanned to the end of the run before: about 4 s for 400,000 letters, quadratic.
+        var watch = System.Diagnostics.Stopwatch.StartNew();
+        Assert.Equal(1_000_000, Redaction.Text(new string('F', 1_000_000)).Length);
+        Assert.True(watch.Elapsed < TimeSpan.FromSeconds(5), $"{watch.Elapsed.TotalSeconds:0.0} s");
+        Assert.Equal(new string('a', 40) + "://user:[redacted]@host", Redaction.Text(new string('a', 40) + "://user:pa55@host"));
+    }
+
+    [Fact]
     public async Task TraceWritesOneJsonLinePerCall_WhenAsked()
     {
         using var dir = new TempDir();

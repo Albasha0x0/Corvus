@@ -66,7 +66,8 @@ public static partial class Redaction
     [GeneratedRegex(@"(?i)\b(?<scheme>bearer|basic)\s+[A-Za-z0-9._~+/=-]{8,}")]
     private static partial Regex Credential();
 
-    [GeneratedRegex(@"(?<head>[A-Za-z][A-Za-z0-9+.-]*://[^/\s:@]+:)[^/\s@]+@")]
+    // The scheme is bounded: unbounded, every letter of a long run of them started a scan to the run's end.
+    [GeneratedRegex(@"(?<head>[A-Za-z][A-Za-z0-9+.-]{0,31}://[^/\s:@]+:)[^/\s@]+@")]
     private static partial Regex UrlPassword();
 
     [GeneratedRegex(@"\b(gh[pousr]_[A-Za-z0-9]{30,}|github_pat_[A-Za-z0-9_]{20,}|AKIA[0-9A-Z]{16}|xox[abprs]-[A-Za-z0-9-]{10,}|eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}|sk-[A-Za-z0-9_-]{20,})")]
