@@ -138,6 +138,22 @@ public class WorkspaceTests
     }
 
     [Fact]
+    public void A_call_that_disposes_under_its_own_lock_still_reads_its_image()
+    {
+        var ws = new AssemblyWorkspace();
+        var asm = ws.Load(Env.FixturePath);
+        var count = ws.Read(() =>
+        {
+            ws.Dispose();
+            var score = asm.Module.Find("Fixture.Model.Account", false).FindMethod("Score");
+            return FastIlReader.Read(asm, score)!.Instructions.Count;
+        });
+        Assert.True(count > 0);
+        Assert.True(asm.IsDisposed);
+        Assert.Throws<ObjectDisposedException>(() => ws.Read(() => 0));
+    }
+
+    [Fact]
     public void UnloadAndGenerationInvalidation()
     {
         using var ws = new AssemblyWorkspace();
