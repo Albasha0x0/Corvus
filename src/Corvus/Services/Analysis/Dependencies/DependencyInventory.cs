@@ -87,6 +87,8 @@ internal static class DependencyInventory
         foreach (var deps in manifests) FromDepsJson(b, deps, input.Path, assemblies, claimed);
         FromAssemblies(b, input.Path, assemblies.Where(a => !claimed.Contains(a)).ToList(), ct);
         if (views.ContainsKey("go") || views.ContainsKey("rust")) FromNative(b, input, views);
+        // Reading Il2Cpp metadata takes seconds on a large game, so it waits until the view is asked for.
+        if (input.Options.Wants("dependencies")) FromIl2Cpp(b, input.Path, ct);
         if (b.Components.Count == 0) return null;
         var edges = b.Edges.Select(e => new DependencyEdge(e.Key, e.Value)).ToList();
         if (b.Components.Count > MaxListed) b.Notes.Add($"components: the first {MaxListed} of {b.Components.Count:N0} listed; sbomPath writes all");
@@ -211,7 +213,7 @@ internal static class DependencyInventory
     /// <summary>Adds a location to an equal component already listed (the same assembly twice); false when there is none.</summary>
     private static bool Merge(Builder b, DependencyComponent c, string location)
     {
-        int i = b.Components.FindIndex(x => x.Name == c.Name && x.Version == c.Version && x.Ecosystem == c.Ecosystem);
+        int i = b.Components.FindIndex(x => x.Name == c.Name && x.Version == c.Version && x.AssemblyVersion == c.AssemblyVersion && x.Ecosystem == c.Ecosystem);
         if (i < 0) return false;
         b.Components[i] = b.Components[i] with { Locations = [.. b.Components[i].Locations, location] };
         return true;
@@ -275,6 +277,71 @@ internal static class DependencyInventory
     }
 
     private static string FileName(string path) => path[(path.LastIndexOfAny(['/', '\\']) + 1)..];
+
+    /// <summary>An Il2Cpp game's metadata: the file itself or the one its binary names.</summary>
+    private static void FromIl2Cpp(Builder b, string path, CancellationToken ct)
+    {
+        Il2CppGameFiles? files;
+        try { files = Il2CppGameFiles.Find(path, metadataOnly: true); }
+        catch (Core.ToolError) { return; }
+        if (files?.Metadata is not { Length: > 0 } || Il2CppMetadataOnly.Assemblies(files, ct) is not { } read) return;
+        FromIl2CppAssemblies(b, read.Assemblies, read.UnityVersion, $"Il2Cpp metadata {files.Metadata} ({read.Source})", Product(files.DataDirectory));
+    }
+
+    /// <summary>The inventory of an Il2Cpp game's assemblies; <paramref name="unityVersion"/> null means unknown.</summary>
+    internal static DependencyFacts? OfIl2Cpp(IReadOnlyList<Il2CppMetadataOnly.AssemblyIdentity> assemblies, string? unityVersion, string source, string? product)
+    {
+        var b = new Builder();
+        FromIl2CppAssemblies(b, assemblies, unityVersion, source, product);
+        return b.Components.Count == 0 ? null : new DependencyFacts(b.Subject, b.Components.Count, b.Components.Count(c => c.Purl != null), [.. b.Components.Take(MaxListed)],
+            0, b.Sources, b.Notes) { All = b.Components };
+    }
+
+    /// <summary>
+    /// The Unity engine with its class libraries as one component, the game's own assemblies as the subject, and the
+    /// rest by name: Il2Cpp metadata keeps assembly versions only, so their package versions are unknown.
+    /// </summary>
+    private static void FromIl2CppAssemblies(Builder b, IReadOnlyList<Il2CppMetadataOnly.AssemblyIdentity> assemblies, string? unityVersion, string source, string? product)
+    {
+        b.Sources.Add(source);
+        var engine = assemblies.Where(a => IsUnityEngine(a.Name)).ToList();
+        var game = assemblies.Where(a => a.Name.StartsWith("Assembly-CSharp", StringComparison.Ordinal) || a.Name.StartsWith("Assembly-UnityScript", StringComparison.Ordinal)).ToList();
+        if (b.Subject == null && game.Count > 0)
+            b.Subject = new DependencyComponent(b.NewRef("unity-game"), product ?? game[0].Name, null, "unity", "application", null, Manifest,
+                "manifest-analysis", "Il2Cpp metadata (the game's assemblies)") { Locations = [.. game.Select(a => a.Name + ".dll")] };
+        var purl = unityVersion != null ? $"pkg:generic/unity@{Purl.Encode(unityVersion)}" : null;
+        b.Components.Add(new DependencyComponent(b.NewRef(purl ?? "unity"), "Unity", unityVersion, "unity", "framework", purl, unityVersion != null ? Manifest : AssemblyVersionOnly,
+            "manifest-analysis", $"{(unityVersion != null ? "Unity version from the game files" : "Unity version unknown")}; engine and class library assemblies: {engine.Count}")
+        {
+            Locations = [.. engine.Select(a => a.Name + ".dll")],
+        });
+        if (unityVersion == null) b.Notes.Add("the Unity version is unknown: only the metadata version suggests a range");
+        foreach (var a in assemblies.Except(engine).Except(game))
+        {
+            var assemblyVersion = a.Version == new Version(0, 0, 0, 0) ? null : a.Version.ToString();
+            var c = new DependencyComponent(b.NewRef($"nuget:{a.Name}@{assemblyVersion}"), a.Name, null, "nuget", "library", null, AssemblyVersionOnly, "binary-analysis",
+                "Il2Cpp metadata assembly definition; the package version is unknown") { Locations = [a.Name + ".dll"], AssemblyVersion = assemblyVersion };
+            if (!Merge(b, c, a.Name + ".dll")) b.Components.Add(c);
+        }
+        if (assemblies.Count > engine.Count + game.Count)
+            b.Notes.Add("Il2Cpp metadata keeps assembly names and versions, not informational versions: the package versions of its assemblies are unknown and they have no package URL");
+    }
+
+    /// <summary>Unity's engine modules and the class libraries the editor ships with Il2Cpp.</summary>
+    private static bool IsUnityEngine(string name) =>
+        name is "UnityEngine" or "mscorlib" or "netstandard" or "System" || name.StartsWith("UnityEngine.", StringComparison.Ordinal)
+        || name.StartsWith("System.", StringComparison.Ordinal) || name.StartsWith("Mono.", StringComparison.Ordinal);
+
+    /// <summary>The product name the second line of &lt;Data&gt;/app.info holds, or null.</summary>
+    private static string? Product(string? dataDirectory)
+    {
+        try
+        {
+            var info = dataDirectory != null ? Path.Combine(dataDirectory, "app.info") : null;
+            return info != null && File.Exists(info) && File.ReadLines(info).Skip(1).FirstOrDefault() is { Length: > 0 } p ? p.Trim() : null;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { return null; }
+    }
 
     /// <summary>Go modules from the build information and Rust crates from the cargo-auditable list or the source paths.</summary>
     private static void FromNative(Builder b, FileInput input, IReadOnlyDictionary<string, FileView> views)

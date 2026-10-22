@@ -2,6 +2,7 @@ using System.IO.Compression;
 using System.Text;
 using System.Text.Json;
 using Corvus.Core;
+using Corvus.Services;
 using Corvus.Native;
 using Corvus.Tests.NativeFormats;
 using Corvus.Services.Analysis;
@@ -75,6 +76,30 @@ public sealed class DependencyInventoryTests : IDisposable
         Assert.Equal(("tool", "application"), (facts.Subject!.Name, facts.Subject.Type));
         Assert.Equal([("pkg:cargo/serde@1.0.210", null), ("pkg:cargo/cc@1.1.0", "excluded")], facts.All.Select(c => (c.Purl, c.Scope)));
         Assert.Equal(2, facts.Edges.Single(e => e.From == facts.Subject.Ref).To.Count);
+    }
+
+    [Fact]
+    public void An_il2cpp_game_names_Unity_with_its_class_libraries_and_leaves_package_versions_unknown()
+    {
+        Il2CppMetadataOnly.AssemblyIdentity Id(string name, string version) => new(name, new Version(version), null);
+        var facts = DependencyInventory.OfIl2Cpp(
+            [Id("mscorlib", "4.0.0.0"), Id("UnityEngine.CoreModule", "0.0.0.0"), Id("System.Core", "4.0.0.0"), Id("Assembly-CSharp", "0.0.0.0"),
+             Id("Newtonsoft.Json", "13.0.0.0"), Id("Unity.TextMeshPro", "0.0.0.0")], "2022.3.62f1", "Il2Cpp metadata", "Cell Game")!;
+        Assert.Equal("Cell Game", facts.Subject!.Name);
+        Assert.Equal(["Assembly-CSharp.dll"], facts.Subject.Locations);
+        var unity = facts.All[0];
+        Assert.Equal(("Unity", "2022.3.62f1", "pkg:generic/unity@2022.3.62f1"), (unity.Name, unity.Version, unity.Purl));
+        Assert.Equal(["mscorlib.dll", "UnityEngine.CoreModule.dll", "System.Core.dll"], unity.Locations);
+        Assert.Equal([("Newtonsoft.Json", "13.0.0.0"), ("Unity.TextMeshPro", null)], facts.All.Skip(1).Select(c => (c.Name, c.AssemblyVersion)));
+        Assert.All(facts.All.Skip(1), c => Assert.Equal((null, false, null), (c.Version, c.VersionKnown, c.Purl)));
+        AssertValid(CycloneDx.Write(facts, "global-metadata.dat", new string('0', 64), "1.0.0", DateTimeOffset.UnixEpoch, Guid.Empty));
+    }
+
+    [Fact]
+    public void An_il2cpp_game_without_a_Unity_version_reports_it_unknown()
+    {
+        var unity = DependencyInventory.OfIl2Cpp([new("UnityEngine", new Version(0, 0, 0, 0), null)], null, "Il2Cpp metadata", null)!.All[0];
+        Assert.Equal(("Unity", null, null), (unity.Name, unity.Version, unity.Purl));
     }
 
     [Fact]

@@ -190,6 +190,9 @@ public sealed record FileViewOptions(string View = "overview", string? Table = n
 {
     public static readonly FileViewOptions None = new();
 
+    /// <summary>An SBOM is to be written, which needs view=dependencies whatever view is shown.</summary>
+    public bool Sbom { get; init; }
+
     /// <summary>Whether <paramref name="view"/> is the one asked for (view=all asks for every view).</summary>
-    public bool Wants(string view) => View == view || View == "all";
+    public bool Wants(string view) => View == view || View == "all" || view == "dependencies" && Sbom;
 }

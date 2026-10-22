@@ -41,7 +41,7 @@ public sealed class InspectionTools(InspectionService inspection, AssemblyWorksp
                 throw new ToolError(ErrorCode.InvalidArgument, "table, columns, offset and limit page the rows of view=sqlite and view=sqlite-recover (offset and limit also view=protobuf and view=layers, offset view=script).",
                     "pass view=sqlite with table=, or drop them");
             if (columns != null && table == null) throw new ToolError(ErrorCode.InvalidArgument, "columns selects columns of a table: pass table= with it.");
-            var options = new FileViewOptions(name, table, columns, offset, limit);
+            var options = new FileViewOptions(name, table, columns, offset, limit) { Sbom = sbomPath != null };
             var native = NativeNamed(assembly, path);
             InspectionService.FileSummary summary;
             if (native == null || code == null) summary = await Task.Run(() => inspection.Summarize(assembly, path, cancellationToken, options), cancellationToken);

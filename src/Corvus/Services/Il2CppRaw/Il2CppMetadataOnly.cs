@@ -116,6 +116,42 @@ public static class Il2CppMetadataOnly
             "put the game binary beside the metadata (its registration fixes the layout), or load Il2CppDumper / Cpp2IL output (the DummyDll folder)");
     }
 
+    /// <summary>An assembly the metadata defines: name, version and public key token (lowercase hex, null when unsigned).</summary>
+    public sealed record AssemblyIdentity(string Name, System.Version Version, string? Token);
+
+    /// <summary>
+    /// The assemblies <paramref name="files"/>' metadata defines, with the Unity version the game files name (null when
+    /// only the metadata version suggests one) and where it was read; null when no layout reads the metadata.
+    /// </summary>
+    public static (List<AssemblyIdentity> Assemblies, string? UnityVersion, string Source)? Assemblies(Il2CppGameFiles files, CancellationToken ct)
+    {
+        var bytes = File.ReadAllBytes(InputFiles.RequireRegularFile(files.Metadata, "metadata file"));
+        int header = Il2CppMetadataReader.CheckHeader(files.Metadata, bytes);
+        lock (Il2CppMetadataReader.Gate)
+        {
+            try
+            {
+                foreach (var (version, source) in Il2CppMetadataReader.UnityVersions(files, header, []))
+                {
+                    ct.ThrowIfCancellationRequested();
+                    Il2CppMetadata meta;
+                    try { meta = Il2CppMetadata.ReadFrom(bytes, version); }
+                    catch (Exception ex) when (ex is not (OutOfMemoryException or OperationCanceledException)) { continue; }
+                    if (NamedShare(meta) < MinNamedShare) continue;
+                    // The name properties resolve their string indices through the current metadata.
+                    LibCpp2IlMain.TheMetadata = meta;
+                    var list = meta.AssemblyDefinitions.Select(a => a.AssemblyName).Where(n => n.Name is { Length: > 0 })
+                        .Select(n => new AssemblyIdentity(n.Name, new System.Version(Math.Max(0, n.major), Math.Max(0, n.minor), Math.Max(0, n.build), Math.Max(0, n.revision)),
+                            n.PublicKeyToken is { Length: 8 } t && t.Any(b => b != 0) ? Convert.ToHexStringLower(t) : null)).ToList();
+                    bool assumed = source.StartsWith("assumed", StringComparison.Ordinal);
+                    return (list, assumed ? null : version.ToString(), $"metadata v{header}, Unity version {source}");
+                }
+                return null;
+            }
+            finally { LibCpp2IlMain.Reset(); }
+        }
+    }
+
     /// <summary>The share of type and method names that are present and printable, 0 when an index range is out of bounds.</summary>
     private static double NamedShare(Il2CppMetadata meta)
     {
