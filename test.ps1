@@ -93,6 +93,8 @@ if ($Status) {
     if ($times) { Write-Host "Run times ($timeReport):"; $times | ForEach-Object { Write-Host "  $_" } }
     $misses = Join-Path $gitDir 'corvus-selection-misses.txt'
     if (Test-Path $misses) { Write-Host "Last selection miss: $(Get-Content $misses -Tail 1)" }
+    $nightly = Join-Path $gitDir 'corvus-nightly.log'
+    if (Test-Path $nightly) { Write-Host "Nightly ($nightly): $(Get-Content $nightly -Tail 1)" }
     $verdicts = Join-Path $gitDir 'corvus-perf-verdicts.json'
     if (Test-Path $verdicts) {
         $last = Get-Content $verdicts -Raw | ConvertFrom-Json

@@ -92,6 +92,11 @@
   samples are. The run fails only on a test that was also over in the perf run before (`.git/corvus-perf-verdicts.json`),
   so a single slow run is reported but does not fail the run; `-Status` shows the last verdict. Medians are compared with
   `tests/Corvus.Tests/Ratchets/perf-baseline.txt`, one baseline per name and OS; a new measurement name needs a line there.
+- **Nightly run.** `./nightly.ps1 -Register [-At 02:00]` adds a Windows scheduled task for the current user (opt-in;
+  `-Unregister` removes it). Each night, once the machine has been idle for 10 minutes, it starts a full run of HEAD in
+  the background worktree (`-Strength`, whole by default, which holds the heavy lock), waits for it and any run queued
+  behind it, then runs `./test.ps1 -Perf`, unless another full run holds or waits for the heavy lock by then. Each step
+  goes to `.git/corvus-nightly.log`, the test output to `.git/corvus-nightly.log.run`, and `-Status` shows the last step.
 
 CI (`.github/workflows/ci.yml`) runs the quick set as a smoke lane; the release workflow builds the release archives.
 The full set and the real-application runs are done locally. To run the Live family (slow tests included) on macOS
