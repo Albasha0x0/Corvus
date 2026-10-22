@@ -14,6 +14,20 @@ public class WorkerConnectionTests
     private static readonly TimeSpan NoLimit = TimeSpan.FromMinutes(10);
     private static readonly WorkerConnectionOptions Concurrent = new() { Concurrent = true, CancelGrace = TimeSpan.FromSeconds(10) };
 
+    /// <summary>
+    /// The error of the first of at most 5 tries whose request reached the worker's input before its time limit ran out;
+    /// the last try's error when none did.
+    /// </summary>
+    private static async Task<ToolError> TimedOutAfterTheWrite(Func<Task<ToolError>> attempt)
+    {
+        for (int i = 1; ; i++)
+        {
+            var e = await attempt();
+            // A try whose request was not written before the limit missed the precondition, not a check: it is retried.
+            if (!e.Message.Contains(" The request had not been written to the worker.") || i == 5) return e;
+        }
+    }
+
     [Fact]
     public async Task Concurrent_requests_complete_out_of_order()
     {
@@ -94,13 +108,17 @@ public class WorkerConnectionTests
     [Fact]
     public async Task A_worker_stopped_for_time_names_what_it_was_doing()
     {
-        int? asked = null;
-        using var worker = new FakeWorkerProcess();
-        using var c = worker.Connect(Concurrent with { CancelGrace = TimeSpan.FromMilliseconds(200), StallReport = pids => { asked = pids[0]; return "main thread in analysis"; } });
-        var e = await Assert.ThrowsAsync<ToolError>(() => c.RequestAsync("stubborn", null, TimeSpan.FromMilliseconds(200), default));
+        int? asked = null, id = null;
+        var e = await TimedOutAfterTheWrite(async () =>
+        {
+            using var worker = new FakeWorkerProcess();
+            id = worker.Id;
+            using var c = worker.Connect(Concurrent with { CancelGrace = TimeSpan.FromMilliseconds(200), StallReport = pids => { asked = pids[0]; return "main thread in analysis"; } });
+            return await Assert.ThrowsAsync<ToolError>(() => c.RequestAsync("stubborn", null, TimeSpan.FromMilliseconds(200), default));
+        });
         Assert.Contains("the worker was stopped. Progress events: 0. Last worker message: ", e.Message);
         Assert.Contains("ago.\nworker state:\nmain thread in analysis", e.Message);
-        Assert.Equal(worker.Id, asked);
+        Assert.Equal(id, asked);
 
         using var silent = new FakeWorkerProcess();
         using var s = silent.Connect(new WorkerConnectionOptions { StallReport = _ => "class search" });
@@ -113,9 +131,12 @@ public class WorkerConnectionTests
     public async Task A_timeout_reads_the_worker_before_it_cancels_the_request()
     {
         var cancelsAtReport = -1;
-        using var worker = new FakeWorkerProcess();
-        using var c = worker.Connect(Concurrent with { StallReport = _ => { cancelsAtReport = Volatile.Read(ref worker.Cancelled); return "request thread in frame"; } });
-        var e = await Assert.ThrowsAsync<ToolError>(() => c.RequestAsync("hold", null, TimeSpan.FromMilliseconds(200), default));
+        var e = await TimedOutAfterTheWrite(async () =>
+        {
+            using var worker = new FakeWorkerProcess();
+            using var c = worker.Connect(Concurrent with { StallReport = _ => { cancelsAtReport = Volatile.Read(ref worker.Cancelled); return "request thread in frame"; } });
+            return await Assert.ThrowsAsync<ToolError>(() => c.RequestAsync("hold", null, TimeSpan.FromMilliseconds(200), default));
+        });
         Assert.Equal(0, cancelsAtReport);
         Assert.Contains("the request was cancelled. Progress events: 0.", e.Message);
         Assert.Contains("worker state:\nrequest thread in frame", e.Message);
