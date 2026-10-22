@@ -209,23 +209,6 @@ public sealed class FileIsolationTests(ITestOutputHelper output) : IDisposable
     }
 
     [Fact]
-    public void The_in_process_setting_reads_its_option_and_variable()
-    {
-        Assert.True(ServerOptions.Parse([ServerOptions.InProcessParsingOption]).InProcessParsing);
-        Assert.True(ServerOptions.Switches.ContainsKey(ServerOptions.InProcessParsingOption));
-        var before = Environment.GetEnvironmentVariable(ServerOptions.InProcessParsingVariable);
-        try
-        {
-            Environment.SetEnvironmentVariable(ServerOptions.InProcessParsingVariable, "0");
-            Assert.False(ServerOptions.Parse([]).InProcessParsing);
-            Assert.True(ServerOptions.Parse([ServerOptions.InProcessParsingOption]).InProcessParsing);
-            Environment.SetEnvironmentVariable(ServerOptions.InProcessParsingVariable, "1");
-            Assert.True(ServerOptions.Parse([]).InProcessParsing);
-        }
-        finally { Environment.SetEnvironmentVariable(ServerOptions.InProcessParsingVariable, before); }
-    }
-
-    [Fact]
     [Trait(PerfBudget.Trait, PerfBudget.Timing)]
     public async Task A_warm_worker_adds_little_to_a_small_read()
     {
@@ -253,5 +236,27 @@ public sealed class FileIsolationTests(ITestOutputHelper output) : IDisposable
         var (start, worker) = await Measure(false);
         PerfBudget.AtMost("files/worker-call-overhead", worker - inProcess, 20, "ms", output, $"worker {worker:0.0} ms, in process {inProcess:0.0} ms, median of {Calls}");
         PerfBudget.Time("files/worker-start-and-first-read", start, TimeSpan.FromSeconds(2), output);
+    }
+
+    /// <summary>Sets CORVUS_IN_PROCESS_PARSING, which every server's options read: runs with nothing in parallel.</summary>
+    [Collection(ProcessEnvironmentCollection.Name)]
+    public sealed class InProcessParsingVariable
+    {
+        [Fact]
+        public void The_in_process_setting_reads_its_option_and_variable()
+        {
+            Assert.True(ServerOptions.Parse([ServerOptions.InProcessParsingOption]).InProcessParsing);
+            Assert.True(ServerOptions.Switches.ContainsKey(ServerOptions.InProcessParsingOption));
+            var before = Environment.GetEnvironmentVariable(ServerOptions.InProcessParsingVariable);
+            try
+            {
+                Environment.SetEnvironmentVariable(ServerOptions.InProcessParsingVariable, "0");
+                Assert.False(ServerOptions.Parse([]).InProcessParsing);
+                Assert.True(ServerOptions.Parse([ServerOptions.InProcessParsingOption]).InProcessParsing);
+                Environment.SetEnvironmentVariable(ServerOptions.InProcessParsingVariable, "1");
+                Assert.True(ServerOptions.Parse([]).InProcessParsing);
+            }
+            finally { Environment.SetEnvironmentVariable(ServerOptions.InProcessParsingVariable, before); }
+        }
     }
 }

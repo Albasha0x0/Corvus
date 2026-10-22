@@ -417,6 +417,8 @@ public sealed class LiveDotnetRealTests(ITestOutputHelper output) : LiveToolCall
     [DotnetTargetFact("win-x64")]
     public async Task Dac_download_is_opted_in_per_session_on_win_x64()
     {
+        // It sets CORVUS_OFFLINE for the process, so it runs in a process of its own.
+        if (ChildTest.Rerun(this, Output)) return;
         var exe = DotnetTarget.WinX64.Build(_dir);
         var input = _dir.File(InputName);
         File.WriteAllText(input, "x");

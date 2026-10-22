@@ -333,6 +333,9 @@ These fail when a change misses one of its follow-up steps (CONTRIBUTING.md list
 - protocol matrix: every MCP protocol version the SDK speaks is negotiated and answered;
 - real-data speed: a test that reads real-world data (a real-data attribute, or a `CORVUS_*` data variable in its code)
   carries `Speed=Slow` on the method or class, so setting the variable never slows the quick set (`RealDataSpeedTests`);
+- process environment: a test class that sets a `CORVUS_*` variable of the test process runs in the
+  `ProcessEnvironment` collection (nothing beside it), sets an external tool's variable in that tools' collection, or
+  sets it in a body that `ChildTest` reruns in a process of its own (`EnvironmentCollectionTests`);
 - leaks: once every test has run, child processes of the test process still running, or files left in the run's own
   temporary folder (TMP, TEMP and TMPDIR point there for the tests and the servers they start), fail the run with
   their names. A folder a test class keeps for the whole run is registered with `LeakGuard.DeleteAtEnd`.

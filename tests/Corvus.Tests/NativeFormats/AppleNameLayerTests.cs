@@ -64,20 +64,6 @@ public sealed class AppleNameLayerTests
     }
 
     [Fact]
-    public async Task AutoApply_CanBeTurnedOff()
-    {
-        using var dir = new TempDir();
-        Environment.SetEnvironmentVariable(AppleNames.AutoVariable, "0");
-        try
-        {
-            var (_, index, _, ws) = await Load(dir, AppleObjcTests.Sample().Bytes);
-            using var _ = ws;
-            Assert.Null(index.Sourced.NameAt(0x1010));
-        }
-        finally { Environment.SetEnvironmentVariable(AppleNames.AutoVariable, null); }
-    }
-
-    [Fact]
     public async Task ListCppClasses_And_GetNativeType_ShowObjcAndSwift()
     {
         using var dir = new TempDir();
@@ -111,5 +97,24 @@ public sealed class AppleNameLayerTests
         Assert.Contains("name", keeper);
         Assert.Contains("Swift.String", keeper);
         Assert.Contains("conforms to Zoo.Feeder", keeper);
+    }
+
+    /// <summary>Sets CORVUS_AUTO_APPLE_NAMES, which every Mach-O load reads: runs with nothing in parallel.</summary>
+    [Collection(ProcessEnvironmentCollection.Name)]
+    public sealed class AutoAppleNamesVariable
+    {
+        [Fact]
+        public async Task AutoApply_CanBeTurnedOff()
+        {
+            using var dir = new TempDir();
+            Environment.SetEnvironmentVariable(AppleNames.AutoVariable, "0");
+            try
+            {
+                var (_, index, _, ws) = await Load(dir, AppleObjcTests.Sample().Bytes);
+                using var _ = ws;
+                Assert.Null(index.Sourced.NameAt(0x1010));
+            }
+            finally { Environment.SetEnvironmentVariable(AppleNames.AutoVariable, null); }
+        }
     }
 }

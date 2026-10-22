@@ -102,20 +102,6 @@ public class DwarfTests
     }
 
     [Fact]
-    public async Task A_folder_in_the_debug_dirs_variable_is_searched()
-    {
-        using var rig = new Rig();
-        var image = rig.Copy((Elf(), Path.Combine("bin", Library)));
-        var native = rig.Workspace.LoadAny(image).Native!;
-        var id = native.Image.BuildId!;
-        rig.Copy((Elf(Library + ".dbg"), Path.Combine("debug", ".build-id", id[..2], id[2..] + ".debug")));
-        var saved = Environment.GetEnvironmentVariable(DwarfLocator.DirsVariable);
-        Environment.SetEnvironmentVariable(DwarfLocator.DirsVariable, rig.Dir.File("nowhere") + Path.PathSeparator + rig.Dir.File("debug"));
-        try { Assert.Equal(rig.Dir.File(Path.Combine("debug", ".build-id", id[..2], id[2..] + ".debug")), DwarfLocator.Locate(native.Image, image).Path); }
-        finally { Environment.SetEnvironmentVariable(DwarfLocator.DirsVariable, saved); }
-    }
-
-    [Fact]
     public void Without_a_build_id_the_debuglink_crc_picks_the_debug_file()
     {
         using var rig = new Rig();
@@ -240,5 +226,24 @@ public class DwarfTests
         var error = await Assert.ThrowsAsync<ToolError>(() => DwarfLocator.DownloadAsync(image, "https://other.example", TimeSpan.FromSeconds(10), 1 << 24, wrong, dir.File("cache2")));
         Assert.Equal(ErrorCode.MalformedInput, error.Code);
         Assert.Empty(Directory.GetFiles(dir.File("cache2"), "*", SearchOption.AllDirectories));
+    }
+
+    /// <summary>Sets CORVUS_DEBUG_DIRS, which every DWARF lookup reads: runs with nothing in parallel.</summary>
+    [Collection(ProcessEnvironmentCollection.Name)]
+    public sealed class DebugDirsVariable
+    {
+        [Fact]
+        public async Task A_folder_in_the_debug_dirs_variable_is_searched()
+        {
+            using var rig = new Rig();
+            var image = rig.Copy((Elf(), Path.Combine("bin", Library)));
+            var native = rig.Workspace.LoadAny(image).Native!;
+            var id = native.Image.BuildId!;
+            rig.Copy((Elf(Library + ".dbg"), Path.Combine("debug", ".build-id", id[..2], id[2..] + ".debug")));
+            var saved = Environment.GetEnvironmentVariable(DwarfLocator.DirsVariable);
+            Environment.SetEnvironmentVariable(DwarfLocator.DirsVariable, rig.Dir.File("nowhere") + Path.PathSeparator + rig.Dir.File("debug"));
+            try { Assert.Equal(rig.Dir.File(Path.Combine("debug", ".build-id", id[..2], id[2..] + ".debug")), DwarfLocator.Locate(native.Image, image).Path); }
+            finally { Environment.SetEnvironmentVariable(DwarfLocator.DirsVariable, saved); }
+        }
     }
 }
