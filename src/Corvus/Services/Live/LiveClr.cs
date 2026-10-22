@@ -89,7 +89,7 @@ public sealed class LiveClr : IDisposable
     /// <summary>Drops what was read before: the program has run since (new modules, code compiled, code moved to a later tier).</summary>
     public void Refresh() => Read(live => { live.Refresh(); return 0; });
 
-    /// <summary>The method whose code holds <paramref name="ip"/>: its assembly file, signature and code start; null for other code.</summary>
+    /// <summary>The method whose code holds <paramref name="ip"/>: its assembly file, signature and code start (0: unknown); null for other code.</summary>
     public (string Assembly, string Signature, ulong Start)? MethodAt(ulong ip) =>
         Read(live => live.MethodAt(ip)) is { } m ? (m.Assembly, m.Signature, m.Start) : null;
 

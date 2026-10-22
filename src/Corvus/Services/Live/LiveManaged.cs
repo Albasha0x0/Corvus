@@ -81,7 +81,8 @@ public sealed partial class LiveSessionService
     private static LiveFrameName? ManagedName(LiveSession session, ulong address, LiveModuleState? module)
     {
         if (session.Clr is not { Unavailable: null } clr || clr.MethodAt(address) is not { } m) return null;
-        return new(address, m.Assembly, null, module != null ? (uint)(address - module.Base) : 0, m.Signature, (uint)(address - m.Start), null, null);
+        return new(address, m.Assembly, null, module != null ? (uint)(address - module.Base) : 0, m.Signature, m.Start == 0 ? 0 : (uint)(address - m.Start), null, null)
+            { OffsetUnknown = m.Start == 0 };
     }
 
     /// <summary>

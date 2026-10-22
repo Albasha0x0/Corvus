@@ -5,7 +5,7 @@ using Microsoft.Diagnostics.Runtime;
 
 namespace Corvus.Native.Dump.Managed;
 
-/// <summary>The method whose code holds an address: its assembly file, signature and code start.</summary>
+/// <summary>The method whose code holds an address: its assembly file, signature and code start (0: the runtime gives none).</summary>
 public sealed record LiveMethod(string Assembly, string Signature, ulong Start);
 
 /// <summary>A method's prepared code (Code 0: none yet) and Kind (JIT or ReadyToRun); its module's mapping (Base 0: not loaded) and layout.</summary>
@@ -30,7 +30,13 @@ public sealed class ClrLiveReads(ClrRuntime runtime)
         if (Runtime.GetMethodByInstructionPointer(ip) is not { } m) return null;
         var hc = m.HotColdInfo;
         ulong start = hc.ColdSize > 0 && ip >= hc.ColdStart && ip - hc.ColdStart < hc.ColdSize ? hc.ColdStart : hc.HotStart;
-        return new LiveMethod(FileName(m.Type?.Module), m.Signature ?? m.Name ?? "?", start == 0 || start > ip ? ip : start);
+        // A method can come without a hot/cold start (seen on a 32-bit ReadyToRun frame): its native code or IL map
+        // may still give one; otherwise the start is unknown, never the address itself.
+        if (start == 0 || start > ip) start = m.NativeCode is > 0 and var code && code <= ip ? code : 0;
+        var map = m.ILOffsetMap;
+        if (start == 0 && map.Any(x => x.StartAddress <= ip && ip < x.EndAddress))
+            start = map.Where(x => x.StartAddress > 0).Min(x => x.StartAddress);
+        return new LiveMethod(FileName(m.Type?.Module), m.Signature ?? m.Name ?? "?", start);
     }
 
     /// <summary>

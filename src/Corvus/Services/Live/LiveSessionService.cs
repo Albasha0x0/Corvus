@@ -70,8 +70,12 @@ public sealed record LiveRingEvent(long Sequence, string Kind, long? Thread, ulo
 public sealed record LiveFrameName(ulong Address, string? Module, LoadedNative? Image, uint Rva, string? Function, long Offset, string? Source,
     EvidenceName? Named)
 {
+    /// <summary>The function is known but not where its code starts, so <see cref="Offset"/> is unknown, not 0.</summary>
+    public bool OffsetUnknown { get; init; }
+
     public string Display => Module == null ? $"0x{Address:X}"
         : Function == null ? $"{Module}+0x{Rva:X}"
+        : OffsetUnknown ? $"{Module}!{Function} (offset unknown)"
         : Offset == 0 ? $"{Module}!{Function}" : Offset > 0 ? $"{Module}!{Function}+0x{Offset:X}" : $"{Module}!{Function}-0x{-Offset:X}";
 }
 
