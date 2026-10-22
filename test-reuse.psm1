@@ -46,7 +46,7 @@ function Get-RootReaders([string]$testsDir) {
 function Get-RunEnvironment([hashtable]$override = @{}) {
     $os = if ($IsWindows) { $v = Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion'; "windows $($v.CurrentBuild).$($v.UBR)" } else { uname -srm }
     $values = @{}
-    Get-ChildItem env: | Where-Object { ($_.Name -like 'CORVUS_*' -and $_.Name -notin 'CORVUS_ALL_TESTS', 'CORVUS_SWEEP', 'CORVUS_UPDATE_DOCS', 'CORVUS_BACKGROUND_DIR') -or $_.Name -eq 'JAVA_HOME' } |
+    Get-ChildItem env: | Where-Object { ($_.Name -like 'CORVUS_*' -and $_.Name -notin 'CORVUS_ALL_TESTS', 'CORVUS_SWEEP', 'CORVUS_UPDATE_DOCS', 'CORVUS_BACKGROUND_DIR', 'CORVUS_HEAVY_LOCK') -or $_.Name -eq 'JAVA_HOME' } |
         ForEach-Object { $values[$_.Name] = $_.Value }
     foreach ($name in $override.Keys) { $values[$name] = $override[$name] }
     $settings = $values.Keys | Sort-Object | ForEach-Object { "$_=$($values[$_])" }
@@ -172,4 +172,19 @@ function Get-FailedTests([string]$trxPath) {
         ForEach-Object { $nameOf[$_.Node.testId] } | Sort-Object -Unique)
 }
 
-Export-ModuleMember -Function Get-RunEnvironment, Get-ReuseScope, Get-ClassMap, Get-RootReaders, Get-FamilyKeys, Read-CoverageMap, Get-CoveredFiles, Get-StaleFamilies, Get-ReuseFilter, Get-PassedFamilies, Save-FamilyPasses, Test-DocsOnly, Get-FailedTests
+# Takes the machine-wide heavy lock a whole-suite run holds, so lanes' engine loops and load generators wait for it.
+# CORVUS_HEAVY_LOCK names a script taking `heavy <name> -OwnerPid <pid>` (waits, then holds the lock exclusively) and
+# `release <name>`; unset, there is no lock. Returns whether the lock was taken.
+function Enter-HeavyLock([string]$name) {
+    if (-not $env:CORVUS_HEAVY_LOCK) { return $false }
+    Write-Host "Waiting for the heavy lock ($env:CORVUS_HEAVY_LOCK)."
+    & $env:CORVUS_HEAVY_LOCK heavy $name -OwnerPid $PID | Out-Host
+    return $true
+}
+
+# Releases the heavy lock taken by Enter-HeavyLock.
+function Exit-HeavyLock([string]$name) {
+    if ($env:CORVUS_HEAVY_LOCK) { & $env:CORVUS_HEAVY_LOCK release $name | Out-Host }
+}
+
+Export-ModuleMember -Function Enter-HeavyLock, Exit-HeavyLock, Get-RunEnvironment, Get-ReuseScope, Get-ClassMap, Get-RootReaders, Get-FamilyKeys, Read-CoverageMap, Get-CoveredFiles, Get-StaleFamilies, Get-ReuseFilter, Get-PassedFamilies, Save-FamilyPasses, Test-DocsOnly, Get-FailedTests

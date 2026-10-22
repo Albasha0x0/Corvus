@@ -166,6 +166,42 @@ public class TestReuseTests
         finally { Directory.Delete(dir, true); }
     }
 
+    [Fact]
+    [Trait("Speed", "Slow")]
+    public void The_heavy_lock_script_is_called_to_take_and_release_and_no_variable_means_no_lock()
+    {
+        var module = Path.Combine(DocsTests.RepoRoot(), "test-reuse.psm1");
+        var dir = Path.Combine(Path.GetTempPath(), $"corvus-reuse-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(dir);
+        var calls = Path.Combine(dir, "calls.txt");
+        var lockScript = Path.Combine(dir, "lock.ps1");
+        File.WriteAllText(lockScript, $$"""
+            param($Action, $Lane, $OwnerPid = 0)
+            Add-Content '{{calls}}' "$Action $Lane $OwnerPid"
+            """);
+        try
+        {
+            var lines = Run($$"""
+                Import-Module '{{module.Replace("'", "''")}}'
+                $env:CORVUS_HEAVY_LOCK = $null
+                'unset=' + (Enter-HeavyLock 'run')
+                $before = Get-RunEnvironment
+                $env:CORVUS_HEAVY_LOCK = '{{lockScript}}'
+                'set=' + (Enter-HeavyLock 'run')
+                Exit-HeavyLock 'run'
+                'keyed=' + ($before -ne (Get-RunEnvironment))
+                'pid=' + $PID
+                """);
+            if (lines is ["skip"]) return; // no pwsh on this machine
+            string Line(string name) => lines.Single(l => l.StartsWith(name + "=")).Substring(name.Length + 1);
+            Assert.Equal("False", Line("unset"));
+            Assert.Equal("True", Line("set"));
+            Assert.Equal([$"heavy run {Line("pid")}", "release run 0"], File.ReadAllLines(calls));
+            Assert.Equal("False", Line("keyed")); // the lock does not change what a family pass proves
+        }
+        finally { Directory.Delete(dir, true); }
+    }
+
     private static string[] Run(string script)
     {
         ProcessStartInfo start = new("pwsh") { RedirectStandardOutput = true, RedirectStandardError = true };

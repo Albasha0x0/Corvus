@@ -442,6 +442,9 @@ try {
     if ($Full) { $env:CORVUS_ALL_TESTS = '1' }
     $env:CORVUS_SWEEP = if ($Exhaustive) { 'exhaustive' } else { $null }
     $tree = if ($wholeSuite -and -not $Coverage) { Get-CleanTree } else { $null }
+    # A whole-suite run waits for a quiet machine and keeps it quiet until it ends.
+    $heavyLock = "corvus-full-$PID"
+    if ($wholeSuite) { Import-Module (Join-Path $root 'test-reuse.psm1') -Force; $heavy = Enter-HeavyLock $heavyLock }
     & dotnet @arguments
     $code = $LASTEXITCODE
     $trx = Join-Path $results 'full.trx'
@@ -491,4 +494,7 @@ try {
         if ($code -ne 0) { exit $code }
     }
 }
-finally { $env:CORVUS_ALL_TESTS = $saved; $env:CORVUS_SWEEP = $savedSweep }
+finally {
+    $env:CORVUS_ALL_TESTS = $saved; $env:CORVUS_SWEEP = $savedSweep
+    if ($heavy) { Exit-HeavyLock $heavyLock }
+}
