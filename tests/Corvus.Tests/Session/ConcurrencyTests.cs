@@ -173,18 +173,21 @@ public class ConcurrencyTests(ITestOutputHelper output)
         using var workspace = new AssemblyWorkspace();
         var order = new ConcurrentQueue<char>();
         using var inside = new ManualResetEventSlim();
-        var reader = Task.Run(() => workspace.ReadEach<int>(null, Enumerable.Range(0, 40).ToList(), _ =>
+        var reader = Task.Run(() => workspace.ReadEach<int>(null, Enumerable.Range(0, 40).ToList(), i =>
         {
             inside.Set();
+            // The first item waits for the writer to queue, so it waits behind the first section, however late it starts.
+            if (i == 0) Assert.True(SpinWait.SpinUntil(() => workspace.Waiting.Writers > 0, TimeSpan.FromSeconds(30)));
             Thread.Sleep(10);
             order.Enqueue('r');
             return true;
         }, default));
         inside.Wait();
-        var writer = Task.Run(() => workspace.Write(() => { order.Enqueue('w'); return 0; }));
+        var writer = Task.Factory.StartNew(() => workspace.Write(() => { order.Enqueue('w'); return 0; }), TaskCreationOptions.LongRunning);
         await Task.WhenAll(reader, writer);
         var seen = new string(order.ToArray());
-        Assert.True(seen.IndexOf('w') < 30, seen); // in the first sections, not after the whole read
+        // A section ends once it has read for ReadSectionMs, so after at most 10 items of 10 ms or more each.
+        Assert.InRange(seen.IndexOf('w'), 1, AssemblyWorkspace.ReadSectionMs / 10);
     }
 
     [Fact]
