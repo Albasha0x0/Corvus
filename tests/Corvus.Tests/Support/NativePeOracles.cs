@@ -442,11 +442,12 @@ internal static class Dumpbin
                     break;
                 case Section.SafeSeh:
                 case Section.GuardCf:
-                    // "[flags]  ADDRESS" rows under an "Address" / "--------" heading; the address column is 8 or 16 hex digits.
+                    // "[flags]  ADDRESS" rows under an "Address" / "--------" heading: zero or more one-letter flags
+                    // ("E X" for an export-suppressed target), then an address of 8 or 16 hex digits.
                     if (t is "Address" || t.All(c => c == '-')) break;
                     var cells = t.Split(' ', StringSplitOptions.RemoveEmptyEntries);
                     var last = cells[^1];
-                    if (cells.Length <= 2 && last.Length is 8 or 16 && last.All(char.IsAsciiHexDigit)
+                    if (cells[..^1].All(c => c.Length == 1 && char.IsAsciiLetter(c[0])) && last.Length is 8 or 16 && last.All(char.IsAsciiHexDigit)
                         && ulong.TryParse(last, NumberStyles.HexNumber, CultureInfo.InvariantCulture, out ulong a))
                         (section == Section.SafeSeh ? current.SafeSehHandlers : current.GuardCfFunctions).Add(a);
                     else section = Section.OtherTable;

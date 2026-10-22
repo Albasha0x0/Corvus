@@ -110,6 +110,27 @@ public sealed class NativePeSweepTests(ITestOutputHelper output)
         Assert.Empty(diffs);
     }
 
+    [Fact]
+    public void Guard_CF_rows_with_two_flags_stay_in_the_oracle_table()
+    {
+        const string listing = """
+            Dump of file a.dll
+
+              Section contains the following load config:
+
+                Guard CF Function Table
+
+                      Address
+                      --------
+                     X 0000000104001050
+                   E X 000000010404BF80
+                       0000000104081150
+
+              Summary
+            """;
+        Assert.Equal([0x104001050UL, 0x10404BF80UL, 0x104081150UL], Dumpbin.Parse(listing)["a.dll"].GuardCfFunctions);
+    }
+
     private static string Area(string diff)
     {
         var parts = diff.Split(": ");
