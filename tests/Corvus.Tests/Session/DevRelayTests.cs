@@ -372,58 +372,74 @@ public sealed class DevRelayRealServerTests
             return process;
         });
         var run = relay.RunAsync();
-        int changed = 0, acks = 0;
-        var handlers = new McpClientHandlers
+        // A failed start leaves the relay's servers running in the publish folder: end them, so the folder goes.
+        try
         {
-            NotificationHandlers =
-            [
-                new(NotificationMethods.ToolListChangedNotification, (_, _) => { Interlocked.Increment(ref changed); return ValueTask.CompletedTask; }),
-                new("notifications/subscriptions/acknowledged", (_, _) => { Interlocked.Increment(ref acks); return ValueTask.CompletedTask; }),
-            ],
-        };
-        using var listenEnd = new CancellationTokenSource();
-        await using (var client = await McpClient.CreateAsync(new StreamClientTransport(toRelay.Writer.AsStream(), toClient.Reader.AsStream()),
-                         new McpClientOptions { Handlers = handlers, ProtocolVersion = protocol, DiscoverProbeTimeout = Timeout.InfiniteTimeSpan }))
-        {
-            Assert.Equal(protocol, client.NegotiatedProtocolVersion);
-            async Task<string> Call(string tool, Dictionary<string, object?> args) =>
-                string.Join("\n", (await client.CallToolAsync(tool, args)).Content.OfType<TextContentBlock>().Select(b => b.Text));
-            if (protocol == "2026-07-28")
+            int changed = 0, acks = 0;
+            var handlers = new McpClientHandlers
             {
-                var listen = new JsonRpcRequest { Method = "subscriptions/listen", Params = new JsonObject { ["notifications"] = new JsonObject { ["toolsListChanged"] = true } } };
-                _ = client.SendRequestAsync(listen, listenEnd.Token).ContinueWith(_ => { }, TaskScheduler.Default);
-                for (int i = 0; i < 200 && Volatile.Read(ref acks) == 0; i++) await Task.Delay(50);
-                Assert.Equal(1, acks);
-            }
-
-            await Call("load_assembly", new() { ["path"] = Env.FixturePath });
-            Mark("two");
-            for (int i = 0; i < 300 && Volatile.Read(ref changed) == 0; i++) await Task.Delay(50);
-            Assert.Equal(1, changed);
-            var listed = await Call("list_assemblies", []);
-            Assert.StartsWith("[relay] now serving build two (", listed);
-            Assert.Contains("replayed 1 workspace call(s): load_assembly", listed);
-            Assert.Contains("TestFixture", listed);
-            Assert.True(processes.First().HasExited || await processes.First().Exited.WaitAsync(TimeSpan.FromSeconds(10)).ContinueWith(t => t.IsCompletedSuccessfully));
-
-            await Call("rename_symbol", new() { ["symbol"] = "Account", ["newName"] = "Customer", ["dryRun"] = false });
-            Mark("three");
-            // The relay notices the build on its next poll; a loaded machine took over 1 s.
-            var clock = System.Diagnostics.Stopwatch.StartNew();
-            var pending = await Call("list_assemblies", []);
-            while (!pending.Contains("unsaved edit(s) pending") && clock.Elapsed < TimeSpan.FromSeconds(30))
+                NotificationHandlers =
+                [
+                    new(NotificationMethods.ToolListChangedNotification, (_, _) => { Interlocked.Increment(ref changed); return ValueTask.CompletedTask; }),
+                    new("notifications/subscriptions/acknowledged", (_, _) => { Interlocked.Increment(ref acks); return ValueTask.CompletedTask; }),
+                ],
+            };
+            using var listenEnd = new CancellationTokenSource();
+            await using (var client = await McpClient.CreateAsync(new StreamClientTransport(toRelay.Writer.AsStream(), toClient.Reader.AsStream()),
+                             new McpClientOptions { Handlers = handlers, ProtocolVersion = protocol, DiscoverProbeTimeout = Timeout.InfiniteTimeSpan, InitializationTimeout = TimeSpan.FromMinutes(3) }))
             {
-                await Task.Delay(100);
-                pending = await Call("list_assemblies", []);
+                Assert.Equal(protocol, client.NegotiatedProtocolVersion);
+                async Task<string> Call(string tool, Dictionary<string, object?> args) =>
+                    string.Join("\n", (await client.CallToolAsync(tool, args)).Content.OfType<TextContentBlock>().Select(b => b.Text));
+                if (protocol == "2026-07-28")
+                {
+                    var listen = new JsonRpcRequest { Method = "subscriptions/listen", Params = new JsonObject { ["notifications"] = new JsonObject { ["toolsListChanged"] = true } } };
+                    _ = client.SendRequestAsync(listen, listenEnd.Token).ContinueWith(_ => { }, TaskScheduler.Default);
+                    for (int i = 0; i < 200 && Volatile.Read(ref acks) == 0; i++) await Task.Delay(50);
+                    Assert.Equal(1, acks);
+                }
+
+                await Call("load_assembly", new() { ["path"] = Env.FixturePath });
+                Mark("two");
+                // The swap starts a whole server, which took over 15 s on a loaded machine; the bound is a hang limit.
+                for (var until = DateTime.UtcNow.AddMinutes(2); DateTime.UtcNow < until && Volatile.Read(ref changed) == 0;) await Task.Delay(50);
+                Assert.Equal(1, changed);
+                var listed = await Call("list_assemblies", []);
+                Assert.StartsWith("[relay] now serving build two (", listed);
+                Assert.Contains("replayed 1 workspace call(s): load_assembly", listed);
+                Assert.Contains("TestFixture", listed);
+                Assert.True(processes.First().HasExited || await processes.First().Exited.WaitAsync(TimeSpan.FromSeconds(10)).ContinueWith(t => t.IsCompletedSuccessfully));
+
+                await Call("rename_symbol", new() { ["symbol"] = "Account", ["newName"] = "Customer", ["dryRun"] = false });
+                Mark("three");
+                // The relay notices the build on its next poll; a loaded machine took over 1 s.
+                var clock = System.Diagnostics.Stopwatch.StartNew();
+                var pending = await Call("list_assemblies", []);
+                while (!pending.Contains("unsaved edit(s) pending") && clock.Elapsed < TimeSpan.FromSeconds(30))
+                {
+                    await Task.Delay(100);
+                    pending = await Call("list_assemblies", []);
+                }
+                Assert.Contains("unsaved edit(s) pending", pending);
+                Assert.Contains("now serving build three", await Call(DevRelay.ApplyTool, []));
+                Assert.Equal(3, processes.Count);
+                Assert.Equal(protocol == "2026-07-28" ? 1 : 0, acks); // the stream moved twice without a second acknowledgement
+                await listenEnd.CancelAsync();
             }
-            Assert.Contains("unsaved edit(s) pending", pending);
-            Assert.Contains("now serving build three", await Call(DevRelay.ApplyTool, []));
-            Assert.Equal(3, processes.Count);
-            Assert.Equal(protocol == "2026-07-28" ? 1 : 0, acks); // the stream moved twice without a second acknowledgement
-            await listenEnd.CancelAsync();
+            await toRelay.Writer.CompleteAsync();
+            Assert.Equal(0, await run.WaitAsync(TimeSpan.FromSeconds(30)));
         }
-        await toRelay.Writer.CompleteAsync();
-        Assert.Equal(0, await run.WaitAsync(TimeSpan.FromSeconds(30)));
+        finally
+        {
+            // Stop the relay first, so it starts no server after the ones ended here.
+            toRelay.Writer.Complete();
+            await Task.WhenAny(run, Task.Delay(TimeSpan.FromSeconds(10)));
+            foreach (var process in processes)
+            {
+                if (!process.HasExited) process.Kill();
+                process.Dispose();
+            }
+        }
     }
 }
 
