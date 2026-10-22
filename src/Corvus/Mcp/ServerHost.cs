@@ -116,6 +116,8 @@ public static class ServerHost
             .AddSingleton<FileWatchService>()
             .AddSingleton<UnpackService>()
             .AddSingleton<InspectionService>()
+            // The file tools' workers end with the host that started them.
+            .AddSingleton(_ => new Native.Providers.Worker.WorkerPool())
             .AddSingleton<Services.Analysis.FolderCompare>()
             .AddSingleton<NativeEngineService>()
             .AddSingleton<Corvus.Native.Annotations.AnnotationStore>()

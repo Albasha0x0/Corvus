@@ -56,6 +56,15 @@ server's environment, minus the Java option variables for Ghidra; the JADX serve
 minimal one. These engines are third-party programs that parse the input themselves; their own vulnerabilities are
 outside this boundary, but report a way through Corvus to reach them with more than an input file.
 
+Files are read in a worker process of Corvus itself: `summarize_file`, `list_assemblies path=`, `search_container`,
+the extraction of `unpack_container` and the dump reads (`open_minidump`, `read_dump_memory`, `dump_heap`,
+`dump_object`). A file that crashes a reader, overflows the stack or exhausts memory there ends the worker, under the
+same Job Object or process group and memory limit (`CORVUS_WORKER_MEMORY_MB`), and the call fails with a named error
+while the server keeps answering; requests running beside it on the same worker fail too. These still read in the
+server, where such a file can end it: `load_assembly` and the tools over loaded images, the loading half of
+`unpack_container`, `dump_stack`, `bucket_minidumps`, and dump reads while images are loaded (they name frames from
+those images). `--in-process-parsing` and `CORVUS_WORKER_HOST=0` move every file read back into the server.
+
 What starts a process outside the server's own: an `engine` argument (IDA or Ghidra, on every tool that takes one),
 `crossCheck=true` on `find_virtual_calls` (IDA, else Ghidra), `decompile_java` (the JADX server), `detectItEasy=true`
 on `unity_overview` (Detect It Easy), the Android device tools (adb: `list_android_devices`, `get_android_device_info`,

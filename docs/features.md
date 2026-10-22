@@ -110,6 +110,7 @@ databases (identity, reuse, invalidation, cold and warm times): [docs/engine-dat
 | Runaway work | Each decompilation stops after `--timeout` (default 180 s; `export_project` 10×). A call to a tool not marked long-running ends with a retryable `timeout` error after twice `--timeout` (its partial result when the tool kept one). MCP cancellation stops a call in flight or waiting for the workspace lock. |
 | Vague names | A symbol resolver accepts many spellings and tokens; ambiguity and misses return candidates. |
 | Unexpected exceptions | Returned as tool errors; the server keeps running. |
+| Files that crash a reader | `summarize_file`, the container listing, search and extraction, and the dump reads parse in a worker process: a crash, stack overflow or memory exhaustion there ends the worker, the call fails with a named error, and the server keeps answering. Results are byte for byte the same as in process; a warm worker adds under 1 ms to a small read. `--in-process-parsing` reads in the server instead. |
 | Invalid patches | IL is stack-validated, C# is compiled (errors point at your line), and nothing changes on failure. Patched assemblies are executed in the tests to prove the IL is valid at runtime. |
 
 Measured on a real Unity application (36 assemblies, 40,895 types, ~300k methods):
@@ -344,7 +345,7 @@ distinct `package:` and `dart:` URI and identifier token with its offset (the qu
 e.g. `identifier`). `kind=hermes` lists the strings and function names of a Hermes bytecode bundle (or the one in an APK or `.ipa`) with their ids and use counts. `compare_folders` compares two
 `.asar` archives entry by entry without extracting (the app's declared SHA-256 per file, or the hashed data).
 
-**YARA rules** (`search_container kind=yara`, with `CORVUS_WORKER_HOST=1`): the query is a rule file or a folder of
+**YARA rules** (`search_container kind=yara`; unavailable with `CORVUS_WORKER_HOST=0`): the query is a rule file or a folder of
 `.yar` and `.yara` files, or, when it names neither, the rule text itself (origin `query` in errors), compiled and run by YARA-X 1.22.0 in a `corvus worker` process, so a fault in the engine ends
 the worker and not the server. The rules run over the file, then over each member of the container it is (nested
 containers opened, compressed members decompressed; files over 512 MB are scanned as one file), so a match inside a

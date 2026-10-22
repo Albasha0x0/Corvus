@@ -38,7 +38,7 @@ Turn one on with `corvus install --set <switch>` ([examples](#claude-code)), or 
 | `--allow-replace-original` | `CORVUS_ALLOW_REPLACE_ORIGINAL` | `save_assembly` and `save_native` with `replaceOriginal=true` replace the loaded file. Without it they only write new files. |
 | `--allow-device-changes` | `CORVUS_ALLOW_DEVICE_CHANGES` | `install_android_package`, `uninstall_android_package`. The other device tools only read. |
 | `--trace-args` | `CORVUS_TRACE_ARGS` | The `--trace` file records argument values (paths, code); secrets are masked, best effort. |
-| `--in-process-parsing` | `CORVUS_IN_PROCESS_PARSING` | `summarize_file`, `list_assemblies path=`, `search_container`, `unpack_container` and the dump reads (`open_minidump`, `read_dump_memory`, `dump_heap`, `dump_object`) read files in the server process, where a file that crashes a reader ends the server. On by default for now; `0` with `CORVUS_WORKER_HOST=1` reads them in a worker process. |
+| `--in-process-parsing` | `CORVUS_IN_PROCESS_PARSING` | `summarize_file`, `list_assemblies path=`, `search_container`, `unpack_container` and the dump reads (`open_minidump`, `read_dump_memory`, `dump_heap`, `dump_object`) read files in the server process, where a file that crashes a reader ends the server. By default they read in a worker process, and a worker that cannot start refuses the call. |
 | | `CORVUS_LIVE_MAX_MINUTES` | Minutes a session stays open before it is closed (default 30). |
 
 ### Writing files
@@ -234,7 +234,7 @@ Untrusted work runs in `corvus worker` child processes, so a crash or memory exh
 
 | Variable | Default | Effect |
 |---|---|---|
-| `CORVUS_WORKER_HOST` | off | `1`: start worker processes for untrusted work. |
+| `CORVUS_WORKER_HOST` | on | `0`: start no worker processes for untrusted work; the file tools read in the server process and `search_container kind=yara` is refused. |
 | `CORVUS_WORKER_MEMORY_MB` | ½ of available | Memory limit of each worker (Windows job object, Linux RLIMIT_DATA, macOS footprint watchdog), at least 256; `0`: none. A worker that reaches it fails its call with `limit_exceeded` and is replaced. |
 | `CORVUS_WORKER_FIXTURE_OPS` | off | `1` in a worker's environment: it also answers the fixture ops the tests use. |
 | `CORVUS_YARA_LIBRARY` | shipped build | Full path of a libyara_x_capi 1.22.0 build for `search_container kind=yara` on a platform without one. |

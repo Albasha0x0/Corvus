@@ -22,11 +22,11 @@ public sealed record WorkerPoolOptions
 /// after a crash; a crash fails only the request in flight. Each worker's memory is capped (Windows: a Job Object; Linux:
 /// RLIMIT_DATA; macOS: a footprint watchdog). A worker that crashes is reported as provider_unavailable with its exit
 /// code and last stderr lines, one that reaches the cap as limit_exceeded naming <see cref="MemoryVariable"/>; neither
-/// returns partial data. Off unless <see cref="EnableVariable"/> is 1.
+/// returns partial data. On unless <see cref="EnableVariable"/> is 0.
 /// </summary>
 public sealed class WorkerPool(WorkerPoolOptions? options = null) : IDisposable
 {
-    /// <summary>1 turns the worker host on; off by default until the file tools use it.</summary>
+    /// <summary>0 turns every worker off: the file tools then read in the server.</summary>
     public const string EnableVariable = "CORVUS_WORKER_HOST";
 
     /// <summary>Memory limit of each worker in MB; 0 or off: none. Default: half of the memory available to this process.</summary>
@@ -40,6 +40,9 @@ public sealed class WorkerPool(WorkerPoolOptions? options = null) : IDisposable
 
     /// <summary>The server's pool, configured from the environment; its workers end with the server.</summary>
     public static WorkerPool Shared => SharedOverride.Value ?? Default;
+
+    /// <summary>The pool a test set with <see cref="UseShared"/> in this flow, or null.</summary>
+    internal static WorkerPool? Override => SharedOverride.Value;
 
     /// <summary>Tests: <paramref name="pool"/> serves <see cref="Shared"/> in the calling flow until disposed.</summary>
     internal static IDisposable UseShared(WorkerPool pool)
@@ -66,7 +69,7 @@ public sealed class WorkerPool(WorkerPoolOptions? options = null) : IDisposable
         public volatile bool OutOfMemory;
     }
 
-    public bool Enabled => _options.Enabled ?? Environment.GetEnvironmentVariable(EnableVariable) == "1";
+    public bool Enabled => _options.Enabled ?? Environment.GetEnvironmentVariable(EnableVariable)?.Trim() is not ("0" or "false" or "off");
 
     /// <summary>The memory limit each worker gets, in bytes, or null for none.</summary>
     public long? MemoryLimitBytes => _options.MemoryLimitBytes is { } c
@@ -90,7 +93,7 @@ public sealed class WorkerPool(WorkerPoolOptions? options = null) : IDisposable
     public async Task<JsonElement> RunAsync(string kind, string op, JsonObject? args, TimeSpan timeout, CancellationToken cancellationToken, string? file = null)
     {
         if (!Enabled)
-            throw new ToolError(ErrorCode.ProviderUnavailable, $"The worker host is off; {EnableVariable}=1 turns it on.");
+            throw new ToolError(ErrorCode.ProviderUnavailable, $"The worker host is off ({EnableVariable}=0); unset {EnableVariable} to turn it on.");
         ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
         var slot = SlotOf(kind);
         var connection = await ConnectAsync(kind, slot, cancellationToken).ConfigureAwait(false);
@@ -143,7 +146,7 @@ public sealed class WorkerPool(WorkerPoolOptions? options = null) : IDisposable
     public async Task StartAsync(string kind, CancellationToken cancellationToken)
     {
         if (!Enabled)
-            throw new ToolError(ErrorCode.ProviderUnavailable, $"The worker host is off; {EnableVariable}=1 turns it on.");
+            throw new ToolError(ErrorCode.ProviderUnavailable, $"The worker host is off ({EnableVariable}=0); unset {EnableVariable} to turn it on.");
         ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
         await ConnectAsync(kind, SlotOf(kind), cancellationToken).ConfigureAwait(false);
     }

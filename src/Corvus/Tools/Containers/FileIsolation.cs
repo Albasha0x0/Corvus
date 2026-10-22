@@ -20,7 +20,7 @@ public sealed record FileOp<TArgs, TResult>(string Name, Func<IServiceProvider, 
 /// Runs the file tools' reads in the "files" worker (<see cref="WorkerPool"/>), so a file that crashes, overflows the stack
 /// or exhausts memory in a reader ends the worker and not the server. The worker answers the same record the in-process
 /// path builds, and the tool renders it in the server, so both paths give the same result. In process when
-/// <see cref="ServerOptions.InProcessParsing"/> is set, the worker host is off, or a tool was made without options (tests).
+/// <see cref="ServerOptions.InProcessParsing"/> is set, the worker host is off, or a tool was made without options or a pool.
 /// </summary>
 public static class FileIsolation
 {
@@ -32,8 +32,9 @@ public static class FileIsolation
     /// <summary>Records and arguments cross the pipe in the tools' own serialization.</summary>
     internal static JsonSerializerOptions Json => Catalog.ToolSerializerOptions;
 
-    /// <summary>True when reads go to the worker.</summary>
-    public static bool Isolated(ServerOptions? options) => options is { InProcessParsing: false } && WorkerPool.Shared.Enabled;
+    /// <summary>The pool reads go to (a test's override first), or null when they stay in this process.</summary>
+    public static WorkerPool? PoolFor(ServerOptions? options, WorkerPool? workers) =>
+        options is { InProcessParsing: false } && (WorkerPool.Override ?? workers) is { Enabled: true } pool ? pool : null;
 
     /// <summary>
     /// The result of <paramref name="op"/> on <paramref name="args"/>: from the worker when <see cref="Isolated"/>, else
@@ -41,11 +42,10 @@ public static class FileIsolation
     /// cannot start is provider_unavailable naming <see cref="ServerOptions.InProcessParsingVariable"/>; one that crashes
     /// or reaches its memory limit fails the call with nothing from the read kept.
     /// </summary>
-    public static async Task<TResult> RunAsync<TArgs, TResult>(ServerOptions? options, FileOp<TArgs, TResult> op, TArgs args, string file, Func<TResult> inProcess,
-        CancellationToken cancellationToken)
+    public static async Task<TResult> RunAsync<TArgs, TResult>(ServerOptions? options, WorkerPool? workers, FileOp<TArgs, TResult> op, TArgs args, string file,
+        Func<TResult> inProcess, CancellationToken cancellationToken)
     {
-        if (!Isolated(options)) return await Task.Run(inProcess, cancellationToken);
-        var pool = WorkerPool.Shared;
+        if (PoolFor(options, workers) is not { } pool) return await Task.Run(inProcess, cancellationToken);
         try { await pool.StartAsync(Kind, cancellationToken); }
         catch (Exception e) when (e is not OperationCanceledException)
         {

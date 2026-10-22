@@ -35,6 +35,13 @@ public sealed class FileIsolationTests(ITestOutputHelper output) : IDisposable
         await session.Client.CallToolAsync(tool, args);
 
     /// <summary>The whole result as the client sees it: every text block, then the structured content.</summary>
+    /// <summary>Asserts that summarize_file over <paramref name="path"/> succeeds, naming the error when it does not.</summary>
+    private static async Task ReadsAsync(ToolSession session, string path)
+    {
+        var r = await Call(session, "summarize_file", new() { ["path"] = path });
+        Assert.True(r.IsError != true, Whole(r));
+    }
+
     private static string Whole(CallToolResult r) =>
         string.Join("\n---\n", r.Content.OfType<TextContentBlock>().Select(b => b.Text)) + "\n===\n" + (r.StructuredContent is { } s ? s.GetRawText() : "");
 
@@ -137,7 +144,7 @@ public sealed class FileIsolationTests(ITestOutputHelper output) : IDisposable
         Assert.Contains("Error (provider_unavailable)", text);
         Assert.Contains("fault.txt", text);
         Assert.Contains("nothing from that read is kept", text);
-        Assert.NotEqual(true, (await Call(session, "summarize_file", new() { ["path"] = zip })).IsError);
+        await ReadsAsync(session, zip);
     }
 
     [Fact]
@@ -151,7 +158,7 @@ public sealed class FileIsolationTests(ITestOutputHelper output) : IDisposable
         Assert.Contains("Error (limit_exceeded)", text);
         Assert.Contains(WorkerPool.MemoryVariable, text);
         Assert.Contains("big.txt", text);
-        Assert.NotEqual(true, (await Call(session, "summarize_file", new() { ["path"] = zip })).IsError);
+        await ReadsAsync(session, zip);
     }
 
     [Fact]
@@ -163,7 +170,7 @@ public sealed class FileIsolationTests(ITestOutputHelper output) : IDisposable
         await using var session = await Session(false, "--timeout", "5");
         var text = Whole(await Call(session, "summarize_file", new() { ["path"] = Fixture("loop.txt", Corvus.Tools.FileOps.FixtureMarker + "loop") }));
         Assert.Contains("Error (timeout", text);
-        Assert.NotEqual(true, (await Call(session, "summarize_file", new() { ["path"] = zip })).IsError);
+        await ReadsAsync(session, zip);
     }
 
     [Fact]
@@ -180,7 +187,7 @@ public sealed class FileIsolationTests(ITestOutputHelper output) : IDisposable
         }
         // With in-process parsing the same call needs no worker.
         await using (var session = await Session(true))
-            Assert.NotEqual(true, (await Call(session, "summarize_file", new() { ["path"] = zip })).IsError);
+            await ReadsAsync(session, zip);
     }
 
     [Fact]
@@ -210,13 +217,13 @@ public sealed class FileIsolationTests(ITestOutputHelper output) : IDisposable
         {
             await using var session = await Session(inProcess);
             var clock = System.Diagnostics.Stopwatch.StartNew();
-            Assert.NotEqual(true, (await Call(session, "summarize_file", new() { ["path"] = zip })).IsError);
+            await ReadsAsync(session, zip);
             var first = clock.Elapsed;
             var times = new List<double>();
             for (int i = 0; i < Calls; i++)
             {
                 clock.Restart();
-                Assert.NotEqual(true, (await Call(session, "summarize_file", new() { ["path"] = zip })).IsError);
+                await ReadsAsync(session, zip);
                 times.Add(clock.Elapsed.TotalMilliseconds);
             }
             times.Sort();

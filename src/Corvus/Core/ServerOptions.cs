@@ -72,9 +72,9 @@ public sealed class ServerOptions
 
     /// <summary>
     /// The file tools (summarize, container listing, search and extraction, dump reads) parse in the server process instead
-    /// of a <c>corvus worker</c> process; on by default until isolation is the default.
+    /// of a <c>corvus worker</c> process, where a file that crashes a reader ends the server (default off).
     /// </summary>
-    public bool InProcessParsing { get; set; } = true;
+    public bool InProcessParsing { get; set; }
 
     public const string InProcessParsingOption = "--in-process-parsing";
     public const string InProcessParsingVariable = "CORVUS_IN_PROCESS_PARSING";

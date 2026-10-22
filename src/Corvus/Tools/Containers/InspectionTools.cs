@@ -11,7 +11,8 @@ namespace Corvus.Tools;
 
 [McpServerToolType]
 public sealed class InspectionTools(InspectionService inspection, AssemblyWorkspace? workspace = null, NativeCodeService? code = null, ResultStore? results = null,
-    Services.Mobile.AppGraph? graph = null, ServerOptions? serverOptions = null)
+    Services.Mobile.AppGraph? graph = null, ServerOptions? serverOptions = null,
+    Native.Providers.Worker.WorkerPool? workers = null)
 {
     private const string AssemblyParam = "A loaded assembly; pass this or path.";
     private const string PathParam = "A .NET assembly file to analyze without loading; pass this or assembly.";
@@ -48,7 +49,7 @@ public sealed class InspectionTools(InspectionService inspection, AssemblyWorksp
             if (assembly == null && path != null && native == null)
             {
                 var args = new FileWork.SummarizeArgs(path, name, table, columns, offset, limit, sbomPath, overwrite);
-                record = await FileIsolation.RunAsync(serverOptions, FileWork.Summarize, args, path, () => FileWork.SummarizeWith(inspection, graph, args, cancellationToken), cancellationToken);
+                record = await FileIsolation.RunAsync(serverOptions, workers, FileWork.Summarize, args, path, () => FileWork.SummarizeWith(inspection, graph, args, cancellationToken), cancellationToken);
                 return ToolOutput.Report(ContainerText.Summary(record), record);
             }
             InspectionService.FileSummary summary;
