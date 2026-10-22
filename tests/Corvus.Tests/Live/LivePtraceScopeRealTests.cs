@@ -12,6 +12,7 @@ namespace Corvus.Tests;
 [Trait("Speed", "Slow")]
 [Trait("Data", "Real")]
 [Permit("live")]
+[Collection(nameof(LivePtraceScopeRealTests))]
 public sealed class LivePtraceScopeRealTests(ITestOutputHelper output) : LiveToolCalls(output), IDisposable
 {
     private readonly TempDir _dir = new();
@@ -41,8 +42,10 @@ public sealed class LivePtraceScopeRealTests(ITestOutputHelper output) : LiveToo
             Assert.Contains("ptrace_scope is 2", await Refused(server, "live_session", new() { ["action"] = "attach", ["program"] = $"{program.Id}" }, "access_denied"));
             // a refused open leaves no session and no started program behind
             Assert.DoesNotMatch(@"pid \d+, (running|suspended|stopped)", await Ok(server, "live_session", new() { ["action"] = "list" }));
-            for (int i = 0; i < 50 && Process.GetProcessesByName("orders").Any(p => p.Id != program.Id); i++) await Task.Delay(100); // an exited child is reaped once its worker is gone
-            Assert.DoesNotContain(Process.GetProcessesByName("orders"), p => p.Id != program.Id);
+            // This test builds orders in its own folder and other live classes run theirs elsewhere: only this copy counts.
+            // An exited child is reaped once its worker is gone.
+            for (int i = 0; i < 50 && Started(exe, program.Id).Count > 0; i++) await Task.Delay(100);
+            Assert.Empty(Started(exe, program.Id));
         }
         finally
         {
@@ -51,6 +54,14 @@ public sealed class LivePtraceScopeRealTests(ITestOutputHelper output) : LiveToo
             program.WaitForExit(10_000);
         }
     }
+
+    /// <summary>Processes running <paramref name="exe"/> other than <paramref name="except"/>.</summary>
+    private static List<int> Started(string exe, int except) =>
+        [.. Process.GetProcessesByName(Path.GetFileName(exe)).Where(p => p.Id != except).Where(p =>
+        {
+            try { return string.Equals(p.MainModule?.FileName, exe, StringComparison.Ordinal); }
+            catch (Exception e) when (e is InvalidOperationException or System.ComponentModel.Win32Exception) { return false; }
+        }).Select(p => p.Id)];
 
     private static void Set(string value)
     {
@@ -65,6 +76,10 @@ public sealed class LivePtraceScopeRealTests(ITestOutputHelper output) : LiveToo
         Assert.Equal(value, File.ReadAllText(PtraceScope.SettingPath).Trim());
     }
 }
+
+/// <summary>ptrace_scope is machine-wide: the class runs alone, after the parallel classes, so no other session sees 1 or 2.</summary>
+[CollectionDefinition(nameof(LivePtraceScopeRealTests), DisableParallelization = true)]
+public sealed class LivePtraceScopeCollection;
 
 /// <summary>Runs on Linux as a user without CAP_SYS_PTRACE that may set ptrace_scope with <c>sudo -n tee</c>.</summary>
 public sealed class PtraceScopeFactAttribute : FactAttribute
