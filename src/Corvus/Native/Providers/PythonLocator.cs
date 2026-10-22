@@ -16,25 +16,40 @@ public static class PythonLocator
     public static readonly Version MinimumVersion = new(3, 9);
     private const string ProbeScript = "import sys,struct;print(sys.version_info[0],sys.version_info[1],struct.calcsize('P')*8);print(sys.executable)";
 
+    /// <summary>How long a candidate may take to answer unless the caller gives more.</summary>
+    public static readonly TimeSpan DefaultProbeTimeout = TimeSpan.FromSeconds(15);
+
     /// <summary>Returns the first working 64-bit interpreter, or null; <paramref name="log"/> lists every candidate and why it was rejected.</summary>
-    public static PythonInterpreter? Find(IEnumerable<(string Path, string Source)> preferred, List<string> log, TimeSpan? probeTimeout = null)
+    public static PythonInterpreter? Find(IEnumerable<(string Path, string Source)> preferred, List<string> log, TimeSpan? probeTimeout = null) =>
+        Search(preferred, log, probeTimeout ?? DefaultProbeTimeout).Python;
+
+    /// <summary>
+    /// <see cref="Find"/>, and whether a candidate gave no answer within <paramref name="probeTimeout"/>: a null
+    /// interpreter is then unknown rather than absent, and a search with more time may find one.
+    /// </summary>
+    public static (PythonInterpreter? Python, bool Unanswered) Search(IEnumerable<(string Path, string Source)> preferred, List<string> log, TimeSpan probeTimeout) =>
+        Search(preferred, log, probeTimeout, defaults: true);
+
+    /// <summary><see cref="Search(IEnumerable{ValueTuple{string, string}}, List{string}, TimeSpan)"/>; without <paramref name="defaults"/>, only <paramref name="preferred"/>.</summary>
+    internal static (PythonInterpreter? Python, bool Unanswered) Search(IEnumerable<(string Path, string Source)> preferred, List<string> log, TimeSpan probeTimeout, bool defaults)
     {
-        var timeout = probeTimeout ?? TimeSpan.FromSeconds(15);
+        bool unanswered = false;
         var seen = new HashSet<string>(OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal);
-        foreach (var (exe, args, source) in Candidates(preferred))
+        foreach (var (exe, args, source) in Candidates(preferred, defaults))
         {
             if (!seen.Add(exe + "|" + string.Join(" ", args))) continue;
             if (!File.Exists(exe)) { log.Add($"{source}: {exe} does not exist"); continue; }
-            var result = Probe(exe, args, timeout, out var error);
+            var result = Probe(exe, args, probeTimeout, out var error, out var timedOut);
+            unanswered |= timedOut;
             if (result == null) { log.Add($"{source}: {exe}: {error}"); continue; }
             if (result.Bits != 64) { log.Add($"{source}: {result.Executable} is {result.Bits}-bit; a 64-bit Python is required"); continue; }
             if (result.Version < MinimumVersion) { log.Add($"{source}: {result.Executable} is Python {result.Version}; {MinimumVersion}+ is required"); continue; }
-            return result with { Source = source };
+            return (result with { Source = source }, false);
         }
-        return null;
+        return (null, unanswered);
     }
 
-    private static IEnumerable<(string Exe, string[] Args, string Source)> Candidates(IEnumerable<(string Path, string Source)> preferred)
+    private static IEnumerable<(string Exe, string[] Args, string Source)> Candidates(IEnumerable<(string Path, string Source)> preferred, bool defaults)
     {
         foreach (var (path, source) in preferred)
         {
@@ -42,6 +57,7 @@ public static class PythonLocator
             var p = Directory.Exists(path) ? System.IO.Path.Combine(path, OperatingSystem.IsWindows() ? "python.exe" : "python3") : path;
             yield return (p, [], source);
         }
+        if (!defaults) yield break;
         if (OperatingSystem.IsWindows())
         {
             var launcher = System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Windows), "py.exe");
@@ -70,9 +86,13 @@ public static class PythonLocator
     }
 
     /// <summary>Runs the probe script; returns null with <paramref name="error"/> set when the interpreter does not work.</summary>
-    public static PythonInterpreter? Probe(string exe, string[] launcherArgs, TimeSpan timeout, out string error)
+    public static PythonInterpreter? Probe(string exe, string[] launcherArgs, TimeSpan timeout, out string error) =>
+        Probe(exe, launcherArgs, timeout, out error, out _);
+
+    private static PythonInterpreter? Probe(string exe, string[] launcherArgs, TimeSpan timeout, out string error, out bool timedOut)
     {
         var run = RunCapture(exe, [.. launcherArgs, "-I", "-c", ProbeScript], timeout);
+        timedOut = run.TimedOut;
         if (run.TimedOut) { error = $"did not answer within {timeout.TotalSeconds:0} s"; return null; }
         if (run.StartError != null) { error = run.StartError; return null; }
         var lines = run.Stdout.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);

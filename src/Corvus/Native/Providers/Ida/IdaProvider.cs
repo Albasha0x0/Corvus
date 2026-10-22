@@ -85,15 +85,26 @@ public sealed class IdaProvider(IdaProviderOptions? options = null) : INativeDec
     /// <summary>The install directory, or null when IDA is not available.</summary>
     internal string? InstallDirectory => Static().Ida?.Directory;
 
-    private (ProviderAvailability Result, IdaInstallation? Ida, PythonInterpreter? Python) Static()
+    private (ProviderAvailability Result, IdaInstallation? Ida, PythonInterpreter? Python) Static() => Static(PythonLocator.DefaultProbeTimeout, out _);
+
+    /// <summary>The static checks; <paramref name="unanswered"/> when no Python answered within <paramref name="probeTimeout"/>.</summary>
+    private (ProviderAvailability Result, IdaInstallation? Ida, PythonInterpreter? Python) Static(TimeSpan probeTimeout, out bool unanswered)
     {
         // locating Python runs processes: a call waiting here stops when it is cancelled
         using (AssemblyWorkspace.Lock(_availabilityLock))
-            return _static ??= ComputeStatic();
+        {
+            unanswered = false;
+            if (_static is { } known) return known;
+            var computed = ComputeStatic(probeTimeout, out unanswered);
+            // Unknown is not absent: a Python that answered late is looked for again by the next call.
+            if (!unanswered) _static = computed;
+            return computed;
+        }
     }
 
-    private (ProviderAvailability, IdaInstallation?, PythonInterpreter?) ComputeStatic()
+    private (ProviderAvailability, IdaInstallation?, PythonInterpreter?) ComputeStatic(TimeSpan probeTimeout, out bool unanswered)
     {
+        unanswered = false;
         var ida = IdaInstallation.Locate(_options.InstallDirectory, out var reason, out var remediation);
         if (ida == null) return (ProviderAvailability.Missing(Id, reason, remediation), null, null);
 
@@ -102,11 +113,15 @@ public sealed class IdaProvider(IdaProviderOptions? options = null) : INativeDec
         if (Environment.GetEnvironmentVariable(PythonVariable) is { Length: > 0 } env) preferred.Add((env, PythonVariable));
         if (IdaInstallation.ConfiguredPythonDirectory() is { } idaPython) preferred.Add((idaPython, "IDA Python3TargetDLL"));
         var log = new List<string>();
-        var python = PythonLocator.Find(preferred, log);
+        (var python, unanswered) = PythonLocator.Search(preferred, log, probeTimeout);
         var details = new Dictionary<string, string> { ["install_dir"] = ida.Directory, ["install_source"] = ida.Source };
         if (python == null)
         {
             details["python_candidates"] = log.Count == 0 ? "none found" : string.Join("; ", log);
+            if (unanswered)
+                return (ProviderAvailability.Missing(Id,
+                    $"No 64-bit Python {PythonLocator.MinimumVersion}+ answered in time for idalib ({details["python_candidates"]}); its state is unknown.",
+                    "A busy machine answers late: call again.", details), ida, null);
             return (ProviderAvailability.Missing(Id,
                 $"No usable 64-bit Python {PythonLocator.MinimumVersion}+ was found for idalib ({details["python_candidates"]}).",
                 $"Install 64-bit Python 3 from python.org, select it for IDA with idapyswitch, or set {PythonVariable} to python.exe.", details), ida, null);
@@ -139,10 +154,12 @@ public sealed class IdaProvider(IdaProviderOptions? options = null) : INativeDec
     public async Task<INativeDecompilerSession> OpenAsync(string imagePath, string? sha256 = null, NativeOpenOptions? options = null, CancellationToken cancellationToken = default)
     {
         ObjectDisposedException.ThrowIf(_disposed != 0, this);
-        var (result, ida, python) = Static();
+        options ??= new NativeOpenOptions();
+        // An open finds its Python within its own time limit, not the status checks' 15 s.
+        var (result, ida, python) = Static(options.OpenTimeout, out var unanswered);
         if (!result.IsAvailable)
-            throw new ToolError(ErrorCode.ProviderUnavailable, result.Reason!, result.Remediation);
-        var session = new IdaSession(this, ida!, python!, options ?? new NativeOpenOptions());
+            throw new ToolError(unanswered ? ErrorCode.Timeout : ErrorCode.ProviderUnavailable, result.Reason!, result.Remediation);
+        var session = new IdaSession(this, ida!, python!, options);
         _sessions[session] = 0;
         try
         {
