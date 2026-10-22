@@ -24,6 +24,9 @@ public sealed record ExternalToolProbe(string Id, string Name, string Purpose, b
     string? Problem, string Remediation)
 {
     public bool Usable => Found && Problem == null;
+
+    /// <summary>Why Version is unknown for a usable tool (its version check timed out); null when it was read or not asked.</summary>
+    public string? VersionUnknown { get; init; }
 }
 
 /// <summary>
@@ -208,6 +211,9 @@ public static partial class ExternalTools
         ? $"set {tool.Variable} to the jar or its folder (run by {Java.Variable}, JAVA_HOME or PATH java)"
         : $"set {tool.Variable} to the program or its folder, or put it on PATH";
 
+    /// <summary>How long a version check may take; tests shorten it.</summary>
+    internal static TimeSpan VersionTimeout { get; set; } = TimeSpan.FromSeconds(15);
+
     // Lazy, so callers that race for one file share a single version check
     // rather than each running the program.
     private static readonly ConcurrentDictionary<string, Lazy<ExternalToolProbe>> Probes = new(StringComparer.Ordinal);
@@ -224,7 +230,11 @@ public static partial class ExternalTools
                 : "not found";
             return new(tool.Id, tool.Name, tool.Purpose, false, null, null, null, why, Remediation(tool));
         }
-        return Probes.GetOrAdd(tool.Id + "|" + at.Path + "|" + Stamp(at.Path), _ => new(() => VersionProbe(tool, at.Path, at.Source))).Value;
+        var key = tool.Id + "|" + at.Path + "|" + Stamp(at.Path);
+        var probe = Probes.GetOrAdd(key, _ => new(() => VersionProbe(tool, at.Path, at.Source))).Value;
+        // A timed-out check is not kept, so the next call reads the version again.
+        if (probe.VersionUnknown != null) Probes.TryRemove(key, out _);
+        return probe;
     }
 
     private static string Stamp(string path)
@@ -240,9 +250,11 @@ public static partial class ExternalTools
             ? Probe(Java) is { Usable: true, Path: { } java } ? (java, Arguments(Java, "jar", ("jar", path)).Concat(tool.VersionArguments).ToList()) : ((string?)null, (List<string>)[])
             : (path, tool.VersionArguments.ToList());
         if (exe == null) return new(tool.Id, tool.Name, tool.Purpose, true, path, source, null, "no usable Java to run it", $"set {Java.Variable} or JAVA_HOME to a JDK 17+");
-        var run = Run(exe, args, TimeSpan.FromSeconds(15), 64 * 1024, CancellationToken.None);
+        var run = Run(exe, args, VersionTimeout, 64 * 1024, CancellationToken.None);
         if (run.StartError != null) return new(tool.Id, tool.Name, tool.Purpose, true, path, source, null, $"cannot be started: {run.StartError}", Remediation(tool));
-        if (run.TimedOut) return new(tool.Id, tool.Name, tool.Purpose, true, path, source, null, "its version check did not answer within 15 s", Remediation(tool));
+        // A slow version check on a busy machine says nothing against the tool: it stays usable, its version unknown.
+        if (run.TimedOut)
+            return new(tool.Id, tool.Name, tool.Purpose, true, path, source, null, null, Remediation(tool)) { VersionUnknown = $"its version check timed out after {(VersionTimeout < TimeSpan.FromSeconds(1) ? $"{VersionTimeout.TotalMilliseconds:0} ms" : $"{VersionTimeout.TotalSeconds:0} s")}" };
         var version = VersionPattern().Match(run.Text + "\n" + run.Stderr) is { Success: true } m ? m.Value : null;
         string? problem = null;
         if (tool.MinimumMajorVersion > 0)

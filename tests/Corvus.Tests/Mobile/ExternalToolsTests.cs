@@ -134,6 +134,25 @@ public class ExternalToolsTests(ITestOutputHelper output)
     }
 
     [Fact]
+    public void A_version_check_that_times_out_leaves_the_tool_usable_with_its_version_unknown()
+    {
+        using var fake = new FakeTool();
+        fake.On("^--version$", stdout: "osv-scanner version: 2.7.0", sleepMs: 3000);
+        using var env = new EnvironmentScope().Set("CORVUS_OSV_SCANNER", fake.CopyAs("osv-scanner")).Set(FakeTool.ScriptVariable, fake.ScriptPath);
+        var saved = ExternalTools.VersionTimeout;
+        ExternalTools.VersionTimeout = TimeSpan.FromMilliseconds(300);
+        try
+        {
+            var probe = ExternalTools.Probe(ExternalTools.OsvScanner);
+            Assert.Equal((true, null, "its version check timed out after 300 ms"), (probe.Usable, probe.Version, probe.VersionUnknown));
+            var status = Assert.Single(Corvus.Tools.SessionTools.ExternalToolCapabilities(), c => c.Name.StartsWith("osv-scanner", StringComparison.Ordinal));
+            Assert.True(status.Available);
+            Assert.EndsWith("version unknown (its version check timed out after 300 ms)", status.Detail);
+        }
+        finally { ExternalTools.VersionTimeout = saved; }
+    }
+
+    [Fact]
     public void ServerStatus_ListsEachExternalTool_WithItsFix()
     {
         using var fake = new FakeTool();

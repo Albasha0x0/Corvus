@@ -171,7 +171,7 @@ public sealed class SessionTools(AssemblyWorkspace workspace, IndexingService in
     // A path the user set in the tool's variable is theirs already; a searched one is named.
     private static string Found(Native.Providers.ExternalToolProbe p) =>
         (p.Source == Native.Providers.ExternalTools.Get(p.Id).Variable ? $"from {p.Source}" : $"{p.Path} (from {p.Source})") +
-        (p.Version != null ? $", version {p.Version}" : ", version unknown");
+        (p.Version != null ? $", version {p.Version}" : p.VersionUnknown != null ? $", version unknown ({p.VersionUnknown})" : ", version unknown");
 
     /// <summary>The session backend: whether it can start, and for Frida its version against the tested range.</summary>
     internal static Capability LiveBackendCapability(Native.Providers.Live.ILiveBackend backend)
