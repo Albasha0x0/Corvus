@@ -791,7 +791,7 @@ public sealed partial class LiveSessionService(AssemblyWorkspace workspace, Nati
                 break;
             case "exit":
                 var exitReason = body.GetProperty("reason").GetString() ?? "";
-                // Frida can report process-terminated once the exit has begun (exit code set) while the process stays
+                // Frida can report process-terminated once the exit has begun while the process stays
                 // in its exit: the report waits for the process to end, so the stuck exit check can still end it.
                 if (exitReason == "process-terminated" && session.CloseReason == null && InExit(session))
                 {
@@ -805,15 +805,14 @@ public sealed partial class LiveSessionService(AssemblyWorkspace workspace, Nati
 
     private const uint WaitTimeout = 0x102;
 
-    // Whether the process is in its exit: exit code set or announced by the agent, process object not yet signaled; false
-    // where no handle is held.
+    // Whether a process Frida reports terminated is still in its exit: process object not yet signaled; false where no
+    // handle is held.
     private static bool InExit(LiveSession session)
     {
         try
         {
-            // The agent sends the exit status before the exit code is set, and the report can come between the two.
-            return session.ProcessHandle is { IsInvalid: false, IsClosed: false } h && Native.Live.LiveNative.WaitForSingleObject(h, 0) == WaitTimeout
-                && (session.ExitCode != null || Native.Live.LiveNative.GetExitCodeProcess(h, out var code) && code != Native.Live.LiveNative.STILL_ACTIVE);
+            // The report can come before the agent's exit status and before the exit code is set, so neither is required.
+            return session.ProcessHandle is { IsInvalid: false, IsClosed: false } h && Native.Live.LiveNative.WaitForSingleObject(h, 0) == WaitTimeout;
         }
         catch (ObjectDisposedException) { return false; }
     }
