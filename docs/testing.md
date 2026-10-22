@@ -413,6 +413,11 @@ their tool is missing:
   Microsoft.WindowsAppSDK package version, a WinUI app with an application, a window and a page of resources, styles,
   templates, visual states and conditional XAML is built; each `.xbf` read with `view=xbf` must be complete, declare
   the source's elements in order, and resolve every event handler the source names.
+- **Il2Cpp capabilities against capa** (`Il2CppCapaTests`): with `CORVUS_CAPA` naming the standalone capa 10.0.0, the
+  freeze file written for a built x64 game binary, whose functions call methods named as the class library's
+  `File.WriteAllText`, `RegistryKey.GetValue` and `HttpClient.GetAsync`, must load in capa and match "write file in
+  .NET", "query or enumerate registry value" and "send HTTP request" at the calling functions. Run it for each new capa release: the freeze
+  format is capa's own and changes between releases.
 - **Capture HTTP objects against Wireshark** (`CaptureObjectsTSharkTests`): with `CORVUS_TSHARK` set, synthetic
   captures (Content-Length, chunked, gzip / deflate / brotli, pipelining, resent segments, ranges, bodies ending at
   close, request bodies) must export exactly the files `tshark --export-objects http` exports, by SHA-256. With

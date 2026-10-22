@@ -146,8 +146,13 @@ public static partial class ExternalTools
         ["osv-scanner" + Exe], ["--version"], 2, "summarize_file view=dependencies advisories", false,
         Ops(("scan", ["scan", "source", "--offline", "--format", "json", "-L", "{file}"])));
 
+    // The freeze file format is capa's own and changes between releases: 10.0.0 is the version tested.
+    public static readonly ExternalTool Capa = new("capa", "capa (standalone, rules built in)", "CORVUS_CAPA", ExternalToolKind.Executable,
+        ["capa" + Exe], ["--version"], 0, "survey_features capa capabilities of Il2Cpp code", false,
+        Ops(("freeze", ["-j", "{file}"])));
+
     /// <summary>Every external program, in display order.</summary>
-    public static readonly IReadOnlyList<ExternalTool> Table = [Java, JavaDecompiler, JavaDecompiler2, PythonDecompiler, Adb, TShark, OsvScanner, Aapt2, ApkSigner, DexDisassembler, ProtoCompiler, WasmText, WasmValidator, HbcDisassembler];
+    public static readonly IReadOnlyList<ExternalTool> Table = [Java, JavaDecompiler, JavaDecompiler2, PythonDecompiler, Adb, TShark, OsvScanner, Capa, Aapt2, ApkSigner, DexDisassembler, ProtoCompiler, WasmText, WasmValidator, HbcDisassembler];
 
     private static IEnumerable<(string, string)> WiresharkDirectories()
     {
