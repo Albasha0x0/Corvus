@@ -35,6 +35,19 @@ $script:OffloadJob = 'offload'
 $script:RunAppearSeconds = 120
 $script:RunFinishMinutes = 120
 $script:PollSeconds = 15
+# A test host prepared by test-remote-setup.ps1 ([user@]name); it takes the offloaded classes ahead of GitHub when it
+# answers over ssh.
+$script:HostVariable = 'CORVUS_TEST_REMOTE'
+# The ssh and scp programs, a .ps1 script standing in for either in the tests; OpenSSH's own when unset.
+$script:SshVariable = 'CORVUS_TEST_SSH'
+$script:ScpVariable = 'CORVUS_TEST_SCP'
+# OpenSSH's option strings: key auth only, no prompt (a new host's key is recorded), a connect that fails fast, and a
+# dead connection noticed within 2 minutes.
+$script:SshOptions = @('-o', 'BatchMode=yes', '-o', 'StrictHostKeyChecking=accept-new', '-o', 'ConnectTimeout=10', '-o', 'ServerAliveInterval=30', '-o', 'ServerAliveCountMax=4')
+# The host's folder under its user's home: the clone (repo), the run's worktree (run) and its results.
+$script:HostFolder = 'corvus-test-host'
+# Seconds the host waits for the commit to reach origin; a push run starts before its push lands.
+$script:FetchWaitSeconds = 120
 
 # The offloaded classes of $testsDir as @{ Class; Group; Mixed }: live, the classes of the Live folder; ghidra, those in
 # files with a Ghidra fact (Mixed when the file has IDA facts too); sweep, names matching the table outside the engine
@@ -251,28 +264,39 @@ function Get-RemoteStatus([string]$gitDir) {
     }
 }
 
-# The target a whole-suite run offloads to, as @{ Name; Kind; ... }, or $null when none is usable. GitHub: a routine
-# run on a commit on origin's main (or the background push run's commit) whose ci.yml has the offload job, with the gh
-# command line present; CORVUS_TEST_OFFLOAD=0 turns it off.
+# The target a whole-suite run offloads to, as @{ Name; Kind; ... }, or $null when none is usable: a routine run on a
+# commit on origin's main (or the background push run's commit) offloads to the test host CORVUS_TEST_REMOTE names when
+# it answers over ssh, else to GitHub when ci.yml has the offload job and the gh command line is present.
+# CORVUS_TEST_OFFLOAD=0 turns it off.
 function Get-OffloadTarget([string]$repo, [bool]$releaseTier) {
     if ([Environment]::GetEnvironmentVariable($script:OffloadVariable) -in '0', 'false', 'off') { return $null }
     if ($releaseTier) { return $null }
-    if (-not ([Environment]::GetEnvironmentVariable($script:GhVariable) -or (Get-Command gh -ErrorAction SilentlyContinue))) { return $null }
-    $workflow = git -C $repo show "HEAD:.github/workflows/$script:Workflow" 2>$null
-    if ($LASTEXITCODE -ne 0 -or -not ($workflow -match "^  ${script:OffloadJob}:")) { return $null }
     if ([Environment]::GetEnvironmentVariable($script:PushRunVariable) -ne '1') {
         git -C $repo merge-base --is-ancestor HEAD origin/main 2>$null
         if ($LASTEXITCODE -ne 0) { return $null }
     }
+    $remote = "$([Environment]::GetEnvironmentVariable($script:HostVariable))".Trim()
+    if ($remote -and (Test-RemoteHost $remote)) { return @{ Name = $remote; Kind = 'ssh'; Host = $remote } }
+    if (-not ([Environment]::GetEnvironmentVariable($script:GhVariable) -or (Get-Command gh -ErrorAction SilentlyContinue))) { return $null }
+    $workflow = git -C $repo show "HEAD:.github/workflows/$script:Workflow" 2>$null
+    if ($LASTEXITCODE -ne 0 -or -not ($workflow -match "^  ${script:OffloadJob}:")) { return $null }
     $url = (git -C $repo remote get-url origin 2>$null) -join ''
     if ($url -notmatch 'github\.com[:/]([^/]+/[^/]+?)(\.git)?/?$') { return $null }
     @{ Name = 'github'; Kind = 'github'; Repository = $Matches[1] }
 }
 
 # Starts the remote half of $classes on $target; returns a handle for Receive-Offload. GitHub runs the offload job on
-# push by itself, so its handle waits for that run.
+# push by itself, so its handle waits for that run; a test host runs the classes it is sent.
 function Start-Offload($target, [string]$commit, [string[]]$classes, [bool]$releaseTier, [string]$module) {
     switch ($target.Kind) {
+        'ssh' {
+            $script = Get-RemoteRunScript $commit (Get-ClassFilter $classes $releaseTier)
+            Start-ThreadJob -ArgumentList $module, $target.Host, $script -ScriptBlock {
+                param($module, $remoteHost, $script)
+                Import-Module $module
+                Invoke-RemoteRun $remoteHost $script
+            }
+        }
         'github' {
             Start-ThreadJob -ArgumentList $module, $target.Repository, $commit -ScriptBlock {
                 param($module, $repository, $commit)
@@ -288,7 +312,93 @@ function Start-Offload($target, [string]$commit, [string[]]$classes, [bool]$rele
 function Receive-Offload($handle, [string]$folder) {
     $state = Receive-Job $handle -Wait -AutoRemoveJob | Select-Object -Last 1
     if ($state.Kind -eq 'github') { return Receive-GitHubRun $state $folder }
+    if ($state.Kind -eq 'ssh') { return Receive-RemoteRun $state $folder }
     $state
+}
+
+# Runs ssh or scp (or the script standing in for it) with $arguments; returns its output, sets $LASTEXITCODE.
+function Invoke-Transport([string]$variable, [string]$program, [string[]]$arguments) {
+    $command = [Environment]::GetEnvironmentVariable($variable)
+    if (-not $command) { return & $program @arguments }
+    & pwsh -NoProfile -File $command @arguments
+}
+
+# Whether the host answers over ssh with key auth within the connect timeout.
+function Test-RemoteHost([string]$remoteHost) {
+    $null = Invoke-Transport $script:SshVariable 'ssh' (@($script:SshOptions) + @($remoteHost, 'exit 0')) 2>$null
+    $LASTEXITCODE -eq 0
+}
+
+# The script a test host runs: wait for $commit on origin, check it out in the host's worktree and run $filter there
+# at below-normal priority, one run at a time. Its output names the start ("corvus-remote: started") and the end
+# ("corvus-remote-exit <code>"); a run that never starts names why.
+function Get-RemoteRunScript([string]$commit, [string]$filter) {
+    $quoted = $filter.Replace("'", "''")
+    @"
+`$ErrorActionPreference = 'Continue'
+(Get-Process -Id `$PID).PriorityClass = 'BelowNormal'
+`$base = Join-Path `$HOME '$script:HostFolder'
+`$clone = Join-Path `$base 'repo'; `$tree = Join-Path `$base 'run'; `$out = Join-Path `$base 'results'
+# One run at a time: a push run and an on-demand run share the worktree.
+`$lock = [Threading.Mutex]::new(`$false, 'Global\corvus-test-host')
+try { [void]`$lock.WaitOne() } catch [Threading.AbandonedMutexException] { }
+try {
+    `$deadline = (Get-Date).AddSeconds($script:FetchWaitSeconds)
+    while (`$true) {
+        git -C `$clone fetch --quiet origin 2>`$null
+        git -C `$clone cat-file -e '$commit^{commit}' 2>`$null
+        if (`$LASTEXITCODE -eq 0) { break }
+        if ((Get-Date) -gt `$deadline) { 'corvus-remote: the commit did not reach origin in $script:FetchWaitSeconds s'; exit 0 }
+        Start-Sleep -Seconds 10
+    }
+    if (Test-Path (Join-Path `$tree '.git')) { git -C `$tree checkout --quiet --detach --force '$commit'; git -C `$tree clean -fdq }
+    else { git -C `$clone worktree prune; git -C `$clone worktree add --detach `$tree '$commit' | Out-Null }
+    if ((git -C `$tree rev-parse HEAD) -ne '$commit') { 'corvus-remote: the checkout failed'; exit 0 }
+    Remove-Item -Recurse -Force `$out -ErrorAction SilentlyContinue
+    'corvus-remote: started'
+    `$env:CORVUS_ALL_TESTS = '1'
+    & dotnet test (Join-Path `$tree 'tests/Corvus.Tests') --nologo -c Release --filter '$quoted' --logger 'trx;LogFileName=remote.trx' --results-directory `$out ``
+        --blame-hang --blame-hang-timeout 30m --blame-hang-dump-type mini *> (Join-Path `$base 'console.log')
+    "corvus-remote-exit `$LASTEXITCODE"
+}
+finally { `$lock.ReleaseMutex() }
+"@
+}
+
+# Copies $script to the host and runs it there with its PowerShell 7 (the setup puts it on the user's PATH):
+# @{ Kind; Host; Output }.
+function Invoke-RemoteRun([string]$remoteHost, [string]$script) {
+    $file = Join-Path ([IO.Path]::GetTempPath()) "corvus-remote-$([guid]::NewGuid().ToString('N')).ps1"
+    try {
+        Set-Content $file $script -Encoding utf8
+        $output = @(Invoke-Transport $script:ScpVariable 'scp' (@($script:SshOptions) + @($file, "${remoteHost}:$script:HostFolder/run.ps1")) 2>&1 | ForEach-Object { "$_" })
+        if ($LASTEXITCODE -eq 0) { $output = @(Invoke-Transport $script:SshVariable 'ssh' (@($script:SshOptions) + @($remoteHost, "pwsh -NoProfile -NonInteractive -File $script:HostFolder/run.ps1")) 2>&1 | ForEach-Object { "$_" }) }
+    }
+    finally { Remove-Item $file -Force -ErrorAction SilentlyContinue }
+    @{ Kind = 'ssh'; Host = $remoteHost; Output = $output }
+}
+
+# Brings a test host's results back into $folder: @{ Started; Trx; Failed; Note } as Receive-GitHubRun returns it.
+# Started false means no test started there (ssh failed, or the commit never arrived), and Note says why.
+function Receive-RemoteRun($state, [string]$folder) {
+    $result = [pscustomobject]@{ Started = $false; Trx = $null; Failed = @(); Note = $null }
+    $output = @($state.Output)
+    if ($output -notcontains 'corvus-remote: started') {
+        $why = $output | Where-Object { $_ -like 'corvus-remote: *' } | Select-Object -Last 1
+        $result.Note = if ($why) { $why -replace '^corvus-remote: ', '' } else { "ssh $($state.Host) failed$(if ($output) { ": $($output[-1])" })" }
+        return $result
+    }
+    $result.Started = $true
+    $exit = $output | Where-Object { $_ -match '^corvus-remote-exit (-?\d+)$' } | Select-Object -Last 1
+    $result.Note = if ($exit) { "exit $($exit -replace '^corvus-remote-exit ', '')" } else { 'the connection ended before the run did' }
+    New-Item -ItemType Directory -Force $folder | Out-Null
+    $trx = Join-Path $folder 'offload.trx'
+    $null = Invoke-Transport $script:ScpVariable 'scp' (@($script:SshOptions) + @("$($state.Host):$script:HostFolder/results/remote.trx", $trx)) 2>$null
+    if ($LASTEXITCODE -eq 0 -and (Test-Path $trx)) {
+        $result.Trx = $trx
+        $result.Failed = @(Get-ClassOutcomes $trx | Where-Object Failed | ForEach-Object { [pscustomobject]@{ Class = $_.Class; Platform = 'host' } })
+    }
+    $result
 }
 
 # Runs the gh command line (or the script standing in for it); returns its output, sets $LASTEXITCODE.
@@ -353,4 +463,4 @@ function Receive-GitHubRun($state, [string]$folder) {
     $result
 }
 
-Export-ModuleMember -Function Invoke-Gh, Wait-GitHubRun, Receive-GitHubRun, Get-RemoteClasses, Get-RemoteShard, Get-LocalFilter, Get-ClassFilter, Get-ClassOutcomes, Get-TestOutcomes, Get-SkippedOnHost, Get-SkippedOnBoth, Get-RerunClasses, Get-MixedClasses, Get-FailedThereNote, Join-TrxFiles, Get-TargetFileName, Save-RemoteRecord, Get-RemoteStatus, Get-OffloadTarget, Start-Offload, Receive-Offload
+Export-ModuleMember -Function Invoke-Transport, Test-RemoteHost, Get-RemoteRunScript, Invoke-RemoteRun, Receive-RemoteRun, Invoke-Gh, Wait-GitHubRun, Receive-GitHubRun, Get-RemoteClasses, Get-RemoteShard, Get-LocalFilter, Get-ClassFilter, Get-ClassOutcomes, Get-TestOutcomes, Get-SkippedOnHost, Get-SkippedOnBoth, Get-RerunClasses, Get-MixedClasses, Get-FailedThereNote, Join-TrxFiles, Get-TargetFileName, Save-RemoteRecord, Get-RemoteStatus, Get-OffloadTarget, Start-Offload, Receive-Offload

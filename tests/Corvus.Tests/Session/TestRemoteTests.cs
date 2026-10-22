@@ -195,6 +195,56 @@ public sealed class TestRemoteTests : IDisposable
         Assert.Contains("unrun=FormatSweepTests failed on github (ubuntu, windows), not run here; RoundTripTests failed on github (ubuntu), not run here", lines);
     }
 
+    [Fact]
+    [Trait("Speed", "Slow")]
+    public void A_test_host_that_answers_takes_the_classes_and_its_results_come_back()
+    {
+        var trx = _dir.File("host.trx");
+        File.WriteAllText(trx, Trx(("FormatSweepTests", "Failed"), ("RoundTripTests", "Passed")));
+        var sent = _dir.File("sent-run.ps1");
+        // The stand-in ssh answers its probe unless the host is "down", and reports a started run that exited 1; the
+        // stand-in scp keeps the run script it is sent and hands back the host's TRX.
+        var ssh = _dir.File("ssh.ps1");
+        File.WriteAllText(ssh, """
+            $line = $args -join ' '
+            if ($line -match 'down ') { exit 255 }
+            if ($line -match ' exit 0$') { exit 0 }
+            if ($line -match '-File corvus-test-host/run.ps1$') { 'corvus-remote: started'; 'corvus-remote-exit 1'; exit 0 }
+            exit 1
+            """);
+        var scp = _dir.File("scp.ps1");
+        File.WriteAllText(scp, $$"""
+            $from = $args[-2]; $to = $args[-1]
+            if ($to -like '*:corvus-test-host/run.ps1') { Copy-Item $from {{Quote(sent)}}; exit 0 }
+            if ($from -like '*:corvus-test-host/results/remote.trx') { Copy-Item {{Quote(trx)}} $to; exit 0 }
+            exit 1
+            """);
+        var lines = TestReuseTests.Run($$"""
+            Import-Module {{Module}}
+            $env:CORVUS_TEST_SSH = {{Quote(ssh)}}; $env:CORVUS_TEST_SCP = {{Quote(scp)}}; $env:CORVUS_TEST_PUSH_RUN = '1'
+            $env:CORVUS_TEST_REMOTE = 'tester@host2'
+            $target = Get-OffloadTarget {{Quote(DocsTests.RepoRoot())}} $false
+            'target=' + $target.Kind + ',' + $target.Name
+            $got = Receive-Offload (Start-Offload $target 'abc123' @('FormatSweepTests', 'RoundTripTests') $false {{Module}}) {{Quote(Path.Combine(_dir.Path, "back"))}}
+            'got=' + $got.Started + ',' + $got.Note + ',' + (($got.Failed | ForEach-Object { "$($_.Class)@$($_.Platform)" }) -join ',') + ',' + ([xml](Get-Content $got.Trx -Raw)).TestRun.ResultSummary.Counters.total
+            $script = Get-Content {{Quote(sent)}} -Raw
+            'script=' + $script.Contains("cat-file -e 'abc123^{commit}'") + ',' + $script.Contains("--filter '(FullyQualifiedName~.FormatSweepTests|FullyQualifiedName~.RoundTripTests)&Tier!=Release'")
+            $env:CORVUS_TEST_REMOTE = 'tester@down'
+            'down=' + ((Get-OffloadTarget {{Quote(DocsTests.RepoRoot())}} $false).Kind -ne 'ssh')
+            $late = Receive-RemoteRun @{ Kind = 'ssh'; Host = 'tester@host2'; Output = @('corvus-remote: the commit did not reach origin in 120 s') } {{Quote(Path.Combine(_dir.Path, "late"))}}
+            'late=' + $late.Started + ',' + $late.Note
+            $lost = Receive-RemoteRun @{ Kind = 'ssh'; Host = 'tester@host2'; Output = @('Connection refused') } {{Quote(Path.Combine(_dir.Path, "lost"))}}
+            'lost=' + $lost.Started + ',' + $lost.Note
+            """);
+        if (lines is ["skip"]) return;
+        Assert.Contains("target=ssh,tester@host2", lines);
+        Assert.Contains("got=True,exit 1,FormatSweepTests@host,2", lines);
+        Assert.Contains("script=True,True", lines);
+        Assert.Contains("down=True", lines);
+        Assert.Contains("late=False,the commit did not reach origin in 120 s", lines);
+        Assert.Contains("lost=False,ssh tester@host2 failed: Connection refused", lines);
+    }
+
     /// <summary>A script standing in for gh: one CI run whose first offload job ended with <paramref name="conclusion"/>;
     /// its Windows shards hold <paramref name="trx"/>, its Linux shard <paramref name="linuxTrx"/>.</summary>
     private string FakeGh(string conclusion, string trx, string linuxTrx)
