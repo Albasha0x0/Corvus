@@ -241,8 +241,8 @@ public static partial class Il2CppPackages
     }
 
     /// <summary>
-    /// Keeps the <see cref="MaxPackages"/> most recently used extractions, and any used within
-    /// <see cref="Il2CppRawLoader.InUseWindow"/>: another workspace or server may still be reading its binary.
+    /// Keeps the <see cref="MaxPackages"/> most recently used extractions, any another workspace or server holds
+    /// (<see cref="CacheHolds"/>), and any used within <see cref="Il2CppRawLoader.InUseWindow"/>.
     /// </summary>
     internal static void Trim(string root, string keep)
     {
@@ -251,9 +251,19 @@ public static partial class Il2CppPackages
             var recent = DateTime.UtcNow - Il2CppRawLoader.InUseWindow;
             foreach (var old in Directory.EnumerateDirectories(root).Where(d => File.Exists(Path.Combine(d, MarkerFileName)) && !d.Equals(keep, StringComparison.OrdinalIgnoreCase))
                          .OrderByDescending(Directory.GetLastWriteTimeUtc).Skip(MaxPackages - 1))
-                if (Directory.GetLastWriteTimeUtc(old) < recent) TryDelete(old);
+                if (Directory.GetLastWriteTimeUtc(old) < recent && !CacheHolds.InUse(old)) TryDelete(old);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
+    }
+
+    /// <summary>The package extraction folder holding <paramref name="path"/>, or null when the path is not inside one.</summary>
+    internal static string? ExtractionOf(string path)
+    {
+        if (path.Length == 0) return null;
+        for (var dir = Path.GetDirectoryName(Path.GetFullPath(path)); dir != null; dir = Path.GetDirectoryName(dir))
+            if (File.Exists(Path.Combine(dir, MarkerFileName)) && string.Equals(Path.GetFileName(Path.GetDirectoryName(dir)), FolderName, StringComparison.OrdinalIgnoreCase))
+                return dir;
+        return null;
     }
 
     private static void Touch(string dir)

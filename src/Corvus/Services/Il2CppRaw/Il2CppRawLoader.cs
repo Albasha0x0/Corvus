@@ -129,6 +129,8 @@ public sealed class Il2CppRawLoader(AssemblyWorkspace workspace, string? cacheRo
                 {
                     if (workspace.Read(() => workspace.Assemblies.Any(a => a.FilePath.StartsWith(dir + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))))
                         throw new ToolError(ErrorCode.Conflict, $"An older read of this game is loaded from {dir}.", "unload its assemblies first, then load the game again");
+                    if (CacheHolds.InUse(dir))
+                        throw new ToolError(ErrorCode.Conflict, $"An older read of this game in {dir} is in use by another workspace or server.", "unload it there, or set CORVUS_IL2CPP_CACHE to another folder for this server");
                     SafeFile.WhenReleased(() => Directory.Delete(dir, true));
                 }
                 SafeFile.WhenReleased(() => Directory.Move(staging, dir));
@@ -158,6 +160,11 @@ public sealed class Il2CppRawLoader(AssemblyWorkspace workspace, string? cacheRo
             try { native = workspace.LoadAny(files.Binary, files.Slice).Native; }
             catch (ToolError ex) { binaryProblem = ex.Message; }
         }
+        // The model names the binary in its package extraction, so the extraction is held as long as the entry is.
+        var extraction = Il2CppPackages.ExtractionOf(files.Binary.Length > 0 ? files.Binary : files.Metadata);
+        string[] used = extraction != null ? [dir, extraction] : [dir];
+        CacheHolds.Hold(dir, workspace, used);
+        if (extraction != null) CacheHolds.Hold(extraction, workspace, used);
         return new Result(files, dir, dummy, fromCache, model, report, native, binaryProblem, readTime, watch.Elapsed, notes);
     }
 
@@ -169,7 +176,7 @@ public sealed class Il2CppRawLoader(AssemblyWorkspace workspace, string? cacheRo
 
     /// <summary>
     /// Removes the least recently used entries beyond <see cref="MaxEntries"/>, except <paramref name="keep"/>, loaded ones,
-    /// and ones used within <see cref="InUseWindow"/> (another workspace or server may be reading them).
+    /// ones another workspace or server holds (<see cref="CacheHolds"/>), and ones used within <see cref="InUseWindow"/>.
     /// </summary>
     internal void Trim(string root, string keep)
     {
@@ -181,7 +188,8 @@ public sealed class Il2CppRawLoader(AssemblyWorkspace workspace, string? cacheRo
                 .OrderByDescending(Directory.GetLastWriteTimeUtc).ToList();
             var recent = DateTime.UtcNow - InUseWindow;
             foreach (var old in entries.Skip(MaxEntries - 1))
-                if (Directory.GetLastWriteTimeUtc(old) < recent && !loaded.Any(p => p.StartsWith(old + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))) TryDelete(old);
+                if (Directory.GetLastWriteTimeUtc(old) < recent && !loaded.Any(p => p.StartsWith(old + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
+                    && !CacheHolds.InUse(old)) TryDelete(old);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
     }

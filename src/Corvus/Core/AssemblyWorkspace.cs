@@ -44,6 +44,9 @@ public sealed class AssemblyWorkspace : IDisposable
     /// <summary>Raised outside the lock after an assembly is unloaded.</summary>
     public event Action<LoadedAssembly>? AssemblyUnloaded;
 
+    /// <summary>Raised once when Dispose begins, before the files are released.</summary>
+    public event Action? Disposing;
+
     private readonly System.Collections.Concurrent.ConcurrentQueue<string> _notices = new();
 
     /// <summary>Queues a client notice, prepended to the next tool result.</summary>
@@ -1166,6 +1169,7 @@ public sealed class AssemblyWorkspace : IDisposable
     public void Dispose()
     {
         if (Interlocked.Exchange(ref _disposed, 1) != 0) return;
+        Disposing?.Invoke();
         // Cancels background code index builds and closes engine sessions.
         foreach (var n in _natives.ToArray())
             n.Release();

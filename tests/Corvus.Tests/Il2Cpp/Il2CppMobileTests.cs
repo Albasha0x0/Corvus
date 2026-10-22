@@ -262,6 +262,63 @@ public sealed class Il2CppMobileTests(ITestOutputHelper output) : IDisposable
     }
 
     [Fact]
+    public void A_cache_entry_another_workspace_holds_survives_a_trim_past_the_window()
+    {
+        var cache = _dir.File("shared-cache");
+        Il2CppGameFiles Game(int i)
+        {
+            var path = _dir.File(Path.Combine($"game{i}", Il2CppGameFiles.MetadataFileName));
+            Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+            File.WriteAllBytes(path, new Il2CppMetadataWriter().Assembly($"Game{i}", "1.0.0.0").Build());
+            return Il2CppGameFiles.Find(path, metadataOnly: true)!;
+        }
+        var holder = new AssemblyWorkspace();
+        var held = new Il2CppRawLoader(holder, cache).Load(Game(0), loadBinary: false, null, default).CacheDirectory;
+        using var other = new AssemblyWorkspace();
+        var loader = new Il2CppRawLoader(other, cache);
+        Directory.SetLastWriteTimeUtc(held, DateTime.UtcNow - TimeSpan.FromHours(1));
+        for (int i = 1; i <= Il2CppRawLoader.MaxEntries; i++) loader.Load(Game(i), loadBinary: false, null, default);
+        Assert.True(Il2CppRawLoader.ReadMarker(held) != null, "the held entry was trimmed");
+
+        // Once the holder is gone, the entry is trimmed like any other.
+        holder.Dispose();
+        Directory.SetLastWriteTimeUtc(held, DateTime.UtcNow - TimeSpan.FromHours(1));
+        loader.Load(Game(Il2CppRawLoader.MaxEntries + 1), loadBinary: false, null, default);
+        Assert.False(Directory.Exists(held));
+    }
+
+    [Fact]
+    public void A_cache_folder_whose_lock_file_another_process_holds_survives_a_trim()
+    {
+        using var ws = new AssemblyWorkspace();
+        foreach (var (marker, trim, limit) in new (string, Action<string, string>, int)[]
+                 {
+                     (Il2CppRawLoader.MarkerFileName, new Il2CppRawLoader(ws).Trim, Il2CppRawLoader.MaxEntries),
+                     (Il2CppPackages.MarkerFileName, Il2CppPackages.Trim, Il2CppPackages.MaxPackages),
+                 })
+        {
+            var root = _dir.File("locked-" + marker);
+            string Entry(string name, TimeSpan age)
+            {
+                var dir = Directory.CreateDirectory(Path.Combine(root, name)).FullName;
+                File.WriteAllText(Path.Combine(dir, marker), "{}");
+                Directory.SetLastWriteTimeUtc(dir, DateTime.UtcNow - age);
+                return dir;
+            }
+            var recent = Enumerable.Range(0, limit).Select(i => Entry($"recent{i}", TimeSpan.FromSeconds(i))).ToList();
+            var old = Entry("old", TimeSpan.FromHours(1));
+            // The lock file as another process's reader holds it.
+            var held = new FileStream(Path.Combine(old, "in-use-1.lock"), FileMode.Create, FileAccess.ReadWrite, FileShare.None);
+            Directory.SetLastWriteTimeUtc(old, DateTime.UtcNow - TimeSpan.FromHours(1));
+            trim(root, recent[0]);
+            Assert.True(File.Exists(Path.Combine(old, marker)), marker);
+            held.Dispose();
+            trim(root, recent[0]);
+            Assert.False(Directory.Exists(old), marker);
+        }
+    }
+
+    [Fact]
     public void PackageTrimLeavesExtractionsUsedRecentlyForOtherReaders()
     {
         var root = _dir.File("packages-trim");
