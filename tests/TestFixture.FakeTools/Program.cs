@@ -2,12 +2,22 @@ using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Text.RegularExpressions;
+using TestFixture.FakeTools;
 
 // Modes: "-version" answers like a JDK; "version" like adb; "... -jar vineflower*.jar ... <in> <out>" writes sources like Vineflower;
 // "... -jar <jar> ..." serves MCP over stdio like the JADX server;
 // anything else follows the rules of the JSON script named by ADB_FAKE_SCRIPT: the first rule whose "match" regex finds the
 // joined arguments prints "stdout" ("repeat" times), "bytes" (base64, "repeat" times), "printEnv" (a variable) and "stderr",
 // writes "file" (base64) to the last argument, and exits with "exit".
+// "job-parent <program> <arguments>" stands in for a test host: it enters a kill-on-close job, starts the program, prints its
+// process id and waits to be ended.
+if (args is ["job-parent", var program, .. var arguments])
+{
+    KillOnCloseJob.EnterCurrentProcess();
+    Console.WriteLine(System.Diagnostics.Process.Start(program, arguments).Id);
+    Thread.Sleep(Timeout.Infinite);
+}
+
 var script = Environment.GetEnvironmentVariable("ADB_FAKE_SCRIPT") is { Length: > 0 } path && File.Exists(path)
     ? JsonNode.Parse(File.ReadAllText(path))!.AsObject()
     : new JsonObject();

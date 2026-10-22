@@ -34,6 +34,9 @@ internal static class LeakGuard
     internal static void Redirect()
     {
         TestDataFolder.Isolate(); // the data folder stays in the shared temp: its caches outlive the run
+        // Every process a test starts ends with this one, even when it crashes or is killed, so no program outlives the run.
+        try { TestFixture.FakeTools.KillOnCloseJob.EnterCurrentProcess(); }
+        catch (System.ComponentModel.Win32Exception ex) { Console.Error.WriteLine($"test processes are not tied to the run: {ex.Message}"); }
         RemoveEndedRuns();
         Directory.CreateDirectory(RunTemp);
         foreach (var name in new[] { "TMP", "TEMP", "TMPDIR" })
@@ -60,11 +63,27 @@ internal static class LeakGuard
                     if (!p.HasExited) continue;
                 }
                 catch (ArgumentException) { /* not running */ }
+                EndPrograms(dir);
                 try { Directory.Delete(dir, true); }
                 catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
             }
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
+    }
+
+    /// <summary>
+    /// Ends programs still running from an ended run's folder. Off Windows no job ends them with their run, so a crashed run's
+    /// programs end here, at the next run's start; on Windows it does nothing.
+    /// </summary>
+    private static void EndPrograms(string dir)
+    {
+        if (OperatingSystem.IsWindows()) return;
+        foreach (var p in Process.GetProcesses())
+            using (p)
+            {
+                try { if (p.MainModule?.FileName is { } file && file.StartsWith(dir + "/", StringComparison.Ordinal)) p.Kill(); }
+                catch (Exception ex) when (ex is InvalidOperationException or System.ComponentModel.Win32Exception or NotSupportedException) { }
+            }
     }
 
     /// <summary>What leaked, or null: children still running after a grace period, then entries left in the run's temporary folder.</summary>
