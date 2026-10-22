@@ -166,12 +166,13 @@ public sealed class ScriptReaderTests
     }
 
     [Fact]
+    [Trait(PerfBudget.Trait, PerfBudget.Timing)]
     public void An_endless_loop_ends_at_the_budget()
     {
         var watch = System.Diagnostics.Stopwatch.StartNew();
         var r = ScriptReader.Read("$i = 0; while ($true) { $i++ }", "powershell", milliseconds: 500);
         Assert.False(r.Complete);
-        Assert.True(watch.ElapsedMilliseconds < 5_000, $"{watch.ElapsedMilliseconds} ms");
+        PerfBudget.Check(watch.ElapsedMilliseconds < 5_000, $"{watch.ElapsedMilliseconds} ms");
     }
 
     [Fact]

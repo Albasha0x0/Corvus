@@ -211,6 +211,7 @@ public sealed class JsFlowTests(Xunit.Abstractions.ITestOutputHelper output) : I
 
     /// <summary>#3839: getters reading this[symbol] fields stay one unknown each, not a combinatorial expansion.</summary>
     [Fact]
+    [Trait(PerfBudget.Trait, PerfBudget.Timing)]
     public void Computed_receiver_getters_stay_bounded()
     {
         var names = Enumerable.Range(0, 300).Select(i => "g" + i).ToList();
@@ -219,7 +220,9 @@ public sealed class JsFlowTests(Xunit.Abstractions.ITestOutputHelper output) : I
                   "\n}\nconst req = new Request(globalThis.init);\n" + string.Join("\n", names.Select(n => $"fetch(req.{n});"));
         var sw = System.Diagnostics.Stopwatch.StartNew();
         var r = Flow(cls, "sinks", back: true);
-        Assert.True(sw.Elapsed.TotalSeconds < 5, $"{sw.Elapsed.TotalSeconds:0.0} s");
+        PerfBudget.Check(sw.Elapsed.TotalSeconds < 5, $"{sw.Elapsed.TotalSeconds:0.0} s", output);
+        // About seven steps per getter; an expansion through the getter chain grows with its square or worse.
+        Assert.InRange(r.Steps, 1, 20 * names.Count);
         Assert.Null(r.Partial);
         Assert.Contains(r.Flows, f => f.End == "unknown" && f.Steps[^1].Link == "dynamic property");
     }
@@ -267,6 +270,7 @@ public sealed class JsFlowTests(Xunit.Abstractions.ITestOutputHelper output) : I
 public sealed class JsFlowRealTests(Xunit.Abstractions.ITestOutputHelper output)
 {
     [RequiresRealDataFact(RealData.Pdfjs)]
+    [Trait(PerfBudget.Trait, PerfBudget.Timing)]
     public void Pdfjs_sinks_back_within_budget()
     {
         var files = Directory.EnumerateFiles(RealData.Path(RealData.Pdfjs), "*.*js", new EnumerationOptions { RecurseSubdirectories = true, MaxRecursionDepth = 6 })
@@ -298,7 +302,7 @@ public sealed class JsFlowRealTests(Xunit.Abstractions.ITestOutputHelper output)
                 output.WriteLine($"    literal flows ending '{g.Key}': {g.Count()}, e.g. {g.First().Steps[^1].Text}");
             if (Path.GetFileName(file) == "openjpeg_nowasm_fallback.js")
             {
-                Assert.True(seconds < 2, $"{seconds:0.00} s");
+                PerfBudget.Check(seconds < 2, $"{seconds:0.00} s", output);
                 Assert.True(mb < 200, $"{mb:0} MB");
                 Assert.Null(r.Partial ?? literals.Partial ?? module?.Partial);
             }

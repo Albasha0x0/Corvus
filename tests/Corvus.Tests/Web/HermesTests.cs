@@ -235,6 +235,7 @@ public sealed partial class HermesTests(ITestOutputHelper output) : IDisposable
     /// <summary>Every bundle under CORVUS_HBC_DIR: read and indexed in under a second (10 MB scale), every function decompiled.</summary>
     [Trait("Speed", "Slow")]
     [RequiresRealDataFact("CORVUS_HBC_DIR")]
+    [Trait(PerfBudget.Trait, PerfBudget.Timing)]
     public void Real_bundles_read_fast_and_decompile_whole()
     {
         foreach (var file in Directory.EnumerateFiles(RealData.Path("CORVUS_HBC_DIR"), "*", SearchOption.AllDirectories).Where(p => HermesBundles.Applies(p)))
@@ -253,7 +254,7 @@ public sealed partial class HermesTests(ITestOutputHelper output) : IDisposable
                              $"({index.Instructions:N0} instructions, {index.Modules.Count:N0} modules); {f.Functions.Count:N0} functions decompiled in " +
                              $"{clock.Elapsed.TotalSeconds:N1} s, {gotos:N0} with a goto ({100.0 * gotos / Math.Max(1, f.Functions.Count):N1} %)");
             Assert.Empty(f.Issues);
-            if (bytes.Length <= 16 << 20) Assert.True(indexed < TimeSpan.FromSeconds(1), $"{file}: read and indexed in {indexed.TotalMilliseconds:N0} ms");
+            if (bytes.Length <= 16 << 20) PerfBudget.Check(indexed < TimeSpan.FromSeconds(1), $"{file}: read and indexed in {indexed.TotalMilliseconds:N0} ms", output);
         }
     }
 }

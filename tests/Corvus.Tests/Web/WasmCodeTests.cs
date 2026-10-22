@@ -142,6 +142,7 @@ public sealed class WasmIndexSpeedTests(ITestOutputHelper output)
 {
     [Fact]
     [Trait("Speed", "Slow")]
+    [Trait(PerfBudget.Trait, PerfBudget.Timing)]
     public void Sixty_megabyte_module_is_indexed_in_five_seconds()
     {
         var bytes = WasmCodeTests.Large(210_000);
@@ -153,6 +154,6 @@ public sealed class WasmIndexSpeedTests(ITestOutputHelper output)
                          $"{index.VirtualEdges.Count:N0} call_indirect edges: {clock.Elapsed.TotalSeconds:F2} s");
         Assert.True(bytes.Length >= 60_000_000, $"{bytes.Length:N0} bytes");
         Assert.Equal(210_000, index.Functions.Count);
-        Assert.True(clock.Elapsed < TimeSpan.FromSeconds(5), $"{clock.Elapsed.TotalSeconds:F2} s");
+        PerfBudget.Check(clock.Elapsed < TimeSpan.FromSeconds(5), $"{clock.Elapsed.TotalSeconds:F2} s", output);
     }
 }
