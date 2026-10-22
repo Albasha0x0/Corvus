@@ -380,6 +380,29 @@ public class TestReuseTests
 
     [Fact]
     [Trait("Speed", "Slow")]
+    public void A_process_a_test_run_starts_inherits_its_lowered_priority_unless_normal_is_set()
+    {
+        var module = Path.Combine(DocsTests.RepoRoot(), "test-reuse.psm1");
+        // Each child reports the priority it was started with: Windows class or Unix nice value.
+        const string child = "$p = Get-Process -Id $PID; if ($IsWindows) { $p.PriorityClass } else { (ps -o nice= -p $PID).Trim() }";
+        var lines = Run($$"""
+            Import-Module '{{module.Replace("'", "''")}}'
+            'before=' + (pwsh -NoProfile -Command '{{child}}')
+            $env:CORVUS_TEST_PRIORITY = 'normal'
+            Set-RunPriority
+            'kept=' + (pwsh -NoProfile -Command '{{child}}')
+            $env:CORVUS_TEST_PRIORITY = $null
+            Set-RunPriority
+            'lowered=' + (pwsh -NoProfile -Command '{{child}}')
+            """);
+        if (lines is ["skip"]) return; // no pwsh on this machine
+        string Line(string name) => lines.Single(l => l.StartsWith(name + "=")).Substring(name.Length + 1);
+        Assert.Equal(OperatingSystem.IsWindows() ? "BelowNormal" : "10", Line("lowered"));
+        Assert.Equal(Line("before"), Line("kept"));
+    }
+
+    [Fact]
+    [Trait("Speed", "Slow")]
     public void A_failure_under_the_key_of_a_recorded_pass_is_a_selection_miss()
     {
         var module = Path.Combine(DocsTests.RepoRoot(), "test-reuse.psm1");

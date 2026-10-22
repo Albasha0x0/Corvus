@@ -68,6 +68,13 @@ function Import-UserTestVariables {
 }
 if ($Full -or $Background -or $Perf) { Import-UserTestVariables }
 
+# Test runs yield to the desktop: the builds, test hosts and engine workers they start inherit the lowered priority. The
+# perf run keeps normal priority: it measures alone on the machine.
+if (-not $Perf) {
+    Import-Module (Join-Path $root 'test-reuse.psm1') -Force
+    Set-RunPriority
+}
+
 if ($Status) {
     if (-not (Test-Path $result)) { Write-Host 'No background run yet.'; exit 0 }
     $text = (Get-Content $result -Raw).Trim()
@@ -301,10 +308,8 @@ if ($Background) {
     Set-Content -Path $result -Value "$short running since $(Get-Date -Format 'yyyy-MM-dd HH:mm')" -NoNewline
     # Thread dumps of engine workers stopped for time stay next to the log.
     $stalls = Join-Path $gitDir 'corvus-stalls'
-    # Below-normal priority, inherited by the test hosts and engine workers, keeps the machine responsive meanwhile. A
-    # whole run also refreshes a coverage map 6 days old (-Reuse drops one at 7), while its record keeps pushes queued.
+    # A whole run also refreshes a coverage map 6 days old (-Reuse drops one at 7), while its record keeps pushes queued.
     $script = @"
-(Get-Process -Id `$PID).PriorityClass = 'BelowNormal'
 Set-Location '$dir'
 `$env:CORVUS_STALL_DIR = '$stalls'
 & ./test.ps1 $flags *> '$log'

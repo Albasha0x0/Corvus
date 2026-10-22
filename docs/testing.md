@@ -16,8 +16,10 @@
   antivirus does not quarantine the script fixtures; it is kept between runs, so each run checks out its commit there and
   builds incrementally), and a failure is fixed in the next commit. A push while a run is going is queued: when the run
   ends, one run starts on the newest commit, at the strongest strength asked meanwhile. A whole-suite run without reuse (the nightly run, a release gate) holds an exclusive machine lock while it runs when `CORVUS_HEAVY_LOCK` names a lock script
-  (called as `heavy <name> -OwnerPid <pid>`, which waits for the lock, and `release <name>`), so other load on the machine waits for it; a push run (`-Reuse`) takes none and relies on the machine-wide permits. A background run runs at below-normal priority (its test
-  hosts and engine workers inherit it) and reuses family passes; it is routine strength, a quarter of the sweeps
+  (called as `heavy <name> -OwnerPid <pid>`, which waits for the lock, and `release <name>`), so other load on the machine waits for it; a push run (`-Reuse`) takes none and relies on the machine-wide permits. Every test run except `-Perf`, in the
+  foreground or the background, runs at below-normal priority (nice 10 on Linux and macOS; its builds, test hosts and
+  engine workers inherit it), so the desktop stays responsive; `CORVUS_TEST_PRIORITY=normal` keeps normal priority. A
+  background run reuses family passes; it is routine strength, a quarter of the sweeps
   without the `Tier=Release` tests (`-Exhaustive`: release strength; `-Whole`: release strength without reuse). `./test.ps1 -Affected` runs the quick set plus the slow
   tests of the families changed since `origin/main` in the foreground (shared code such as `Core`, `Mcp` or test
   `Support` runs everything). Releases gate on the full set: a routine `./test.ps1 -Full` sweeps an evenly spread
