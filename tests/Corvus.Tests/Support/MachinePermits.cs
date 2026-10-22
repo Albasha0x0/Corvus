@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Globalization;
 using System.Reflection;
+using System.Runtime.InteropServices;
 using Xunit.Sdk;
 
 namespace Corvus.Tests;
@@ -30,6 +31,9 @@ public static class MachinePermits
     };
 
     private static readonly TimeSpan Poll = TimeSpan.FromMilliseconds(200);
+
+    /// <summary>How long a collection waits for its permits before its tests fail, naming who holds them.</summary>
+    public static readonly TimeSpan WaitLimit = TimeSpan.FromMinutes(10);
     private static readonly object LogLock = new();
 
     /// <summary>The folder of the slot files, in the machine's temporary folder rather than the run's own.</summary>
@@ -58,16 +62,17 @@ public static class MachinePermits
 
     /// <summary>
     /// Waits for one permit of each resource, taken in the order given (name order, so two holders never wait on each
-    /// other), and returns them as one handle with the time waited. Cancellation releases what was taken and throws.
+    /// other), and returns them as one handle with the time waited. Cancellation releases what was taken and throws; so
+    /// does a wait past <see cref="WaitLimit"/>, with a <see cref="TimeoutException"/> naming the slots and their holders.
     /// </summary>
     public static Task<(IDisposable Held, TimeSpan Waited)> TakeAsync(IReadOnlyList<string> resources, CancellationToken cancellation = default) =>
         // The perf run holds every permit itself (test.ps1 -Perf), so its own tests take none.
         Environment.GetEnvironmentVariable("CORVUS_PERMITS_HELD") == "1"
             ? Task.FromResult<(IDisposable, TimeSpan)>((new Held(), TimeSpan.Zero))
-            : TakeAsync(resources, Folder, Counts, cancellation);
+            : TakeAsync(resources, Folder, Counts, cancellation, WaitLimit);
 
     internal static async Task<(IDisposable Held, TimeSpan Waited)> TakeAsync(IReadOnlyList<string> resources, string folder,
-        IReadOnlyDictionary<string, int> counts, CancellationToken cancellation)
+        IReadOnlyDictionary<string, int> counts, CancellationToken cancellation, TimeSpan? limit = null)
     {
         var watch = Stopwatch.StartNew();
         var held = new Held();
@@ -78,7 +83,12 @@ public static class MachinePermits
                 var dir = Path.Combine(folder, resource);
                 Directory.CreateDirectory(dir);
                 FileStream? slot;
-                while ((slot = TryTake(dir, counts[resource])) == null) await Task.Delay(Poll, cancellation);
+                while ((slot = TryTake(dir, counts[resource])) == null)
+                {
+                    if (watch.Elapsed > limit)
+                        throw new TimeoutException($"No {resource} permit within {limit.Value.TotalMinutes:0.##} min: {Holders(dir, counts[resource])}.");
+                    await Task.Delay(Poll, cancellation);
+                }
                 held.Slots.Add(slot);
             }
         }
@@ -101,6 +111,16 @@ public static class MachinePermits
         lock (LogLock) File.AppendAllLines(log, [line]);
     }
 
+    /// <summary>Each slot file of a resource and who holds it: the process id and command line where Windows reports them.</summary>
+    private static string Holders(string dir, int count) => string.Join("; ", Enumerable.Range(0, count).Select(i =>
+    {
+        var slot = Path.Combine(dir, $"slot-{i}");
+        var holders = OperatingSystem.IsWindows() ? FileHolders.Of(slot) : [];
+        return holders.Count == 0
+            ? $"{slot} is held by another process"
+            : $"{slot} is held by " + string.Join(", ", holders.Select(h => $"process {h.Pid}" + (h.CommandLine is { } c ? $" ({c})" : "")));
+    }));
+
     private static FileStream? TryTake(string dir, int count)
     {
         for (var i = 0; i < count; i++)
@@ -122,4 +142,95 @@ public static class MachinePermits
             Slots.Clear();
         }
     }
+}
+
+/// <summary>
+/// The processes holding a file open, from the Restart Manager, with their command lines; empty when Windows reports none
+/// or refuses the query. A command line is null where the process cannot be opened.
+/// </summary>
+internal static class FileHolders
+{
+    public static IReadOnlyList<(int Pid, string? CommandLine)> Of(string path)
+    {
+        var key = new char[33];
+        if (RmStartSession(out var session, 0, key) != 0) return [];
+        try
+        {
+            if (RmRegisterResources(session, 1, [path], 0, IntPtr.Zero, 0, IntPtr.Zero) != 0) return [];
+            uint count = 0;
+            var result = RmGetList(session, out var needed, ref count, null, out _);
+            if (result == 0 || result != MoreData) return [];
+            var info = new RM_PROCESS_INFO[needed];
+            count = needed;
+            if (RmGetList(session, out _, ref count, info, out _) != 0) return [];
+            return [.. info.Take((int)count).Select(p => (p.Process.dwProcessId, CommandLine(p.Process.dwProcessId)))];
+        }
+        finally { _ = RmEndSession(session); }
+    }
+
+    private static string? CommandLine(int pid)
+    {
+        var process = OpenProcess(QueryLimitedInformation, false, pid);
+        if (process == IntPtr.Zero) return null;
+        try
+        {
+            // The first call fails with the length it needs.
+            _ = NtQueryInformationProcess(process, ProcessCommandLineInformation, IntPtr.Zero, 0, out var length);
+            if (length == 0) return null;
+            var buffer = Marshal.AllocHGlobal(length);
+            try
+            {
+                if (NtQueryInformationProcess(process, ProcessCommandLineInformation, buffer, length, out _) != 0) return null;
+                // A UNICODE_STRING: its length in bytes, then a pointer to its characters.
+                var text = Marshal.ReadIntPtr(buffer, IntPtr.Size);
+                return Marshal.PtrToStringUni(text, Marshal.ReadInt16(buffer) / 2);
+            }
+            finally { Marshal.FreeHGlobal(buffer); }
+        }
+        finally { CloseHandle(process); }
+    }
+
+    private const int MoreData = 234;
+    private const uint QueryLimitedInformation = 0x1000;
+    private const int ProcessCommandLineInformation = 60;
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct RM_UNIQUE_PROCESS
+    {
+        public int dwProcessId;
+        public System.Runtime.InteropServices.ComTypes.FILETIME ProcessStartTime;
+    }
+
+    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+    private struct RM_PROCESS_INFO
+    {
+        public RM_UNIQUE_PROCESS Process;
+        [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 256)] public string strAppName;
+        [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 64)] public string strServiceShortName;
+        public int ApplicationType;
+        public uint AppStatus;
+        public uint TSSessionId;
+        [MarshalAs(UnmanagedType.Bool)] public bool bRestartable;
+    }
+
+    [DllImport("rstrtmgr.dll", CharSet = CharSet.Unicode)]
+    private static extern int RmStartSession(out uint session, int flags, [Out] char[] key);
+
+    [DllImport("rstrtmgr.dll")]
+    private static extern int RmEndSession(uint session);
+
+    [DllImport("rstrtmgr.dll", CharSet = CharSet.Unicode)]
+    private static extern int RmRegisterResources(uint session, uint files, string[] names, uint applications, IntPtr processes, uint services, IntPtr serviceNames);
+
+    [DllImport("rstrtmgr.dll")]
+    private static extern int RmGetList(uint session, out uint needed, ref uint count, [In, Out] RM_PROCESS_INFO[]? info, out uint rebootReasons);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern IntPtr OpenProcess(uint access, bool inherit, int pid);
+
+    [DllImport("kernel32.dll")]
+    private static extern bool CloseHandle(IntPtr handle);
+
+    [DllImport("ntdll.dll")]
+    private static extern int NtQueryInformationProcess(IntPtr process, int infoClass, IntPtr buffer, int length, out int returned);
 }

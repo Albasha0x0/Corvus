@@ -276,7 +276,16 @@ public sealed class LeakGuardFramework(IMessageSink messageSink) : XunitTestFram
         {
             var needed = MachinePermits.Needed(testCases);
             if (needed.Count == 0) return await base.RunTestCollectionAsync(messageBus, testCollection, testCases, cancellationTokenSource);
-            var (held, waited) = await MachinePermits.TakeAsync(needed, cancellationTokenSource.Token);
+            IDisposable held;
+            TimeSpan waited;
+            try { (held, waited) = await MachinePermits.TakeAsync(needed, cancellationTokenSource.Token); }
+            catch (TimeoutException e)
+            {
+                // Each test fails with the wait's message instead of the run hanging without output.
+                var failed = new ExceptionAggregator(Aggregator);
+                failed.Add(e);
+                return await new XunitTestCollectionRunner(testCollection, testCases, DiagnosticMessageSink, messageBus, TestCaseOrderer, failed, cancellationTokenSource).RunAsync();
+            }
             using (held)
             {
                 MachinePermits.Record(needed, waited, testCollection.DisplayName);

@@ -42,4 +42,21 @@ public class MachinePermitsTests
         }
         finally { Directory.Delete(folder, true); }
     }
+
+    [Fact]
+    public async Task A_wait_past_its_limit_names_the_slot_and_its_holder()
+    {
+        var folder = Path.Combine(Path.GetTempPath(), $"corvus-permits-{Guid.NewGuid():N}");
+        var counts = new Dictionary<string, int> { ["one"] = 1 };
+        try
+        {
+            var (held, _) = await MachinePermits.TakeAsync(["one"], folder, counts, default);
+            var late = await Assert.ThrowsAsync<TimeoutException>(() => MachinePermits.TakeAsync(["one"], folder, counts, default, TimeSpan.FromMilliseconds(500)));
+            held.Dispose();
+            Assert.Contains("No one permit within ", late.Message);
+            Assert.Contains(Path.Combine(folder, "one", "slot-0") + " is held by ", late.Message);
+            if (OperatingSystem.IsWindows()) Assert.Contains($"process {Environment.ProcessId} (", late.Message);
+        }
+        finally { Directory.Delete(folder, true); }
+    }
 }
