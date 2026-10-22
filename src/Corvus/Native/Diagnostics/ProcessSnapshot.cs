@@ -128,7 +128,7 @@ public static class ProcessSnapshot
         try
         {
             // Wait for the loader first: until it has listed the modules, every write fails as a changed program does.
-            AwaitLoader(pid, () => LoaderReady(process), ct);
+            AwaitLoader(pid, () => LoaderReady(process), LoaderWait, ct);
             Attempts(pid, () =>
             {
                 using var file = new FileStream(path, FileMode.Create, FileAccess.ReadWrite, FileShare.None);
@@ -143,19 +143,24 @@ public static class ProcessSnapshot
     }
 
     /// <summary>How long a snapshot waits for a starting program's loader before it refuses.</summary>
-    internal static TimeSpan LoaderWait { get; set; } = TimeSpan.FromSeconds(10);
+    internal static readonly TimeSpan LoaderWait = TimeSpan.FromSeconds(10);
 
     /// <summary>
     /// Returns once <paramref name="ready"/> is not false (true, or null for unknown); refuses with
-    /// <see cref="ErrorCode.Timeout"/> after <see cref="LoaderWait"/>.
+    /// <see cref="ErrorCode.Timeout"/> once <paramref name="elapsed"/> (default: wall time since the call) reaches
+    /// <paramref name="wait"/>.
     /// </summary>
-    internal static void AwaitLoader(int pid, Func<bool?> ready, CancellationToken ct)
+    internal static void AwaitLoader(int pid, Func<bool?> ready, TimeSpan wait, CancellationToken ct, Func<TimeSpan>? elapsed = null)
     {
-        var clock = Stopwatch.StartNew();
+        if (elapsed == null)
+        {
+            var clock = Stopwatch.StartNew();
+            elapsed = () => clock.Elapsed;
+        }
         while (ready() == false)
         {
-            if (clock.Elapsed >= LoaderWait)
-                throw new ToolError(ErrorCode.Timeout, $"Process {pid} has not started: its loader has not listed its modules within {LoaderWait.TotalSeconds:0} s.",
+            if (elapsed() >= wait)
+                throw new ToolError(ErrorCode.Timeout, $"Process {pid} has not started: its loader has not listed its modules within {(wait.TotalSeconds >= 1 ? $"{wait.TotalSeconds:0.#} s" : $"{wait.TotalMilliseconds:0} ms")}.",
                     "a program held at its start is written once it runs: live_break action=continue, then snapshot again");
             ct.ThrowIfCancellationRequested();
             ct.WaitHandle.WaitOne(20);

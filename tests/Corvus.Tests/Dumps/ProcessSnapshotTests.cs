@@ -162,21 +162,28 @@ public sealed class ProcessSnapshotTests
     [Fact]
     public void A_loader_that_never_runs_is_refused_after_the_wait()
     {
-        var wait = ProcessSnapshot.LoaderWait;
-        ProcessSnapshot.LoaderWait = TimeSpan.FromMilliseconds(100);
-        try
-        {
-            var refused = Assert.Throws<ToolError>(() => ProcessSnapshot.AwaitLoader(7, () => false, CancellationToken.None));
-            Assert.Equal(ErrorCode.Timeout, refused.Code);
-            Assert.Contains("Process 7 has not started", refused.Message);
-            Assert.Contains("live_break action=continue", refused.Remediation);
-            var answers = new Queue<bool?>([false, false, true]);
-            ProcessSnapshot.AwaitLoader(7, () => answers.Dequeue(), CancellationToken.None);
-            Assert.Empty(answers);
-            // An unreadable PEB is unknown, not a loader that has not run.
-            ProcessSnapshot.AwaitLoader(7, () => null, CancellationToken.None);
-        }
-        finally { ProcessSnapshot.LoaderWait = wait; }
+        // A scripted clock: each poll advances it 40 ms, whatever the machine's load.
+        var refused = Assert.Throws<ToolError>(() => ProcessSnapshot.AwaitLoader(7, () => false, TimeSpan.FromMilliseconds(100), CancellationToken.None, Polls()));
+        Assert.Equal(ErrorCode.Timeout, refused.Code);
+        Assert.Contains("Process 7 has not started: its loader has not listed its modules within 100 ms.", refused.Message);
+        Assert.Contains("live_break action=continue", refused.Remediation);
+    }
+
+    [Fact]
+    public void A_loader_that_runs_within_the_wait_or_cannot_be_read_is_not_refused()
+    {
+        // Two not-ready polls at 0 and 40 ms, then ready at 80 ms: inside the 100 ms wait.
+        var answers = new Queue<bool?>([false, false, true]);
+        ProcessSnapshot.AwaitLoader(7, () => answers.Dequeue(), TimeSpan.FromMilliseconds(100), CancellationToken.None, Polls());
+        Assert.Empty(answers);
+        // An unreadable PEB is unknown, not a loader that has not run.
+        ProcessSnapshot.AwaitLoader(7, () => null, TimeSpan.FromMilliseconds(100), CancellationToken.None, Polls());
+    }
+
+    private static Func<TimeSpan> Polls()
+    {
+        int polls = 0;
+        return () => TimeSpan.FromMilliseconds(40 * polls++);
     }
 
     [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
