@@ -43,6 +43,9 @@ dotnet/call-path-search	windows	10000	ms
 dotnet/once-cancelled-waiter	linux	5000	ms
 dotnet/once-cancelled-waiter	macos	5000	ms
 dotnet/once-cancelled-waiter	windows	5000	ms
+dotnet/short-client-partial-answer	linux	3000	ms
+dotnet/short-client-partial-answer	macos	3000	ms
+dotnet/short-client-partial-answer	windows	3000	ms
 dotnet/simplify-sweep	linux	3	ms/method
 dotnet/simplify-sweep	macos	3	ms/method
 dotnet/simplify-sweep	windows	3	ms/method
