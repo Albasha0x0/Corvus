@@ -339,9 +339,16 @@ function Enter-HeavyLock([string]$name) {
     return $true
 }
 
+# The heavy lock of a whole-suite run: one without reuse (the nightly run, a release gate) waits for it; a push run
+# (reusing passes) takes none, as the machine-wide permits bound its engines and live sessions. True when taken.
+function Enter-RunLock([string]$name, [bool]$reuse) {
+    if ($reuse) { return $false }
+    Enter-HeavyLock $name
+}
+
 # Releases the heavy lock taken by Enter-HeavyLock.
 function Exit-HeavyLock([string]$name) {
     if ($env:CORVUS_HEAVY_LOCK) { & $env:CORVUS_HEAVY_LOCK release $name | Out-Host }
 }
 
-Export-ModuleMember -Function Get-SelectionMisses, Get-PathStamp, Enter-HeavyLock, Exit-HeavyLock, Get-RunEnvironment, Get-ReuseScope, Get-ClassMap, Get-SlowClasses, Test-AlwaysRunFolder, Read-ClassCoverage, Split-ClassMap, Add-ClassTestScopes, Get-RootReaders, Get-FamilyKeys, Read-CoverageMap, Get-CoveredFiles, Get-StaleFamilies, Get-ReuseFilter, Get-PassedFamilies, Save-FamilyPasses, Test-DocsOnly, Get-FailedTests, Get-PassedTests, Test-RunCompleted, Get-FailureLabels, Read-Quarantine, Split-Quarantined
+Export-ModuleMember -Function Enter-RunLock, Get-SelectionMisses, Get-PathStamp, Enter-HeavyLock, Exit-HeavyLock, Get-RunEnvironment, Get-ReuseScope, Get-ClassMap, Get-SlowClasses, Test-AlwaysRunFolder, Read-ClassCoverage, Split-ClassMap, Add-ClassTestScopes, Get-RootReaders, Get-FamilyKeys, Read-CoverageMap, Get-CoveredFiles, Get-StaleFamilies, Get-ReuseFilter, Get-PassedFamilies, Save-FamilyPasses, Test-DocsOnly, Get-FailedTests, Get-PassedTests, Test-RunCompleted, Get-FailureLabels, Read-Quarantine, Split-Quarantined

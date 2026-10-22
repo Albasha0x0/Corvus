@@ -229,7 +229,7 @@ public class TestReuseTests
 
     [Fact]
     [Trait("Speed", "Slow")]
-    public void The_heavy_lock_script_is_called_to_take_and_release_and_no_variable_means_no_lock()
+    public void The_heavy_lock_script_is_called_to_take_and_release_but_not_for_a_push_run()
     {
         var module = Path.Combine(DocsTests.RepoRoot(), "test-reuse.psm1");
         var dir = Path.Combine(Path.GetTempPath(), $"corvus-reuse-{Guid.NewGuid():N}");
@@ -250,6 +250,8 @@ public class TestReuseTests
                 $env:CORVUS_HEAVY_LOCK = '{{lockScript}}'
                 'set=' + (Enter-HeavyLock 'run')
                 Exit-HeavyLock 'run'
+                'push=' + (Enter-RunLock 'push' $true)
+                'nightly=' + (Enter-RunLock 'nightly' $false)
                 'keyed=' + ($before -ne (Get-RunEnvironment))
                 'pid=' + $PID
                 """);
@@ -257,7 +259,9 @@ public class TestReuseTests
             string Line(string name) => lines.Single(l => l.StartsWith(name + "=")).Substring(name.Length + 1);
             Assert.Equal("False", Line("unset"));
             Assert.Equal("True", Line("set"));
-            Assert.Equal([$"heavy run {Line("pid")}", "release run 0"], File.ReadAllLines(calls));
+            Assert.Equal(("False", "True"), (Line("push"), Line("nightly")));
+            // A push run relies on the machine-wide permits: only the run without reuse calls the lock script.
+            Assert.Equal([$"heavy run {Line("pid")}", "release run 0", $"heavy nightly {Line("pid")}"], File.ReadAllLines(calls));
             Assert.Equal("False", Line("keyed")); // the lock does not change what a family pass proves
         }
         finally { Directory.Delete(dir, true); }

@@ -601,12 +601,12 @@ try {
     if ($Full) { $env:CORVUS_ALL_TESTS = '1' }
     $env:CORVUS_SWEEP = if ($Exhaustive) { 'exhaustive' } else { $null }
     $tree = if ($wholeSuite -and -not $Coverage) { Get-CleanTree } else { $null }
-    # A whole-suite run waits for a quiet machine and keeps it quiet until it ends.
+    # A whole-suite run waits for a quiet machine and keeps it quiet until it ends, unless it is a push run (-Reuse).
     $heavyLock = "corvus-full-$PID"
     if ($wholeSuite) {
         Import-Module (Join-Path $root 'test-reuse.psm1') -Force
         $lockClock = [Diagnostics.Stopwatch]::StartNew()
-        $heavy = Enter-HeavyLock $heavyLock
+        $heavy = Enter-RunLock $heavyLock $Reuse.IsPresent
         if ($heavy) { $timing.heavyWait = [math]::Round($lockClock.Elapsed.TotalSeconds, 1) }
     }
     Start-RunTiming $runMode
