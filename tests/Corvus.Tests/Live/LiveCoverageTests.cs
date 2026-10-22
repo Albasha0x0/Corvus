@@ -311,8 +311,10 @@ public sealed class LiveCoverageTests : IDisposable
         Assert.Equal(counted, _service.GetCoverage("cov-1").Placed.Count);
     }
 
+    /// <summary>A run of every function sets a stop point per function, one request each: thousands of them.</summary>
+    [Trait("Speed", "Slow")]
     [Fact]
-    public async Task Runs_of_two_builds_a_graph_too_large_and_unknown_names_are_refused()
+    public async Task A_run_of_every_function_is_too_large_to_draw()
     {
         await _tools.LiveSession("attach", program: "4242");
         await _tools.LiveCoverage("live-1", "start");
@@ -321,6 +323,13 @@ public sealed class LiveCoverageTests : IDisposable
         var dot = await Assert.ThrowsAsync<ToolError>(() => _tools.LiveCoverage(action: "report", run: "cov-1", show: "all", format: "dot"));
         Assert.Equal(ErrorCode.LimitExceeded, dot.Code);
         Assert.Contains("match=", dot.Remediation);
+    }
+
+    [Fact]
+    public async Task Runs_of_two_builds_and_unknown_names_are_refused()
+    {
+        await _tools.LiveSession("attach", program: "4242");
+        await _tools.LiveCoverage("live-1", "start", match: "sqlite3_open");
         Assert.Equal(ErrorCode.InvalidArgument, (await Assert.ThrowsAsync<ToolError>(() => _tools.LiveCoverage(action: "report", run: "cov-1", show: "some"))).Code);
         Assert.Equal(ErrorCode.NotFound, (await Assert.ThrowsAsync<ToolError>(() => _tools.LiveCoverage("live-1", "start", match: "nosuchmodule!open"))).Code);
         Assert.Equal(ErrorCode.NotFound, (await Assert.ThrowsAsync<ToolError>(() => _tools.LiveCoverage("live-1", "start", match: "no_function_has_this_name"))).Code);
