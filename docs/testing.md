@@ -73,8 +73,12 @@
   that measure or check a cold open keep an empty cache.
 - **Timing budgets.** A test that times its work against a budget also asserts the mechanism that makes the work fast:
   a cache hit, a process not started, one worker request. It carries `[Trait("Perf", "Timing")]`, and its budget goes
-  through `PerfBudget.Check`. Gating runs record the time in the test output. The perf run (`CORVUS_PERF=1`, filter
-  `Perf=Timing`) fails a test that is over its budget.
+  through `PerfBudget.Check`. Gating runs record the time in the test output. The perf run (`./test.ps1 -Perf`,
+  nightly after a full run: `CORVUS_PERF=1`, filter `Perf=Timing`, one test at a time) enforces the budgets. It runs
+  alone on the machine: it holds the heavy lock and every test permit. A test over its budget runs up to 4 more times
+  and counts as over only when most of the 5 samples are. The run fails only on a test that was also over in the
+  perf run before (`.git/corvus-perf-verdicts.json`), so a single slow run is reported but does not fail the run;
+  `-Status` shows the last verdict.
 
 CI (`.github/workflows/ci.yml`) runs the quick set as a smoke lane; the release workflow builds the release archives.
 The full set and the real-application runs are done locally. To run the Live family (slow tests included) on macOS

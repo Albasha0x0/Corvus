@@ -61,7 +61,10 @@ public static class MachinePermits
     /// other), and returns them as one handle with the time waited. Cancellation releases what was taken and throws.
     /// </summary>
     public static Task<(IDisposable Held, TimeSpan Waited)> TakeAsync(IReadOnlyList<string> resources, CancellationToken cancellation = default) =>
-        TakeAsync(resources, Folder, Counts, cancellation);
+        // The perf run holds every permit itself (test.ps1 -Perf), so its own tests take none.
+        Environment.GetEnvironmentVariable("CORVUS_PERMITS_HELD") == "1"
+            ? Task.FromResult<(IDisposable, TimeSpan)>((new Held(), TimeSpan.Zero))
+            : TakeAsync(resources, Folder, Counts, cancellation);
 
     internal static async Task<(IDisposable Held, TimeSpan Waited)> TakeAsync(IReadOnlyList<string> resources, string folder,
         IReadOnlyDictionary<string, int> counts, CancellationToken cancellation)

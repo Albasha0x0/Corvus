@@ -13,6 +13,7 @@
 #                                         #   -Whole: exhaustive without reuse, the pass a minor release gates on)
 #         ./test.ps1 -SecondGhidra        # the Engines tests with CORVUS_SECOND_GHIDRA_DIR, unless they passed on these inputs
 #         ./test.ps1 -Status              # the last background run: passed / failed / running, its log, and run times
+#         ./test.ps1 -Perf                # the speed measurements with their budgets, alone on the machine (nightly, after -Full)
 #         ./test.ps1 -Stamp               # records the last full run's passes when its recording step failed (same tree only)
 #         ./test.ps1 -Full -Coverage      # also collects line coverage (coverlet) and checks Ratchets/coverage.txt
 #         ./test.ps1 -CoverageMap         # which source files each family's tests (and each slow class) run (weekly): -Reuse keys on them
@@ -36,7 +37,8 @@ param(
     [switch]$CoverageMap,
     [switch]$Mutation,
     [string[]]$Target,
-    [switch]$Stamp
+    [switch]$Stamp,
+    [switch]$Perf
 )
 
 $ErrorActionPreference = 'Stop'
@@ -64,7 +66,7 @@ function Import-UserTestVariables {
         if (($name -like 'CORVUS_*' -or $name -eq 'GHIDRA_INSTALL_DIR') -and -not [Environment]::GetEnvironmentVariable($name)) { Set-Item "env:$name" $user[$name] }
     }
 }
-if ($Full -or $Background) { Import-UserTestVariables }
+if ($Full -or $Background -or $Perf) { Import-UserTestVariables }
 
 if ($Status) {
     if (-not (Test-Path $result)) { Write-Host 'No background run yet.'; exit 0 }
@@ -89,6 +91,11 @@ if ($Status) {
     Import-Module (Join-Path $root 'test-time.psm1') -Force
     $times = @(Get-TimeSummary $timeHistory)
     if ($times) { Write-Host "Run times ($timeReport):"; $times | ForEach-Object { Write-Host "  $_" } }
+    $verdicts = Join-Path $gitDir 'corvus-perf-verdicts.json'
+    if (Test-Path $verdicts) {
+        $last = Get-Content $verdicts -Raw | ConvertFrom-Json
+        Write-Host "Perf run at $($last.at) on $($last.commit): $(if ($last.over) { "over budget: $($last.over -join ', ')" } else { 'every measurement within budget' })"
+    }
     exit 0
 }
 
@@ -127,6 +134,61 @@ function Save-RunTimes([string]$trx, [string]$mode, [int]$code, [hashtable]$extr
     finally {
         # Later test runs of this script (a failure rerun) log no waits.
         if ($env:CORVUS_PERMIT_LOG) { Remove-Item $env:CORVUS_PERMIT_LOG -ErrorAction SilentlyContinue; Remove-Item Env:CORVUS_PERMIT_LOG }
+    }
+}
+
+# The perf run: the speed measurements ([Trait("Perf", "Timing")]) with their budgets enforced (CORVUS_PERF=1), one
+# test at a time, alone on the machine. It holds the heavy lock and every permit, so no other test process runs heavy
+# work beside it, and its own tests take no permit (CORVUS_PERMITS_HELD). A test over budget runs up to 4 more times
+# and counts as over only when most of its 5 samples are; the run fails only on a test that was also over in the perf
+# run before (.git/corvus-perf-verdicts.json), so one slow run is reported, and a second in a row fails.
+$perfVerdicts = Join-Path $gitDir 'corvus-perf-verdicts.json'
+if ($Perf) {
+    Import-Module (Join-Path $root 'test-reuse.psm1') -Force
+    Import-Module (Join-Path $root 'test-time.psm1') -Force
+    $lockName = "corvus-perf-$PID"
+    $lockClock = [Diagnostics.Stopwatch]::StartNew()
+    $heavy = Enter-HeavyLock $lockName
+    Write-Host 'Waiting for every test permit on the machine.'
+    $permits = Enter-AllPermits (Get-PermitCounts (Join-Path $tests 'Support/MachinePermits.cs'))
+    $waited = [math]::Round($lockClock.Elapsed.TotalSeconds, 1)
+    $saved = $env:CORVUS_PERF, $env:CORVUS_ALL_TESTS, $env:CORVUS_PERMITS_HELD
+    $results = Join-Path $tempRoot "corvus-trx-perf-$PID"
+    try {
+        $env:CORVUS_PERF = '1'; $env:CORVUS_ALL_TESTS = '1'; $env:CORVUS_PERMITS_HELD = '1'
+        $serial = @('--', 'xUnit.MaxParallelThreads=1', 'xUnit.ParallelizeTestCollections=false')
+        Start-RunTiming 'perf'
+        $perfFilter = if ($Filter) { "Perf=Timing&($Filter)" } else { 'Perf=Timing' }
+        & dotnet test $tests --nologo --filter $perfFilter --logger 'trx;LogFileName=full.trx' --results-directory $results @serial
+        $code = $LASTEXITCODE
+        $trx = Join-Path $results 'full.trx'
+        Save-RunTimes $trx 'perf' $code @{ heavyWait = $waited }
+        $failed = @(if (Test-Path $trx) { Get-FailedTests $trx })
+        if ($code -ne 0 -and -not $failed) { Write-Host "The perf run failed (exit $code) with no failed test to sample again." -ForegroundColor Red; exit $code }
+        $sample = 1
+        $over = @(Get-PerfOverBudget $failed {
+            param($pending)
+            $script:sample++
+            $out = Join-Path $results "sample-$script:sample"
+            & dotnet test $tests --nologo --no-build --filter (($pending | ForEach-Object { "FullyQualifiedName~$_" }) -join '|') `
+                --logger 'trx;LogFileName=sample.trx' --results-directory $out @serial | Out-Host
+            $sampleTrx = Join-Path $out 'sample.trx'
+            # A sample that wrote no results counts as over budget for every test in it.
+            if (Test-Path $sampleTrx) { Get-FailedTests $sampleTrx } else { $pending }
+        })
+        $confirmed = @(Update-PerfVerdicts $perfVerdicts $over (git -C $root rev-parse --short HEAD).Trim())
+        $once = @($over | Where-Object { $_ -notin $confirmed })
+        if ($failed -and -not $over) { Write-Host "Over budget once, within it in most of 5 samples: $($failed -join ', ')." -ForegroundColor Yellow }
+        if ($once) { Write-Host "Over budget in most of 5 samples for the first run in a row (the next perf run confirms or clears it): $($once -join ', ')." -ForegroundColor Yellow }
+        if ($confirmed) { Write-Host "Over budget in two perf runs in a row: $($confirmed -join ', ')." -ForegroundColor Red; exit 1 }
+        Write-Host 'Perf run: no regression confirmed.'
+        exit 0
+    }
+    finally {
+        $env:CORVUS_PERF, $env:CORVUS_ALL_TESTS, $env:CORVUS_PERMITS_HELD = $saved
+        if (Test-Path $results) { Remove-Item -Recurse -Force $results }
+        Exit-AllPermits $permits
+        if ($heavy) { Exit-HeavyLock $lockName }
     }
 }
 

@@ -97,6 +97,46 @@ public class TestTimeTests
         finally { Directory.Delete(dir, true); }
     }
 
+    [Fact]
+    [Trait("Speed", "Slow")]
+    public void A_perf_regression_needs_most_of_five_samples_and_two_runs_in_a_row()
+    {
+        var dir = NewFolder();
+        var verdicts = Path.Combine(dir, "verdicts.json");
+        var source = Path.Combine(DocsTests.RepoRoot(), "tests", "Corvus.Tests", "Support", "MachinePermits.cs").Replace("'", "''");
+        try
+        {
+            var lines = Run($$"""
+                Import-Module '{{Module}}'
+                # Slow fails every sample, Noisy the first three, Once only the first.
+                $script:calls = 0
+                $over = Get-PerfOverBudget @('Slow', 'Noisy', 'Once') {
+                    param($pending)
+                    $script:calls++
+                    @($pending | Where-Object { $_ -eq 'Slow' -or ($_ -eq 'Noisy' -and $script:calls -le 2) })
+                }
+                'over=' + ($over -join ',')
+                'calls=' + $script:calls
+                'first=' + ((Update-PerfVerdicts '{{verdicts}}' $over 'abc') -join ',')
+                'second=' + ((Update-PerfVerdicts '{{verdicts}}' @('Slow') 'def') -join ',')
+                $counts = Get-PermitCounts '{{source}}'
+                'counts=' + (($counts.Keys | Sort-Object | ForEach-Object { "$_=$($counts[$_])" }) -join ',')
+                $held = Enter-AllPermits @{ x = 2 } '{{dir}}'
+                try { [IO.File]::Open('{{dir}}/x/slot-1', 'Open', 'ReadWrite', 'None').Dispose(); 'open=yes' } catch { 'open=no' }
+                Exit-AllPermits $held
+                """);
+            if (lines is ["skip"]) return; // no pwsh on this machine
+            Assert.Equal("Slow,Noisy", Line(lines, "over"));
+            // Three samples decide each: Slow and Noisy over budget, Once within it.
+            Assert.Equal("3", Line(lines, "calls"));
+            Assert.Equal("", Line(lines, "first"));
+            Assert.Equal("Slow", Line(lines, "second"));
+            Assert.Equal(string.Join(',', MachinePermits.Counts.OrderBy(c => c.Key, StringComparer.Ordinal).Select(c => $"{c.Key}={c.Value}")), Line(lines, "counts"));
+            Assert.Equal("no", Line(lines, "open"));
+        }
+        finally { Directory.Delete(dir, true); }
+    }
+
     private static string Module => Path.Combine(DocsTests.RepoRoot(), "test-time.psm1").Replace("'", "''");
 
     private static string NewFolder()

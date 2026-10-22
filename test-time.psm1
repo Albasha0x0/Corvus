@@ -373,4 +373,62 @@ function Get-TimeSummary([string]$historyPath) {
     }
 }
 
-Export-ModuleMember -Function Read-TestTimes, Get-MachineLoad, Start-MachineLoad, Add-TestHistory, Read-TestHistory, Get-CriticalPath, Get-Concurrency, Save-TestTimes, Get-TimeSummary
+# The permit counts of Support/MachinePermits.cs, as @{ resource = count }: the table the tests take permits by.
+function Get-PermitCounts([string]$sourcePath) {
+    $table = [regex]::Match((Get-Content $sourcePath -Raw), '(?s)Counts = new Dictionary<string, int>\s*\{(.*?)\};').Groups[1].Value
+    $counts = @{}
+    foreach ($m in [regex]::Matches($table, '\["([a-z-]+)"\]\s*=\s*(\d+)')) { $counts[$m.Groups[1].Value] = [int]$m.Groups[2].Value }
+    if (-not $counts.Count) { throw "no permit counts in $sourcePath" }
+    return $counts
+}
+
+# Takes every permit of every resource in $folder (the slot files MachinePermits opens), waiting until their holders
+# end, and returns the open slots for Exit-AllPermits.
+function Enter-AllPermits([hashtable]$counts, [string]$folder = (Join-Path ([IO.Path]::GetTempPath()) 'corvus-test-data/permits')) {
+    $slots = [System.Collections.Generic.List[IO.FileStream]]::new()
+    foreach ($resource in $counts.Keys | Sort-Object) {
+        $dir = Join-Path $folder $resource
+        New-Item -ItemType Directory -Force $dir | Out-Null
+        for ($i = 0; $i -lt $counts[$resource]; $i++) {
+            while ($true) {
+                try { $slots.Add([IO.FileStream]::new((Join-Path $dir "slot-$i"), 'OpenOrCreate', 'ReadWrite', 'None')); break }
+                catch [IO.IOException] { Start-Sleep -Milliseconds 500 }
+            }
+        }
+    }
+    return , $slots
+}
+
+# Releases the permits Enter-AllPermits took.
+function Exit-AllPermits($slots) { foreach ($slot in $slots) { $slot.Dispose() } }
+
+# The tests over budget in most of $samples samples: $over failed the first sample, and $rerun (a block taking test
+# names and returning the ones that failed again) takes the rest, only for tests not yet decided either way.
+function Get-PerfOverBudget([string[]]$over, [scriptblock]$rerun, [int]$samples = 5) {
+    $over = @($over | Where-Object { $_ })
+    if (-not $over) { return @() }
+    $majority = [math]::Floor($samples / 2) + 1
+    $failed = @{}; $taken = 1
+    foreach ($test in $over) { $failed[$test] = 1 }
+    while ($taken -lt $samples) {
+        $pending = @($over | Where-Object { $failed[$_] -lt $majority -and $taken - $failed[$_] -lt $majority })
+        if (-not $pending) { break }
+        $again = @(& $rerun $pending)
+        foreach ($test in $pending) { if ($test -in $again) { $failed[$test]++ } }
+        $taken++
+    }
+    @($over | Where-Object { $failed[$_] -ge $majority })
+}
+
+# Records a perf run's tests over budget in $path and returns those also over budget in the perf run before: a
+# regression is confirmed by two runs in a row, not one slow run.
+function Update-PerfVerdicts([string]$path, [string[]]$over, [string]$commit) {
+    $over = @($over | Where-Object { $_ })
+    $before = if (Test-Path $path) { @((Get-Content $path -Raw | ConvertFrom-Json).over | Where-Object { $_ }) } else { @() }
+    $record = [ordered]@{ commit = $commit; at = (Get-Date -Format 'yyyy-MM-dd HH:mm'); over = $over }
+    Set-Content -Path "$path.tmp" -Value ($record | ConvertTo-Json -Depth 3) -NoNewline
+    Move-Item -Force "$path.tmp" $path
+    @($over | Where-Object { $_ -in $before })
+}
+
+Export-ModuleMember -Function Get-PermitCounts, Enter-AllPermits, Exit-AllPermits, Get-PerfOverBudget, Update-PerfVerdicts, Read-TestTimes, Get-MachineLoad, Start-MachineLoad, Add-TestHistory, Read-TestHistory, Get-CriticalPath, Get-Concurrency, Save-TestTimes, Get-TimeSummary
