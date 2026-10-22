@@ -14,6 +14,7 @@ public sealed class SessionProgressTests : IDisposable
     public void Dispose() => _dir.Dispose();
 
     [Fact]
+    [Trait(PerfBudget.Trait, PerfBudget.Timing)]
     public async Task LoadSessionReportsProgressFromItsFirstStep()
     {
         await using var server = await InProcessServer.StartAsync();
@@ -33,7 +34,7 @@ public sealed class SessionProgressTests : IDisposable
         // Handlers may run concurrently, so arrival order is not send order: the first step is the lowest progress.
         var first = updates.OrderBy(u => u.Value.Progress.Progress).ThenBy(u => u.Ms).FirstOrDefault();
         Assert.Equal("Reading work.session.json", first.Value?.Progress.Message);
-        Assert.InRange(first.Ms, 0, 5_000);
+        PerfBudget.Check(first.Ms <= 5_000, $"first progress after {first.Ms} ms");
 
         var text = string.Concat(result.Content.OfType<TextContentBlock>().Select(b => b.Text));
         // The per-user note store is shared by the test run, so a notes row may follow the file's.

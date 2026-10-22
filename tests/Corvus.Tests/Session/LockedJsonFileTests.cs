@@ -35,6 +35,7 @@ public class LockedJsonFileTests : IDisposable
     }
 
     [Fact]
+    [Trait(PerfBudget.Trait, PerfBudget.Timing)]
     public void HeldLock_TimesOut_AndLeavesTheFileUntouched()
     {
         LockedJsonFile.Update<Dictionary<string, int>>(Records, _ => new() { ["a"] = 1 });
@@ -46,7 +47,8 @@ public class LockedJsonFileTests : IDisposable
             var (written, problem) = LockedJsonFile.Update<Dictionary<string, int>>(Records, _ => new() { ["b"] = 2 }, timeout: TimeSpan.FromMilliseconds(300));
             Assert.Null(written);
             Assert.Contains("timed out", problem);
-            Assert.InRange(clock.Elapsed, TimeSpan.FromMilliseconds(250), TimeSpan.FromSeconds(10));
+            Assert.True(clock.Elapsed >= TimeSpan.FromMilliseconds(250), $"gave up after {clock.Elapsed}");
+            PerfBudget.Check(clock.Elapsed <= TimeSpan.FromSeconds(10), $"gave up after {clock.Elapsed}");
         }
         Assert.Equal(before, File.ReadAllBytes(Records));
         Assert.Null(LockedJsonFile.Update<Dictionary<string, int>>(Records, d => d).Problem); // released: usable again

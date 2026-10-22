@@ -195,16 +195,21 @@ public class ToolOutputTests
 
     /// <summary>N9: a 20,000-node record is cut to its budget in a few passes (one pass per dropped row took 87 s).</summary>
     [Fact]
+    [Trait(PerfBudget.Trait, PerfBudget.Timing)]
     public async Task HugeRecordIsCutQuickly()
     {
         using var services = Services();
         var nodes = Enumerable.Range(0, 20_000).Select(i => new { address = $"0x{i:X8}", name = $"sub_{i:X8}", depth = i % 7, callees = new[] { $"0x{i + 1:X8}", $"0x{i + 2:X8}" } }).ToList();
+        OutputCall? call = null;
         var watch = System.Diagnostics.Stopwatch.StartNew();
-        var r = await Call(services, "server_status", _ => new CallToolResult
+        var r = await Call(services, "server_status", _ =>
         {
-            Content = [new TextContentBlock { Text = ToolOutput.Report("tree", new { root = "f", frontier = nodes, other = nodes.Take(500).ToList() }) }],
+            call = OutputCall.Current;
+            return new CallToolResult { Content = [new TextContentBlock { Text = ToolOutput.Report("tree", new { root = "f", frontier = nodes, other = nodes.Take(500).ToList() }) }] };
         }, new() { ["maxTokens"] = 2_000 });
-        Assert.True(watch.Elapsed < TimeSpan.FromSeconds(5), $"cut took {watch.Elapsed.TotalSeconds:F1} s");
+        PerfBudget.Check(watch.Elapsed < TimeSpan.FromSeconds(5), $"cut took {watch.Elapsed.TotalSeconds:F1} s, budget 5 s");
+        // Each pass takes off half the estimated excess: a few dozen passes, not one per dropped row.
+        Assert.InRange(call!.CutPasses, 1, 64);
         var record = Record(r);
         Assert.InRange(Tokens(r.StructuredContent!.Value.GetRawText()), 1_000, 2_100);
         int kept = record.GetProperty("frontier").GetArrayLength();

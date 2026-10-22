@@ -170,13 +170,16 @@ public class SafeFileTests : IDisposable
     }
 
     [Fact]
+    [Trait(PerfBudget.Trait, PerfBudget.Timing)]
     public void A_held_file_is_waited_for_and_a_lost_race_is_not()
     {
         int tries = 0;
         SafeFile.WhenReleased(() => { if (++tries < 3) throw new IOException("held open"); });
         Assert.Equal(3, tries);
+        int calls = 0;
         var clock = System.Diagnostics.Stopwatch.StartNew();
-        Assert.Throws<IOException>(() => SafeFile.WhenReleased(() => throw new IOException("target exists"), lost: () => true));
-        Assert.True(clock.ElapsedMilliseconds < 1000, $"{clock.ElapsedMilliseconds} ms");
+        Assert.Throws<IOException>(() => SafeFile.WhenReleased(() => { calls++; throw new IOException("target exists"); }, lost: () => true));
+        Assert.Equal(1, calls);
+        PerfBudget.Check(clock.ElapsedMilliseconds < 1000, $"{clock.ElapsedMilliseconds} ms");
     }
 }

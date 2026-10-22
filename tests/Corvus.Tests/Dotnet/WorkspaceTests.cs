@@ -108,6 +108,7 @@ public class WorkspaceTests
         var ws = new AssemblyWorkspace();
         var watch = System.Diagnostics.Stopwatch.StartNew();
         ws.Read(() => { ws.Dispose(); return 0; });
+        // The elapsed time is the only sign that dispose skipped its wait; half of DisposeWait (10 s) leaves a wide margin.
         Assert.True(watch.Elapsed < AssemblyWorkspace.DisposeWait / 2);
         Assert.Throws<ObjectDisposedException>(() => ws.Write(() => 0));
     }

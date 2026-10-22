@@ -296,6 +296,7 @@ public static partial class ToolOutput
         int stated = warnings?.Count ?? 0;
         while (record.ToJsonString(Wire) is var json && !call.Fits(json) && TrimLargest(record, cut, Excess(call, json)))
         {
+            call.CutPasses++;
             warnings ??= (JsonArray)(record["warnings"] = new JsonArray());
             while (warnings.Count > stated) warnings.RemoveAt(warnings.Count - 1);
             warnings.Add("Cut to fit: " + string.Join(", ", cut.Select(c => $"{c.Key} {c.Value.Kept} of {c.Value.Total}")) +

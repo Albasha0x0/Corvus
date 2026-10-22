@@ -118,6 +118,7 @@ public class ConcurrencyTests
     }
 
     [Fact]
+    [Trait(PerfBudget.Trait, PerfBudget.Timing)]
     public async Task QueuedLockWaitEndsWhenItsCallIsCancelled()
     {
         using var workspace = new AssemblyWorkspace();
@@ -139,7 +140,7 @@ public class ConcurrencyTests
             cts.Cancel();
             await Assert.ThrowsAnyAsync<OperationCanceledException>(() => explicitToken);
             await Assert.ThrowsAnyAsync<OperationCanceledException>(() => ambient);
-            Assert.True(watch.Elapsed < TimeSpan.FromSeconds(5), $"cancelled waits took {watch.Elapsed}");
+            PerfBudget.Check(watch.Elapsed < TimeSpan.FromSeconds(5), $"cancelled waits took {watch.Elapsed}");
         }
         finally
         {

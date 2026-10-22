@@ -75,6 +75,9 @@ public sealed class OutputCall
     /// <summary>Engine provenance for _meta (version, analysis, pushes, cache): kept out of both parts so they stay deterministic.</summary>
     public Dictionary<string, object?> EngineMeta { get; } = [];
 
+    /// <summary>Passes over the record that cutting it to the budget took; 0 when it fit.</summary>
+    internal int CutPasses { get; set; }
+
     public bool Fits(string text) => Tokens <= 0 || (Chars is not { } c || text.Length <= c) && TokenEstimate.Of(text) <= Tokens;
 }
 
