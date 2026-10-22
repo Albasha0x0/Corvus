@@ -224,14 +224,13 @@
   runtime-filled registration are not mapped" is removed. Verified with constructed 32-bit ARM libraries and a Windows
   game copied with its registration cleared; builds before metadata 27 not verified by a test.
   [c1a2a07e](https://github.com/Albasha0x0/Corvus/commit/c1a2a07e) [7f8ef5ba](https://github.com/Albasha0x0/Corvus/commit/7f8ef5ba)
-- **Engines:** IDA analyses an open within a budget and saves a partial analysis that the next open or
+- **Engine opens:** IDA analyses an open within a budget and saves a partial analysis that the next open or
   `reanalyze_native` continues, a saved analysis an open's time limit cut short reads "partial" and names
-  `reanalyze_native` (nothing completes it unasked), timeouts name the limit that ran out, and Ghidra's
-  `reanalyze_native analyzers=true` lists every analyzer of a program reopened from its project. Verified on IDA 9.3
-  and Ghidra 12.1.4 on Windows 11 x64.
-  [ea0fb99c](https://github.com/Albasha0x0/Corvus/commit/ea0fb99c) [6075deb2](https://github.com/Albasha0x0/Corvus/commit/6075deb2) [31037bcc](https://github.com/Albasha0x0/Corvus/commit/31037bcc)
-  [1384d85d](https://github.com/Albasha0x0/Corvus/commit/1384d85d) [ddc6e532](https://github.com/Albasha0x0/Corvus/commit/ddc6e532) [4a533d52](https://github.com/Albasha0x0/Corvus/commit/4a533d52)
-  [3f77e47d](https://github.com/Albasha0x0/Corvus/commit/3f77e47d)
+  `reanalyze_native` (nothing completes it unasked), and timeouts name the limit that ran out. Verified on IDA 9.3 and
+  Ghidra 12.1.4 on Windows 11 x64.
+  [ea0fb99c](https://github.com/Albasha0x0/Corvus/commit/ea0fb99c) [6075deb2](https://github.com/Albasha0x0/Corvus/commit/6075deb2) [31037bcc](https://github.com/Albasha0x0/Corvus/commit/31037bcc) [1384d85d](https://github.com/Albasha0x0/Corvus/commit/1384d85d) [ddc6e532](https://github.com/Albasha0x0/Corvus/commit/ddc6e532) [3f77e47d](https://github.com/Albasha0x0/Corvus/commit/3f77e47d)
+- **reanalyze_native:** Ghidra's `analyzers=true` lists every analyzer of a program reopened from its project.
+  Verified with Ghidra 12.1.4 on Windows 11 x64. [4a533d52](https://github.com/Albasha0x0/Corvus/commit/4a533d52)
 - **Ghidra time limits:** a worker stopped for time reports its heap and up to three busy Ghidra threads, read by the
   JDK's jcmd, or jhsdb when jcmd gets no answer, from the process of the worker tree that hosts the JVM (a PyGhidra
   worker included); a report that reads nothing says "worker state unknown" with the reason. The full thread dump is
@@ -279,17 +278,20 @@
 
 - **Dump stacks:** x86 walks reach the program's frames past a thread held in a hook; a scanned copy of a return address is
   not a second frame. [a029d53a](https://github.com/Albasha0x0/Corvus/commit/a029d53a) [012b765d](https://github.com/Albasha0x0/Corvus/commit/012b765d) [c10acba8](https://github.com/Albasha0x0/Corvus/commit/c10acba8)
-- **Engines:** a function over Hex-Rays' MAX_FUNCSIZE is `limit_exceeded`; Itanium RTTI duplicate names no longer fail
-  the class analysis; IDA's extern segment is left out of function lists; Ghidra opens files whose names it rejects.
-  An open reports "start" before the engine's open call returns; a worker that exits or crashes is named with its exit
-  code and stderr tail on every path that sees it (macOS and Linux included); a timed-out request names its last stage
-  and how long the worker had been quiet; any Hex-Rays failure names `engine=ghidra` and `disassemble` as the next
-  step, and a crash of Ghidra's decompiler process names `engine=ida` and `disassemble`. Verified on IDA 9.3 and
-  Ghidra 12.1.4 on Windows 11 x64.
-  [ca4c91ec](https://github.com/Albasha0x0/Corvus/commit/ca4c91ec) [6264eb3e](https://github.com/Albasha0x0/Corvus/commit/6264eb3e) [2aebf983](https://github.com/Albasha0x0/Corvus/commit/2aebf983)
-  [15520dff](https://github.com/Albasha0x0/Corvus/commit/15520dff) [1e1c3d5e](https://github.com/Albasha0x0/Corvus/commit/1e1c3d5e) [30707e76](https://github.com/Albasha0x0/Corvus/commit/30707e76)
-  [2f2088b5](https://github.com/Albasha0x0/Corvus/commit/2f2088b5) [c1852fa5](https://github.com/Albasha0x0/Corvus/commit/c1852fa5) [c75aa025](https://github.com/Albasha0x0/Corvus/commit/c75aa025)
-  [93f5af6b](https://github.com/Albasha0x0/Corvus/commit/93f5af6b) [a9c46dc5](https://github.com/Albasha0x0/Corvus/commit/a9c46dc5)
+- **Engine analysis:** a function over Hex-Rays' MAX_FUNCSIZE is `limit_exceeded`, Itanium RTTI duplicate names no
+  longer fail the class analysis, IDA's extern segment is left out of function lists, and Ghidra opens files whose
+  names it rejects. Verified on IDA 9.3 and Ghidra 12.1.4 on Windows 11 x64.
+  [ca4c91ec](https://github.com/Albasha0x0/Corvus/commit/ca4c91ec) [6264eb3e](https://github.com/Albasha0x0/Corvus/commit/6264eb3e) [2aebf983](https://github.com/Albasha0x0/Corvus/commit/2aebf983) [15520dff](https://github.com/Albasha0x0/Corvus/commit/15520dff)
+- **Engine workers:** an open reports "start" before the engine's open call returns, a worker that exits or crashes is
+  named with its exit code and stderr tail on every path that sees it (macOS and Linux included), and a timed-out
+  request names its last stage and how long the worker had been quiet. Verified on IDA 9.3 and Ghidra 12.1.4 on
+  Windows 11 x64. [1e1c3d5e](https://github.com/Albasha0x0/Corvus/commit/1e1c3d5e) [30707e76](https://github.com/Albasha0x0/Corvus/commit/30707e76) [2f2088b5](https://github.com/Albasha0x0/Corvus/commit/2f2088b5) [c1852fa5](https://github.com/Albasha0x0/Corvus/commit/c1852fa5) [c75aa025](https://github.com/Albasha0x0/Corvus/commit/c75aa025)
+- **Decompiler failures:** any Hex-Rays failure names `engine=ghidra` and `disassemble` as the next step, and a crash
+  of Ghidra's decompiler process names `engine=ida` and `disassemble`. Verified on IDA 9.3 and Ghidra 12.1.4 on Windows
+  11 x64. [93f5af6b](https://github.com/Albasha0x0/Corvus/commit/93f5af6b) [a9c46dc5](https://github.com/Albasha0x0/Corvus/commit/a9c46dc5)
+- **IDA Python search:** a Python that answers its version check late is reported unknown and searched again, an open
+  searching within its own time limit, instead of IDA being cached as unavailable; when no Python answers even then,
+  the open fails with a retryable timeout. [3fc786cb](https://github.com/Albasha0x0/Corvus/commit/3fc786cb)
 - **Engine timeouts:** a request that runs out of time is read before it is cancelled, and its error names whether the
   request was written, how many progress events the worker sent for it and the worker's last log line for it. Verified
   with Ghidra 12.1.4 on Windows 11 x64.
@@ -342,8 +344,9 @@
   NationalSecurityAgency/ghidra#9988; verified with Ghidra 12.1.4 and PyGhidra 3.1.0. [ea53b9a0](https://github.com/Albasha0x0/Corvus/commit/ea53b9a0) [b25bb7c0](https://github.com/Albasha0x0/Corvus/commit/b25bb7c0)
 - **Managed frames:** a frame whose method start ClrMD does not give falls back to the method's native code or its IL
   map, else reads "(offset unknown)" instead of claiming the method's entry; a hot or cold start counts only when its
-  range holds the address, so a frame in code a JIT tier replaced is named from the code that holds it.
-  [7c568d52](https://github.com/Albasha0x0/Corvus/commit/7c568d52) [e10ba1e9](https://github.com/Albasha0x0/Corvus/commit/e10ba1e9)
+  range holds the address, so a frame in code a JIT tier replaced is named from the code that holds it. ClrMD gives no
+  start for the code that holds an address (microsoft/clrmd#1520, ClrMD 3.1.512801, no fix yet).
+  [7c568d52](https://github.com/Albasha0x0/Corvus/commit/7c568d52) [e10ba1e9](https://github.com/Albasha0x0/Corvus/commit/e10ba1e9) [0810704b](https://github.com/Albasha0x0/Corvus/commit/0810704b)
 - **Section reads:** readers that read a whole section (x86 exception frames, constant search, Itanium RTTI and unwind
   tables, Il2Cpp registration and strings, code patterns, JNI tables, NativeAOT dispatch cells) stop at its file bytes
   within SizeOfImage, so a damaged header no longer makes them allocate and scan hundreds of megabytes of zero fill
@@ -356,6 +359,9 @@
   [7da411d0](https://github.com/Albasha0x0/Corvus/commit/7da411d0) [23e36665](https://github.com/Albasha0x0/Corvus/commit/23e36665)
 - **inspect_process:** process 0, by id or by the name Idle, is refused as the System Idle Process, and `live_session`
   neither lists it nor attaches to it. [4760f864](https://github.com/Albasha0x0/Corvus/commit/4760f864)
+- **Shared records:** a note, a name or another shared record saved while another writer of the same file runs waits
+  up to 30 s for it instead of 2 s, so a save on a loaded machine is no longer reported as not made.
+  [a10363c5](https://github.com/Albasha0x0/Corvus/commit/a10363c5)
 - **unload_assembly:** closes an open dump id. [cdd47b37](https://github.com/Albasha0x0/Corvus/commit/cdd47b37)
 - **save_assembly, save_native:** a second save over the original replaces this server's own earlier save. [aeeb5026](https://github.com/Albasha0x0/Corvus/commit/aeeb5026)
 - **Paged session results:** `live_events`, `live_console` and `live_timeline` pages no longer skip rows the output budget
@@ -394,7 +400,7 @@
   stop in a child session (where the parent's agent stays loaded) no longer names an address no module covers. Verified
   on Ubuntu 24.04 (glibc 2.39) with Frida 17.24.3. [91daec47](https://github.com/Albasha0x0/Corvus/commit/91daec47)
 - **Session opens on Linux:** the agent reads thread ids from `/proc` and scans it for thread ends instead of a Frida
-  helper process inside the program, so a session open no longer hangs under load. A workaround for
+  helper process inside the program, so a session open no longer hangs under load. It works around
   frida/frida-gum#1196. Verified on Ubuntu 24.04 x64 and x86 with Frida 17.24.3. [e7c1a1b5](https://github.com/Albasha0x0/Corvus/commit/e7c1a1b5)
 - **Session timeouts:** a call Frida gave up waiting on (its 25 s D-Bus limit, reported as `TransportError: timeout was
   reached`) is a retryable `timeout` whose Next line says to call again, not `failed`; a program the session started is
