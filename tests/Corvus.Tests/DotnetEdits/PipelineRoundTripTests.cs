@@ -5,6 +5,7 @@ using dnlib.DotNet;
 using dnlib.DotNet.Emit;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
+using Corvus.Services.Simplify;
 using Xunit.Abstractions;
 
 namespace Corvus.Tests;
@@ -302,11 +303,15 @@ public abstract class PipelineRoundTripTests(ITestOutputHelper output, int part)
         if (processedRun.Output != expected)
             return Result($"processed build misbehaves, not counted: {Diff(expected, processedRun.Output).Split('\n').Skip(1).FirstOrDefault()?.Trim()}", Measure(processedBytes));
 
-        var outcome = SimplifyHarness.Run(processedPath);
+        // The time limits scale with the machine's load, so a loaded run gives each method the same work as a quiet one.
+        var load = MachineLoad.Factor();
+        var quiet = new EvaluationLimits();
+        var limits = quiet with { MethodTimeLimitMs = (int)(quiet.MethodTimeLimitMs * load), InitializerTimeLimitMs = (int)(quiet.InitializerTimeLimitMs * load) };
+        var outcome = SimplifyHarness.Run(processedPath, new SimplifyOptions(Limits: limits));
         var fallbacks = string.Join(" ", outcome.Fallbacks().OrderByDescending(f => f.Value).Select(f => $"{f.Key} {f.Value}"));
         if (outcome.Problems.Count > 0)
         {
-            failures.Enqueue($"{sample.Name} / {name} seed {seed}: {string.Join("; ", outcome.Problems.Take(3))}");
+            failures.Enqueue($"{sample.Name} / {name} seed {seed}: {string.Join("; ", outcome.Problems.Take(3))}{(load > 1 ? $" (machine load x{load:0.00})" : "")}");
             return Result("engine problem", Measure(processedBytes), null, outcome.Changed, fallbacks);
         }
         // With no method changed, save_assembly writes the original bytes.
