@@ -20,7 +20,8 @@ public static class WorkerProtocol
 
     public static string EncodeRequest(long id, string op, JsonObject? args, TimeSpan? timeout = null)
     {
-        var o = new JsonObject { ["id"] = id, ["op"] = op, ["args"] = args ?? new JsonObject() };
+        // A copy, so the caller's arguments stay unattached and a retry can send them again.
+        var o = new JsonObject { ["id"] = id, ["op"] = op, ["args"] = args?.DeepClone() ?? new JsonObject() };
         if (timeout is { } t && t > TimeSpan.Zero && t < TimeSpan.MaxValue) o["timeout"] = Math.Round(t.TotalSeconds, 3);
         // Default JsonSerializerOptions escape non-ASCII, so a request never contains a raw line break or invalid UTF-8.
         var line = o.ToJsonString();

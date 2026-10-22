@@ -23,6 +23,16 @@ public class NativeProviderTests(ITestOutputHelper output)
     }
 
     [Fact]
+    public void The_same_arguments_encode_into_a_second_request()
+    {
+        // Regression: a pool retry after a worker was stopped for another request failed with "The node already has a parent".
+        var args = new JsonObject { ["path"] = "a.zip" };
+        WorkerProtocol.EncodeRequest(1, "file_summarize", args);
+        Assert.Equal("a.zip", (string)JsonNode.Parse(WorkerProtocol.EncodeRequest(2, "file_summarize", args))!["args"]!["path"]!);
+        Assert.Null(args.Parent);
+    }
+
+    [Fact]
     public void Worker_lines_parse_into_responses_events_and_noise()
     {
         var ok = Assert.IsType<WorkerMessage.Response>(WorkerProtocol.Parse("{\"id\":3,\"ok\":true,\"result\":[1,2]}\r"));
