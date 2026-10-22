@@ -60,6 +60,7 @@ public sealed class NativeIntrospectionRealTests(ITestOutputHelper output) : IDi
     /// pass in: finding the late-bound imports costs less than indexing, not a slice or a whole-function analysis per call.
     /// </summary>
     [Trait("Speed", "Slow")]
+    [Trait(PerfBudget.Trait, PerfBudget.Timing)]
     [Fact]
     public void Arm64_late_bound_imports_of_a_large_image_cost_about_an_index_build()
     {
@@ -68,11 +69,14 @@ public sealed class NativeIntrospectionRealTests(ITestOutputHelper output) : IDi
         var index = NativeCodeIndex.Build(pe);
         var build = clock.Elapsed;
         clock.Restart();
-        var set = Arm64CallSites.For(index).DynamicImports();
+        var sites = Arm64CallSites.For(index);
+        var set = sites.DynamicImports();
         var late = clock.Elapsed;
         output.WriteLine($"index {build.TotalSeconds:0.0} s, late-bound imports {late.TotalSeconds:0.0} s: {set.GetProcAddressSites} resolver calls, {set.Imports.Count} named");
         Assert.True(set.GetProcAddressSites > 200 && set.Imports.Count > 20);
-        Assert.True(late < build + TimeSpan.FromSeconds(0.5), $"late-bound imports took {late.TotalSeconds:0.0} s, the index {build.TotalSeconds:0.0} s");
+        // The two calling functions have no direct callers, so no wrapper slice is taken.
+        Assert.Equal(0, sites.WrapperSlices);
+        PerfBudget.Check(late < build + TimeSpan.FromSeconds(0.5), $"late-bound imports {late.TotalSeconds:0.0} s, the index {build.TotalSeconds:0.0} s, budget the index + 0.5 s", output);
     }
 
     [Trait("Speed", "Slow")]

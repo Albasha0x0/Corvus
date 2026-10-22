@@ -56,6 +56,7 @@ public sealed class EngineRealDataTests(ITestOutputHelper output) : IDisposable
     }
 
     [GhidraFact]
+    [Trait(PerfBudget.Trait, PerfBudget.Timing)]
     public async Task Ghidra_tools_work_on_a_real_dll()
     {
         var image = Image();
@@ -66,13 +67,18 @@ public sealed class EngineRealDataTests(ITestOutputHelper output) : IDisposable
         Assert.Contains("jitinterface_x64.dll", await Log(c, "ghidra_script", new() { ["image"] = image, ["code"] = "println(currentProgram.getName());", ["engine"] = "ghidra" }));
         // the same source again reuses its compiled bundle: compilation is most of a first run
         var script = new Dictionary<string, object?> { ["image"] = image, ["code"] = "println(\"functions \" + currentProgram.getFunctionManager().getFunctionCount());", ["engine"] = "ghidra" };
+        // The worker writes a script's source next to its classes each time it compiles it (ScriptOps.compile).
+        var key = Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes((string)script["code"]!)))[..16];
+        var source = Path.Combine(Corvus.Native.Providers.AnalysisCache.DefaultRoot, "ghidra", "home", "scripts", key, $"UserScript_{key}.java");
         var clock = System.Diagnostics.Stopwatch.StartNew();
         await Log(c, "ghidra_script", script);
         var first = clock.Elapsed;
+        var compiled = File.GetLastWriteTimeUtc(source);
         clock.Restart();
         await Log(c, "ghidra_script", script);
-        output.WriteLine($"script first {first.TotalMilliseconds:0} ms, repeat {clock.Elapsed.TotalMilliseconds:0} ms");
-        Assert.True(clock.Elapsed < first / 2, $"repeat {clock.Elapsed} not under half of the first {first}");
+        Assert.True(File.Exists(source), source);
+        Assert.Equal(compiled, File.GetLastWriteTimeUtc(source));
+        PerfBudget.Check(clock.Elapsed < first / 2, $"script repeat {clock.Elapsed.TotalMilliseconds:0} ms, first {first.TotalMilliseconds:0} ms, budget half the first", output);
         // installed scripts: one of Ghidra's, and one from the user folder with arguments
         await Log(c, "ghidra_script", new() { ["image"] = image, ["name"] = "CountSymbolsScript.java", ["engine"] = "ghidra" });
         var userScripts = Directory.CreateDirectory(Path.Combine(Corvus.Native.Providers.DataFolder.Root, "ghidra_scripts")).FullName;

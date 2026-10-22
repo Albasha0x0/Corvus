@@ -222,6 +222,7 @@ public sealed class NativeGhidraProviderTests(ITestOutputHelper output, GhidraCa
     }
 
     [GhidraFact]
+    [Trait(PerfBudget.Trait, PerfBudget.Timing)]
     public async Task Cancel_and_timeout_stop_the_request_and_keep_the_worker()
     {
         await using var s = (GhidraSession)await Provider.OpenAsync(Shared.Sample, null, Offline with { RequestTimeout = TimeSpan.FromSeconds(2) });
@@ -232,7 +233,7 @@ public sealed class NativeGhidraProviderTests(ITestOutputHelper output, GhidraCa
         // the worker stops the request before the time limit and answers with what it has
         var r = await s.CallAsync("sleep", new JsonObject { ["seconds"] = 60 }, default);
         Assert.Contains(r.GetProperty("partial").GetString(), (string[])["deadline", "cancelled"]);
-        Assert.True(clock.Elapsed < TimeSpan.FromSeconds(10), $"the partial answer took {clock.Elapsed}");
+        PerfBudget.Check(clock.Elapsed < TimeSpan.FromSeconds(10), $"the partial answer took {clock.Elapsed}", Output);
         Assert.Equal(pid, s.WorkerProcessId);
         Assert.NotEmpty(await s.ListFunctionsAsync());
         Assert.Equal(pid, s.WorkerProcessId);
@@ -301,6 +302,7 @@ public sealed class NativeGhidraColdOpenTests(ITestOutputHelper output, GhidraCa
     : GhidraProviderTestBase(output, shared), IClassFixture<GhidraCacheFixture>
 {
     [GhidraFact]
+    [Trait(PerfBudget.Trait, PerfBudget.Timing)]
     public async Task Open_without_auto_analysis_keeps_its_own_project_and_decompiles_on_demand()
     {
         var path = Shared.Sample;
@@ -312,7 +314,7 @@ public sealed class NativeGhidraColdOpenTests(ITestOutputHelper output, GhidraCa
         await using var s = (GhidraSession)await provider.OpenAsync(path, null, Offline with { Analysis = EngineAnalysis.None });
         Assert.False(s.AnalysisComplete);
         Assert.Contains("no auto-analysis", ((INativeDecompilerSession)s).DatabaseNote);
-        Assert.True(s.OpenTime < TimeSpan.FromSeconds(120), $"open {s.OpenTime}");
+        PerfBudget.Check(s.OpenTime < TimeSpan.FromSeconds(120), $"open {s.OpenTime}", Output);
         var decompiled = await s.DecompileAsync(rva);
         Assert.Equal(rva, decompiled.StartRva);
         var project = Directory.GetFiles(dir.Path, "*.gpr", SearchOption.AllDirectories).Single();
@@ -385,6 +387,7 @@ public sealed class NativeGhidraColdOpenTests(ITestOutputHelper output, GhidraCa
     }
 
     [GhidraFact]
+    [Trait(PerfBudget.Trait, PerfBudget.Timing)]
     public async Task Cold_open_then_warm_reopen_of_the_saved_project()
     {
         var provider = Isolated();
@@ -412,7 +415,7 @@ public sealed class NativeGhidraColdOpenTests(ITestOutputHelper output, GhidraCa
             Output.WriteLine($"cold open {cold.TotalSeconds:0.0} s, first decompile {firstDecompile.TotalMilliseconds:0} ms; warm open {warm.TotalSeconds:0.0} s, " +
                 $"first decompile {clock.ElapsedMilliseconds} ms; warm stages: {stages}");
         }
-        Assert.True(warm < cold, $"warm open {warm} not faster than cold {cold}");
+        PerfBudget.Check(warm < cold, $"warm open {warm} not faster than cold {cold}", Output);
         var changed = UserGhidraFiles().Where(f => !userFiles.TryGetValue(f.Key, out var t) || t != f.Value).Select(f => f.Key).ToList();
         Assert.True(changed.Count == 0, "written under the user's Ghidra directories:\n" + string.Join("\n", changed.Take(10)));
         Assert.True(Directory.Exists(provider.Directories.Settings));

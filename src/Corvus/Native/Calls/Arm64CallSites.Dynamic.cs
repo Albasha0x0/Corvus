@@ -12,11 +12,15 @@ internal sealed partial class Arm64CallSites
     private static readonly string[] ModuleApis = ["LoadLibraryA", "LoadLibraryW", "LoadLibraryExA", "LoadLibraryExW", "GetModuleHandleA", "GetModuleHandleW", "dlopen"];
 
     private DynamicImportSet? _dynamic;
+    private int _wrapperSlices;
     private readonly object _dynamicGate = new();
     private bool _computingDynamic;
     // the call sites of each function analyzed while the late-bound imports are being found; Final: no site could name one,
     // so they are kept after the search
     private Dictionary<uint, (List<CallSiteInfo> Sites, bool Final)>? _building;
+
+    /// <summary>Forward slices taken to find resolver wrappers while the set was built.</summary>
+    internal int WrapperSlices => Volatile.Read(ref _wrapperSlices);
 
     private void EnsureDynamic(CancellationToken ct)
     {
@@ -108,6 +112,7 @@ internal sealed partial class Arm64CallSites
         if (sb < 0) return result;
         var named = new Arm64Resolver(trace, own) { Budget = 1500 }.Before(A64Loc.Reg(1), sb, si);
         if (named.Kind != A64Kind.Incoming || A64Function.ParameterIndex(named.Loc) is not (>= 0 and < Arguments and var k)) return result;
+        Interlocked.Increment(ref _wrapperSlices);
         if (!trace.Slices.Forward(s.Caller, new SliceSeed(SliceSeedKind.Result, s.Rva, "x0"), ct).Nodes.Any(n => n.Kind == SliceNodeKind.Return)) return result;
         foreach (var c in _index.Callers(s.Caller).Where(c => c.Kind == XrefKind.Call && c.Caller != null).DistinctBy(c => c.From).Take(256))
         {

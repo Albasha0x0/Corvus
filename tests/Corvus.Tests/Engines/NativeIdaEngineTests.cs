@@ -230,6 +230,7 @@ public sealed class NativeIdaEngineTests(ITestOutputHelper output) : IDisposable
     /// first decompile_native then finds the session open; unloading a queued or running image cancels its work.
     /// </summary>
     [Trait("Speed", "Slow")]
+    [Trait(PerfBudget.Trait, PerfBudget.Timing)]
     [IdaFact]
     public async Task Prewarm_analyzes_loaded_images_one_at_a_time_and_unload_cancels()
     {
@@ -259,11 +260,15 @@ public sealed class NativeIdaEngineTests(ITestOutputHelper output) : IDisposable
         Assert.Equal(2, status.Done);
         Assert.Null(status.Running);
 
+        // The prewarm left the session open: the decompile uses it, with no open of its own.
+        var prewarmed = rig.Engines.OpenSession(first, "ida");
+        Assert.NotNull(prewarmed);
         clock.Restart();
         var text = await rig.Analysis.DecompileNative(first.Id, "CheckSumMappedFile");
-        output.WriteLine($"first decompile_native after prewarm: {clock.ElapsedMilliseconds} ms");
+        var after = clock.Elapsed;
         Assert.Contains("CheckSumMappedFile", text);
-        Assert.True(clock.Elapsed < TimeSpan.FromSeconds(20));
+        Assert.Same(prewarmed, rig.Engines.OpenSession(first, "ida"));
+        PerfBudget.Check(after < TimeSpan.FromSeconds(20), $"first decompile_native after prewarm {after.TotalMilliseconds:0} ms, budget 20 s", output);
     }
 
     /// <summary>The Il2Cpp header and method prototypes reach the pseudocode, persist in the database and are not pushed again.</summary>

@@ -11,6 +11,7 @@ namespace Corvus.Tests;
 public class ClientDeadlineRealTests
 {
     [GhidraFact, Trait("Speed", "Slow")]
+    [Trait(PerfBudget.Trait, PerfBudget.Timing)]
     public async Task A_cold_open_past_the_client_deadline_answers_in_time_and_the_retry_joins_it()
     {
         using var dir = new TempDir();
@@ -24,7 +25,7 @@ public class ClientDeadlineRealTests
 
         var clock = Stopwatch.StartNew();
         var first = await server.Client.CallToolAsync("decompile_native", args);
-        Assert.True(clock.Elapsed < TimeSpan.FromSeconds(20), $"answered after {clock.Elapsed.TotalSeconds:0} s");
+        PerfBudget.Check(clock.Elapsed < TimeSpan.FromSeconds(20), $"answered after {clock.Elapsed.TotalSeconds:0} s");
         Assert.True(first.IsError == true, Text(first));
         Assert.Contains("still finishing in the background", Text(first));
         Assert.Contains("\"stillRunning\":true", Text(first));

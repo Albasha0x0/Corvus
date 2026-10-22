@@ -7,6 +7,7 @@ namespace Corvus.Tests;
 public sealed class EngineProbeWaitTests
 {
     [Fact]
+    [Trait(PerfBudget.Trait, PerfBudget.Timing)]
     public async Task A_cancelled_call_stops_waiting_for_the_availability_check()
     {
         var provider = new IdaProvider(new IdaProviderOptions { InstallDirectory = Path.Combine(Path.GetTempPath(), "corvus-no-ida-" + Guid.NewGuid().ToString("N")) });
@@ -29,7 +30,7 @@ public sealed class EngineProbeWaitTests
             return provider.CheckAvailability();
         });
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => waiter);
-        Assert.True(clock.Elapsed < TimeSpan.FromSeconds(5));
+        PerfBudget.Check(clock.Elapsed < TimeSpan.FromSeconds(5), $"the cancelled call returned after {clock.Elapsed}, budget 5 s");
         release.Set();
         await holder;
         Assert.False(provider.CheckAvailability().IsAvailable);

@@ -13,6 +13,7 @@ public sealed class BackgroundReanalysisTests(ITestOutputHelper output) : IDispo
     public void Dispose() => _dir.Dispose();
 
     [GhidraFact]
+    [Trait(PerfBudget.Trait, PerfBudget.Timing)]
     public async Task A_background_reanalysis_holds_the_engine_until_it_ends()
     {
         var image = _dir.File("jitinterface_x64.dll");
@@ -25,7 +26,7 @@ public sealed class BackgroundReanalysisTests(ITestOutputHelper output) : IDispo
         var clock = Stopwatch.StartNew();
         var (started, _) = await Call(c, "reanalyze_native", new() { ["image"] = "jitinterface_x64.dll", ["engine"] = "ghidra", ["preset"] = "full", ["background"] = true });
         output.WriteLine($"{clock.Elapsed.TotalSeconds:0.0} s: {started}");
-        Assert.True(clock.Elapsed < TimeSpan.FromSeconds(2), $"wait=false took {clock.Elapsed.TotalSeconds:0.0} s");
+        PerfBudget.Check(clock.Elapsed < TimeSpan.FromSeconds(2), $"wait=false took {clock.Elapsed.TotalSeconds:0.0} s", output);
         Assert.Contains("WindowsResourceReference=true", started);
         var busy = await c.CallToolAsync("find_xrefs", new Dictionary<string, object?> { ["image"] = "jitinterface_x64.dll", ["address"] = function, ["engine"] = "ghidra" });
         var text = string.Concat(busy.Content.OfType<ModelContextProtocol.Protocol.TextContentBlock>().Select(b => b.Text));

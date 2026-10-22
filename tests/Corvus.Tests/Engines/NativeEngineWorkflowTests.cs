@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using Corvus.Core;
+using Corvus.Native.Providers;
 using Corvus.Native.Providers.Ghidra;
 using Corvus.Native.Providers.Ida;
 using Corvus.Services;
@@ -58,11 +59,15 @@ public sealed class NativeEngineWorkflowTests(ITestOutputHelper output) : IDispo
         Assert.Contains("(input \"CheckSumMappedFile\"): the same function as [1]", text);
         Assert.Contains("MapFileAndCheckSumW(", text);
 
-        // the texts are cached: a single call answers without the engine
+        // The texts are cached: a single call answers without a worker request.
         var native = rig.Workspace.Read(() => rig.Workspace.Natives[0]);
+        var worker = ((WorkerSessionBase)rig.Engines.OpenSession(native, engine)!).Worker!;
+        long requests = worker.Requests;
         clock.Restart();
         Assert.Contains("CheckSumMappedFile", await rig.Analysis.DecompileNative(native.Id, "CheckSumMappedFile", engine: engine));
-        Assert.True(clock.Elapsed < TimeSpan.FromSeconds(2), $"cached single call took {clock.Elapsed}");
+        var single = clock.Elapsed;
+        Assert.Equal(requests, worker.Requests);
+        PerfBudget.Check(single < TimeSpan.FromSeconds(2), $"{engine}: cached single call {single.TotalMilliseconds:0} ms, budget 2 s", output);
     }
 
     private async Task DossierPseudocode(string engine)
@@ -98,6 +103,7 @@ public sealed class NativeEngineWorkflowTests(ITestOutputHelper output) : IDispo
     public Task Trace_through_Ghidra_pcode() => TraceThrough("ghidra");
 
     [IdaFact]
+    [Trait(PerfBudget.Trait, PerfBudget.Timing)]
     public Task Batch_decompile_through_IDA() => BatchDecompiles("ida");
 
     [IdaFact]
@@ -107,5 +113,6 @@ public sealed class NativeEngineWorkflowTests(ITestOutputHelper output) : IDispo
     public Task Dossier_pseudocode_through_Ghidra() => DossierPseudocode("ghidra");
 
     [GhidraFact]
+    [Trait(PerfBudget.Trait, PerfBudget.Timing)]
     public Task Batch_decompile_through_Ghidra() => BatchDecompiles("ghidra");
 }

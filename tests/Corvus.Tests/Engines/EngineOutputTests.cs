@@ -69,6 +69,7 @@ public abstract class EngineOutputTests(ITestOutputHelper output) : IDisposable
         [Trait("Tier", "Release")]
         [Trait("Speed", "Slow")]
         [Trait("Data", "Real")]
+        [Trait(PerfBudget.Trait, PerfBudget.Timing)]
         [IdaFact]
         public async Task The_largest_e_sqlite3_function_decompiles_once_across_processes()
         {
@@ -91,8 +92,11 @@ public abstract class EngineOutputTests(ITestOutputHelper output) : IDisposable
             Output.WriteLine($"second process {clock.Elapsed.TotalMilliseconds:0} ms");
             Assert.Equal(cold, warm);
             Assert.Equal(ToolOutput.Serialize(coldCall.Record!)!.ToJsonString(), ToolOutput.Serialize(warmCall.Record!)!.ToJsonString());
-            // an engine open takes seconds even on a saved database; the cache answers in well under one (1.6 s seen under full load)
-            Assert.True(clock.Elapsed < TimeSpan.FromSeconds(3), $"{clock.Elapsed.TotalMilliseconds:0} ms");
+            // The output cache answers: no engine session opens in the second process.
+            Assert.Equal(1, second.Engines.OutputCache!.Hits);
+            Assert.Empty(second.Engines.ImageSessions(NativeOf(second)));
+            // An engine open takes seconds even on a saved database; the cache answers in well under one (1.6 s seen under full load).
+            PerfBudget.Check(clock.Elapsed < TimeSpan.FromSeconds(3), $"second process {clock.Elapsed.TotalMilliseconds:0} ms, budget 3 s", Output);
         }
     }
 

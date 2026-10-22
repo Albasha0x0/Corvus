@@ -224,6 +224,7 @@ public class NativeProviderTests
     }
 
     [PosixFact("Needs a POSIX shell.")]
+    [Trait(PerfBudget.Trait, PerfBudget.Timing)]
     public void A_posix_child_and_its_children_end_within_a_second_of_the_watched_process()
     {
         using var stand = Process.Start(new ProcessStartInfo("/bin/sleep", "600") { UseShellExecute = false })!;
@@ -239,7 +240,7 @@ public class NativeProviderTests
         var clock = Stopwatch.StartNew();
         while ((Running(child.Id) || Running(grandchild)) && clock.ElapsedMilliseconds < 5_000) Thread.Sleep(20);
         Assert.False(Running(child.Id) || Running(grandchild), "a process outlived the one it watched");
-        Assert.True(clock.ElapsedMilliseconds <= 1_000, $"the tree ended {clock.ElapsedMilliseconds} ms after the watched process");
+        PerfBudget.Check(clock.ElapsedMilliseconds <= 1_000, $"the tree ended {clock.ElapsedMilliseconds} ms after the watched process");
         Assert.True(child.Exited.Wait(10_000));
     }
 
