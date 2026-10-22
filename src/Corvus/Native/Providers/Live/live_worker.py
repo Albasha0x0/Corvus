@@ -29,8 +29,8 @@ OUTPUT_CHUNK = 4096  # bytes of one program output chunk kept in its event
 
 # Holds the first thread that runs the main module's code until release. The exec gate resumes a child past its entry
 # point and past __libc_start_main, so a hook there never runs; a page access always does. A disable inside onAccess
-# ends the child with SIGSEGV, so the held thread gives every page back its protection instead: no later access faults
-# into another session's exception handler.
+# ended the child with SIGSEGV in this worker (not reproduced in a standalone script), so the held thread gives every
+# page back its protection instead: no later access faults into another session's exception handler.
 HOLD_AT_CODE = """
 const release = recv('release', () => {});
 let held = false;
@@ -282,6 +282,7 @@ class Session:
         """Lets a gated child run held at its first instruction in the main module; returns (session, reached)."""
         # The gate's ptrace hold keeps another worker from attaching, and a SIGSTOP hold is lost when an attach to it
         # fails under load; a thread held by a script leaves the child attachable while it waits.
+        # Workaround for frida/frida-core#1270, tested on Frida 17.24.3.
         session = self.device.attach(pid)
         try:
             reached, released = threading.Event(), threading.Event()
@@ -312,6 +313,7 @@ class Session:
             return
         # Every Frida agent patches exit, abort, sigaction and the loader's notification point, and one that leaves
         # before an agent that came later stops the later agent's hooks there: the session stays until drop_child.
+        # Workaround for frida/frida-core#1271, tested on Frida 17.24.3.
         with self.lock:
             self.handed[pid] = session
         session.on("detached", lambda reason, crash: self.handed.pop(pid, None))
