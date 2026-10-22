@@ -38,6 +38,12 @@ internal sealed class FakeWorkerProcess : ChildProcess
     /// <summary>Writes an event line, as a worker does between responses.</summary>
     public void Emit(JsonObject e) => Reply(e);
 
+    /// <summary>Writes a stderr line, as a worker logs.</summary>
+    public void Log(string line)
+    {
+        lock (_write) _workerErr.Write(Encoding.UTF8.GetBytes(line + "\n"));
+    }
+
     /// <summary>Lets every held request answer.</summary>
     public void Release() => _released.Set();
 

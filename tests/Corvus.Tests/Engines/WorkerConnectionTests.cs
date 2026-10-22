@@ -98,7 +98,7 @@ public class WorkerConnectionTests
         using var worker = new FakeWorkerProcess();
         using var c = worker.Connect(Concurrent with { CancelGrace = TimeSpan.FromMilliseconds(200), StallReport = pids => { asked = pids[0]; return "main thread in analysis"; } });
         var e = await Assert.ThrowsAsync<ToolError>(() => c.RequestAsync("stubborn", null, TimeSpan.FromMilliseconds(200), default));
-        Assert.Contains("the worker was stopped. Last worker message: ", e.Message);
+        Assert.Contains("the worker was stopped. Progress events: 0. Last worker message: ", e.Message);
         Assert.Contains("ago.\nworker state:\nmain thread in analysis", e.Message);
         Assert.Equal(worker.Id, asked);
 
@@ -107,6 +107,34 @@ public class WorkerConnectionTests
         e = await Assert.ThrowsAsync<ToolError>(() => s.WaitReadyAsync(TimeSpan.FromMilliseconds(200), default));
         Assert.Contains("did not start within", e.Message);
         Assert.Contains("worker state:\nclass search", e.Message);
+    }
+
+    [Fact]
+    public async Task A_timeout_reads_the_worker_before_it_cancels_the_request()
+    {
+        var cancelsAtReport = -1;
+        using var worker = new FakeWorkerProcess();
+        using var c = worker.Connect(Concurrent with { StallReport = _ => { cancelsAtReport = Volatile.Read(ref worker.Cancelled); return "request thread in frame"; } });
+        var e = await Assert.ThrowsAsync<ToolError>(() => c.RequestAsync("hold", null, TimeSpan.FromMilliseconds(200), default));
+        Assert.Equal(0, cancelsAtReport);
+        Assert.Contains("the request was cancelled. Progress events: 0.", e.Message);
+        Assert.Contains("worker state:\nrequest thread in frame", e.Message);
+        Assert.DoesNotContain("Worker log", e.Message);
+    }
+
+    [Fact]
+    public async Task A_timeout_names_the_workers_log_line_and_progress_reports_for_the_request()
+    {
+        using var worker = new FakeWorkerProcess();
+        using var c = worker.Connect(Concurrent with { CancelGrace = TimeSpan.FromMilliseconds(200) });
+        var logged = c.RequestAsync("stubborn", null, TimeSpan.FromSeconds(3), default);
+        var unlogged = c.RequestAsync("stubborn", null, TimeSpan.FromSeconds(3), default);
+        worker.Log(WorkerProtocol.RequestLogPrefix + "1 stubborn: started");
+        worker.Emit(new JsonObject { ["event"] = "progress", ["id"] = 1L, ["stage"] = "" });
+        var e = await Assert.ThrowsAsync<ToolError>(() => logged);
+        Assert.Contains("Progress events: 1. Worker log: corvus request 1 stubborn: started.", e.Message);
+        e = await Assert.ThrowsAsync<ToolError>(() => unlogged);
+        Assert.Contains("Progress events: 0. Worker log: no line for this request read yet.", e.Message);
     }
 
     [Fact]

@@ -27,7 +27,11 @@ public sealed record WorkerConnectionOptions
 }
 
 /// <summary>A request the worker is running: its op, when it was sent, and the last progress the worker reported for it.</summary>
-public sealed record WorkerRequestState(long Id, string Op, DateTime StartedUtc, string? Stage);
+public sealed record WorkerRequestState(long Id, string Op, DateTime StartedUtc, string? Stage)
+{
+    /// <summary>Progress events the worker sent for this request; none means the worker never reported running it.</summary>
+    public int ProgressEvents { get; init; }
+}
 
 /// <summary>
 /// A running worker process and its request channel (see <see cref="WorkerProtocol"/>). By default requests are
@@ -53,6 +57,9 @@ public sealed class WorkerConnection : IDisposable
     private readonly object _sync = new();
     private readonly Dictionary<long, TaskCompletionSource<WorkerMessage.Response>> _pending = [];
     private readonly Dictionary<long, WorkerRequestState> _running = [];
+    private readonly Dictionary<long, string> _requestLog = [];
+    // Whether the worker writes request log lines at all (the Ghidra worker does).
+    private bool _logsRequests;
     private readonly BlockingCollection<(byte[] Line, TaskCompletionSource Written)> _writes = [];
     private long _nextId;
     private int _waiting;
@@ -150,15 +157,26 @@ public sealed class WorkerConnection : IDisposable
     }
 
     /// <summary>
-    /// The request's last stage and how long ago the worker last wrote, so a busy worker is told from one that stopped
-    /// answering; empty when there is neither.
+    /// What the request reached: written or not, the worker's progress reports and log lines for it, its last stage,
+    /// and how long ago the worker last wrote, so a slow request is told from one the worker never ran.
     /// </summary>
-    private string Activity(long id)
+    private string Activity(long id, Task write)
     {
-        string? stage;
-        lock (_sync) stage = _running.TryGetValue(id, out var r) ? r.Stage : null;
+        WorkerRequestState? r;
+        string? log;
+        bool logs;
+        lock (_sync)
+        {
+            r = _running.GetValueOrDefault(id);
+            log = _requestLog.GetValueOrDefault(id);
+            logs = _logsRequests;
+        }
         var quiet = TimeSpan.FromMilliseconds(Environment.TickCount64 - Volatile.Read(ref _lastLineTicks));
-        return (stage != null ? $" Last stage: {stage}." : "") + $" Last worker message: {Seconds(quiet)} ago.";
+        return (write.IsCompletedSuccessfully ? "" : " The request had not been written to the worker.")
+            + $" Progress events: {r?.ProgressEvents ?? 0}."
+            + (r?.Stage != null ? $" Last stage: {r.Stage}." : "")
+            + (logs ? $" Worker log: {log ?? "no line for this request read yet"}." : "")
+            + $" Last worker message: {Seconds(quiet)} ago.";
     }
 
     /// <summary>Starts a stall report that read nothing of the worker; the reason follows.</summary>
@@ -230,11 +248,14 @@ public sealed class WorkerConnection : IDisposable
             if (tcs.Task.IsCompleted) return Result(tcs.Task.Result);
             if (_closed.Task.IsCompleted && !timer.IsCancellationRequested) throw await DiedAsync(op).ConfigureAwait(false);
             var cancelled = cancellationToken.IsCancellationRequested;
+            // Read the worker at the timeout, before the cancel, so the state shows the request still running or lost.
+            var activity = cancelled ? "" : Activity(id, write);
+            var stall = cancelled ? "" : Stall();
             if (await CancelAsync(id, write, tcs.Task).ConfigureAwait(false))
             {
                 if (cancelled) throw new OperationCanceledException(cancellationToken);
                 if (tcs.Task.Result.Ok) return tcs.Task.Result.Result;
-                throw new ToolError(ErrorCode.Timeout, $"{_name} did not finish '{op}' within {Seconds(timeout)}; the request was cancelled.",
+                throw new ToolError(ErrorCode.Timeout, $"{_name} did not finish '{op}' within {Seconds(timeout)}; the request was cancelled.{activity}{stall}",
                     _remediation(ErrorCode.Timeout, op));
             }
             if (cancelled)
@@ -242,8 +263,6 @@ public sealed class WorkerConnection : IDisposable
                 Kill($"'{op}' cancelled");
                 throw new OperationCanceledException(cancellationToken);
             }
-            var activity = Activity(id);
-            var stall = Stall();
             Kill($"'{op}' timed out");
             throw new ToolError(ErrorCode.Timeout,
                 $"{_name} did not finish '{op}' within {Seconds(timeout)}; the worker was stopped.{activity}{stall}{StderrSuffix()}",
@@ -255,6 +274,7 @@ public sealed class WorkerConnection : IDisposable
             {
                 _pending.Remove(id);
                 _running.Remove(id);
+                _requestLog.Remove(id);
             }
             if (serial) _gate.Release();
         }
@@ -413,7 +433,17 @@ public sealed class WorkerConnection : IDisposable
             using var reader = new StreamReader(_process.StandardError, new UTF8Encoding(false), false, 4096, leaveOpen: true);
             var buffer = new char[4096];
             int n;
-            while ((n = reader.Read(buffer, 0, buffer.Length)) > 0) _stderr.Append(new string(buffer, 0, n));
+            var line = new StringBuilder();
+            while ((n = reader.Read(buffer, 0, buffer.Length)) > 0)
+            {
+                _stderr.Append(new string(buffer, 0, n));
+                for (var k = 0; k < n; k++)
+                {
+                    if (buffer[k] != '\n') { line.Append(buffer[k]); continue; }
+                    RequestLogged(line.ToString().TrimEnd('\r'));
+                    line.Clear();
+                }
+            }
         }
         catch (Exception ex) when (ex is IOException or ObjectDisposedException) { }
         _stderrDone.TrySetResult();
@@ -425,16 +455,30 @@ public sealed class WorkerConnection : IDisposable
         _closed.TrySetResult();
     }
 
+    /// <summary>Keeps the worker's last log line of a pending request, apart from the stderr tail that other output pushes out.</summary>
+    private void RequestLogged(string line)
+    {
+        if (!line.StartsWith(WorkerProtocol.RequestLogPrefix, StringComparison.Ordinal)) return;
+        var rest = line.AsSpan(WorkerProtocol.RequestLogPrefix.Length);
+        var space = rest.IndexOf(' ');
+        if (space <= 0 || !long.TryParse(rest[..space], out var id)) return;
+        lock (_sync)
+        {
+            _logsRequests = true;
+            if (_pending.ContainsKey(id)) _requestLog[id] = line;
+        }
+    }
+
     /// <summary>Keeps the stage of a progress event on its request (the only one running when the event names none).</summary>
     private void Progressed(JsonElement body)
     {
         long? id = body.TryGetProperty("id", out var i) && i.TryGetInt64(out var n) ? n : null;
         var stage = body.TryGetProperty("stage", out var s) && s.ValueKind == JsonValueKind.String ? s.GetString() : null;
-        if (string.IsNullOrEmpty(stage)) return;
         lock (_sync)
         {
             var key = id ?? (_running.Count == 1 ? _running.Keys.First() : -1);
-            if (_running.TryGetValue(key, out var r)) _running[key] = r with { Stage = stage };
+            if (_running.TryGetValue(key, out var r))
+                _running[key] = r with { Stage = string.IsNullOrEmpty(stage) ? r.Stage : stage, ProgressEvents = r.ProgressEvents + 1 };
         }
     }
 }

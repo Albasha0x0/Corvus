@@ -17,6 +17,8 @@ namespace Corvus.Native.Providers;
 public static class WorkerProtocol
 {
     public const string CancelOp = "cancel";
+    /// <summary>Starts a worker's stderr line about one request: the id, op and what happened to it.</summary>
+    public const string RequestLogPrefix = "corvus request ";
 
     public static string EncodeRequest(long id, string op, JsonObject? args, TimeSpan? timeout = null)
     {

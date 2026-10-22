@@ -190,12 +190,16 @@ public class Worker implements GhidraLaunchable {
             }
             if (r.op.equals("cancel")) {
                 Request target = running.get(r.args.get("id").getAsLong());
-                if (target != null) target.stop("cancelled");
+                if (target != null) {
+                    log(target, "cancel received");
+                    target.stop("cancelled");
+                }
                 continue;
             }
             CompletionPass pass = completion;
             if (pass != null) pass.arrived();
             running.put(r.id, r); // registered before it runs, so a cancel that follows at once finds it
+            log(r, "received");
             executor.submit(() -> handle(r));
         }
         // stdin closed: the server is gone. The last save is on disk; the next worker reopens it.
@@ -226,9 +230,18 @@ public class Worker implements GhidraLaunchable {
         }
     }
 
+    /**
+     * One stderr line per step of a request, which the server keeps per pending request: a timeout then names whether
+     * the worker received, ran or answered it.
+     */
+    private static void log(Request r, String what) {
+        System.err.println("corvus request " + r.id + " " + r.op + ": " + what);
+    }
+
     private void handle(Request r) {
         JsonObject response;
         boolean exit = false;
+        log(r, "started");
         try {
             JsonElement result = dispatch(r);
             response = new JsonObject();
@@ -262,6 +275,8 @@ public class Worker implements GhidraLaunchable {
         String text = GSON.toJson(response);
         if (text.length() > MAX_RESPONSE_CHARS)
             text = GSON.toJson(error(r.id, "limit_exceeded", "the result of '" + r.op + "' is larger than " + (MAX_RESPONSE_CHARS >> 20) + " MB; ask for less"));
+        log(r, String.format("answered %s after %.1f s, stage '%s'", response.get("ok").getAsBoolean() ? "ok" : response.getAsJsonObject("error").get("code").getAsString(),
+            (System.nanoTime() - r.started) / 1e9, r.monitor.message));
         emitLine(text);
         if (exit) Runtime.getRuntime().halt(0);
     }
