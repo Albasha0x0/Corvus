@@ -16,11 +16,17 @@ public abstract class McpProtocolTests : IAsyncLifetime
     private McpClient _client = null!;
     private readonly TempDir _dir = new();
 
-    public async Task InitializeAsync() => _client = await StartServerAsync("--load", Env.FixturePath, "--load", Env.ConsumerPath);
+    /// <summary>False for a group whose tests each start their own server: the shared one would only cost a start.</summary>
+    protected virtual bool StartsServer => true;
+
+    public async Task InitializeAsync()
+    {
+        if (StartsServer) _client = await StartServerAsync("--load", Env.FixturePath, "--load", Env.ConsumerPath);
+    }
 
     public async Task DisposeAsync()
     {
-        await _client.DisposeAsync();
+        if (StartsServer) await _client.DisposeAsync();
         _dir.Dispose();
     }
 
@@ -87,6 +93,15 @@ public abstract class McpProtocolTests : IAsyncLifetime
             }
             if (waited.Elapsed > limit) throw new TimeoutException($"no {tool} call ended within {limit.TotalSeconds:0} s");
         }
+    }
+
+    /// <summary>
+    /// Waits until <paramref name="done"/> holds, up to 30 s: a notification the server owes may arrive late on a busy
+    /// machine, and a quiet one returns as soon as it does.
+    /// </summary>
+    private static async Task Until(Func<bool> done)
+    {
+        for (var waited = System.Diagnostics.Stopwatch.StartNew(); !done() && waited.Elapsed < TimeSpan.FromSeconds(30);) await Task.Delay(20);
     }
 
     private async Task<string> Call(string tool, Dictionary<string, object?> args, bool expectError = false, bool withRecord = false)
@@ -673,7 +688,7 @@ public abstract class McpProtocolTests : IAsyncLifetime
             var result = await _client.CallToolAsync("load_assembly", new Dictionary<string, object?> { ["path"] = _dir.Path },
                 new SyncProgress(_ => { })); // gives the request a progress token
             Assert.NotEqual(true, result.IsError);
-            for (int i = 0; i < 250 && updates.Count < 2; i++) await Task.Delay(20);
+            await Until(() => updates.Count >= 2);
             Assert.True(updates.Count >= 2, $"expected progress, got {updates.Count}");
             Assert.All(updates, u => Assert.Equal(2, u.Progress.Total));
         }
@@ -694,7 +709,7 @@ public abstract class McpProtocolTests : IAsyncLifetime
                 updates.Clear();
                 var result = await _client.CallToolAsync(tool, args, new SyncProgress(_ => { }));
                 Assert.NotEqual(true, result.IsError);
-                for (int i = 0; i < 500 && !updates.Any(u => phase(u.Progress.Message ?? "")); i++) await Task.Delay(20);
+                await Until(() => updates.Any(u => phase(u.Progress.Message ?? "")));
                 // the client SDK handles each incoming message on the thread pool, so handlers can run out of arrival order
                 return updates.OrderBy(u => u.Progress.Progress).Select(u => u.Progress.Message ?? "").ToList();
             }
@@ -707,6 +722,36 @@ public abstract class McpProtocolTests : IAsyncLifetime
             var undo = await Messages("undo_edit", new() { ["assembly"] = "TestFixture", ["number"] = 2 }, Replay);
             Assert.True(undo.Any(Replay), string.Join(" | ", undo));
         }
+
+        [Trait("Speed", "Slow")]
+        [Fact]
+        public async Task FileChangeNoticesRideAlongWithTheNextResult()
+        {
+            var path = _dir.File("Watched.dll");
+            File.Copy(Env.FixturePath, path);
+            await Call("load_assembly", new() { ["path"] = path });
+            using (var build = new Env())
+            {
+                build.Edit(() => build.Edits.Rename(build.One("Shop::Describe"), "DescribeV2"));
+                build.Edits.Save(build.Fixture, _dir.File("v2.dll"), false);
+            }
+            File.Copy(_dir.File("v2.dll"), path, overwrite: true);
+
+            string text = "";
+            for (int i = 0; i < 50 && !text.Contains("[workspace]"); i++)
+            {
+                await Task.Delay(200);
+                text = await Call("list_namespaces", new() { ["assembly"] = "TestFixture" });
+            }
+            Assert.Contains("[workspace]", text);
+            Assert.Contains("reloaded", text);
+        }
+    }
+
+    /// <summary>Resource updates, each test on a server of the protocol version it subscribes with.</summary>
+    public sealed class Subscriptions : McpProtocolTests
+    {
+        protected override bool StartsServer => false;
 
         [Fact]
         public async Task SubscribedResourcesGetUpdatesAndTheListNeverChanges()
@@ -730,7 +775,7 @@ public abstract class McpProtocolTests : IAsyncLifetime
 
             await client.CallToolAsync("get_type_info", new Dictionary<string, object?> { ["type"] = "Account" }); // reads change nothing
             await client.CallToolAsync("load_assembly", new Dictionary<string, object?> { ["path"] = NativeSample(_dir) });
-            for (int i = 0; i < 100 && updated.IsEmpty; i++) await Task.Delay(20);
+            await Until(() => !updated.IsEmpty);
             Assert.Equal(["corvus://assemblies"], updated);
 
             await client.UnsubscribeFromResourceAsync("corvus://assemblies");
@@ -769,12 +814,12 @@ public abstract class McpProtocolTests : IAsyncLifetime
                 Params = new JsonObject { ["notifications"] = new JsonObject { ["resourceSubscriptions"] = new JsonArray("corvus://assemblies") } },
             };
             var stream = client.SendRequestAsync(listen, listenEnd.Token).ContinueWith(_ => { }, TaskScheduler.Default);
-            for (int i = 0; i < 200 && Volatile.Read(ref acks) == 0; i++) await Task.Delay(20);
+            await Until(() => Volatile.Read(ref acks) > 0);
             Assert.Equal(1, acks);
 
             await client.CallToolAsync("get_type_info", new Dictionary<string, object?> { ["type"] = "Account" }); // reads change nothing
             await client.CallToolAsync("load_assembly", new Dictionary<string, object?> { ["path"] = NativeSample(_dir) });
-            for (int i = 0; i < 100 && updated.IsEmpty; i++) await Task.Delay(20);
+            await Until(() => !updated.IsEmpty);
             var update = Assert.Single(updated);
             Assert.Equal("corvus://assemblies", update?["uri"]?.GetValue<string>());
             Assert.Equal("listen-1", update?["_meta"]?["io.modelcontextprotocol/subscriptionId"]?.GetValue<string>());
@@ -787,30 +832,6 @@ public abstract class McpProtocolTests : IAsyncLifetime
             await client.CallToolAsync("unload_assembly", new Dictionary<string, object?> { ["assembly"] = "native.dll" });
             await Task.Delay(300);
             Assert.True(updated.Count == 1, string.Join("\n", updated.Select(u => u?.ToJsonString())));
-        }
-
-        [Trait("Speed", "Slow")]
-        [Fact]
-        public async Task FileChangeNoticesRideAlongWithTheNextResult()
-        {
-            var path = _dir.File("Watched.dll");
-            File.Copy(Env.FixturePath, path);
-            await Call("load_assembly", new() { ["path"] = path });
-            using (var build = new Env())
-            {
-                build.Edit(() => build.Edits.Rename(build.One("Shop::Describe"), "DescribeV2"));
-                build.Edits.Save(build.Fixture, _dir.File("v2.dll"), false);
-            }
-            File.Copy(_dir.File("v2.dll"), path, overwrite: true);
-
-            string text = "";
-            for (int i = 0; i < 50 && !text.Contains("[workspace]"); i++)
-            {
-                await Task.Delay(200);
-                text = await Call("list_namespaces", new() { ["assembly"] = "TestFixture" });
-            }
-            Assert.Contains("[workspace]", text);
-            Assert.Contains("reloaded", text);
         }
     }
 
@@ -844,6 +865,8 @@ public abstract class McpProtocolTests : IAsyncLifetime
     /// <summary>Cancelling a call in flight.</summary>
     public sealed class Cancellation : McpProtocolTests
     {
+        protected override bool StartsServer => false;
+
         /// <summary>
         /// Raw JSON-RPC: the SDK client (2.2.0) can drop its notifications/cancelled when the awaiting call completes inline
         /// on cancellation and disposes the registration before the callback runs.
@@ -960,6 +983,8 @@ public abstract class McpProtocolTests : IAsyncLifetime
     /// <summary>The process itself.</summary>
     public sealed class Lifetime : McpProtocolTests
     {
+        protected override bool StartsServer => false;
+
         /// <summary>A client that closes the server's input (ends the session) gets a server that exits, cleanly and promptly.</summary>
         [Fact]
         public void ServerExitsWhenItsInputCloses()
