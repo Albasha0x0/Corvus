@@ -64,8 +64,11 @@ function Copy-RealData([string]$target) {
         $value = [Environment]::GetEnvironmentVariable($name)
         $item = if ($value -and $value -notmatch '[|;]') { Get-Item -LiteralPath $value -Force -ErrorAction SilentlyContinue }
         if (-not $item) { Write-Host "  not copied: $name ($(if ($value) { 'not one existing path here' } else { 'not set here' }))"; continue }
-        $bytes = if ($item.PSIsContainer) { [long](Get-ChildItem -LiteralPath $item.FullName -Recurse -File -Force -FollowSymlink | Measure-Object Length -Sum).Sum } else { $item.Length }
-        [pscustomobject]@{ Name = $name; Path = $item.FullName; Leaf = $item.Name; Bytes = $bytes; Marker = "$bytes $($item.Name)" }
+        # Il2CppDumper's DummyDll folder is read with the script.json and string files beside it: its parent travels.
+        $from = if ($item.PSIsContainer -and (Test-Path -LiteralPath (Join-Path $item.Parent.FullName 'script.json'))) { $item.Parent } else { $item }
+        $leaf = if ($from -ne $item) { "$($from.Name)\$($item.Name)" } else { $item.Name }
+        $bytes = if ($from -is [IO.DirectoryInfo]) { [long](Get-ChildItem -LiteralPath $from.FullName -Recurse -File -Force -FollowSymlink | Measure-Object Length -Sum).Sum } else { $from.Length }
+        [pscustomobject]@{ Name = $name; Path = $from.FullName; Leaf = $leaf; Bytes = $bytes; Marker = "$bytes $leaf" }
     })
     $tools = @(Get-RealDataVariables (Join-Path $PSScriptRoot 'tests/Corvus.Tests') -Tools)
     if ($tools) { Write-Host "  not copied, programs the host installs itself: $($tools -join ', ')" }

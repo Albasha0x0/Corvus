@@ -53,6 +53,11 @@ public sealed class TestRemoteSetupTests : IDisposable
         Directory.CreateDirectory(bundles);
         File.WriteAllText(Path.Combine(assemblies, "a.dll"), "abc");
         File.WriteAllText(Path.Combine(bundles, "old.js"), "12345");
+        // Il2CppDumper's layout: a DummyDll folder with script.json beside it.
+        var dummy = Path.Combine(_dir.Path, "dumper", "DummyDll");
+        Directory.CreateDirectory(dummy);
+        File.WriteAllText(Path.Combine(dummy, "A.dll"), "a");
+        File.WriteAllText(Path.Combine(_dir.Path, "dumper", "script.json"), "{}");
         // The stand-in ssh decodes each host script: the query is answered with a host that holds the assemblies
         // folder's copy already and has the free space the free.txt file names; every other script is logged.
         var free = _dir.File("free.txt");
@@ -76,7 +81,7 @@ public sealed class TestRemoteSetupTests : IDisposable
         var lines = TestReuseTests.Run($$"""
             $env:CORVUS_TEST_SSH = {{Quote(ssh)}}; $env:CORVUS_TEST_SCP = {{Quote(scp)}}
             Get-ChildItem Env:CORVUS_* | Where-Object Name -notlike 'CORVUS_TEST_*' | ForEach-Object { Remove-Item "Env:$($_.Name)" }
-            $env:CORVUS_ASSEMBLY_DIR = {{Quote(assemblies)}}; $env:CORVUS_BUNDLE_PAIRS = {{Quote(bundles)}}
+            $env:CORVUS_ASSEMBLY_DIR = {{Quote(assemblies)}}; $env:CORVUS_BUNDLE_PAIRS = {{Quote(bundles)}}; $env:CORVUS_IL2CPP_STRINGS_DIR = {{Quote(dummy)}}
             Set-Content {{Quote(free)}} 100
             & {{Script}} -Target tester@host2 -Data
             'refused=' + $LASTEXITCODE
@@ -88,7 +93,7 @@ public sealed class TestRemoteSetupTests : IDisposable
         if (lines is ["skip"]) return;
         Assert.Contains(lines, l => l.StartsWith("Refused: the copy would leave under 10 GB free on tester@host2"));
         Assert.Contains("refused=1", lines);
-        Assert.Contains(lines, l => l.StartsWith("Real data: 1 to copy (0.0 GB), 1 kept; 100.0 GB free on tester@host2."));
+        Assert.Contains(lines, l => l.StartsWith("Real data: 2 to copy (0.0 GB), 1 kept; 100.0 GB free on tester@host2."));
         Assert.Contains("- copied CORVUS_BUNDLE_PAIRS (0 MB)", lines);
         Assert.Contains("copied=0", lines);
         Assert.Contains(lines, l => l.Contains("not copied, programs the host installs itself:") && l.Contains("CORVUS_TSHARK"));
@@ -96,6 +101,9 @@ public sealed class TestRemoteSetupTests : IDisposable
         Assert.Contains("scp -q pairs CORVUS_BUNDLE_PAIRS", lines);
         Assert.DoesNotContain(lines, l => l.StartsWith("scp ") && l.Contains("asm"));
         Assert.Contains(lines, l => l.StartsWith("ssh ") && l.Contains("Remove-Item") && l.Contains(@"corvus-data\CORVUS_BUNDLE_PAIRS"));
+        // The folder above a DummyDll folder travels, and the variable names the DummyDll folder in the copy.
+        Assert.Contains("scp -q dumper CORVUS_IL2CPP_STRINGS_DIR", lines);
+        Assert.Contains(lines, l => l.StartsWith("ssh ") && l.Contains(@"SetEnvironmentVariable('CORVUS_IL2CPP_STRINGS_DIR', (Join-Path $HOME 'corvus-data\CORVUS_IL2CPP_STRINGS_DIR\dumper\DummyDll'), 'User')") && l.Contains(@"'3 dumper\DummyDll'"));
         Assert.Contains(lines, l => l.StartsWith("ssh ") && l.Contains(@"SetEnvironmentVariable('CORVUS_BUNDLE_PAIRS', (Join-Path $HOME 'corvus-data\CORVUS_BUNDLE_PAIRS\pairs'), 'User')") && l.Contains("'5 pairs'"));
     }
 
