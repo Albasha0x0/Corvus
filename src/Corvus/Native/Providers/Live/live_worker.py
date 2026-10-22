@@ -99,6 +99,18 @@ def emit(obj):
         sys.stdout.flush()
 
 
+def error_of(e):
+    """The protocol error for an exception Frida raised: a call it gave up waiting on is a timeout, else failed."""
+    message = "%s: %s" % (type(e).__name__, e)
+    # A D-Bus call to Frida's helper or agent that passes GLib's 25 s default ends in "Timeout was reached", which
+    # Frida reports as TransportError (throw_dbus_error, frida-core 17.24.3).
+    timed_out = getattr(frida, "TimedOutError", ())
+    transport = getattr(frida, "TransportError", ())
+    if isinstance(e, timed_out) or isinstance(e, transport) and "timeout was reached" in str(e).lower():
+        return {"code": "timeout", "message": message}
+    return {"code": "failed", "message": message}
+
+
 class Failure(Exception):
     def __init__(self, code, message):
         super().__init__(message)
@@ -638,7 +650,7 @@ def main():
         except Failure as e:
             emit({"id": rid, "ok": False, "error": {"code": e.code, "message": str(e)}})
         except Exception as e:  # frida errors carry their own message
-            emit({"id": rid, "ok": False, "error": {"code": "failed", "message": "%s: %s" % (type(e).__name__, e)}})
+            emit({"id": rid, "ok": False, "error": error_of(e)})
         # A close that keeps handed sessions leaves the worker serving drop_child until a close keeps none.
         if op == "close" and not (result or {}).get("kept"):
             break

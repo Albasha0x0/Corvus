@@ -283,6 +283,72 @@ public sealed class LiveWorkerTests : IDisposable
         }
     }
 
+    // The stand-in's attach fails as Frida 17.24.3 reports a D-Bus call past
+    // GLib's 25 s limit; its kill records the pid it ends.
+    private const string TransportTimeoutFrida = """
+        import os
+
+        __version__ = "17.24.3"
+
+
+        class TimedOutError(Exception): pass
+        class TransportError(Exception): pass
+        class ExecutableNotFoundError(Exception): pass
+        class ProcessNotFoundError(Exception): pass
+        class PermissionDeniedError(Exception): pass
+        class InvalidOperationError(Exception): pass
+        class InvalidArgumentError(Exception): pass
+
+
+        class _Device:
+            def on(self, *args): pass
+            def spawn(self, argv, **kwargs): return 4242
+            def attach(self, pid): raise TransportError("Timeout was reached")
+            def kill(self, pid):
+                with open(os.path.join(os.path.dirname(__file__), "killed.txt"), "a") as f:
+                    f.write("%d\n" % pid)
+
+
+        def get_local_device():
+            return _Device()
+        """;
+
+    [Fact]
+    public void A_call_Frida_gave_up_waiting_on_is_a_timeout_and_the_started_program_is_ended()
+    {
+        var python = PythonLocator.Find([], []) ?? throw new InvalidOperationException("no Python 3");
+        var worker = _dir.File("live_worker.py");
+        File.WriteAllBytes(worker, EmbeddedScript.Read("Corvus.Native.Providers.Live.live_worker.py"));
+        File.WriteAllText(_dir.File("frida.py"), TransportTimeoutFrida);
+        var agent = _dir.File("live_agent.js");
+        File.WriteAllText(agent, "");
+        // Without -I, so the stand-in beside the worker is the frida it imports.
+        using var p = Process.Start(new ProcessStartInfo(python.Executable, new[] { "-u", worker, agent })
+            { RedirectStandardInput = true, RedirectStandardOutput = true, UseShellExecute = false })!;
+        try
+        {
+            p.StandardInput.WriteLine("""{"id":1,"op":"open","args":{"spawn":"program"}}""");
+            p.StandardInput.Flush();
+            string? reply;
+            while ((reply = p.StandardOutput.ReadLine()) != null && !reply.Contains("\"id\":1", StringComparison.Ordinal)) { }
+            Assert.Equal("""{"id":1,"ok":false,"error":{"code":"timeout","message":"TransportError: Timeout was reached"}}""", reply);
+            Assert.Equal(["4242"], File.ReadAllLines(_dir.File("killed.txt")));
+        }
+        finally
+        {
+            p.Kill();
+            p.WaitForExit(10_000);
+        }
+    }
+
+    [Fact]
+    public void A_timeout_the_worker_reports_names_a_retry()
+    {
+        Assert.StartsWith("Frida gave up waiting", Corvus.Native.Providers.Live.FridaBackend.Remediation(Corvus.Core.ErrorCode.Timeout, "TransportError: Timeout was reached"));
+        Assert.Null(Corvus.Native.Providers.Live.FridaBackend.Remediation(Corvus.Core.ErrorCode.Timeout, "read"));
+        Assert.Null(Corvus.Native.Providers.Live.FridaBackend.Remediation(Corvus.Core.ErrorCode.Failed, "TransportError: something else"));
+    }
+
     // A killed child the worker has not reaped stays as a zombie, which
     // ps names with state Z.
     private static bool Gone(int pid, bool wait = true)

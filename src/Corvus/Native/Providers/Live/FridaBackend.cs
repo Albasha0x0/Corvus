@@ -181,9 +181,14 @@ public sealed class FridaBackend : ILiveBackend
         }
     }
 
-    /// <summary>The next step for a worker failure the default wording does not fit: an open that timed out waits on the program, not on its size.</summary>
-    internal static string? Remediation(ErrorCode code, string op) => code == ErrorCode.Timeout && op == "open"
-        ? "the program did not load the session's agent in time (starting up, exiting, or blocked): try again once it runs"
+    /// <summary>
+    /// The next step for a worker failure the default wording does not fit: an open that timed out waits on the program,
+    /// not on its size; a timeout the worker reports (its message, where a request the worker did not answer names its
+    /// op) is a call Frida gave up waiting on. Null for other failures.
+    /// </summary>
+    internal static string? Remediation(ErrorCode code, string op) => code != ErrorCode.Timeout ? null
+        : op == "open" ? "the program did not load the session's agent in time (starting up, exiting, or blocked): try again once it runs"
+        : op.Contains(' ') ? "Frida gave up waiting on its helper or the program (a busy machine, or a program starting up or blocked): call again"
         : null;
 
     /// <summary>
