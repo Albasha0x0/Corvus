@@ -190,8 +190,8 @@ unobserved. A child never stays suspended: when the session closes (by request, 
 every child it still holds runs on, an attached child whose session has not continued too, and a child session closed
 before its first continue goes back to its parent's hold. On Linux a child is reported at its `exec`, by the program it
 runs, whether a fork or `posix_spawn` started it (a fork that runs on without one is not held); a program that starts a
-copy of itself through `/proc/self/exe` has its copy named by its own image; `attach_child` there takes it from the hold stopped (`SIGSTOP`), with
-its libraries loaded, so a child session closed before its first continue lets it run; a session that follows children
+copy of itself through `/proc/self/exe` has its copy named by its own image; `attach_child` there lets it run to its own
+code, with its libraries loaded, and holds it at the first instruction it runs there; a session that follows children
 there does not report threads that end.
 
 On Windows a process that another process starts on the program's behalf, naming the program as its parent (the WebView2

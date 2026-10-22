@@ -174,6 +174,115 @@ public sealed class LiveWorkerTests : IDisposable
         }
     }
 
+    // The stand-in reports child 999999 when gating is enabled, reaches a hold
+    // script's code at its load, and logs each attach, resume, unload and detach.
+    private const string StandInGate = """
+        import os
+
+        __version__ = "17.24.3"
+        _log = os.path.join(os.path.dirname(__file__), "calls.txt")
+
+
+        def log(line):
+            with open(_log, "a") as f:
+                f.write(line + "\n")
+
+
+        class TimedOutError(Exception): pass
+        class ExecutableNotFoundError(Exception): pass
+        class ProcessNotFoundError(Exception): pass
+        class PermissionDeniedError(Exception): pass
+        class InvalidOperationError(Exception): pass
+        class InvalidArgumentError(Exception): pass
+
+
+        class _Child:
+            pid, parent_pid, origin, path, argv, identifier = 999999, 100, "spawn", "/app/child", ["child"], None
+
+
+        class _Exports:
+            def info(self): return {"pid": 100, "arch": "x64", "platform": "linux", "modules": []}
+            def follow_children(self): pass
+            def close_begin(self): return {"awaited": [], "exiting": False}
+
+
+        class _Script:
+            exports_sync = _Exports()
+            def __init__(self, pid, source):
+                self.pid, self.hold, self.handler = pid, "MemoryAccessMonitor" in source, None
+            def on(self, signal, handler): self.handler = handler
+            def load(self):
+                if self.hold: self.handler({"type": "send", "payload": "held"}, None)
+            def post(self, message):
+                if self.hold and message.get("type") == "release": self.handler({"type": "send", "payload": "released"}, None)
+            def unload(self): log("unload %d" % self.pid)
+
+
+        class _Session:
+            def __init__(self, device, pid): self.device, self.pid = device, pid
+            def on(self, *args): pass
+            def create_script(self, source): return _Script(self.pid, source)
+            def enable_child_gating(self): self.device.added(_Child())
+            def detach(self): log("detach %d" % self.pid)
+
+
+        class _Device:
+            added = None
+            def on(self, signal, handler):
+                if signal == "child-added": self.added = handler
+            def attach(self, pid):
+                log("attach %d" % pid)
+                return _Session(self, pid)
+            def resume(self, pid): log("resume %d" % pid)
+
+
+        def get_local_device():
+            return _Device()
+        """;
+
+    [PosixFact("The worker reads the child's image through /proc.")]
+    public void A_hold_asked_again_stays_and_a_kept_hold_session_leaves_only_at_drop_child()
+    {
+        var python = PythonLocator.Find([], []) ?? throw new InvalidOperationException("no Python 3");
+        var worker = _dir.File("live_worker.py");
+        File.WriteAllBytes(worker, EmbeddedScript.Read("Corvus.Native.Providers.Live.live_worker.py"));
+        File.WriteAllText(_dir.File("frida.py"), StandInGate);
+        var agent = _dir.File("live_agent.js");
+        File.WriteAllText(agent, "");
+        using var p = Process.Start(new ProcessStartInfo(python.Executable, new[] { "-u", worker, agent })
+            { RedirectStandardInput = true, RedirectStandardOutput = true, UseShellExecute = false })!;
+        var id = 0;
+        string Call(string op, string args)
+        {
+            p.StandardInput.WriteLine($$"""{"id":{{++id}},"op":"{{op}}","args":{{args}}}""");
+            p.StandardInput.Flush();
+            string? line;
+            while ((line = p.StandardOutput.ReadLine()) != null && !line.Contains($"\"id\":{id},", StringComparison.Ordinal)) { }
+            Assert.NotNull(line);
+            return line;
+        }
+        string[] Calls() => File.ReadAllLines(_dir.File("calls.txt"));
+        try
+        {
+            Call("open", """{"attach":"100","children":{}}""");
+            Assert.Contains("\"held\":true", Call("resume_child", """{"pid":999999,"hold":true}"""));
+            Assert.Contains("\"held\":true", Call("resume_child", """{"pid":999999,"hold":true}"""));
+            Assert.Equal(["attach 100", "attach 999999", "resume 999999"], Calls());
+            Call("resume_child", """{"pid":999999,"keep":true}""");
+            Assert.Equal("unload 999999", Calls()[^1]);
+            Assert.Contains("\"kept\":1", Call("close", """{"end":false,"keep_handed":true}"""));
+            Assert.DoesNotContain("detach 999999", Calls());
+            Assert.Contains("\"dropped\":true,\"kept\":0", Call("drop_child", """{"pid":999999}"""));
+            Assert.Equal("detach 999999", Calls()[^1]);
+            Assert.Contains("\"kept\":0", Call("close", """{"end":false}"""));
+            Assert.True(p.WaitForExit(10_000), "the worker runs on after a close that keeps nothing");
+        }
+        finally
+        {
+            if (!p.HasExited) p.Kill();
+        }
+    }
+
     // A killed child the worker has not reaped stays as a zombie, which
     // ps names with state Z.
     private static bool Gone(int pid, bool wait = true)

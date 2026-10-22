@@ -89,22 +89,31 @@ public sealed class LiveChildrenTests : IDisposable
     }
 
     [Fact]
-    public async Task On_linux_the_gate_lets_the_child_go_stopped_and_the_child_session_starts_it_itself()
+    public async Task On_linux_the_gate_holds_the_child_at_its_code_and_leaves_its_program_after_the_child_session()
     {
         var backend = new ScriptedLiveBackend(Sqlite, Base, 0x200000) { Platform = "linux" };
         using var service = new LiveSessionService(_workspace, new NativeCodeService(_workspace, SharedCodeIndex.Options())) { Backend = backend };
         var tools = new LiveSessionTools(new ServerOptions { AllowLive = true, AllowLiveSpawn = true }, service);
         await tools.LiveSession("spawn", program: Sqlite, childNames: ["*"]);
         backend.Child(backend.Worker!, 5001, "/app/child", held: true);
-        await Until(() => tools.LiveSession("children", session: "live-1"), "pid 5001 held");
+        backend.Child(backend.Worker!, 5002, "/app/child", held: true);
+        await Until(() => tools.LiveSession("children", session: "live-1"), "pid 5002 held");
 
         Assert.Contains("live-2 (scripted): 5001 pid 5001, suspended", await tools.LiveSession("attach_child", session: "live-1", program: "5001"));
         Assert.Equal([-5001], backend.ChildResumes);
-        Assert.Equal(true, (bool?)backend.LastOpen!["stopped"]);
+        Assert.Null(backend.LastOpen!["stopped"]);
+        Assert.Contains("No events.", await tools.LiveEvents("live-2", kind: "child"));
         Assert.Contains("program started", await tools.LiveBreak("live-2", "continue"));
-        Assert.Equal([-5001], backend.ChildResumes);
+        Assert.Equal([-5001, 5001], backend.ChildResumes);
+        Assert.Empty(backend.ChildDrops);
+        await tools.LiveSession("close", session: "live-2");
+        Assert.Equal([5001], backend.ChildDrops);
+
+        backend.ChildHoldReached = false;
+        await tools.LiveSession("attach_child", session: "live-1", program: "5002");
+        Assert.Contains("child process 5002 reached none of its code within 5 s of its start: it runs unheld", await tools.LiveEvents("live-3", kind: "child"));
         await tools.LiveSession("close", session: "live-1");
-        Assert.Equal([-5001], backend.ChildResumes);
+        Assert.Equal([-5001, 5001, -5002, 5002], backend.ChildResumes);
     }
 
     [Fact]

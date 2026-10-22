@@ -45,8 +45,12 @@ internal sealed class ScriptedLiveBackend(string mainPath, ulong mainBase, uint 
     public Action? BeforeCloseReply { get; set; }
     /// <summary>Child processes the program started: an attach by one of these ids reports that id.</summary>
     public readonly HashSet<int> ChildPids = [];
-    /// <summary>The child process ids resume_child let run, in order (negative: let go stopped).</summary>
+    /// <summary>The child process ids resume_child let run, in order (negative: let run held at its code).</summary>
     public readonly List<int> ChildResumes = [];
+    /// <summary>Whether a child resumed with hold reached its code before the reply.</summary>
+    public bool ChildHoldReached { get; set; } = true;
+    /// <summary>The child process ids drop_child named, in order.</summary>
+    public readonly List<int> ChildDrops = [];
     /// <summary>The platform the program runs on, as Frida names it; null leaves it out of the open reply.</summary>
     public string? Platform { get; init; }
     /// <summary>Whether set_many is known; false answers it as an unknown op, as a backend without batches.</summary>
@@ -176,8 +180,11 @@ internal sealed class ScriptedLiveBackend(string mainPath, ulong mainBase, uint 
                 BeforeCloseReply?.Invoke();
                 return null;
             case "resume_child":
-                lock (ChildResumes) ChildResumes.Add(args["stopped"] is { } let && (bool)let ? -(int)args["pid"]! : (int)args["pid"]!);
-                return new JsonObject { ["resumed"] = true };
+                lock (ChildResumes) ChildResumes.Add(args["hold"] is { } hold && (bool)hold ? -(int)args["pid"]! : (int)args["pid"]!);
+                return args["hold"] is null ? new JsonObject { ["resumed"] = true } : new JsonObject { ["resumed"] = true, ["held"] = ChildHoldReached };
+            case "drop_child":
+                lock (ChildDrops) ChildDrops.Add((int)args["pid"]!);
+                return new JsonObject { ["dropped"] = true, ["kept"] = 0 };
             case "resume":
                 BeforeResumeReply?.Invoke();
                 // as the worker: a program started suspended runs on the first resume of every thread

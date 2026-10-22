@@ -254,12 +254,35 @@ public sealed class LiveChildrenRealTests(ITestOutputHelper output) : LiveToolCa
         Ended(copy);
     }
 
-    // ---- a child session closed before its first continue: the copy, let go stopped for that attach, runs on and exits
+    // ---- the parent's session closed first: the gate's agent stays in the copy, so the copy's stop point at exit is hit
 
-    [LiveTargetFact("linux-x64")] public Task Copy_runs_on_after_its_session_closes_unstarted_on_linux_x64() => CopyRunsOn(LiveTarget.LinuxX64);
-    [LiveTargetFact("linux-x86")] public Task Copy_runs_on_after_its_session_closes_unstarted_on_linux_x86() => CopyRunsOn(LiveTarget.LinuxX86);
+    [LiveTargetFact("linux-x64")] public Task Copy_stops_at_exit_after_the_parent_session_closes_on_linux_x64() => CopyAfterParent(LiveTarget.LinuxX64);
+    [LiveTargetFact("linux-x86")] public Task Copy_stops_at_exit_after_the_parent_session_closes_on_linux_x86() => CopyAfterParent(LiveTarget.LinuxX86);
 
-    private async Task CopyRunsOn(LiveTarget target)
+    private async Task CopyAfterParent(LiveTarget target)
+    {
+        var exe = target.Build(_dir, "selfstart", LivePrograms.SelfStarter);
+        await using var server = await Server();
+        await Ok(server, "live_session", new() { ["action"] = "spawn", ["program"] = exe, ["arguments"] = new[] { "spawn" }, ["childNames"] = new[] { "selfstart" } });
+        await Ok(server, "live_break", new() { ["session"] = "live-1", ["action"] = "continue" });
+        var copy = await HeldChild(server, exe);
+        await Ok(server, "live_session", new() { ["action"] = "attach_child", ["session"] = "live-1", ["program"] = copy.ToString(CultureInfo.InvariantCulture) });
+        await Ok(server, "live_break", new() { ["session"] = "live-2", ["action"] = "set", ["at"] = "libc.so.6!exit" });
+        await Ok(server, "live_session", new() { ["action"] = "close", ["session"] = "live-1" });
+        var stop = await Ok(server, "live_break", new() { ["session"] = "live-2", ["action"] = "continue", ["wait"] = true, ["waitSeconds"] = 60 });
+        Assert.Matches($@"thread {copy} stopped at s1 \(libc\.so\.6!", stop);
+        await Ok(server, "live_break", new() { ["session"] = "live-2", ["action"] = "continue" });
+        Assert.Matches(@"exit code 3(?![0-9xX])", await UntilExited(server, "live-2", 30));
+        await Ok(server, "live_session", new() { ["action"] = "close", ["session"] = "live-2" });
+        Ended(copy);
+    }
+
+    // ---- a child session closed before its first continue: the copy goes back to the parent's hold, and runs once let go
+
+    [LiveTargetFact("linux-x64")] public Task Copy_is_held_again_after_its_session_closes_unstarted_on_linux_x64() => CopyHeldAgain(LiveTarget.LinuxX64);
+    [LiveTargetFact("linux-x86")] public Task Copy_is_held_again_after_its_session_closes_unstarted_on_linux_x86() => CopyHeldAgain(LiveTarget.LinuxX86);
+
+    private async Task CopyHeldAgain(LiveTarget target)
     {
         var exe = target.Build(_dir, "selfstart", LivePrograms.SelfStarter);
         await using var server = await Server();
@@ -268,6 +291,8 @@ public sealed class LiveChildrenRealTests(ITestOutputHelper output) : LiveToolCa
         var copy = await HeldChild(server, exe);
         await Ok(server, "live_session", new() { ["action"] = "attach_child", ["session"] = "live-1", ["program"] = copy.ToString(CultureInfo.InvariantCulture) });
         await Ok(server, "live_session", new() { ["action"] = "close", ["session"] = "live-2" });
+        Assert.Contains($"pid {copy} held:", await Ok(server, "live_session", new() { ["action"] = "children", ["session"] = "live-1" }));
+        await Ok(server, "live_session", new() { ["action"] = "release_child", ["session"] = "live-1", ["program"] = copy.ToString(CultureInfo.InvariantCulture) });
         Assert.Matches(@"exit code 0(?![0-9xX])", await UntilExited(server, "live-1", 30));
         Assert.Contains("copy exited 3", await Events(server, "live-1", kind: "output"));
         await Ok(server, "live_session", new() { ["action"] = "close", ["session"] = "live-1" });

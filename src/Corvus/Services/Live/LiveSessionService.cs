@@ -421,7 +421,7 @@ public sealed partial class LiveSessionService(AssemblyWorkspace workspace, Nati
 
     /// <summary>Attaches to a process (id or name) or starts <paramref name="program"/>; returns the open session.</summary>
     public async Task<LiveSession> OpenAsync(bool spawn, string program, IReadOnlyList<string> arguments, CancellationToken ct,
-        IReadOnlyList<string>? environment = null, IReadOnlyList<string>? childNames = null, bool stopped = false, bool downloadDac = false)
+        IReadOnlyList<string>? environment = null, IReadOnlyList<string>? childNames = null, bool downloadDac = false)
     {
         if (_sessions.Values.Count(s => !s.Closed) >= MaxSessions)
             throw new ToolError(ErrorCode.LimitExceeded, $"{MaxSessions} sessions are open.", "close one with live_session action=close");
@@ -464,7 +464,6 @@ public sealed partial class LiveSessionService(AssemblyWorkspace workspace, Nati
                     ["environment"] = ProgramEnvironment(environment ?? []),
                 }
                 : new JsonObject { ["attach"] = target };
-            if (stopped) args["stopped"] = true;
             if (childNames != null)
             {
                 session.ChildNames = childNames;
@@ -1696,9 +1695,25 @@ public sealed partial class LiveSessionService(AssemblyWorkspace workspace, Nati
         session.ExitCheck?.Dispose();
         await CloseChildrenAsync(session).ConfigureAwait(false);
         session.CompileCheck?.Dispose();
-        if (session.Worker.IsAlive)
-            await session.Worker.ShutdownAsync("close", new JsonObject { ["end"] = session.Spawned }, TimeSpan.FromSeconds(5)).ConfigureAwait(false);
-        session.Worker.Dispose();
+        // A gate whose session sits in a started child's program outlives that child's session: an agent that leaves
+        // before one that came later stops the later agent's hooks (see live_worker.py drop_child).
+        var kept = false;
+        if (session.Worker.IsAlive && KeepsHanded(session))
+        {
+            try
+            {
+                var r = await session.Worker.RequestAsync("close", new JsonObject { ["end"] = session.Spawned, ["keep_handed"] = true }, TimeSpan.FromSeconds(5), CancellationToken.None).ConfigureAwait(false);
+                kept = r.ValueKind == JsonValueKind.Object && r.TryGetProperty("kept", out var k) && k.GetInt32() > 0;
+            }
+            catch (ToolError) { }
+        }
+        if (!kept)
+        {
+            if (session.Worker.IsAlive)
+                await session.Worker.ShutdownAsync("close", new JsonObject { ["end"] = session.Spawned }, TimeSpan.FromSeconds(5)).ConfigureAwait(false);
+            session.Worker.Dispose();
+        }
+        await DropHandedAsync(session).ConfigureAwait(false);
         if (session.ProcessHandle is { IsInvalid: false } handle) _ = WatchExitAfterClose(session, handle);
         else session.ProcessHandle?.Dispose();
         session.ReleaseAll();
@@ -1719,6 +1734,8 @@ public sealed partial class LiveSessionService(AssemblyWorkspace workspace, Nati
         foreach (var s in _sessions.Values)
             try { CloseAsync(s, "server exit").Wait(TimeSpan.FromSeconds(6)); }
             catch (AggregateException) { s.Worker.Kill("server exit"); }
+        foreach (var s in _sessions.Values.Where(s => s.Worker.IsAlive))
+            s.Worker.Kill("server exit");
         StopTimelines();
         StopConsoles();
     }

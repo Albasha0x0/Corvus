@@ -2,7 +2,8 @@
 
 Ops: hello; open {attach, stopped | spawn, arguments, cwd, temp, tmp, children}; info; set {id, address}; clear {id}; watch {id, address, args,
 perSecond}; unwatch {id}; defer_module {name}; undefer_module {name}; release_load {thread}; load_script {id, source};
-unload_script {id}; read {address, length}; resume {thread}; resume_child {pid, stopped}; close.
+unload_script {id}; read {address, length}; resume {thread}; resume_child {pid, stopped | hold | keep}; drop_child {pid};
+close {end, keep_handed}.
 Events: ready, stop (with stack: the bytes from the stack pointer up, outside Windows), calls, module, thread, exception, exit_status, output, exit, script_error, user_script, child.
 A program started here stays suspended until the first resume; close resumes every held thread, and ends the
 program only when this worker started it. A module named by defer_module holds its loading thread (module event with
@@ -10,8 +11,11 @@ held) until release_load; a fatal exception event, and exit_status {code}, hold 
 worker has read them.
 With children {names} on open, a program the process starts is held at its start (Frida's child gating) and reported
 as a child event; one whose image name is not in names (when given) is resumed at once. resume_child lets a held child
-run, or with stopped (Linux) leaves it stopped for open {attach, stopped} in another worker; close resumes
-every child still held.
+run, or with stopped (Linux) leaves it stopped for open {attach, stopped} in another worker; with hold (Linux) it
+runs with its first thread held at the main module's code (held: whether it got there) for an open {attach} in another
+worker, until resume_child for that pid again; with keep, the hold's session then stays attached until drop_child, so
+that the other worker's agent leaves first. close resumes every child still held; with keep_handed the worker keeps those
+sessions and serves drop_child until a close keeps none (kept: how many it keeps).
 """
 import json
 import os
@@ -22,6 +26,25 @@ import threading
 
 _out = threading.Lock()
 OUTPUT_CHUNK = 4096  # bytes of one program output chunk kept in its event
+
+# Holds the first thread that runs the main module's code until release. The exec gate resumes a child past its entry
+# point and past __libc_start_main, so a hook there never runs; a page access always does. A disable inside onAccess
+# ends the child with SIGSEGV, so the held thread gives every page back its protection instead: no later access faults
+# into another session's exception handler.
+HOLD_AT_CODE = """
+const release = recv('release', () => {});
+let held = false;
+const ranges = Process.mainModule.enumerateRanges('--x');
+MemoryAccessMonitor.enable(ranges.map(r => ({ base: r.base, size: r.size })), { onAccess() {
+  if (held) return;
+  held = true;
+  for (const r of ranges) Memory.protect(r.base, r.size, r.protection);
+  send('held');
+  release.wait();
+  send('released');
+} });
+"""
+HOLD_WAIT = 5  # seconds a hold waits for the child to reach its code; one that never does runs on unheld
 
 
 def parent_of(pid):
@@ -109,6 +132,9 @@ class Session:
         self.user_scripts = {}
         self.children = {}  # pid of each held child to its path
         self.forks = {}  # pid of each fork followed to its exec (outside Windows) to its session
+        # Pid of each child resumed with hold to the session whose script holds it, and, once released, to that session.
+        self.holds = {}
+        self.handed = {}
         self.child_names = None  # lower-case image names (with or without extension) to hold; None holds every child
 
     def on_message(self, message, data):
@@ -209,7 +235,27 @@ class Session:
         self.require()
         pid = int(args["pid"])
         with self.lock:
-            held = self.children.pop(pid, None) is not None
+            path = self.children.pop(pid, None)
+            hold = self.holds.pop(pid, None)
+        held = path is not None
+        if hold is not None and args.get("hold"):
+            # Asked again after another worker's attach failed: the child stays held for the next attach.
+            with self.lock:
+                self.holds[pid] = hold
+            return {"resumed": True, "held": hold[2].is_set()}
+        if hold is not None:
+            self.release_hold(pid, hold, bool(args.get("keep")))
+            return {"resumed": True}
+        if held and args.get("hold"):
+            try:
+                hold, reached = self.hold_at_code(pid)
+            except BaseException:
+                with self.lock:
+                    self.children[pid] = path
+                raise
+            with self.lock:
+                self.holds[pid] = hold
+            return {"resumed": True, "held": reached}
         if held:
             if args.get("stopped"):
                 # The gate's ptrace hold keeps another worker from attaching, and a child held at its exec has no libc
@@ -220,16 +266,71 @@ class Session:
             self.device.resume(pid)
         return {"resumed": held}
 
-    def resume_children(self):
+    def hold_at_code(self, pid):
+        """Lets a gated child run held at its first instruction in the main module; returns (session, reached)."""
+        # The gate's ptrace hold keeps another worker from attaching, and a SIGSTOP hold is lost when an attach to it
+        # fails under load; a thread held by a script leaves the child attachable while it waits.
+        session = self.device.attach(pid)
+        try:
+            reached, released = threading.Event(), threading.Event()
+            script = session.create_script(HOLD_AT_CODE)
+            script.on("message", lambda m, d: {"held": reached, "released": released}.get(m.get("payload"), threading.Event()).set())
+            script.load()
+        except BaseException:
+            self.detach_quietly(session)
+            raise
+        self.device.resume(pid)
+        return (session, script, reached, released), reached.wait(HOLD_WAIT)
+
+    def release_hold(self, pid, hold, keep):
+        session, script, reached, released = hold
+        try:
+            script.post({"type": "release"})
+        except frida.InvalidOperationError:
+            pass
+        # Unload only once the held thread has left the wait: an unload while it is still there can end the child.
+        if reached.is_set():
+            released.wait(HOLD_WAIT)
+        try:
+            script.unload()
+        except frida.InvalidOperationError:
+            pass
+        if not keep:
+            self.detach_quietly(session)
+            return
+        # Every Frida agent patches exit, abort, sigaction and the loader's notification point, and one that leaves
+        # before an agent that came later stops the later agent's hooks there: the session stays until drop_child.
+        with self.lock:
+            self.handed[pid] = session
+        session.on("detached", lambda reason, crash: self.handed.pop(pid, None))
+
+    def drop_child(self, args):
+        with self.lock:
+            session = self.handed.pop(int(args["pid"]), None)
+            kept = len(self.handed)
+        if session is not None:
+            self.detach_quietly(session)
+        return {"dropped": session is not None, "kept": kept}
+
+    def resume_children(self, keep_handed=False):
         with self.lock:
             pids = list(self.children)
             forks = list(self.forks.values())
+            holds = list(self.holds.items())
+            handed = [] if keep_handed else list(self.handed.values())
             self.children.clear()
             self.forks.clear()
+            self.holds.clear()
+            if not keep_handed:
+                self.handed.clear()
         for pid in pids:
             self.resume_quietly(pid)
         for fork in forks:
             self.detach_quietly(fork)
+        for pid, hold in holds:
+            self.release_hold(pid, hold, keep=False)
+        for session in handed:
+            self.detach_quietly(session)
 
     def on_detached(self, reason, crash):
         self.exited = str(reason) == "process-terminated"
@@ -434,7 +535,7 @@ class Session:
             except frida.InvalidOperationError:
                 pass
         # a held child never stays suspended: it runs on, unobserved unless a session of its own holds it
-        self.resume_children()
+        self.resume_children(bool(args.get("keep_handed")))
         if self.session is not None:
             try:
                 self.session.detach()
@@ -450,7 +551,8 @@ class Session:
             except frida.InvalidOperationError:
                 pass
         self.script = self.session = None
-        return {"ended": ended}
+        self.suspended = False
+        return {"ended": ended, "kept": len(self.handed)}
 
 
 def set_each(agent, points):
@@ -511,6 +613,8 @@ def handle(state, op, args):
         return state.resume(args)
     if op == "resume_child":
         return state.resume_child(args)
+    if op == "drop_child":
+        return state.drop_child(args)
     if op == "close":
         return state.close(args)
     if op == "cancel":
@@ -527,6 +631,7 @@ def main():
             continue
         req = json.loads(line)
         rid, op = req.get("id"), req.get("op")
+        result = None
         try:
             result = handle(state, op, req.get("args") or {})
             emit({"id": rid, "ok": True, "result": result})
@@ -534,7 +639,8 @@ def main():
             emit({"id": rid, "ok": False, "error": {"code": e.code, "message": str(e)}})
         except Exception as e:  # frida errors carry their own message
             emit({"id": rid, "ok": False, "error": {"code": "failed", "message": "%s: %s" % (type(e).__name__, e)}})
-        if op == "close":
+        # A close that keeps handed sessions leaves the worker serving drop_child until a close keeps none.
+        if op == "close" and not (result or {}).get("kept"):
             break
     try:
         state.close({})
