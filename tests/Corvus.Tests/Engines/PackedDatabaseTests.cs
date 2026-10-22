@@ -31,6 +31,7 @@ public sealed class PackedDatabaseTests(ITestOutputHelper output) : IDisposable
     {
         var image = _dir.File("jitinterface_x64.dll");
         File.Copy(RealPackages.File("runtime.win-x64.Microsoft.DotNet.ILCompiler", "10.0.11", "tools", "jitinterface_x64.dll"), image);
+        EngineSeed.Copy(_dir.File("cache"), image, "ghidra");
         var gzf = _dir.File("jit.gzf");
         string function;
         await using (var c = await McpProtocolTests.StartServerAsync(_dir.Path, null, [], Cache))
@@ -66,6 +67,7 @@ public sealed class PackedDatabaseTests(ITestOutputHelper output) : IDisposable
     {
         var image = _dir.File("jitinterface_x64.dll");
         File.Copy(RealPackages.File("runtime.win-x64.Microsoft.DotNet.ILCompiler", "10.0.11", "tools", "jitinterface_x64.dll"), image);
+        EngineSeed.Copy(_dir.File("cache"), image, "ghidra");
         await using (var c = await McpProtocolTests.StartServerAsync(_dir.Path, null, [], Cache))
         {
             await Call(c, "load_assembly", new() { ["path"] = image });

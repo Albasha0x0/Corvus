@@ -98,6 +98,7 @@ public sealed class NativeIdaFormatsTests(ITestOutputHelper output) : IDisposabl
         _owned.Add(workspace);
         var model = new Il2CppRawLoader(workspace).Load(files, loadBinary: true, null, default, cache).Model;
         var native = Assert.Single(workspace.Natives);
+        EngineSeed.Copy(_dir.File("cache"), files.Binary, "ida");
         var code = new NativeCodeService(workspace, options, null, new Native.Annotations.AnnotationStore(_dir.File("annotations")));
         var engines = new NativeEngineService(new IdaProviderOptions { CacheRoot = _dir.File("cache") }, code, workspace, options);
         _owned.Add(engines);

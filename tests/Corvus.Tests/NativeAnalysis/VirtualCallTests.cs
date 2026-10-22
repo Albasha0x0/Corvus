@@ -428,6 +428,7 @@ public class VirtualCallTests(ITestOutputHelper output)
         var path = Environment.GetEnvironmentVariable("CORVUS_VCALL_IMAGE");
         if (string.IsNullOrEmpty(path) || !File.Exists(path)) { output.WriteLine("CORVUS_VCALL_IMAGE not set"); return; }
         using var dir = new TempDir();
+        EngineSeed.Copy(dir.File("cache"), path, "ida");
         var (_, tools, engines) = Rig(dir);
         using var _e = engines;
         var clock = Stopwatch.StartNew();
