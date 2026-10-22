@@ -91,9 +91,9 @@ internal sealed class ScriptedLiveBackend(string mainPath, ulong mainBase, uint 
     }
 
     /// <summary>The program loading <paramref name="name"/> from <paramref name="path"/> at <paramref name="at"/>; <paramref name="heldBy"/>: the loading thread the worker holds.</summary>
-    public void Load(string name, string path, ulong at, uint size, long? heldBy = null) => Worker!.Emit(new JsonObject
+    public void Load(string name, string path, ulong at, uint size, long? heldBy = null, string? unobserved = null) => Worker!.Emit(new JsonObject
     {
-        ["event"] = "module", ["action"] = "loaded", ["held"] = heldBy != null, ["tid"] = heldBy,
+        ["event"] = "module", ["action"] = "loaded", ["held"] = heldBy != null, ["tid"] = heldBy, ["unobserved"] = unobserved,
         ["module"] = new JsonObject { ["name"] = name, ["base"] = $"0x{at:x}", ["size"] = size, ["path"] = path },
     });
 
@@ -384,6 +384,20 @@ public sealed class LiveSessionTests : IDisposable
         Assert.Contains("w1", _backend.WatchedKinds.Keys);
         Assert.Contains("s2 deferred", await _tools.LiveBreak("live-1", "set", at: "other!f"));
         Assert.Contains("s2 cleared", await _tools.LiveBreak("live-1", "clear", stopPoint: "s2"));
+    }
+
+    [Fact]
+    public async Task A_deferred_point_in_a_module_the_agent_cannot_observe_fails_with_the_reason()
+    {
+        await _tools.LiveSession("attach", program: "4242");
+        await _tools.LiveBreak("live-1", "set", at: "plugin!sqlite3_open");
+
+        _backend.Load("plugin.dll", Sqlite, 0x7ff7_0000_0000, 0x200000, unobserved: "its entry point writes its code");
+        var listed = "";
+        for (int i = 0; i < 100 && !listed.Contains("failed"); i++, await Task.Delay(50)) listed = await _tools.LiveBreak("live-1");
+        Assert.Contains("s1 plugin!sqlite3_open: failed (plugin.dll loaded): its entry point writes its code", listed);
+        Assert.Contains("x64 machine", listed);
+        Assert.DoesNotContain("set", _backend.Ops);
     }
 
     [Fact]

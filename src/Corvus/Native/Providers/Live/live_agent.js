@@ -166,10 +166,10 @@ function codeWrittenAtStart(m) {
   }
 }
 
-function moduleLoaded(m, held, afterEntry) {
+function moduleLoaded(m, held, afterEntry, unobserved) {
   const tid = Process.getCurrentThreadId();
   if (held) expect('load-' + tid);
-  send({ type: 'module', action: 'loaded', module: moduleRow(m), held, tid, afterEntry });
+  send({ type: 'module', action: 'loaded', module: moduleRow(m), held, tid, afterEntry, unobserved });
   if (held) waitFor('load-' + tid);
 }
 
@@ -220,6 +220,21 @@ function returnFrom(m) {
   return null;
 }
 
+// An x64 or x86 program on an ARM64 Windows machine, which runs it under emulation.
+const emulated = (() => {
+  if (Process.platform !== 'windows' || Process.arch === 'arm64') return false;
+  try {
+    const isWow64Process2 = new NativeFunction(Process.getModuleByName('kernel32.dll').getExportByName('IsWow64Process2'), 'int',
+      ['pointer', 'pointer', 'pointer'], Process.arch === 'ia32' ? 'stdcall' : 'default');
+    const process = Memory.alloc(2), native = Memory.alloc(2);
+    // The native machine IMAGE_FILE_MACHINE_ARM64 (0xAA64) runs an x64 or x86 program emulated.
+    return isWow64Process2(ptr(-1), process, native) !== 0 && native.readU16() === 0xaa64;
+  } catch (e) {
+    // No IsWow64Process2 (before Windows 10 1709): not an ARM64 machine.
+    return false;
+  }
+})();
+
 if (typeof Process.attachModuleObserver === 'function') {
   Process.attachModuleObserver({
     onAdded(m) {
@@ -231,6 +246,13 @@ if (typeof Process.attachModuleObserver === 'function') {
       const start = held ? codeWrittenAtStart(m) : null;
       if (start === null) {
         moduleLoaded(m, held, false);
+        return;
+      }
+      // Under emulation a hook in code written at start-up is not run (x64:
+      // the translated code runs without it), and the loader's frames are
+      // native ARM64 code (x86: CHPE), so its return cannot be hooked.
+      if (emulated) {
+        moduleLoaded(m, false, false, 'its entry point writes its code, and a stop point there is not seen in a program emulated on an ARM64 machine');
         return;
       }
       const inside = returnFrom(m), tid = Process.getCurrentThreadId();

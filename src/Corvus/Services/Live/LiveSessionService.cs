@@ -743,7 +743,8 @@ public sealed partial class LiveSessionService(AssemblyWorkspace workspace, Nati
                 session.Add("module", null, m.Base, $"{(loaded ? "loaded" : "unloaded")} {m.Name} ({m.Path})");
                 long? holder = loaded && body.TryGetProperty("held", out var held) && held.ValueKind == JsonValueKind.True ? Thread() : null;
                 var afterEntry = body.TryGetProperty("afterEntry", out var started) && started.ValueKind == JsonValueKind.True;
-                if (loaded) _ = SetDeferredAsync(session, m, holder, afterEntry);
+                var unobserved = body.TryGetProperty("unobserved", out var reason) && reason.ValueKind == JsonValueKind.String ? reason.GetString() : null;
+                if (loaded) _ = SetDeferredAsync(session, m, holder, afterEntry, unobserved);
                 break;
             }
             case "jit_ran":
@@ -1318,8 +1319,11 @@ public sealed partial class LiveSessionService(AssemblyWorkspace workspace, Nati
         : file.EndsWith(".ni.exe", StringComparison.OrdinalIgnoreCase) ? file[..^7] + ".exe"
         : null;
 
-    /// <summary>Sets the points deferred to <paramref name="module"/>, then lets its loading thread (held by the worker) go on.</summary>
-    private async Task SetDeferredAsync(LiveSession session, LiveModuleState module, long? holder, bool afterEntry)
+    /// <summary>
+    /// Sets the points deferred to <paramref name="module"/>, then lets its loading thread (held by the worker) go on;
+    /// <paramref name="unobserved"/> names why a point in the module would not be seen, and fails them instead.
+    /// </summary>
+    private async Task SetDeferredAsync(LiveSession session, LiveModuleState module, long? holder, bool afterEntry, string? unobserved)
     {
         List<LiveDeferred> due;
         bool rest;
@@ -1331,7 +1335,11 @@ public sealed partial class LiveSessionService(AssemblyWorkspace workspace, Nati
         }
         try
         {
-            await SetDueAsync(session, afterEntry ? $"{module.Name} loaded; its entry point writes its code, so set once that returned" : $"{module.Name} loaded", due).ConfigureAwait(false);
+            if (unobserved != null)
+                foreach (var d in due)
+                    FailDeferred(session, d, $"{module.Name} loaded", unobserved, "run the program on an x64 machine, where it is not emulated");
+            else
+                await SetDueAsync(session, afterEntry ? $"{module.Name} loaded; its entry point writes its code, so set once that returned" : $"{module.Name} loaded", due).ConfigureAwait(false);
             var placed = await PlaceCoverageAsync(session, module).ConfigureAwait(false);
             if (!rest)
                 foreach (var name in due.Select(d => d.Module).Concat(placed).Distinct(StringComparer.OrdinalIgnoreCase))
@@ -1366,10 +1374,15 @@ public sealed partial class LiveSessionService(AssemblyWorkspace workspace, Nati
             }
             catch (Exception e) when (e is ToolError or TimeoutException or OperationCanceledException)
             {
-                session.Add("error", null, null, $"deferred {d.Id} at {d.Where} could not be set ({because}): {e.Message}");
-                lock (session.Failed) session.Failed.Add(new(d.Id, d.Where, d.Watch, because, e.Message, (e as ToolError)?.Remediation));
+                FailDeferred(session, d, because, e.Message, (e as ToolError)?.Remediation);
             }
         }
+    }
+
+    private static void FailDeferred(LiveSession session, LiveDeferred d, string because, string reason, string? next)
+    {
+        session.Add("error", null, null, $"deferred {d.Id} at {d.Where} could not be set ({because}): {reason}");
+        lock (session.Failed) session.Failed.Add(new(d.Id, d.Where, d.Watch, because, reason, next));
     }
 
     /// <summary>Refuses an address in the first bytes of a function a recording coverage run hooks at its start.</summary>

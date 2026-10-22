@@ -163,7 +163,8 @@ A stop point or watch on `module!name` whose module is not loaded yet is deferre
 breakpoint: the loading thread waits at the module's load, before any of the module's code runs, until the point is set
 (a `module` event says so), so its first call is caught. A packed DLL, whose entry point writes its code into a section
 the file leaves empty, is waited on when that entry point returns instead, so the point is not overwritten; stops in
-that code are named by the DLL's exports. A deferred point the loaded module does not resolve is
+that code are named by the DLL's exports. In an x64 or x86 program emulated on an ARM64 machine, such a point
+fails with that reason: the emulator runs that code without the hook. A deferred point the loaded module does not resolve is
 dropped: the next `live_break` or `live_watch` call says why, the list shows it as failed until it is cleared, and a
 managed name (`Ns.Type::Method`) that an Il2Cpp or NativeAOT layer names `Ns_Type__Method` gets that name as its next
 step. A stop point on a jump is set where the jump leads; when it leads
