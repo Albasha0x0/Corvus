@@ -5,8 +5,21 @@ namespace Corvus.Tests;
 
 /// <summary>The external tool table: location by variable, folder and PATH, version probes, minimal environment, output and time budgets.</summary>
 [Collection(ExternalToolEnvironmentCollection.Name)]
-public class ExternalToolsTests(ITestOutputHelper output)
+public class ExternalToolsTests : IDisposable
 {
+    private readonly TimeSpan _versionTimeout = ExternalTools.VersionTimeout;
+    private readonly ITestOutputHelper output;
+
+    public ExternalToolsTests(ITestOutputHelper output)
+    {
+        this.output = output;
+        // A fake tool is a .NET program: on a loaded machine its start alone can
+        // pass the 15 s version check limit, and these tests read versions.
+        ExternalTools.VersionTimeout = TimeSpan.FromMinutes(2);
+    }
+
+    public void Dispose() => ExternalTools.VersionTimeout = _versionTimeout;
+
     [Fact]
     public void Locate_TakesTheVariableAsFileOrFolder_AndNeverFallsBackFromABadOne()
     {
