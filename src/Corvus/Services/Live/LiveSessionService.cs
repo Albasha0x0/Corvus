@@ -92,6 +92,7 @@ public sealed class LiveSession
     public const int RingCapacity = 10_000;
     public const int CallRingCapacity = 10_000;
     private readonly object _gate = new();
+    private bool _exitLogged;
     private readonly EventRing _calls = new(CallRingCapacity), _others = new(RingCapacity);
     private readonly Dictionary<long, LiveHeldStop> _held = [];
     private TaskCompletionSource _changed = new(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -211,7 +212,7 @@ public sealed class LiveSession
             lock (_gate)
             {
                 if (Closed) return "closed";
-                if (Ended != null) return Ended.StartsWith("failed", StringComparison.Ordinal) ? "failed" : "exited";
+                if (Ended != null && _exitLogged) return Ended.StartsWith("failed", StringComparison.Ordinal) ? "failed" : "exited";
                 if (_held.Count > 0) return "stopped";
                 return Suspended ? "suspended" : "running";
             }
@@ -242,6 +243,19 @@ public sealed class LiveSession
             if (held != null && thread is { } t) _held[t] = held(seq);
             Signal();
             return seq;
+        }
+    }
+
+    /// <summary>
+    /// Records the exit event for <see cref="Ended"/>; the state reads exited or failed only from here on, so a caller that
+    /// waits for the state finds the event.
+    /// </summary>
+    internal void AddExit()
+    {
+        lock (_gate)
+        {
+            Add("exit", null, null, Ended!);
+            _exitLogged = true;
         }
     }
 
@@ -417,7 +431,7 @@ public sealed partial class LiveSessionService(AssemblyWorkspace workspace, Nati
     public LiveSession Running(string id)
     {
         var session = Get(id);
-        if (session.State is "exited" or "failed" || session.Closed && session.Spawned)
+        if (session.Ended != null && !session.Closed || session.Closed && session.Spawned)
             throw new ToolError(ErrorCode.NotFound, $"The program of session {session.Id} has ended ({session.Ended}).", "open_minidump reads a snapshot saved while it ran (live_session action=snapshot)");
         return session;
     }
@@ -551,7 +565,7 @@ public sealed partial class LiveSessionService(AssemblyWorkspace workspace, Nati
                 session.ReleaseAll();
                 EndCoverage(session);
                 EndTimeline(session);
-                session.Add("exit", null, null, session.Ended);
+                session.AddExit();
             }
             if (!session.Closed) ResumeChildrenDirectly(session);
         }, TaskScheduler.Default);
@@ -846,7 +860,7 @@ public sealed partial class LiveSessionService(AssemblyWorkspace workspace, Nati
         session.ReleaseAll();
         EndCoverage(session);
         EndTimeline(session);
-        session.Add("exit", null, null, session.Ended);
+        session.AddExit();
     }
 
     /// <summary>

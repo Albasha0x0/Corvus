@@ -812,6 +812,27 @@ public sealed class LiveSessionTests : IDisposable
         Assert.Contains("exited: process-terminated, exit code 1", await tools.LiveEvents("live-1", kind: "exit"));
     }
 
+    // The live offload job of run 39825043627 read no exit event after the state said exited.
+    [Fact]
+    public async Task A_session_that_reads_exited_has_its_exit_event_recorded()
+    {
+        for (int round = 0; round < 50; round++)
+        {
+            var backend = new ScriptedLiveBackend(Sqlite, Base, 0x200000);
+            using var service = new LiveSessionService(_workspace, new NativeCodeService(_workspace, SharedCodeIndex.Options())) { Backend = backend };
+            await new LiveSessionTools(new ServerOptions { AllowLive = true, AllowLiveAttach = true }, service).LiveSession("attach", program: "4242");
+            var session = service.Get("live-1");
+            // A spinning reader sees the state the moment it changes.
+            var reader = Task.Run(() =>
+            {
+                while (session.State != "exited") Thread.SpinWait(1);
+                return session.Page(0, "exit", null, 10).Events.Count;
+            });
+            backend.Worker!.Emit(new JsonObject { ["event"] = "exit", ["reason"] = "process-terminated" });
+            Assert.Equal(1, await reader.WaitAsync(TimeSpan.FromSeconds(10)));
+        }
+    }
+
     [Fact]
     public async Task A_stop_with_its_stack_is_unwound_by_the_modules_cfi()
     {
