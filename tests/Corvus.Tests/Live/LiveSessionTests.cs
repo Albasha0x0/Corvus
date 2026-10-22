@@ -655,7 +655,53 @@ public sealed class LiveSessionTests : IDisposable
         finally
         {
             LiveSessionService.StuckExit = stuck;
-            if (!program.HasExited) program.Kill();
+            // HasExited is true once the exit code is set; only the wait sees a program still in its exit.
+            if (!program.WaitForExit(0)) program.Kill();
+        }
+    }
+
+    // R-39: Frida reported process-terminated while the program stayed in its exit, and the stuck exit check stopped.
+    [LiveTargetFact("win-x64")]
+    [Trait("Speed", "Slow")]
+    public async Task An_exit_reported_while_the_program_is_still_in_its_exit_waits_for_the_stuck_exit_check()
+    {
+        const string Source = """
+            #include <windows.h>
+            static void NTAPI OnTls(PVOID h, DWORD reason, PVOID r) { if (reason == DLL_PROCESS_DETACH) for (;;) Sleep(10); }
+            #pragma comment(linker, "/INCLUDE:_tls_used")
+            #pragma comment(linker, "/INCLUDE:tls_callback")
+            #pragma const_seg(".CRT$XLB")
+            EXTERN_C const PIMAGE_TLS_CALLBACK tls_callback = OnTls;
+            #pragma const_seg()
+            int main(void) { Sleep(1000); return 7; }
+            """;
+        using var dir = new TempDir();
+        using var program = Process.Start(LiveTarget.WinX64.Build(dir, "stuckexit", Source))!;
+        var backend = new ScriptedLiveBackend(Sqlite, Base, 0x200000) { ProcessId = program.Id };
+        using var service = new LiveSessionService(_workspace, new NativeCodeService(_workspace, new ServerOptions())) { Backend = backend };
+        var tools = new LiveSessionTools(new ServerOptions { AllowLive = true, AllowLiveAttach = true }, service);
+        var stuck = LiveSessionService.StuckExit;
+        LiveSessionService.StuckExit = TimeSpan.FromSeconds(2);
+        try
+        {
+            await tools.LiveSession("attach", program: $"{program.Id}");
+            using (var h = Corvus.Native.Live.LiveNative.OpenProcess(Corvus.Native.Live.LiveNative.PROCESS_QUERY_LIMITED_INFORMATION, false, program.Id))
+                for (var until = DateTime.UtcNow.AddSeconds(30); DateTime.UtcNow < until; await Task.Delay(50))
+                    if (Corvus.Native.Live.LiveNative.GetExitCodeProcess(h, out var code) && code != Corvus.Native.Live.LiveNative.STILL_ACTIVE) break;
+            backend.Worker!.Emit(new JsonObject { ["event"] = "exit", ["reason"] = "process-terminated" });
+            Assert.True(program.WaitForExit(30_000), "the program's exit was not finished");
+            var reported = DateTime.UtcNow.AddSeconds(10);
+            while (!(await tools.LiveSession("status", session: "live-1")).Contains(", exited") && DateTime.UtcNow < reported) await Task.Delay(50);
+            var events = await tools.LiveEvents("live-1");
+            var error = events.IndexOf("called ExitProcess(7) but its exit did not finish", StringComparison.Ordinal);
+            var exit = events.IndexOf("exited: process-terminated, exit code 7", StringComparison.Ordinal);
+            Assert.True(error >= 0 && exit > error, events);
+        }
+        finally
+        {
+            LiveSessionService.StuckExit = stuck;
+            // HasExited is true once the exit code is set; only the wait sees a program still in its exit.
+            if (!program.WaitForExit(0)) program.Kill();
         }
     }
 

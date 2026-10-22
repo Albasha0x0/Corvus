@@ -124,6 +124,8 @@ public sealed class LiveSession
     internal Timer? ExitCheck { get; set; }
     /// <summary>When the program's exit code was first seen set while its process had not yet ended.</summary>
     internal DateTime? ExitingSince { get; set; }
+    /// <summary>The backend's exit reason while its exit report waits for the process to end; null otherwise.</summary>
+    internal volatile string? PendingExit;
     internal List<Task> Indexing { get; } = [];
     /// <summary>The program's .NET runtime once read (<see cref="LiveSessionService.ClrAsync"/>).</summary>
     internal LiveClr? Clr { get; set; }
@@ -533,7 +535,7 @@ public sealed partial class LiveSessionService(AssemblyWorkspace workspace, Nati
         if (session.ProcessHandle != null) session.ExitCheck = new Timer(_ => CheckExit(session), null, TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(1));
         _ = worker.Closed.ContinueWith(_ =>
         {
-            if (!session.Closed && session.Ended == null)
+            if (!session.Closed && session.Ended == null && session.PendingExit == null)
             {
                 session.Ended = "failed: the session worker ended" + (worker.StderrText.Length > 0 ? ": " + worker.StderrText.Trim().Split('\n')[^1] : "");
                 session.ReleaseAll();
@@ -782,19 +784,58 @@ public sealed partial class LiveSessionService(AssemblyWorkspace workspace, Nati
                 session.Add("error", null, null, "session script: " + body.GetProperty("message").GetString());
                 break;
             case "exit":
-                // after close, the exit is the session's doing (Frida ends a started program with its own code): say so instead
-                session.Ended = session.CloseReason is { } why
-                    ? $"{(session.Spawned ? "ended" : "detached")} when the session closed ({why})"
-                    : "exited: " + body.GetProperty("reason").GetString() + ExitText(session);
-                // the worker's exception event can be lost when the process dies at once; the exit code still names it
-                if (session is { Exceptions: 0, ExitCode: >= 0xC000_0000 and not StatusControlCExit and { } code } && Native.Dump.ExceptionCodes.Name(code) is { } exception)
-                    session.Add("exception", null, null, $"{exception} (0x{code:X8}), from the exit code: the program ended before the exception's address was reported");
-                session.ReleaseAll();
-                EndCoverage(session);
-                EndTimeline(session);
-                session.Add("exit", null, null, session.Ended);
+                var exitReason = body.GetProperty("reason").GetString() ?? "";
+                // Frida can report process-terminated once the exit has begun (exit code set) while the process stays
+                // in its exit: the report waits for the process to end, so the stuck exit check can still end it.
+                if (exitReason == "process-terminated" && session.CloseReason == null && InExit(session))
+                {
+                    session.PendingExit = exitReason;
+                    _ = ExitWhenEnded(session);
+                }
+                else Exited(session, exitReason);
                 break;
         }
+    }
+
+    private const uint WaitTimeout = 0x102;
+
+    // Whether the process is in its exit: exit code set, process object not yet signaled; false where no handle is held.
+    private static bool InExit(LiveSession session)
+    {
+        try
+        {
+            return session.ProcessHandle is { IsInvalid: false, IsClosed: false } h && Native.Live.LiveNative.WaitForSingleObject(h, 0) == WaitTimeout
+                && Native.Live.LiveNative.GetExitCodeProcess(h, out var code) && code != Native.Live.LiveNative.STILL_ACTIVE;
+        }
+        catch (ObjectDisposedException) { return false; }
+    }
+
+    /// <summary>
+    /// Records the pending exit once the process ends, or after twice <see cref="StuckExit"/> (the stuck exit check
+    /// ends it before then); a close meanwhile records the session's end itself.
+    /// </summary>
+    private async Task ExitWhenEnded(LiveSession session)
+    {
+        var deadline = DateTime.UtcNow + 2 * StuckExit + TimeSpan.FromSeconds(5);
+        while (DateTime.UtcNow < deadline && session.Ended == null && InExit(session))
+            await Task.Delay(100).ConfigureAwait(false);
+        if (session.Ended == null && session.PendingExit is { } reason) Exited(session, reason);
+        session.PendingExit = null;
+    }
+
+    private void Exited(LiveSession session, string reason)
+    {
+        // after close, the exit is the session's doing (Frida ends a started program with its own code): say so instead
+        session.Ended = session.CloseReason is { } why
+            ? $"{(session.Spawned ? "ended" : "detached")} when the session closed ({why})"
+            : "exited: " + reason + ExitText(session);
+        // the worker's exception event can be lost when the process dies at once; the exit code still names it
+        if (session is { Exceptions: 0, ExitCode: >= 0xC000_0000 and not StatusControlCExit and { } code } && Native.Dump.ExceptionCodes.Name(code) is { } exception)
+            session.Add("exception", null, null, $"{exception} (0x{code:X8}), from the exit code: the program ended before the exception's address was reported");
+        session.ReleaseAll();
+        EndCoverage(session);
+        EndTimeline(session);
+        session.Add("exit", null, null, session.Ended);
     }
 
     /// <summary>
