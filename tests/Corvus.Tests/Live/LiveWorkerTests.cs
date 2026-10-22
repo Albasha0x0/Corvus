@@ -153,6 +153,70 @@ public sealed class LiveWorkerTests : IDisposable
             return _Device()
         """;
 
+    // The stand-in holds thread 8 at the point set, and a resume posted for it
+    // starts the exit 0.2 s later: the exit status, then the process's end.
+    // An unload is recorded in unloaded.txt.
+    private const string ExitingFrida = """
+        import os
+        import threading
+
+        __version__ = "17.24.3"
+
+
+        class ProcessNotFoundError(Exception): pass
+        class PermissionDeniedError(Exception): pass
+        class InvalidOperationError(Exception): pass
+
+
+        class _Exports:
+            def info(self):
+                return {"pid": 4242, "arch": "x64", "platform": "windows", "modules": []}
+            def set(self, id, address, bare, limit=0):
+                _Script.receive({"type": "send", "payload": {"type": "stop", "point": id, "tid": 8, "hits": 1, "registers": {}, "frames": [address]}}, None)
+                return True
+            def close_begin(self):
+                return {"awaited": ["exit-8"] if _Script.exiting else [], "exiting": _Script.exiting}
+
+
+        class _Script:
+            exports_sync = _Exports()
+            receive = None
+            exiting = False
+            def on(self, signal, callback):
+                if signal == "message":
+                    _Script.receive = callback
+            def load(self): pass
+            def post(self, message):
+                if message["type"] == "resume-8":
+                    threading.Timer(0.2, _Script.exit).start()
+            @staticmethod
+            def exit():
+                _Script.exiting = True
+                _Script.receive({"type": "send", "payload": {"type": "exit_status", "tid": 8, "code": 5, "ack": True}}, None)
+                threading.Timer(0.2, lambda: _Session.detached("process-terminated", None)).start()
+            def unload(self):
+                with open(os.path.join(os.path.dirname(__file__), "unloaded.txt"), "w") as f:
+                    f.write("unloaded")
+
+
+        class _Session:
+            detached = None
+            def on(self, signal, callback):
+                if signal == "detached":
+                    _Session.detached = callback
+            def create_script(self, source): return _Script()
+            def detach(self): pass
+
+
+        class _Device:
+            def on(self, *args): pass
+            def attach(self, pid): return _Session()
+
+
+        def get_local_device():
+            return _Device()
+        """;
+
     /// <summary>The worker on <paramref name="frida"/>, a stand-in frida module beside it.</summary>
     private Process StartWorker(string frida)
     {
@@ -211,6 +275,24 @@ public sealed class LiveWorkerTests : IDisposable
         finally
         {
             p.Kill();
+            p.WaitForExit(10_000);
+        }
+    }
+
+    [Fact]
+    public void A_close_that_lets_a_held_thread_go_waits_for_its_exit_and_unloads_nothing()
+    {
+        using var p = StartWorker(ExitingFrida);
+        try
+        {
+            Assert.Contains("\"ok\":true", Request(p, 1, "open", """{"attach":"4242"}"""));
+            Assert.Contains("\"ok\":true", Request(p, 2, "set", """{"id":"a","address":"0x10"}"""));
+            Assert.Contains("\"ok\":true", Request(p, 3, "close", "{}"));
+            Assert.False(File.Exists(_dir.File("unloaded.txt")), "the close unloaded the script during the exit");
+        }
+        finally
+        {
+            if (!p.HasExited) p.Kill();
             p.WaitForExit(10_000);
         }
     }

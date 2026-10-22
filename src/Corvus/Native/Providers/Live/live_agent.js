@@ -255,8 +255,9 @@ const emulated = (() => {
   }
 })();
 
+let moduleObserver = null;
 if (typeof Process.attachModuleObserver === 'function') {
-  Process.attachModuleObserver({
+  moduleObserver = Process.attachModuleObserver({
     onAdded(m) {
       if (JIT_LIBRARY.test(m.name)) hookJit(m, !observing);
       if (!observing) return;
@@ -555,6 +556,17 @@ rpc.exports = {
   // the replies still awaited, and whether the program is exiting; a wait that starts later returns at once
   closeBegin() {
     closing = true;
+    // Observers go first: a callback on a Frida thread during the unload faults
+    // in the script runtime. Workaround for frida/frida-gum#1194: fails on
+    // 17.23.3 to 17.24.3; no fix release yet.
+    if (threadObserver !== null) {
+      threadObserver.detach();
+      threadObserver = null;
+    }
+    if (moduleObserver !== null) {
+      moduleObserver.detach();
+      moduleObserver = null;
+    }
     return { awaited: [...awaited], exiting };
   },
   // On Linux the thread observer keeps a fork from reaching child gating (Frida 17.24): its thread-ended events go there
