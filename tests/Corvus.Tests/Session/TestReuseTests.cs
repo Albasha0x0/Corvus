@@ -463,7 +463,8 @@ public class TestReuseTests
         }
     }
 
-    private static string[] Run(string script)
+    /// <summary>The output lines of a pwsh script that must exit 0, or ["skip"] where there is no pwsh.</summary>
+    internal static string[] Run(string script)
     {
         ProcessStartInfo start = new("pwsh") { RedirectStandardOutput = true, RedirectStandardError = true };
         foreach (var arg in new[] { "-NoProfile", "-NonInteractive", "-Command", script })
