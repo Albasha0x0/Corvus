@@ -1605,9 +1605,12 @@ public sealed partial class LiveSessionService(AssemblyWorkspace workspace, Nati
     {
         Live(session);
         var id = session.NextScriptId();
-        await session.Worker.RequestAsync("load_script", new JsonObject { ["id"] = id, ["source"] = source }, RequestTimeout, ct).ConfigureAwait(false);
+        var reply = await session.Worker.RequestAsync("load_script", new JsonObject { ["id"] = id, ["source"] = source }, RequestTimeout, ct).ConfigureAwait(false);
         lock (session.Scripts) session.Scripts[id] = origin;
-        // the worker posts a top-level exception as an event after the load reply
+        // The worker settles the script's top-level run before it replies, so the reply names its exception.
+        if (reply.ValueKind == JsonValueKind.Object && reply.TryGetProperty("error", out var thrown))
+            return (id, thrown.ValueKind == JsonValueKind.String ? "error: " + thrown.GetString() : null);
+        // A worker without that field posts a top-level exception only as an event.
         var prefix = id + ": error: ";
         // checked once more after the wait ends: a delay overrunning it on a busy machine skips no event
         for (var waited = Stopwatch.StartNew(); ; await Task.Delay(25, ct).ConfigureAwait(false))

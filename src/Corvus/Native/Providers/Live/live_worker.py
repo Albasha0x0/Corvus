@@ -1,7 +1,7 @@
 """Session worker: a local program observed through Frida, on the worker protocol (one JSON object per line).
 
 Ops: hello; open {attach, stopped | spawn, arguments, cwd, temp, tmp, children}; info; set {id, address}; clear {id}; watch {id, address, args,
-perSecond}; unwatch {id}; defer_module {name}; undefer_module {name}; release_load {thread}; load_script {id, source};
+perSecond}; unwatch {id}; defer_module {name}; undefer_module {name}; release_load {thread}; load_script {id, source} (replies with its top-level exception);
 unload_script {id}; read {address, length}; resume {thread}; resume_child {pid, stopped | hold | keep}; drop_child {pid};
 close {end, keep_handed}.
 Events: ready, stop (with stack: the bytes from the stack pointer up, outside Windows), calls, module, thread, exception, exit_status, output, exit, script_error, user_script, child.
@@ -460,16 +460,22 @@ class Session:
         except frida.InvalidArgumentError as e:  # the source does not compile
             raise Failure("invalid_argument", str(e))
 
+        thrown = []
+
         def on_message(message, data):
             if message.get("type") == "error":
+                thrown.append(message.get("description"))
                 emit({"event": "user_script", "script": sid, "error": message.get("description"), "stack": message.get("stack")})
             else:
                 emit({"event": "user_script", "script": sid, "payload": message.get("payload"), "bytes": len(data) if data else 0})
 
         script.on("message", on_message)
         script.load()
+        # A top-level exception arrives as a message, before the reply of a round
+        # trip through the script's own channel, so the load reply can name it.
+        script.list_exports_sync()
         self.user_scripts[sid] = script
-        return {"loaded": sid}
+        return {"loaded": sid, "error": thrown[0] if thrown else None}
 
     def unload_script(self, args):
         script = self.user_scripts.pop(args["id"], None)

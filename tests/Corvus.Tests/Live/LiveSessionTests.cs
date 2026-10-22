@@ -181,13 +181,12 @@ internal sealed class ScriptedLiveBackend(string mainPath, ulong mainBase, uint 
             case "defer_module" or "undefer_module": return true;
             case "release_load": return new JsonObject { ["released"] = true };
             case "load_script":
-                if (((string)args["source"]!).StartsWith("throw", StringComparison.Ordinal)) // the worker posts a top-level exception after its reply
-                    new Thread(() => // its own thread: a busy thread pool could start it after the server's wait
-                    {
-                        Thread.Sleep(20);
-                        Worker!.Emit(new JsonObject { ["event"] = "user_script", ["script"] = (string)args["id"]!, ["error"] = "Error: on purpose" });
-                    }) { IsBackground = true }.Start();
-                return new JsonObject { ["loaded"] = (string)args["id"]! };
+            {
+                // The worker posts a top-level exception as an event and names it in its reply.
+                string? thrown = ((string)args["source"]!).StartsWith("throw", StringComparison.Ordinal) ? "Error: on purpose" : null;
+                if (thrown != null) Worker!.Emit(new JsonObject { ["event"] = "user_script", ["script"] = (string)args["id"]!, ["error"] = thrown });
+                return new JsonObject { ["loaded"] = (string)args["id"]!, ["error"] = thrown };
+            }
             case "unload_script": return new JsonObject { ["unloaded"] = true };
             case "close":
                 BeforeCloseReply?.Invoke();
@@ -1009,6 +1008,7 @@ public sealed class LiveSessionTests : IDisposable
         Assert.Equal(ErrorCode.NotFound, (await Assert.ThrowsAsync<ToolError>(() => _tools.LiveWatchCalls("live-1", "clear", watch: "w1"))).Code);
     }
 
+    // CI run 39859212335 (macOS): the script's exception came after the server's wait for it ended.
     [Fact]
     public async Task A_user_script_loads_only_with_live_scripting_and_its_messages_are_events()
     {
