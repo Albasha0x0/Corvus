@@ -225,9 +225,13 @@ public sealed class MobileRulesTests(ITestOutputHelper output) : IDisposable
         var inspection = new InspectionService(_ws);
         foreach (var app in apps)
         {
+            (DexRuleScan.Scans, DexRuleScan.MethodsDecoded) = (0, 0);
             var clock = Stopwatch.StartNew();
             var r = inspection.SurveyFeatures(null, app, "all", default);
             clock.Stop();
+            // One scan per app for every dex rule, and a raw-code prefilter: well under 1 % of methods are decoded.
+            Assert.InRange(DexRuleScan.Scans, 0, 1);
+            Assert.InRange(DexRuleScan.MethodsDecoded, 0, Math.Max(1, r.MethodsScanned / 20));
             if (app.EndsWith(".apk", StringComparison.OrdinalIgnoreCase) && new FileInfo(app).Length <= 32 << 20)
                 PerfBudget.Time("mobile/apk-survey", clock.Elapsed, TimeSpan.FromSeconds(5), output);
             output.WriteLine($"{Path.GetFileName(app)} {new FileInfo(app).Length / 1048576.0:0.0} MB {clock.ElapsedMilliseconds} ms, {r.MethodsScanned} methods");

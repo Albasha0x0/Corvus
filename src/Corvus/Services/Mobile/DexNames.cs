@@ -25,6 +25,9 @@ public sealed partial class DexNames
     public int MappedMembers { get; private set; }
     public List<string> Notes { get; } = [];
 
+    /// <summary>Times <see cref="Read"/> built the set of the package's field descriptors: once, at the first field line.</summary>
+    internal int FieldSetBuilds { get; private set; }
+
     public bool IsEmpty => _classes.Count == 0 && _members.Count == 0;
 
     /// <summary>The original descriptor (mapping or Kotlin metadata) of an renamed one, else null.</summary>
@@ -178,7 +181,11 @@ public sealed partial class DexNames
                 {
                     id = $"{owner}->{obfName}:{names.Renamed(FromJava(type))}";
                     originalId = $"{originalOwner}->{name}:{FromJava(type)}";
-                    fields ??= [.. index.Classes.Values.SelectMany(e => e.File.ClassData(e.Class).Fields.Select(f => e.File.Field(f.FieldIndex).Descriptor))];
+                    if (fields == null)
+                    {
+                        fields = [.. index.Classes.Values.SelectMany(e => e.File.ClassData(e.Class).Fields.Select(f => e.File.Field(f.FieldIndex).Descriptor))];
+                        names.FieldSetBuilds++;
+                    }
                     if (fields.Contains(id)) membersFound++;
                 }
                 if (id == originalId) continue;

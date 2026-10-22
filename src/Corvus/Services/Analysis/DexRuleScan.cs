@@ -43,8 +43,13 @@ internal sealed class DexRuleScan
     private readonly Dictionary<string, Hits> _hits = new(StringComparer.Ordinal);
     private readonly Func<string, bool> _isLibrary;
 
+    /// <summary>Scans this thread built, and the methods they decoded (only those whose raw code touches a feature).</summary>
+    [ThreadStatic]
+    internal static int Scans, MethodsDecoded;
+
     public DexRuleScan(DexIndex index, IEnumerable<string> features, Func<string, bool> isLibrary, CancellationToken ct)
     {
+        Scans++;
         _isLibrary = isLibrary;
         foreach (var f in features.Distinct(StringComparer.Ordinal))
         {
@@ -176,6 +181,7 @@ internal sealed class DexRuleScan
 
     private void Method(DexFile dex, string method, DexCode code, bool library, List<CallFeature>?[] callsOf, List<string>?[] fieldsOf, List<string>?[] stringsOf)
     {
+        MethodsDecoded++;
         var instructions = Dalvik.Decode(code.Instructions);
         var regs = new object?[Math.Max(code.Registers, 1)];
         object? result = null;

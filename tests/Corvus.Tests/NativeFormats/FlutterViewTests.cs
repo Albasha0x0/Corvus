@@ -254,7 +254,8 @@ public sealed class FlutterViewTests(ITestOutputHelper output)
     public void Pool_scan_of_100_MB_is_fast()
     {
         var unit = new List<byte>();
-        for (int i = 0; unit.Count < 1 << 20; i++)
+        int strings = 0;
+        for (int i = 0; unit.Count < 1 << 20; i++, strings++)
         {
             DartString(unit, $"package:pkg{i % 50}/src/file{i}.dart");
             DartString(unit, $"identifier{i}");
@@ -270,6 +271,10 @@ public sealed class FlutterViewTests(ITestOutputHelper output)
         var pool = DartPoolScan.Read(data, snapshot);
         var took = ThreadCpuClock.Now() - cpu;
         Assert.Equal(50, pool.Packages.Count);
+        // The unit repeats about 100 times; a repeated string is hashed and skipped, not decoded and kept again.
+        Assert.Equal(strings, pool.PackageUris);
+        Assert.InRange(pool.Identifiers, 1, strings + 1);
+        Assert.False(pool.Capped);
         // the target is 1 s in a Release build (about 0.5 s measured); the Debug test build runs about 3x slower
         PerfBudget.Time("mobile/flutter-pool-scan-cpu", took, TimeSpan.FromSeconds(3), output);
     }

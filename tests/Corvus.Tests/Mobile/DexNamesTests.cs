@@ -104,6 +104,8 @@ public sealed class DexNamesTests : IDisposable
         var names = DexNames.Read(path, index, default);
         var took = ThreadCpuClock.Now() - cpu;
         Assert.Equal("com.example.p0.Class100.method3(com.example.p0.Class0, int) : int", names.Display("La100/a;->m3(La0/a;I)I"));
+        // One pass of hash lookups: the 250,000 field lines share one set of the package's fields.
+        Assert.Equal(1, names.FieldSetBuilds);
         PerfBudget.Time("mobile/dex-mapping-cpu", took, TimeSpan.FromSeconds(3), _output);
     }
 
