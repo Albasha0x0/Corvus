@@ -15,6 +15,7 @@ public class SerialTimingTests
 {
     /// <summary>Path search stays fast on a cyclic real call graph (target: CORVUS_CALLPATH_TARGET or auto-picked).</summary>
     [RequiresRealDataFact(RealData.AssemblyDir)]
+    [Trait(PerfBudget.Trait, PerfBudget.Timing)]
     public void PathSearchIsFastOnRealAssemblies()
     {
         using var ws = new AssemblyWorkspace();
@@ -28,9 +29,14 @@ public class SerialTimingTests
                 .Where(m => m.HasBody && !m.Name.String.Contains('<')).Take(2000)
                 .FirstOrDefault(m => graph.Paths(null, m, 6, 1, default).Any(p => p.Count > 2)));
         Assert.True(target != null, "no app method is reachable from an entry point; set CORVUS_CALLPATH_TARGET");
+        long visits = graph.SearchVisits;
         var sw = Stopwatch.StartNew();
         var paths = ws.Read(() => graph.Paths(null, target, 12, 5, default));
-        Assert.True(sw.Elapsed < TimeSpan.FromSeconds(10), $"{sw.Elapsed}");
+        var took = sw.Elapsed;
+        // The backward search is linear: the direct and the virtual pass each take a method off the queue at most once.
+        int methods = ws.Read(() => ws.Assemblies.Sum(a => a.Module.GetTypes().Sum(t => t.Methods.Count)));
+        Assert.InRange(graph.SearchVisits - visits, 1, 2L * methods);
+        PerfBudget.Check(took < TimeSpan.FromSeconds(10), $"path search {took.TotalSeconds:0.0} s, budget 10 s");
         Assert.All(paths, p => Assert.Equal(target, p.Last()));
         Assert.NotEmpty(paths);
         foreach (var p in paths) // every step is a real call edge, direct or virtual

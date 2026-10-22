@@ -6,6 +6,7 @@ namespace Corvus.Tests;
 public class ReadyToRunCacheTests
 {
     [Fact]
+    [Trait(PerfBudget.Trait, PerfBudget.Timing)]
     public async Task AWaiterStopsWhenCancelledAndTheBuildStillCompletes()
     {
         var once = new Once<int>();
@@ -17,7 +18,7 @@ public class ReadyToRunCacheTests
         using var cts = new CancellationTokenSource(TimeSpan.FromMilliseconds(100));
         var clock = System.Diagnostics.Stopwatch.StartNew();
         Assert.ThrowsAny<OperationCanceledException>(() => once.Get(() => throw new InvalidOperationException("built twice"), cts.Token));
-        Assert.True(clock.Elapsed < TimeSpan.FromSeconds(5), $"waited {clock.Elapsed}");
+        PerfBudget.Check(clock.Elapsed < TimeSpan.FromSeconds(5), $"waited {clock.Elapsed}");
 
         release.Set();
         Assert.Equal(42, await builder);

@@ -32,6 +32,7 @@ public sealed class SimplifySweepTests(ITestOutputHelper output)
     private const int PerfMinMethods = 2_000;
 
     [SweepFact]
+    [Trait(PerfBudget.Trait, PerfBudget.Timing)]
     public void LibrariesSimplifyWithoutCrashesAndRoundTrip()
     {
         var rows = new List<(SweepCatalog.Entry Entry, SimplifyHarness.Outcome? Outcome)>();
@@ -52,14 +53,14 @@ public sealed class SimplifySweepTests(ITestOutputHelper output)
         double allowed = BaselineMsPerMethod * PerfFactor;
         output.WriteLine($"Whole-library time: {total / methods:0.000} ms/method over {methods:N0} methods (engine alone {engine / methods:0.000} ms); " +
                          $"baseline {BaselineMsPerMethod} ms, limit {allowed:0.0} ms (CORVUS_PERF_FACTOR={PerfFactor})");
-        Assert.True(total / methods <= allowed,
-            $"simplify sweep: {total / methods:0.000} ms/method exceeds {PerfFactor}x the {BaselineMsPerMethod} ms baseline");
+        PerfBudget.Check(total / methods <= allowed,
+            $"simplify sweep: {total / methods:0.000} ms/method, limit {PerfFactor}x the {BaselineMsPerMethod} ms baseline", output);
         foreach (var (entry, outcome) in ran.Where(r => r.Outcome!.Methods >= PerfMinMethods))
         {
             double perMethod = outcome!.Total.TotalMilliseconds / outcome.Methods;
-            Assert.True(perMethod <= allowed * 2,
-                $"{entry.Origin} {entry.Name}: {perMethod:0.000} ms/method exceeds {PerfFactor * 2}x the {BaselineMsPerMethod} ms baseline " +
-                $"(slowest method {outcome.Slowest.Method}, {outcome.Slowest.Time.TotalMilliseconds:0} ms)");
+            PerfBudget.Check(perMethod <= allowed * 2,
+                $"{entry.Origin} {entry.Name}: {perMethod:0.000} ms/method, limit {PerfFactor * 2}x the {BaselineMsPerMethod} ms baseline " +
+                $"(slowest method {outcome.Slowest.Method}, {outcome.Slowest.Time.TotalMilliseconds:0} ms)", output);
         }
     }
 

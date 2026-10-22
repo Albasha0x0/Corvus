@@ -25,6 +25,10 @@ public sealed class CallGraphService(AssemblyWorkspace workspace)
 
     private readonly object _sync = new();
     private Graph? _graph;
+    private long _searchVisits;
+
+    /// <summary>Methods taken off the queue by path searches so far; a search visits each method at most once.</summary>
+    internal long SearchVisits => Interlocked.Read(ref _searchVisits);
 
     public bool IsBuilt => _graph?.Key == StateKey();
 
@@ -386,6 +390,7 @@ public sealed class CallGraphService(AssemblyWorkspace workspace)
         {
             ct.ThrowIfCancellationRequested();
             var m = queue.Dequeue();
+            Interlocked.Increment(ref _searchVisits);
             int d = dist[m];
             var callers = Callers(m);
             if (from != null ? m == from : callers.Count == 0 && m != to)

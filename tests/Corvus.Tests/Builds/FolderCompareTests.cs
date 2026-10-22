@@ -267,6 +267,7 @@ public sealed class FolderCompareTests : IDisposable
 
     [Fact]
     [Trait("Speed", "Slow")]
+    [Trait(PerfBudget.Trait, PerfBudget.Timing)]
     public void TenThousandFilePairWarmUnderTenSeconds()
     {
         var a = _dir.File("big-a");
@@ -288,7 +289,9 @@ public sealed class FolderCompareTests : IDisposable
         warm.Stop();
         Assert.Equal(10, first.Counts.Modified);
         Assert.Equal(first.Counts, second.Counts);
-        Assert.True(warm.Elapsed < TimeSpan.FromSeconds(10), $"warm {warm.Elapsed.TotalSeconds:0.00} s (cold {cold.Elapsed.TotalSeconds:0.00} s)");
+        // The warm pass hashes nothing: every hash is kept from the first.
+        Assert.Equal((0, 0), (second.Old.Hashed, second.New.Hashed));
+        PerfBudget.Check(warm.Elapsed < TimeSpan.FromSeconds(10), $"warm {warm.Elapsed.TotalSeconds:0.00} s (cold {cold.Elapsed.TotalSeconds:0.00} s), budget 10 s");
         File.AppendAllText(TestReports.File("folder-compare-speed.txt"), $"10k pair: cold {cold.Elapsed.TotalSeconds:0.00} s, warm {warm.Elapsed.TotalSeconds:0.00} s\n");
     }
 
