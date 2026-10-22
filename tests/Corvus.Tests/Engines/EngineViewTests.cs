@@ -51,10 +51,28 @@ public sealed class EngineViewTests : IDisposable
         var opening = rig.Engines.Session(native, "ghidra", new SyncProgress(reports.Enqueue), default);
         await rig.Provider.Reported.Task;
         var until = DateTime.UtcNow.AddSeconds(5);
-        while (reports.Count(r => r.Stage.Contains("waiting", StringComparison.Ordinal)) < 3 && DateTime.UtcNow < until) await Task.Delay(20);
+        while (reports.Count(r => r.Stage.StartsWith("analysis, waiting", StringComparison.Ordinal)) < 3 && DateTime.UtcNow < until) await Task.Delay(20);
         Assert.True(reports.Count(r => r.Stage.StartsWith("analysis, waiting", StringComparison.Ordinal)) >= 3, string.Join("; ", reports.Select(r => r.Stage)));
         rig.Provider.Gate.SetResult();
         await opening;
+    }
+
+    [Fact]
+    public async Task Progress_before_the_open_call_returns_names_the_start_not_a_sync()
+    {
+        var rig = Setup();
+        var native = await Loaded(rig);
+        rig.Engines.OpenHeartbeat = TimeSpan.FromMilliseconds(40);
+        using var block = rig.Provider.StartBlock = new ManualResetEventSlim();
+        var reports = new System.Collections.Concurrent.ConcurrentQueue<NativeProviderProgress>();
+        // The open call blocks its caller, so the session is asked for on a pool thread.
+        var opening = Task.Run(() => rig.Engines.Session(native, "ghidra", new SyncProgress(reports.Enqueue), default));
+        var until = DateTime.UtcNow.AddSeconds(5);
+        while (reports.Count < 3 && DateTime.UtcNow < until) await Task.Delay(20);
+        var before = reports.Select(r => r.Stage).ToList();
+        block.Set();
+        await opening;
+        Assert.True(before.Count >= 3 && before.All(s => s.StartsWith("start, waiting", StringComparison.Ordinal)), string.Join("; ", before));
     }
 
     /// <summary>A call whose deadline comes during an engine's open gets a timeout that says the open goes on; the retry picks the same open up (EL-5).</summary>
@@ -229,6 +247,8 @@ public sealed class EngineViewTests : IDisposable
     {
         public int Opens;
         public TaskCompletionSource? Gate;
+        /// <summary>Held inside the open call before it returns a task, as an engine that prepares its input first.</summary>
+        public ManualResetEventSlim? StartBlock;
         public readonly TaskCompletionSource Reported = new(TaskCreationOptions.RunContinuationsAsynchronously);
         public IReadOnlyList<NativeFunctionInfo> Functions { get; set; } = [];
 
@@ -240,6 +260,7 @@ public sealed class EngineViewTests : IDisposable
         public async Task<INativeDecompilerSession> OpenAsync(string imagePath, string? sha256 = null, NativeOpenOptions? options = null, CancellationToken cancellationToken = default)
         {
             Interlocked.Increment(ref Opens);
+            StartBlock?.Wait(cancellationToken);
             options?.Progress?.Report(new NativeProviderProgress("analysis", TimeSpan.FromSeconds(1)));
             await Task.Yield();
             Reported.TrySetResult();

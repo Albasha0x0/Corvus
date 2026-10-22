@@ -535,8 +535,11 @@ public sealed class NativeEngineService : IDisposable
         using var heartbeat = progress == null ? null : new Timer(_ =>
         {
             var h = Existing(native, id);
-            var stage = h?.Opening is { IsCompleted: false } ? h.Stage ?? "start" : "sync";
-            progress.Report(new NativeProviderProgress($"{stage}, waiting {waiting.Elapsed.TotalSeconds:0} s", h?.Opening is { IsCompleted: false } ? DateTime.UtcNow - h.OpenStarted : waiting.Elapsed));
+            // An image never opened is about to be; one whose open call has not
+            // returned yet is opening, though Opening still holds the old task.
+            var opening = h is null or { Opening: null } || h.Starting || h.Opening is { IsCompleted: false };
+            var since = h is { Starting: true } or { Opening.IsCompleted: false } ? DateTime.UtcNow - h.OpenStarted : waiting.Elapsed;
+            progress.Report(new NativeProviderProgress($"{(opening ? h?.Stage ?? "start" : "sync")}, waiting {waiting.Elapsed.TotalSeconds:0} s", since));
         }, null, OpenHeartbeat, OpenHeartbeat);
         var session = await SessionCore(native, id, progress, ct).ConfigureAwait(false);
         // the image's PDB types, once per PDB and database (see NativePdbTypes)
@@ -611,11 +614,18 @@ public sealed class NativeEngineService : IDisposable
             holder.Profile.Mark("prepare", 0); // the input copy and cache entry, before the engine starts
             var started = holder.OpenStarted;
             progress = new StageProgress(holder, holder.Profile.Recording(() => (DateTime.UtcNow - started).TotalSeconds, progress));
-            // The open is not tied to this call's cancellation (a later call reuses the same analysis) but ends when the image is unloaded or reloaded.
-            // A universal Mach-O slice goes to the engine as a thin file of its own, keyed by its own hash.
-            holder.Opening = native.Image is Native.MachO.MachOFile { Slice: { } slice } thin
-                ? OpenBytes(provider, native, $"{Path.GetFileName(native.FilePath)}-{slice.Name}", thin.FileBytes.ToArray(), OpenOptions(native, id, progress, holder.OpenedPdb))
-                : provider.OpenAsync(native.FilePath, native.OriginalSha256, OpenOptions(native, id, progress, holder.OpenedPdb), native.Released);
+            // Set after OpenStarted and Stage, cleared once Opening holds the
+            // new task, so the heartbeat never names a stale open.
+            holder.Starting = true;
+            try
+            {
+                // The open is not tied to this call's cancellation (a later call reuses the same analysis) but ends when the image is unloaded or reloaded.
+                // A universal Mach-O slice goes to the engine as a thin file of its own, keyed by its own hash.
+                holder.Opening = native.Image is Native.MachO.MachOFile { Slice: { } slice } thin
+                    ? OpenBytes(provider, native, $"{Path.GetFileName(native.FilePath)}-{slice.Name}", thin.FileBytes.ToArray(), OpenOptions(native, id, progress, holder.OpenedPdb))
+                    : provider.OpenAsync(native.FilePath, native.OriginalSha256, OpenOptions(native, id, progress, holder.OpenedPdb), native.Released);
+            }
+            finally { holder.Starting = false; }
             // Once open, the library functions IDA recognized become the image's ida name layer, Ghidra's own names its ghidra layer.
             if (id is IdaProvider.ProviderId or GhidraProvider.ProviderId)
                 holder.LibraryNames = holder.Opening.ContinueWith(async opened =>
@@ -776,6 +786,8 @@ public sealed class NativeEngineService : IDisposable
         /// <summary>When the last open of <see cref="Opening"/> started and its latest progress stage.</summary>
         public DateTime OpenStarted;
         public volatile string? Stage;
+        /// <summary>True while the provider's open call runs, before <see cref="Opening"/> holds its task.</summary>
+        public volatile bool Starting;
         /// <summary>The last open's stage timings, and whether the PDB type load after it was timed.</summary>
         public EngineOpenProfile Profile = new();
         public int PdbTimed;
