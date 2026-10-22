@@ -72,7 +72,7 @@ public sealed class AndroidPackageService(JavaDotNetMap? dotnet = null)
 
     private static Regex Wildcard(string pattern) =>
         new("^" + Regex.Escape(pattern.Trim()).Replace(@"\*", ".*", StringComparison.Ordinal).Replace(@"\?", ".", StringComparison.Ordinal) + "$",
-            RegexOptions.IgnoreCase | RegexOptions.CultureInvariant, RegexTimeouts.Limit);
+            RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.NonBacktracking);
 
     /// <summary>A file entry (binary XML decoded) or a resource's values; outputPath writes the entry's bytes.</summary>
     public AndroidResourceRead Resource(string path, string name, string? outputPath, bool overwrite)

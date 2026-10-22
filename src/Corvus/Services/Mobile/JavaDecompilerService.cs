@@ -270,7 +270,7 @@ public sealed class JavaDecompilerService(DexService dex) : IDisposable
         foreach (var name in path)
         {
             declaration = new Regex(@"(?m)^[ \t]*(?:(?:public|protected|private|static|final|abstract|strictfp|sealed|non-sealed|/\*[^*\n]*\*/)\s+)*(?:class|interface|enum|@interface|record)\s+"
-                                    + Regex.Escape(name) + @"\b", RegexOptions.None, RegexTimeouts.Limit).Match(source, from, to - from);
+                                    + Regex.Escape(name) + @"\b", RegexOptions.NonBacktracking).Match(source, from, to - from);
             if (!declaration.Success) return null;
             int open = source.IndexOf('{', declaration.Index + declaration.Length);
             if (open < 0 || open >= to || CloseOf(source, open) is not { } close) return null;

@@ -165,7 +165,7 @@ public sealed class DexService
         var body = q.Contains('*') || q.Contains('?')
             ? "^" + Regex.Escape(q).Replace(@"\*", ".*", StringComparison.Ordinal).Replace(@"\?", ".", StringComparison.Ordinal) + "$"
             : Regex.Escape(q);
-        return new Regex(body, RegexOptions.IgnoreCase | RegexOptions.CultureInvariant, RegexTimeouts.Limit);
+        return new Regex(body, RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.NonBacktracking);
     }
 
     public DexClassList ListClasses(string path, string? query, string? package, int offset, int limit, CancellationToken ct, string? mapping = null)
