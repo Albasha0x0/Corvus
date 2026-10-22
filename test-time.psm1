@@ -394,13 +394,20 @@ function Enter-AllPermits([hashtable]$counts, [string]$folder = (Join-Path ([IO.
                 try { $slots.Add([IO.FileStream]::new((Join-Path $dir "slot-$i"), 'OpenOrCreate', 'ReadWrite', 'None')); break }
                 catch [IO.IOException] { Start-Sleep -Milliseconds 500 }
             }
+            # A waiting test counts a script holder as making progress while its process lives (MachinePermits).
+            Set-Content -Path (Join-Path $dir "slot-$i.owner") -Value "$PID script" -NoNewline
         }
     }
     return , $slots
 }
 
-# Releases the permits Enter-AllPermits took.
-function Exit-AllPermits($slots) { foreach ($slot in $slots) { $slot.Dispose() } }
+# Releases the permits Enter-AllPermits took, with their owner records.
+function Exit-AllPermits($slots) {
+    foreach ($slot in $slots) {
+        $slot.Dispose()
+        Remove-Item ($slot.Name + '.owner') -Force -ErrorAction SilentlyContinue
+    }
+}
 
 # The tests over budget in most of $samples samples: $over failed the first sample, and $rerun (a block taking test
 # names and returning the ones that failed again) takes the rest, only for tests not yet decided either way.

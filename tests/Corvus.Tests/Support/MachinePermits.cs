@@ -32,8 +32,14 @@ public static class MachinePermits
 
     private static readonly TimeSpan Poll = TimeSpan.FromMilliseconds(200);
 
-    /// <summary>How long a collection waits for its permits before its tests fail, naming who holds them.</summary>
+    /// <summary>
+    /// How long a collection waits for its permits without progress (no permit changing hands, no holder finishing a
+    /// test) before its tests fail, naming who holds them.
+    /// </summary>
     public static readonly TimeSpan WaitLimit = TimeSpan.FromMinutes(10);
+
+    /// <summary>How often a holder reports progress while a test runs, so only a holder that stopped runs out a wait.</summary>
+    public static readonly TimeSpan Heartbeat = TimeSpan.FromSeconds(60);
     private static readonly object LogLock = new();
 
     /// <summary>The folder of the slot files, in the machine's temporary folder rather than the run's own.</summary>
@@ -63,33 +69,40 @@ public static class MachinePermits
     /// <summary>
     /// Waits for one permit of each resource, taken in the order given (name order, so two holders never wait on each
     /// other), and returns them as one handle with the time waited. Cancellation releases what was taken and throws; so
-    /// does a wait past <see cref="WaitLimit"/>, with a <see cref="TimeoutException"/> naming the slots and their holders.
+    /// does a wait that sees no progress for <see cref="WaitLimit"/>, with a <see cref="TimeoutException"/> naming the
+    /// slots and their holders.
     /// </summary>
-    public static Task<(IDisposable Held, TimeSpan Waited)> TakeAsync(IReadOnlyList<string> resources, CancellationToken cancellation = default) =>
+    public static Task<(PermitHandle Held, TimeSpan Waited)> TakeAsync(IReadOnlyList<string> resources, CancellationToken cancellation = default) =>
         // The perf run holds every permit itself (test.ps1 -Perf), so its own tests take none.
         Environment.GetEnvironmentVariable("CORVUS_PERMITS_HELD") == "1"
-            ? Task.FromResult<(IDisposable, TimeSpan)>((new Held(), TimeSpan.Zero))
-            : TakeAsync(resources, Folder, Counts, cancellation, WaitLimit);
+            ? Task.FromResult((new PermitHandle(), TimeSpan.Zero))
+            : TakeAsync(resources, Folder, Counts, cancellation, WaitLimit, Heartbeat);
 
-    internal static async Task<(IDisposable Held, TimeSpan Waited)> TakeAsync(IReadOnlyList<string> resources, string folder,
-        IReadOnlyDictionary<string, int> counts, CancellationToken cancellation, TimeSpan? limit = null)
+    internal static async Task<(PermitHandle Held, TimeSpan Waited)> TakeAsync(IReadOnlyList<string> resources, string folder,
+        IReadOnlyDictionary<string, int> counts, CancellationToken cancellation, TimeSpan? limit = null, TimeSpan? heartbeat = null)
     {
         var watch = Stopwatch.StartNew();
-        var held = new Held();
+        var held = new PermitHandle(heartbeat);
         try
         {
             foreach (var resource in resources)
             {
                 var dir = Path.Combine(folder, resource);
                 Directory.CreateDirectory(dir);
+                var count = counts[resource];
+                var quiet = Stopwatch.StartNew();
+                var seen = Owners(dir, count);
                 FileStream? slot;
-                while ((slot = TryTake(dir, counts[resource])) == null)
+                while ((slot = TryTake(dir, count)) == null)
                 {
-                    if (watch.Elapsed > limit)
-                        throw new TimeoutException($"No {resource} permit within {limit.Value.TotalMinutes:0.##} min: {Holders(dir, counts[resource])}.");
+                    // A permit changing hands or a holder's progress restarts the limit; one holder keeping its
+                    // permit without either fails the wait.
+                    if (Owners(dir, count) is var now && now != seen) (seen, quiet) = (now, Stopwatch.StartNew());
+                    else if (quiet.Elapsed > limit)
+                        throw new TimeoutException($"No {resource} permit within {limit.Value.TotalMinutes:0.##} min without progress: {Holders(dir, count)}.");
                     await Task.Delay(Poll, cancellation);
                 }
-                held.Slots.Add(slot);
+                held.Add(slot);
             }
         }
         catch
@@ -121,6 +134,42 @@ public static class MachinePermits
             : $"{slot} is held by " + string.Join(", ", holders.Select(h => $"process {h.Pid}" + (h.CommandLine is { } c ? $" ({c})" : "")));
     }));
 
+    /// <summary>
+    /// The owner records of a resource's slots, joined: "pid test token progress" from a test process, "pid script" from
+    /// a script. A record a holder is rewriting reads as unknown; a script's record whose process lives reads as new on
+    /// every call, since a script reports no progress of its own.
+    /// </summary>
+    private static string Owners(string dir, int count) => string.Join("|", Enumerable.Range(0, count).Select(i =>
+    {
+        string record;
+        try
+        {
+            using var reader = new StreamReader(new FileStream(Path.Combine(dir, $"slot-{i}{OwnerSuffix}"), FileMode.Open, FileAccess.Read,
+                FileShare.ReadWrite | FileShare.Delete));
+            record = reader.ReadToEnd();
+        }
+        catch (FileNotFoundException) { return ""; }
+        catch (DirectoryNotFoundException) { return ""; }
+        catch (IOException) { return "?"; }
+        catch (UnauthorizedAccessException) { return "?"; }
+        return record.Split(' ') is [var pid, "script"] && int.TryParse(pid, out var id) && Alive(id) ? record + " " + Stopwatch.GetTimestamp() : record;
+    }));
+
+    private static bool Alive(int pid)
+    {
+        try
+        {
+            using var process = Process.GetProcessById(pid);
+            return !process.HasExited;
+        }
+        catch (ArgumentException) { return false; }
+        // A process this one may not query is still running.
+        catch (System.ComponentModel.Win32Exception) { return true; }
+        catch (InvalidOperationException) { return false; }
+    }
+
+    internal const string OwnerSuffix = ".owner";
+
     private static FileStream? TryTake(string dir, int count)
     {
         for (var i = 0; i < count; i++)
@@ -132,14 +181,62 @@ public static class MachinePermits
         return null;
     }
 
-    private sealed class Held : IDisposable
-    {
-        public readonly List<FileStream> Slots = [];
+}
 
-        public void Dispose()
+/// <summary>
+/// Permits held together. Each slot has an owner record beside it, rewritten on <see cref="Progress"/> and on each
+/// heartbeat, which tells a waiter the holder is still alive; disposing releases every slot.
+/// </summary>
+public sealed class PermitHandle : IDisposable
+{
+    private readonly List<(FileStream Slot, string Owner)> _slots = [];
+    private readonly string _token = Guid.NewGuid().ToString("N");
+    private readonly Timer? _heartbeat;
+    private long _progress;
+
+    /// <summary>Holds no permit yet; <paramref name="heartbeat"/> null reports progress only through <see cref="Progress"/>.</summary>
+    public PermitHandle(TimeSpan? heartbeat = null)
+    {
+        if (heartbeat is { } every) _heartbeat = new Timer(_ => Progress(), null, every, every);
+    }
+
+    internal void Add(FileStream slot)
+    {
+        lock (_slots)
         {
-            foreach (var slot in Slots) slot.Dispose();
-            Slots.Clear();
+            _slots.Add((slot, slot.Name + MachinePermits.OwnerSuffix));
+            Write(_slots[^1].Owner);
+        }
+    }
+
+    /// <summary>Reports that the holder finished a unit of work, such as a test; no effect once disposed.</summary>
+    public void Progress()
+    {
+        Interlocked.Increment(ref _progress);
+        lock (_slots)
+            foreach (var (_, owner) in _slots) Write(owner);
+    }
+
+    // A failed write only delays a waiter's restart of its limit.
+    private void Write(string owner)
+    {
+        try
+        {
+            using var stream = new FileStream(owner, FileMode.Create, FileAccess.Write, FileShare.ReadWrite | FileShare.Delete);
+            using var writer = new StreamWriter(stream);
+            writer.Write($"{Environment.ProcessId} test {_token} {Interlocked.Read(ref _progress)}");
+        }
+        catch (IOException) { }
+        catch (UnauthorizedAccessException) { }
+    }
+
+    public void Dispose()
+    {
+        _heartbeat?.Dispose();
+        lock (_slots)
+        {
+            foreach (var (slot, _) in _slots) slot.Dispose();
+            _slots.Clear();
         }
     }
 }

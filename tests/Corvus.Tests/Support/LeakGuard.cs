@@ -276,7 +276,7 @@ public sealed class LeakGuardFramework(IMessageSink messageSink) : XunitTestFram
         {
             var needed = MachinePermits.Needed(testCases);
             if (needed.Count == 0) return await base.RunTestCollectionAsync(messageBus, testCollection, testCases, cancellationTokenSource);
-            IDisposable held;
+            PermitHandle held;
             TimeSpan waited;
             try { (held, waited) = await MachinePermits.TakeAsync(needed, cancellationTokenSource.Token); }
             catch (TimeoutException e)
@@ -289,8 +289,21 @@ public sealed class LeakGuardFramework(IMessageSink messageSink) : XunitTestFram
             using (held)
             {
                 MachinePermits.Record(needed, waited, testCollection.DisplayName);
-                return await base.RunTestCollectionAsync(messageBus, testCollection, testCases, cancellationTokenSource);
+                return await base.RunTestCollectionAsync(new ProgressBus(messageBus, held), testCollection, testCases, cancellationTokenSource);
             }
+        }
+
+        // Each finished test is the holder's progress, which keeps a waiter's limit from running out.
+        private sealed class ProgressBus(IMessageBus inner, PermitHandle held) : IMessageBus
+        {
+            public bool QueueMessage(IMessageSinkMessage message)
+            {
+                if (message is ITestFinished) held.Progress();
+                return inner.QueueMessage(message);
+            }
+
+            // The runner owns the inner bus.
+            public void Dispose() { }
         }
 
         protected override async Task BeforeTestAssemblyFinishedAsync()
