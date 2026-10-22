@@ -33,7 +33,10 @@ public sealed class ClrLiveReads(ClrRuntime runtime)
         var hc = m.HotColdInfo;
         // The hot/cold ranges and the IL map can each describe another version
         // of the method's code (ReadyToRun code a JIT tier replaced), so a start
-        // counts only when its range holds the address.
+        // counts only when its range holds the address. With no such range the
+        // offset is reported unknown: ClrMD exposes no start for the code that
+        // holds an address, microsoft/clrmd#1520, tested on ClrMD 3.1.512801,
+        // no fix yet.
         ulong start = Holds(hc.HotStart, hc.HotSize, ip) ? hc.HotStart : Holds(hc.ColdStart, hc.ColdSize, ip) ? hc.ColdStart : 0;
         // A method can come without a hot/cold start (seen on a 32-bit
         // ReadyToRun frame): its native code may still give one.
