@@ -82,6 +82,18 @@ public sealed class LiveChildrenRealTests(ITestOutputHelper output) : LiveToolCa
         var parent = await SpawnFollowing(server, launcher, orders, restricted);
         var child = await HeldChild(server, orders);
         using var watched = Watch(child);
+        // Under a network logon (ssh) a restricted child does not load the agent, and the attach is refused, naming the
+        // sandbox; an interactive logon loads it. Seen on Windows 11 with Frida 17.24.3; the object that denies it is not
+        // known.
+        if (restricted && OperatingSystem.IsWindows() && !InteractiveLogon())
+        {
+            var refusal = await Refused(server, "live_session", new() { ["action"] = "attach_child", ["session"] = "live-1", ["program"] = child.ToString(CultureInfo.InvariantCulture) }, "access_denied");
+            Assert.Contains("the process runs sandboxed: a restricted token", refusal);
+            await Ok(server, "live_session", new() { ["action"] = "close", ["session"] = "live-1" });
+            Ended(child);
+            Ended(parent);
+            return;
+        }
 
         string attached;
         try { attached = await Ok(server, "live_session", new() { ["action"] = "attach_child", ["session"] = "live-1", ["program"] = child.ToString(CultureInfo.InvariantCulture) }); }
@@ -164,6 +176,11 @@ public sealed class LiveChildrenRealTests(ITestOutputHelper output) : LiveToolCa
         await Ok(server, "live_session", new() { ["action"] = "close", ["session"] = "live-1" });
         Ended(program);
     }
+
+    /// <summary>Whether this process runs under an interactive logon (its token has the INTERACTIVE group).</summary>
+    [System.Runtime.Versioning.SupportedOSPlatform("windows")]
+    private static bool InteractiveLogon() =>
+        WindowsIdentity.GetCurrent().Groups?.Any(g => g.Value == "S-1-5-4") == true;
 
     /// <summary>The child's process, its handle taken now so its exit code stays readable; null when it cannot be opened.</summary>
     private static Process? Watch(int pid)
