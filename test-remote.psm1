@@ -2,18 +2,25 @@
 # out here, and how their results join the local ones. The transports below start the remote half and bring its TRX
 # results back; a run with no usable target runs every class here.
 
-# The classes a run sends: engine-free heavy classes (sweeps, matrices, round trips, reference comparisons).
-$script:RemotePatterns = '*SweepTests', '*MatrixTests', 'PipelineRoundTripTests', '*OracleTests', '*ComparisonTests', '*CompareTests'
-# Groups of offloaded classes, each a CI job of its own: sweeps and comparisons, Ghidra classes, the live family.
-$script:Groups = 'sweep', 'ghidra', 'live'
+# The classes a run sends: engine-free heavy classes (sweeps, matrices, round trips, reference comparisons, the full
+# contract matrix, discovery at every thread count).
+$script:RemotePatterns = '*SweepTests', '*MatrixTests', 'PipelineRoundTripTests', '*OracleTests', '*ComparisonTests', '*CompareTests',
+    'ContractSweepFullTests', 'ParallelDiscoveryTests'
+# Groups of offloaded classes: sweeps and comparisons, Ghidra classes and the live family each a CI job of its own; the
+# host group goes to a test host only and stays here when the run offloads to GitHub.
+$script:Groups = 'sweep', 'ghidra', 'live', 'host'
+$script:HostGroup = 'host'
+# Classes for a test host only: the Program Files sweep reads the machine it runs on (past 30 min on a runner), and the
+# timed and working-set classes need a machine no other run loads.
+$script:HostClasses = 'NativeToolSweepTests', 'DevRelayRealServerTests', 'DeadlineTests', 'StreamedSummaryMemoryTests'
 # Folders whose classes go only as the ghidra group (by their Ghidra facts).
 $script:EngineFolders = 'Engines'
 # Attributes that keep a class's file here: real data never leaves this machine.
 $script:LocalAttributes = 'RequiresRealDataFact', 'LiveRealDataFact'
 # Classes whose inputs are this machine's own: every System32 import binding holds on a client edition only (a server
-# image lacks some DLLs), the Program Files sweep grows with what is installed (past 30 min on a runner), the crash
-# dump sweep reads this machine's dumps, and the comparisons over local data folders pass empty elsewhere.
-$script:LocalClasses = 'NativeLinkSweepTests', 'NativeToolSweepTests', 'MinidumpSweepTests', 'FirmwareComparisonTests', 'InstallerComparisonTests',
+# image lacks some DLLs), the crash dump sweep reads this machine's dumps, and the comparisons over local data folders
+# pass empty elsewhere.
+$script:LocalClasses = 'NativeLinkSweepTests', 'MinidumpSweepTests', 'FirmwareComparisonTests', 'InstallerComparisonTests',
     'DependencyListerComparisonTests'
 # A class that took under this share of its last local time, when that was at least the given seconds, proved less
 # there (a test that returns early without its inputs) and runs here.
@@ -49,11 +56,11 @@ $script:HostFolder = 'corvus-test-host'
 # Seconds the host waits for the commit to reach origin; a push run starts before its push lands.
 $script:FetchWaitSeconds = 120
 
-# The offloaded classes of $testsDir as @{ Class; Group; Mixed }: live, the classes of the Live folder; ghidra, those in
-# files with a Ghidra fact (Mixed when the file has IDA facts too); sweep, names matching the table outside the engine
-# folder. Files with IDA facts alone or real data, and the local classes, stay here; with -CrossPlatform, files with a
-# Windows-only fact too. Only classes named *Tests count (fixtures and test bases hold no test of their own; an abstract
-# *Tests class holds nested ones).
+# The offloaded classes of $testsDir as @{ Class; Group; Mixed }: host, the host classes; live, the classes of the Live
+# folder; ghidra, those in files with a Ghidra fact (Mixed when the file has IDA facts too); sweep, names matching the
+# table outside the engine folder. Files with IDA facts alone or real data, and the local classes, stay here; with
+# -CrossPlatform, files with a Windows-only fact too. Only classes named *Tests count (fixtures and test bases hold no
+# test of their own; an abstract *Tests class holds nested ones).
 function Get-RemoteEntries([string]$testsDir, [switch]$CrossPlatform) {
     $local = '\[(' + ($script:LocalAttributes -join '|') + $(if ($CrossPlatform) { '|WindowsFact' }) + ')\b'
     Get-ChildItem $testsDir -Directory | Where-Object { $_.Name -notin 'bin', 'obj' } | ForEach-Object {
@@ -65,17 +72,18 @@ function Get-RemoteEntries([string]$testsDir, [switch]$CrossPlatform) {
             if ($ida -and -not $ghidra) { return }
             $of = if ($folder -eq 'Live') { 'live' } elseif ($ghidra) { 'ghidra' } elseif ($folder -notin $script:EngineFolders) { 'sweep' } else { return }
             [regex]::Matches($text, '(?m)^public (?:sealed |abstract |partial |static )*class (\w+Tests)\b') | ForEach-Object { $_.Groups[1].Value } |
-                Where-Object { $name = $_; $name -notin $script:LocalClasses -and ($of -ne 'sweep' -or ($script:RemotePatterns | Where-Object { $name -like $_ })) } |
-                ForEach-Object { [pscustomobject]@{ Class = $_; Group = $of; Mixed = $ida } }
+                Where-Object { $name = $_; $name -in $script:HostClasses -or ($name -notin $script:LocalClasses -and ($of -ne 'sweep' -or ($script:RemotePatterns | Where-Object { $name -like $_ }))) } |
+                ForEach-Object { [pscustomobject]@{ Class = $_; Group = $(if ($_ -in $script:HostClasses) { $script:HostGroup } else { $of }); Mixed = $ida } }
         }
     }
 }
 
-# The classes of $testsDir a run sends, of one group or (empty) of every group (Get-RemoteEntries). Sorted; throws for
-# an unknown group.
-function Get-RemoteClasses([string]$testsDir, [string]$Group = '', [switch]$CrossPlatform) {
+# The classes of $testsDir a run sends, of one group or (empty) of every group but the host group, which -TestHost adds
+# (Get-RemoteEntries). Sorted; throws for an unknown group.
+function Get-RemoteClasses([string]$testsDir, [string]$Group = '', [switch]$CrossPlatform, [switch]$TestHost) {
     if ($Group -and $Group -notin $script:Groups) { throw "Unknown offload group '$Group' (one of $($script:Groups -join ', '))." }
-    @(Get-RemoteEntries $testsDir -CrossPlatform:$CrossPlatform | Where-Object { -not $Group -or $_.Group -eq $Group } | ForEach-Object Class | Sort-Object -Unique)
+    @(Get-RemoteEntries $testsDir -CrossPlatform:$CrossPlatform |
+        Where-Object { if ($Group) { $_.Group -eq $Group } else { $TestHost -or $_.Group -ne $script:HostGroup } } | ForEach-Object Class | Sort-Object -Unique)
 }
 
 # The sent classes that use both engines: their Ghidra tests run there and their IDA tests here, joined per test. Sorted.

@@ -48,6 +48,7 @@ public sealed class TestRemoteTests : IDisposable
         Source("NativeAnalysis", "public class IdaSweepTests { [IdaFact] public void M() { } }");
         Source("Containers", "public class CorpusSweepTests { [RequiresRealDataFact(\"CORVUS_X\")] public void M() { } }");
         Source("NativeFormats", "public class PeSweepTests { [WindowsFact] public void M() { } }");
+        Source("Session", "public sealed class DeadlineTests { }\npublic sealed class ContractSweepFullTests { }", "S.cs");
         var lines = TestReuseTests.Run($$"""
             Import-Module {{Module}}
             'classes=' + ((Get-RemoteClasses {{Quote(tests)}}) -join ',')
@@ -56,6 +57,8 @@ public sealed class TestRemoteTests : IDisposable
             'sweep=' + ($sweep -join ',')
             'ghidra=' + ((Get-RemoteClasses {{Quote(tests)}} ghidra) -join ',')
             'live=' + ((Get-RemoteClasses {{Quote(tests)}} live -CrossPlatform) -join ',')
+            'host=' + ((Get-RemoteClasses {{Quote(tests)}} host) -join ',')
+            'testhost=' + ((Get-RemoteClasses {{Quote(tests)}} -TestHost) -join ',')
             'mixed=' + ((Get-MixedClasses {{Quote(tests)}}) -join ',')
             'shard0=' + ((Get-RemoteShard $sweep 0 2) -join ',')
             'shard1=' + ((Get-RemoteShard $sweep 1 2) -join ',')
@@ -70,14 +73,17 @@ public sealed class TestRemoteTests : IDisposable
         if (lines is ["skip"]) return;
         // Ghidra and live classes go as groups of their own, a class using both engines too; a file with IDA facts alone
         // stays here.
-        Assert.Contains("classes=EngineMixTests,FormatSweepTests,GhidraReadTests,LiveMatrixTests,PeSweepTests,PipelineRoundTripTests", lines);
-        Assert.Contains("cross=EngineMixTests,FormatSweepTests,GhidraReadTests,LiveMatrixTests,PipelineRoundTripTests", lines);
-        Assert.Contains("sweep=FormatSweepTests,PeSweepTests,PipelineRoundTripTests", lines);
+        Assert.Contains("classes=ContractSweepFullTests,EngineMixTests,FormatSweepTests,GhidraReadTests,LiveMatrixTests,PeSweepTests,PipelineRoundTripTests", lines);
+        Assert.Contains("cross=ContractSweepFullTests,EngineMixTests,FormatSweepTests,GhidraReadTests,LiveMatrixTests,PipelineRoundTripTests", lines);
+        Assert.Contains("sweep=ContractSweepFullTests,FormatSweepTests,PeSweepTests,PipelineRoundTripTests", lines);
+        // A host class goes to a test host only, never in a run that offloads to GitHub.
+        Assert.Contains("host=DeadlineTests", lines);
+        Assert.Contains("testhost=ContractSweepFullTests,DeadlineTests,EngineMixTests,FormatSweepTests,GhidraReadTests,LiveMatrixTests,PeSweepTests,PipelineRoundTripTests", lines);
         Assert.Contains("ghidra=EngineMixTests,GhidraReadTests", lines);
         Assert.Contains("mixed=EngineMixTests", lines);
         Assert.Contains("live=LiveMatrixTests", lines);
-        Assert.Contains("shard0=FormatSweepTests,PipelineRoundTripTests", lines);
-        Assert.Contains("shard1=PeSweepTests", lines);
+        Assert.Contains("shard0=ContractSweepFullTests,PeSweepTests", lines);
+        Assert.Contains("shard1=FormatSweepTests,PipelineRoundTripTests", lines);
         Assert.Contains("routine=(Tier!=Release)&FullyQualifiedName!~.FormatSweepTests&FullyQualifiedName!~.PipelineRoundTripTests", lines);
         Assert.Contains("everything=FullyQualifiedName!~.FormatSweepTests", lines);
         Assert.Contains("none=Tier!=Release", lines);

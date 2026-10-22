@@ -666,7 +666,7 @@ $runFilter = if ($Full -and -not $Exhaustive -and -not $Coverage -and -not $PSBo
 $offload = if ($wholeSuite -and -not $Coverage) { Import-Module (Join-Path $root 'test-remote.psm1') -Force; Get-OffloadTarget $root $Exhaustive.IsPresent } else { $null }
 $offloadHandle = $null; $sent = @(); $offloadRecord = $null; $offloadClock = $null
 if ($offload) {
-    $candidates = @(Get-RemoteClasses $tests); $mixed = @(Get-MixedClasses $tests)
+    $candidates = @(Get-RemoteClasses $tests -TestHost:($offload.Kind -eq 'ssh')); $mixed = @(Get-MixedClasses $tests)
     $sent = if ($Filter) { @([regex]::Matches($Filter, 'FullyQualifiedName~\.(\w+)') | ForEach-Object { $_.Groups[1].Value } | Where-Object { $_ -in $candidates }) } else { $candidates }
     $offloadRecord = [ordered]@{ target = $offload.Name; commit = (git -C $root rev-parse --short HEAD).Trim(); at = (Get-Date -Format 'yyyy-MM-dd HH:mm'); classes = $sent.Count; state = 'running'; seconds = $null; note = $null }
     if ($sent) {

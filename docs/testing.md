@@ -87,7 +87,8 @@
   authorized keys; its engine and live permits are its own. With `CORVUS_TEST_REMOTE` naming such a host (`user@host`)
   and the host answering over ssh, a whole-suite run sends its offloaded classes there instead of waiting for GitHub:
   one `dotnet test` run, one at a time, at below-normal priority in a worktree of the host's clone, with the TRX results
-  copied back by scp and joined as above. Run a filter repeatedly on the host:
+  copied back by scp and joined as above. A test host also takes the host group, which never goes to GitHub: the
+  Program Files sweep and the timed and working-set classes, which need a machine no other run loads. Run a filter repeatedly on the host:
   `./test.ps1 -Remote -Filter <filter> -Repeat <n>` sends the working tree as it is (uncommitted changes included, as a
   git bundle; nothing is pushed), builds it there once and runs the filter `n` times, printing each run's exit code and
   copying the TRX files of failed runs to `TestResults/remote`.
