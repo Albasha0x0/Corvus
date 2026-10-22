@@ -63,11 +63,25 @@ public static partial class ToolOutput
         return p;
     }
 
-    /// <summary>SHA-256 of the canonical structured JSON (sorted keys, compact), else of the text blocks.</summary>
-    public static string ResultSha256(CallToolResult result) =>
-        result.StructuredContent is { } s
-            ? Sha256(Canonical(JsonNode.Parse(s.GetRawText())))
-            : Sha256(string.Concat(result.Content.OfType<TextContentBlock>().Select(b => b.Text)));
+    /// <summary>
+    /// SHA-256 of the canonical structured JSON (sorted keys, compact), else of the text blocks; workspace notices are
+    /// left out, so the same answer hashes the same whether or not a notice rode on it.
+    /// </summary>
+    public static string ResultSha256(CallToolResult result)
+    {
+        if (result.StructuredContent is { } s)
+        {
+            var record = JsonNode.Parse(s.GetRawText());
+            if (record is JsonObject o) o.Remove("notices");
+            return Sha256(Canonical(record));
+        }
+        // CallFilter may end the block before a notice with a newline, so trailing newlines are not part of the answer.
+        return Sha256(string.Concat(result.Content.OfType<TextContentBlock>().Where(b => !b.Text.StartsWith(NoticePrefix, StringComparison.Ordinal))
+            .Select(b => b.Text)).TrimEnd('\n'));
+    }
+
+    /// <summary>The prefix of the text block that carries a call's workspace notices.</summary>
+    public const string NoticePrefix = "[workspace] ";
 
     /// <summary>JSON with object members in ordinal order and no insignificant white space.</summary>
     public static string Canonical(JsonNode? node) => Sorted(node)?.ToJsonString(Json) ?? "null";

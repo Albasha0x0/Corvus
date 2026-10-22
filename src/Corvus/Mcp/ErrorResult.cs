@@ -82,7 +82,7 @@ internal static class ErrorResult
     public static void AddNotices(CallToolResult result, IReadOnlyCollection<string> notices)
     {
         if (notices.Count == 0) return;
-        var text = string.Join("\n", notices.Select(n => "[workspace] " + Format.EscapeInvisible(n)));
+        var text = string.Join("\n", notices.Select(n => ToolOutput.NoticePrefix + Format.EscapeInvisible(n)));
         if (result.IsError == true)
         {
             // Clients join blocks without a separator.

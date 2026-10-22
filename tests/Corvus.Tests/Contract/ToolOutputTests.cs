@@ -358,6 +358,28 @@ public class ToolOutputTests(ITestOutputHelper output)
         Assert.InRange(p.ToJsonString().Length, 1, 1_024);
     }
 
+    [Fact]
+    public async Task A_workspace_notice_leaves_the_result_hash_unchanged()
+    {
+        // A leftover unsaved-edit journal's one-time notice broke NotesTests' rerun check (2026-10-23).
+        using var workspace = new AssemblyWorkspace();
+        using var services = new ServiceCollection().AddSingleton(new ServerOptions()).AddSingleton(new ResultStore(ResultCacheOptions.MemoryOnly))
+            .AddSingleton(new OutputPager(new ServerOptions())).AddSingleton(workspace).BuildServiceProvider();
+        CallToolResult Work(CallToolRequestParams _) => new() { Content = [new TextContentBlock { Text = ToolOutput.With("summary", new { name = "x" }) }] };
+        CallToolResult Plain(CallToolRequestParams _) => new() { Content = [new TextContentBlock { Text = "summary" }] };
+        var quiet = await Call(services, "get_pe_info", Work);
+        var quietText = await Call(services, "get_pe_info", Plain);
+        workspace.Notify("1 unsaved edit(s) from a session that ended without saving");
+        var noticed = await Call(services, "get_pe_info", Work);
+        workspace.Notify("1 unsaved edit(s) from a session that ended without saving");
+        var noticedText = await Call(services, "get_pe_info", Plain);
+        Assert.Contains(ToolOutput.NoticePrefix, Text(noticed));
+        Assert.Contains(ToolOutput.NoticePrefix, Text(noticedText));
+        Assert.Equal(ToolOutput.ResultSha256(quiet), ToolOutput.ResultSha256(noticed));
+        Assert.Equal((string)quiet.Meta![ToolOutput.ProvenanceKey]!["resultSha256"]!, (string)noticed.Meta![ToolOutput.ProvenanceKey]!["resultSha256"]!);
+        Assert.Equal(ToolOutput.ResultSha256(quietText), ToolOutput.ResultSha256(noticedText));
+    }
+
     /// <summary>MM-9 and E6: a record's stop flag makes coverage partial; facets reach the provenance, the record and the text.</summary>
     [Fact]
     public async Task A_stop_flag_makes_coverage_partial_and_facets_reach_every_part()

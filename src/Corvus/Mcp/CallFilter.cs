@@ -63,7 +63,7 @@ internal static partial class CallFilter
             else
             {
                 if (result.Content.LastOrDefault() is TextContentBlock last && !last.Text.EndsWith('\n')) last.Text += "\n";
-                result.Content.Add(new TextContentBlock { Text = string.Join("\n", notices.Select(n => "[workspace] " + Format.EscapeInvisible(n))) });
+                result.Content.Add(new TextContentBlock { Text = string.Join("\n", notices.Select(n => ToolOutput.NoticePrefix + Format.EscapeInvisible(n))) });
                 if (result.StructuredContent is { } s && JsonNode.Parse(s.GetRawText()) is JsonObject record)
                 {
                     record["notices"] = new JsonArray(notices.Select(n => (JsonNode)JsonValue.Create(n)!).ToArray());
