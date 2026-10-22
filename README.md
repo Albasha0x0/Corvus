@@ -59,9 +59,10 @@ when installed. Their databases and output are kept, so the second question abou
 | Native pseudocode | decompilation, engine types, frames, scripting | IDA 9 (idalib) or Ghidra 12 |
 | NativeAOT and ReadyToRun | method names, MethodTables, strings, precompiled code | nothing |
 | Native patching | names, comments, byte and assembly patches, patched copies, carried to new builds | nothing |
-| Containers | single-file bundles, NuGet, APK, ASAR, Unity WebGL, HAR captures | nothing |
+| Containers | single-file bundles, NuGet, APK, ASAR, Unity WebGL, HAR captures, installers (MSI, NSIS, Inno Setup, WiX Burn), frozen Python programs, firmware images; CycloneDX SBOM, YARA-X matches | nothing |
 | Android packages | manifest, resources, DEX, smali, Java (JADX), JNI bindings, devices over adb | JADX for Java, adb for devices |
-| Crash dumps | Windows minidumps, .NET exceptions, stacks, heap; crash text | nothing |
+| Crash dumps | Windows minidumps, Linux and macOS core dumps, .NET exceptions, stacks, heap; crash text | nothing |
+| Running programs | sessions with stop points, call recording, code coverage, activity traces, snapshots and child processes on Windows, Linux and macOS | Frida 17.24.3 or newer 17.x; off by default |
 
 Full list: [features](docs/features.md) and the [tool reference](docs/tools.md) (165 tools, 15 prompts).
 
