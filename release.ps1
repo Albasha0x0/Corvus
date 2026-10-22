@@ -164,7 +164,8 @@ if (-not $VerifyOnly) {
         finally { Remove-Item Env:CORVUS_UPDATE_DOCS }
 
         Run 'git' @('add', '-A')
-        Run 'git' @('commit', '-m', "release: $Version")
+        # The subject keeps the form the commit-msg hook checks.
+        Run 'git' @('commit', '-m', "chore(release): version $Version")
         Run 'git' @('tag', '-a', $tag, '-m', "Corvus $Version")
         Write-Host "Committed and tagged $tag."
         if (-not $Push) {
