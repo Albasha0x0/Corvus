@@ -67,6 +67,9 @@ $script:ScpVariable = 'CORVUS_TEST_SCP'
 $script:SshOptions = @('-o', 'BatchMode=yes', '-o', 'StrictHostKeyChecking=accept-new', '-o', 'ConnectTimeout=10', '-o', 'ServerAliveInterval=30', '-o', 'ServerAliveCountMax=4')
 # The host's folder under its user's home: the clone (repo), the run's worktree (run) and its results.
 $script:HostFolder = 'corvus-test-host'
+# Seconds a short ssh or scp call (the probe, a query, a cleanup) may take in all: the ssh options bound the connect
+# and a dead connection, not a session that hangs after login. A TRX copy gets four times as long.
+$script:ShortCallSeconds = 30
 # Seconds the host waits for the commit to reach origin; a push run starts before its push lands.
 $script:FetchWaitSeconds = 120
 
@@ -440,15 +443,40 @@ function Receive-Offload($handle, [string]$folder) {
 }
 
 # Runs ssh or scp (or the script standing in for it) with $arguments; returns its output, sets $LASTEXITCODE.
-function Invoke-Transport([string]$variable, [string]$program, [string[]]$arguments) {
+# Runs $program (or the .ps1 script $variable names) with $arguments and returns its output lines. With
+# $timeoutSeconds, a call still running then is ended with its child processes, its output dropped, and
+# $LASTEXITCODE set to -1.
+function Invoke-Transport([string]$variable, [string]$program, [string[]]$arguments, [int]$timeoutSeconds = 0) {
     $command = [Environment]::GetEnvironmentVariable($variable)
-    if (-not $command) { return & $program @arguments }
-    & pwsh -NoProfile -File $command @arguments
+    if ($timeoutSeconds -le 0) {
+        if (-not $command) { return & $program @arguments }
+        return & pwsh -NoProfile -File $command @arguments
+    }
+    $start = [Diagnostics.ProcessStartInfo]::new()
+    $start.FileName = if ($command) { (Get-Process -Id $PID).Path } else { (Get-Command $program -CommandType Application | Select-Object -First 1).Source }
+    foreach ($argument in @(if ($command) { '-NoProfile', '-File', $command }) + $arguments) { $start.ArgumentList.Add($argument) }
+    $start.UseShellExecute = $false; $start.RedirectStandardOutput = $true; $start.RedirectStandardError = $true
+    $process = [Diagnostics.Process]::Start($start)
+    try {
+        $out = $process.StandardOutput.ReadToEndAsync()
+        $null = $process.StandardError.ReadToEndAsync()
+        if (-not $process.WaitForExit($timeoutSeconds * 1000)) {
+            try { $process.Kill($true) } catch { }
+            $global:LASTEXITCODE = -1
+            return
+        }
+        $process.WaitForExit()
+        $global:LASTEXITCODE = $process.ExitCode
+        @($out.Result -split '\r?\n' | Where-Object { $_ -ne '' })
+    }
+    finally { $process.Dispose() }
 }
 
-# Whether the host answers over ssh with key auth within the connect timeout.
+# Whether the host answers over ssh with key auth within $script:ShortCallSeconds; a host that does not is named and
+# left unused.
 function Test-RemoteHost([string]$remoteHost) {
-    $null = Invoke-Transport $script:SshVariable 'ssh' (@($script:SshOptions) + @($remoteHost, 'exit 0')) 2>$null
+    $null = Invoke-Transport $script:SshVariable 'ssh' (@($script:SshOptions) + @($remoteHost, 'exit 0')) $script:ShortCallSeconds
+    if ($LASTEXITCODE -eq -1) { Write-Host "Test host $remoteHost gave no answer within $script:ShortCallSeconds s; not used." }
     $LASTEXITCODE -eq 0
 }
 
@@ -456,7 +484,7 @@ function Test-RemoteHost([string]$remoteHost) {
 function Get-HostVariables([string]$remoteHost) {
     $script = "[Environment]::GetEnvironmentVariables('User').GetEnumerator() | Where-Object { `$_.Key -like 'CORVUS_*' -and `$(try { Test-Path -LiteralPath `$_.Value } catch { `$false }) } | ForEach-Object Key"
     $encoded = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($script))
-    $names = @(Invoke-Transport $script:SshVariable 'ssh' (@($script:SshOptions) + @($remoteHost, "powershell -NoProfile -NonInteractive -EncodedCommand $encoded")) 2>$null)
+    $names = @(Invoke-Transport $script:SshVariable 'ssh' (@($script:SshOptions) + @($remoteHost, "powershell -NoProfile -NonInteractive -EncodedCommand $encoded")) $script:ShortCallSeconds)
     if ($LASTEXITCODE -ne 0) { return @() }
     @($names | ForEach-Object { "$_".Trim() } | Where-Object { $_ -match '^CORVUS_\w+$' } | Sort-Object -Unique)
 }
@@ -525,7 +553,7 @@ function Invoke-RemoteRun([string]$remoteHost, [string]$script, [string]$id, [st
         if ($LASTEXITCODE -eq 0) {
             $output = @(Invoke-Transport $script:SshVariable 'ssh' (@($script:SshOptions) + @($remoteHost, "pwsh -NoProfile -NonInteractive -File $script:HostFolder/$(Split-Path $file -Leaf)")) 2>&1 |
                 ForEach-Object { if ($Stream) { Write-Host "  $_" }; "$_" })
-            $null = Invoke-Transport $script:SshVariable 'ssh' (@($script:SshOptions) + @($remoteHost, "pwsh -NoProfile -NonInteractive -Command Remove-Item $script:HostFolder/$(Split-Path $file -Leaf)")) 2>$null
+            $null = Invoke-Transport $script:SshVariable 'ssh' (@($script:SshOptions) + @($remoteHost, "pwsh -NoProfile -NonInteractive -Command Remove-Item $script:HostFolder/$(Split-Path $file -Leaf)")) $script:ShortCallSeconds
         }
     }
     finally { Remove-Item $file -Force -ErrorAction SilentlyContinue }
@@ -577,7 +605,7 @@ function Invoke-RemoteFilter([string]$repo, [string]$remoteHost, [string]$filter
     if ($failed) {
         New-Item -ItemType Directory -Force $folder | Out-Null
         foreach ($run in $failed) {
-            $null = Invoke-Transport $script:ScpVariable 'scp' (@($script:SshOptions) + @("${remoteHost}:$script:HostFolder/results/$id/run-$($run.Run).trx", (Join-Path $folder "run-$($run.Run).trx"))) 2>$null
+            $null = Invoke-Transport $script:ScpVariable 'scp' (@($script:SshOptions) + @("${remoteHost}:$script:HostFolder/results/$id/run-$($run.Run).trx", (Join-Path $folder "run-$($run.Run).trx"))) (4 * $script:ShortCallSeconds)
         }
     }
     $missing = $repeat - $runs.Count
@@ -600,7 +628,7 @@ function Receive-RemoteRun($state, [string]$folder) {
     $result.Note = if ($exit) { "exit $($exit -replace '^corvus-remote-exit ', '')" } else { 'the connection ended before the run did' }
     New-Item -ItemType Directory -Force $folder | Out-Null
     $trx = Join-Path $folder 'offload.trx'
-    $null = Invoke-Transport $script:ScpVariable 'scp' (@($script:SshOptions) + @("$($state.Host):$script:HostFolder/results/$($state.Id)/run-1.trx", $trx)) 2>$null
+    $null = Invoke-Transport $script:ScpVariable 'scp' (@($script:SshOptions) + @("$($state.Host):$script:HostFolder/results/$($state.Id)/run-1.trx", $trx)) (4 * $script:ShortCallSeconds)
     if ($LASTEXITCODE -eq 0 -and (Test-Path $trx)) {
         $result.Trx = $trx
         $result.Failed = @(Get-ClassOutcomes $trx | Where-Object Failed | ForEach-Object { [pscustomobject]@{ Class = $_.Class; Platform = 'host' } })

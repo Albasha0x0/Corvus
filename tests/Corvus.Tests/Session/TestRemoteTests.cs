@@ -234,6 +234,37 @@ public sealed class TestRemoteTests : IDisposable
 
     [Fact]
     [Trait("Speed", "Slow")]
+    public void A_test_host_whose_ssh_never_returns_is_named_and_left_unused()
+    {
+        var pid = _dir.File("pid.txt");
+        // The stand-in ssh records its process id and then hangs, as a session stuck after login does.
+        var ssh = _dir.File("ssh.ps1");
+        File.WriteAllText(ssh, $$"""
+            Set-Content {{Quote(pid)}} $PID
+            Start-Sleep -Seconds 600
+            """);
+        var lines = TestReuseTests.Run($$"""
+            Import-Module {{Module}}
+            & (Get-Module test-remote) { $script:ShortCallSeconds = 2 }
+            $env:CORVUS_TEST_SSH = {{Quote(ssh)}}; $env:CORVUS_TEST_PUSH_RUN = '1'; $env:CORVUS_TEST_REMOTE = 'tester@stuck'
+            $clock = [Diagnostics.Stopwatch]::StartNew()
+            'answers=' + (Test-RemoteHost 'tester@stuck')
+            'bounded=' + ($clock.Elapsed.TotalSeconds -lt 30)
+            'ended=' + -not (Get-Process -Id ([int](Get-Content {{Quote(pid)}})) -ErrorAction SilentlyContinue)
+            'target=' + ((Get-OffloadTarget {{Quote(DocsTests.RepoRoot())}} $false).Kind -ne 'ssh')
+            'variables=' + @(Get-HostVariables 'tester@stuck').Count
+            """);
+        if (lines is ["skip"]) return;
+        Assert.Contains("answers=False", lines);
+        Assert.Contains("Test host tester@stuck gave no answer within 2 s; not used.", lines);
+        Assert.Contains("bounded=True", lines);
+        Assert.Contains("ended=True", lines);
+        Assert.Contains("target=True", lines);
+        Assert.Contains("variables=0", lines);
+    }
+
+    [Fact]
+    [Trait("Speed", "Slow")]
     public void A_test_host_that_answers_takes_the_classes_and_its_results_come_back()
     {
         var trx = _dir.File("host.trx");
