@@ -262,7 +262,11 @@
   exit; the agent lets Frida's threads settle for 0.3 s first, a workaround for frida/frida-gum#1192 (Frida 17.24.0 to
   17.24.3). Verified on win-x64 and win-x86. [0dde7bac](https://github.com/Albasha0x0/Corvus/commit/0dde7bac) [03aa5b70](https://github.com/Albasha0x0/Corvus/commit/03aa5b70)
 - **Stuck exits:** a program held in its exit is ended by the stuck exit check even when Frida reports it terminated
-  before the exit finished. Verified with Frida 17.24.3 on Windows. [ab58b956](https://github.com/Albasha0x0/Corvus/commit/ab58b956) [7519c6cd](https://github.com/Albasha0x0/Corvus/commit/7519c6cd)
+  before the exit finished, including a report that comes before the agent's exit status. Verified with Frida 17.24.3
+  on Windows. [ab58b956](https://github.com/Albasha0x0/Corvus/commit/ab58b956) [7519c6cd](https://github.com/Albasha0x0/Corvus/commit/7519c6cd) [914ca460](https://github.com/Albasha0x0/Corvus/commit/914ca460)
+- **Coverage runs:** stop points are set in batches of up to 256, so a run that waits for its module no longer times
+  out on a busy machine; a refused point is reported and the rest are set.
+  [178ab701](https://github.com/Albasha0x0/Corvus/commit/178ab701)
 - **Results:** control characters in file text are written as `\uXXXX`, and list rows cannot start a marker line.
   [6ae387b8](https://github.com/Albasha0x0/Corvus/commit/6ae387b8)
 - **server_status:** fits its report budget again with every external tool configured. A tool set in its variable is
