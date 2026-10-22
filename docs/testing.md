@@ -13,7 +13,8 @@
   the critical path: the pre-push hook (`.githooks/pre-push`, enabled per clone with `git config core.hooksPath
   .githooks`) starts `./test.ps1 -Full -Background` on the commit pushed to main, in a worktree of its own (`-Status`
   shows the result; the worktree goes under `CORVUS_BACKGROUND_DIR`, else the temp folder, so it can sit where the
-  antivirus does not quarantine the script fixtures), and a failure is fixed in the next commit. A push while a run is going is queued: when the run
+  antivirus does not quarantine the script fixtures; it is kept between runs, so each run checks out its commit there and
+  builds incrementally), and a failure is fixed in the next commit. A push while a run is going is queued: when the run
   ends, one run starts on the newest commit, at the strongest strength asked meanwhile. A whole-suite run, background or not, holds an exclusive machine lock while it runs when `CORVUS_HEAVY_LOCK` names a lock script
   (called as `heavy <name> -OwnerPid <pid>`, which waits for the lock, and `release <name>`), so other load on the machine waits for it. A background run runs at below-normal priority (its test
   hosts and engine workers inherit it) and reuses family passes; it is routine strength, a quarter of the sweeps

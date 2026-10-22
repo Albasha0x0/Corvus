@@ -229,7 +229,7 @@ if ($Mutation) {
 }
 
 # A full run on the committed HEAD in a worktree of its own, so building and testing here continue meanwhile. The worktree
-# is removed when the run ends; its stamp counts for -IfChanged and release.ps1 (same tree). A request while a run is
+# is kept for the next run; its stamp counts for -IfChanged and release.ps1 (same tree). A request while a run is
 # going is queued: when the run ends, one run starts on the newest commit, at the strongest strength asked meanwhile,
 # so runs always finish and pushes in between share one run.
 $running = Join-Path $gitDir 'corvus-background.json'
@@ -251,9 +251,19 @@ if ($Background) {
     }
     # CORVUS_BACKGROUND_DIR: where the worktrees go, e.g. a folder the antivirus does not scan (script fixtures)
     $bgRoot = if ($env:CORVUS_BACKGROUND_DIR) { $env:CORVUS_BACKGROUND_DIR } else { [IO.Path]::GetTempPath() }
-    $dir = Join-Path $bgRoot "corvus-bg-$($commit.Substring(0, 8))"
-    if (Test-Path $dir) { git -C $root worktree remove --force $dir 2>$null; Remove-Item -Recurse -Force $dir -ErrorAction SilentlyContinue }
-    git -C $root worktree add --detach $dir $commit | Out-Null
+    # One worktree serves every run: checking out the next commit in it keeps the restored packages and bin/obj, so the
+    # run builds incrementally. Untracked files go; a missing or broken worktree is made again.
+    $dir = Join-Path $bgRoot 'corvus-bg-worktree'
+    $reusedTree = $false
+    if (Test-Path (Join-Path $dir '.git')) {
+        git -C $dir checkout --quiet --detach --force $commit 2>$null
+        if ($LASTEXITCODE -eq 0) { git -C $dir clean -fdq 2>$null; $reusedTree = $LASTEXITCODE -eq 0 }
+    }
+    if (-not $reusedTree) {
+        if (Test-Path $dir) { git -C $root worktree remove --force $dir 2>$null; Remove-Item -Recurse -Force $dir -ErrorAction SilentlyContinue }
+        git -C $root worktree prune
+        git -C $root worktree add --detach $dir $commit | Out-Null
+    }
     $checkedOut = git -C $dir rev-parse HEAD 2>$null
     if ($LASTEXITCODE -ne 0 -or "$checkedOut".Trim() -ne $commit) {
         Write-Host "The background run did not start: $dir is not a worktree of $commit (git worktree add failed)." -ForegroundColor Red
@@ -281,7 +291,6 @@ Set-Content -Path '$result' -Value ('$short ' + `$(if (`$code -eq 0) { 'passed' 
 if (`$code -eq 0) { Set-Content -Path '$lastPassed' -Value '$commit' -NoNewline }
 if ((Get-Content '$running' -Raw -ErrorAction SilentlyContinue | ConvertFrom-Json).pid -eq `$PID) { Remove-Item '$running' }
 Set-Location '$root'
-git worktree remove --force '$dir'
 if (Test-Path '$queued') {
     `$next = (Get-Content '$queued' -Raw).Trim(); Remove-Item '$queued'
     `$strength = @{ Full = `$true; Background = `$true }
