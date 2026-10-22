@@ -26,6 +26,7 @@ public sealed class UnityFieldTests : IDisposable
             public class Transform : Component { }
             public struct Vector3 { public float x, y, z; }
             public struct Color { public float r, g, b, a; }
+            public struct Color32 { public byte r, g, b, a; }
             public sealed class Gradient { }
             [System.AttributeUsage(System.AttributeTargets.Field)] public sealed class SerializeField : System.Attribute { }
         }
@@ -92,6 +93,11 @@ public sealed class UnityFieldTests : IDisposable
             public Small size;
             public Empty nothing;
             public int last;
+        }
+
+        public class Shaded : MonoBehaviour
+        {
+            public Color32 shade;
         }
 
         namespace Game
@@ -299,6 +305,16 @@ public sealed class UnityFieldTests : IDisposable
         Assert.StartsWith("spawn: a private field", layout.Unknown);
         var names = layout.Tree.Where(n => n.Level == 1).Select(n => n.Name).ToList();
         Assert.Equal(["m_GameObject", "m_Enabled", "m_Script", "m_Name", "health", "speed", "alive", "title"], names);
+    }
+
+    [Fact]
+    public void A_Color32_field_is_one_rgba_value_as_the_engine_writes_it()
+    {
+        using var module = dnlib.DotNet.ModuleDefMD.Load(Assemblies.Value.Scripts);
+        var layout = UnityScriptLayout.Build(module.Find("Shaded", false), 22, attributesKept: true);
+        var shade = layout.Tree.SkipWhile(n => n.Name != "shade").Take(3).Select(n => (n.Level, n.Type, n.Name, n.ByteSize)).ToList();
+        Assert.Equal([(1, "ColorRGBA", "shade", 4), (2, "unsigned int", "rgba", 4)], shade.Take(2));
+        Assert.True(shade.Count < 3 || shade[2].Level == 1);
     }
 
     [Fact]

@@ -310,7 +310,7 @@ internal static class UnityScriptLayout
                 case "UnityEngine.Vector4": Group("Vector4f", name, level, "float", 4, "x", "y", "z", "w"); break;
                 case "UnityEngine.Quaternion": Group("Quaternionf", name, level, "float", 4, "x", "y", "z", "w"); break;
                 case "UnityEngine.Color": Group("ColorRGBA", name, level, "float", 4, "r", "g", "b", "a"); break;
-                case "UnityEngine.Color32": Group("ColorRGBA", name, level, "UInt8", 1, "r", "g", "b", "a"); break;
+                case "UnityEngine.Color32": Group("ColorRGBA", name, level, "unsigned int", 4, "rgba"); break;
                 case "UnityEngine.Rect": Group("Rectf", name, level, "float", 4, "x", "y", "width", "height"); break;
                 case "UnityEngine.LayerMask": Group("BitField", name, level, "unsigned int", 4, "m_Bits"); break;
                 case "UnityEngine.Vector2Int": Group("int2_storage", name, level, "int", 4, "m_X", "m_Y"); break;
