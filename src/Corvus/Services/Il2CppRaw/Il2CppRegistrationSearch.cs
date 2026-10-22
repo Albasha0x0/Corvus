@@ -95,15 +95,7 @@ public static class Il2CppRegistrationSearch
         var found = new List<(ulong Va, bool Exact)>();
         if (count < 2) return [];
         int ptr = image.Is64Bit ? 8 : 4;
-        ulong thumb = image.Arch == NativeArch.Arm && !image.Is64Bit ? 1UL : 0;
-        var code = image.Sections.Where(s => s.IsExecutable).Select(s => (Start: image.ImageBase + s.Rva, End: image.ImageBase + s.Rva + s.MappedSize)).ToArray();
-        bool IsCode(ulong va)
-        {
-            va &= ~thumb;
-            foreach (var (start, end) in code)
-                if (va >= start && va < end) return true;
-            return false;
-        }
+        var isCode = CodeTest(image);
         foreach (var section in image.Sections)
         {
             if (section.IsExecutable || section.RawSize == 0 || section.MappedSize < (ulong)count * (uint)ptr) continue;
@@ -119,8 +111,8 @@ public static class Il2CppRegistrationSearch
             }
             for (int at = 0; at < n; at += ptr)
             {
-                ulong word = ptr == 8 ? BinaryPrimitives.ReadUInt64LittleEndian(bytes.AsSpan(at)) : BinaryPrimitives.ReadUInt32LittleEndian(bytes.AsSpan(at));
-                if (word != 0 && IsCode(word)) { run++; continue; }
+                ulong word = Word(bytes, at, ptr);
+                if (word != 0 && isCode(word)) { run++; continue; }
                 End();
                 (nullAt, run) = (word == 0 ? at : -1, 0);
             }
@@ -128,6 +120,60 @@ public static class Il2CppRegistrationSearch
         }
         return [.. (found.Count > 1 && found.Any(f => f.Exact) ? found.Where(f => f.Exact) : found).Select(f => f.Va)];
     }
+
+    /// <summary>
+    /// The addresses of tables of exactly <paramref name="count"/> code pointers in the data (an invoker table of a
+    /// run-time-filled registration): runs bounded by a word that is no code pointer or by an <paramref name="exclude"/>d
+    /// range (another known table), so a table laid out next to a module's method pointers still has its own length.
+    /// </summary>
+    public static List<ulong> CodePointerTables(INativeImage image, int count, IReadOnlyCollection<(ulong Start, ulong End)> exclude, CancellationToken ct = default)
+    {
+        var found = new List<ulong>();
+        if (count < 1) return found;
+        int ptr = image.Is64Bit ? 8 : 4;
+        var excluded = exclude.OrderBy(x => x.Start).ToArray();
+        var isCode = CodeTest(image);
+        foreach (var section in image.Sections)
+        {
+            if (section.IsExecutable || section.RawSize == 0 || section.MappedSize < (ulong)count * (uint)ptr) continue;
+            ct.ThrowIfCancellationRequested();
+            var bytes = new byte[Math.Min(section.MappedSize, (uint)Array.MaxLength)];
+            int n = image.Read(section.Rva, bytes) / ptr * ptr;
+            ulong sectionVa = image.ImageBase + section.Rva;
+            long start = 0, run = 0;
+            int next = 0;
+            for (int at = 0; at <= n; at += ptr)
+            {
+                ulong va = sectionVa + (ulong)at;
+                while (next < excluded.Length && excluded[next].End <= va) next++;
+                bool inTable = at < n && !(next < excluded.Length && excluded[next].Start <= va)
+                               && Word(bytes, at, ptr) is var word
+                               && word != 0 && isCode(word);
+                if (inTable) { if (run++ == 0) start = at; continue; }
+                if (run == count) found.Add(sectionVa + (ulong)start);
+                run = 0;
+            }
+        }
+        return found;
+    }
+
+    /// <summary>Whether an address is in an executable section of <paramref name="image"/> (a Thumb address by its even form).</summary>
+    private static Func<ulong, bool> CodeTest(INativeImage image)
+    {
+        ulong thumb = image.Arch == NativeArch.Arm && !image.Is64Bit ? 1UL : 0;
+        var code = image.Sections.Where(s => s.IsExecutable).Select(s => (Start: image.ImageBase + s.Rva, End: image.ImageBase + s.Rva + s.MappedSize)).ToArray();
+        return va =>
+        {
+            va &= ~thumb;
+            foreach (var (start, end) in code)
+                if (va >= start && va < end) return true;
+            return false;
+        };
+    }
+
+    /// <summary>The little-endian pointer of <paramref name="ptr"/> bytes at <paramref name="at"/>.</summary>
+    private static ulong Word(byte[] bytes, int at, int ptr) =>
+        ptr == 8 ? BinaryPrimitives.ReadUInt64LittleEndian(bytes.AsSpan(at)) : BinaryPrimitives.ReadUInt32LittleEndian(bytes.AsSpan(at));
 
     private static IEnumerable<uint> Strings(INativeImage image, string text, CancellationToken ct)
     {

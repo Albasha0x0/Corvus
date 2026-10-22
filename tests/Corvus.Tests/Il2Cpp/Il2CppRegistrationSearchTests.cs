@@ -73,4 +73,32 @@ public class Il2CppRegistrationSearchTests
         Assert.Equal([(ulong)longer], Il2CppRegistrationSearch.GenericMethodPointers(image, 5, []));
         Assert.Empty(Il2CppRegistrationSearch.GenericMethodPointers(image, 7, []));
     }
+
+    /// <summary>
+    /// A 32-bit ARM library whose data holds a module's method pointers (2) directly followed by the invoker table (3),
+    /// then a non-code word and another table of 4 Thumb code pointers.
+    /// </summary>
+    [Fact]
+    public void An_invoker_table_next_to_a_modules_method_pointers_is_found_by_its_length()
+    {
+        var data = new PeBlob(ElfWriter.DataRva);
+        var relocations = new List<ElfWriter.Reloc>();
+        void Code(int i) => relocations.Add(new(data.U32(0), ArmRelative, Addend: ElfWriter.TextRva + 2 * (uint)i + 1));
+        uint module = data.Here;
+        for (int i = 0; i < 2; i++) Code(i);
+        uint invokers = data.Here;
+        for (int i = 0; i < 3; i++) Code(i);
+        data.U32(0x12345678);
+        uint other = data.Here;
+        for (int i = 0; i < 4; i++) Code(i);
+        data.U32(0x12345678);
+
+        var w = new ElfWriter { Is64 = false, Machine = ElfWriter.EmArm, UseRel = true, Text = new byte[0x20], Data = data.ToArray(), Relocations = relocations };
+        var image = ElfFile.FromBytes(w.Build(), "libil2cpp.so");
+        Assert.Equal([(ulong)invokers], Il2CppRegistrationSearch.CodePointerTables(image, 3, [(module, module + 8)]));
+        // Without the module's range the two tables read as one run of 5.
+        Assert.Empty(Il2CppRegistrationSearch.CodePointerTables(image, 3, []));
+        Assert.Equal([(ulong)module], Il2CppRegistrationSearch.CodePointerTables(image, 5, []));
+        Assert.Equal([(ulong)other], Il2CppRegistrationSearch.CodePointerTables(image, 4, [(module, module + 8)]));
+    }
 }

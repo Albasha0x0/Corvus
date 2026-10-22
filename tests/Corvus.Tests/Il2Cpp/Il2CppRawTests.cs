@@ -427,7 +427,8 @@ public sealed class Il2CppRawTests(ITestOutputHelper output) : IDisposable
     /// <summary>
     /// A real game (CORVUS_IL2CPP_GENERICS_GAME: a Windows game folder) copied with its code registration's module fields
     /// cleared, as in builds that fill the registration at run time: the copy reads every ScriptMethod entry of the
-    /// original, generic instances (from the generic method pointer array found in the data) included.
+    /// original, generic instances (from the generic method pointer array found in the data) included, and its function
+    /// starts from the invoker, attribute generator and unresolved call tables found there.
     /// </summary>
     [RequiresRealDataFact(GenericsVariable)]
     [Trait("Speed", "Slow")]
@@ -454,6 +455,11 @@ public sealed class Il2CppRawTests(ITestOutputHelper output) : IDisposable
         int generic = expected.Count(e => e.Name.Contains('<'));
         output.WriteLine($"ScriptMethod entries {actual.Count(expected.Contains)} of {expected.Count} ({generic} with generic arguments); copy has {actual.Count}");
         Assert.True(expected.SetEquals(actual));
+        var starts = cleared.Model.Addresses.ToHashSet();
+        output.WriteLine($"function starts {original.Addresses.Count(starts.Contains)} of {original.Addresses.Length}; copy has {starts.Count}");
+        Assert.Superset(starts, original.Addresses.ToHashSet());
+        // Only the reverse P/Invoke wrappers stay unmapped: their count is kept in the registration alone.
+        Assert.True(original.Addresses.Length - starts.Count <= original.Addresses.Length / 1000, "more than 0.1 % of the function starts are missing");
     }
 
     private const string GameVariable = "CORVUS_IL2CPP_GAME";

@@ -187,7 +187,7 @@ public static class Il2CppMetadataReader
     /// The library's fallback when its own search leaves the code registration unfound: our relocation-based candidates,
     /// each read with the version's layout and kept when its module count and array pointer read back as found; else,
     /// for builds that fill the registration at run time, one made up of the module array (one module per image)
-    /// and the generic method pointer array found in the data.
+    /// and the generic method pointer, invoker, attribute generator and unresolved call tables found in the data.
     /// </summary>
     private static void LocateRegistrations(Il2CppBinary binary, LibCpp2IL.Metadata.Il2CppMetadata metadata, ref Il2CppCodeRegistration? codeReg, ref Il2CppMetadataRegistration? metaReg)
     {
@@ -213,7 +213,9 @@ public static class Il2CppMetadataReader
             // Before metadata 27 the library reads the attribute generator list unconditionally; an empty one at a mapped address.
             codeReg = new Il2CppCodeRegistration { codeGenModulesCount = (ulong)images, addrCodeGenModulePtrs = array, customAttributeGeneratorListAddress = array };
             searchNote = $"no code registration in the file (filled at run time): read through its module array at 0x{array:X} ({images} modules); " +
-                         GenericMethodPointers(binary, image, codeReg, metaReg);
+                         GenericMethodPointers(binary, image, codeReg, metaReg) + "; " + InvokerPointers(binary, image, codeReg, metaReg) + "; " +
+                         (metadata.MetadataVersion < 27f ? AttributeGenerators(image, codeReg, metadata) + "; " : "") + UnresolvedCallPointers(image, codeReg, metadata) +
+                         "; reverse P/Invoke wrappers are not mapped (their count is kept in the registration alone)";
         }
     }
 
@@ -246,6 +248,88 @@ public static class Il2CppMetadataReader
         codeReg.genericMethodPointers = array;
         codeReg.genericMethodPointersCount = (ulong)count;
         return $"generic method pointers ({count}) at 0x{array:X}";
+    }
+
+    /// <summary>
+    /// Places the invoker table of a run-time-filled registration into <paramref name="codeReg"/>: its length is one past
+    /// the largest invoker index of the modules' methods and of the generic method table. Returns the note.
+    /// </summary>
+    private static string InvokerPointers(Il2CppBinary binary, Native.INativeImage image, Il2CppCodeRegistration codeReg, Il2CppMetadataRegistration? metaReg)
+    {
+        int count = 0;
+        var exclude = new List<(ulong, ulong)>();
+        int ptr = searchIs64 ? 8 : 4;
+        try
+        {
+            foreach (ulong module in binary.ReadNUintArrayAtVirtualAddress(codeReg.addrCodeGenModulePtrs, (long)codeReg.codeGenModulesCount))
+            {
+                var m = binary.ReadReadableAtVirtualAddress<Il2CppCodeGenModule>(module);
+                if (m.methodPointerCount <= 0) continue;
+                exclude.Add((m.methodPointers, m.methodPointers + (ulong)m.methodPointerCount * (ulong)ptr));
+                if (m.invokerIndices != 0)
+                    count = Math.Max(count, binary.ReadClassArrayAtVirtualAddress<int>(m.invokerIndices, m.methodPointerCount).Max() + 1);
+            }
+            if (metaReg != null && metaReg.genericMethodTableCount > 0)
+                count = Math.Max(count, binary.ReadReadableArrayAtVirtualAddress<Il2CppGenericMethodFunctionsDefinitions>(metaReg.genericMethodTable, metaReg.genericMethodTableCount)
+                    .Max(t => t.Indices.invokerIndex) + 1);
+        }
+        catch (Exception ex) when (ex is not (OutOfMemoryException or OperationCanceledException))
+        {
+            return $"invokers are not mapped (invoker indices unreadable: {Clip(ex.Message)})";
+        }
+        if (count == 0) return "invokers are not mapped (no method names an invoker)";
+        if (codeReg.genericMethodPointersCount > 0)
+            exclude.Add((codeReg.genericMethodPointers, codeReg.genericMethodPointers + codeReg.genericMethodPointersCount * (ulong)ptr));
+        var found = Il2CppRegistrationSearch.CodePointerTables(image, count, exclude, searchCt);
+        if (found is not [var array]) return $"invokers are not mapped ({found.Count} tables of {count} invoker pointers found, one expected)";
+        codeReg.invokerPointers = array;
+        codeReg.invokerPointersCount = (ulong)count;
+        return $"invoker pointers ({count}) at 0x{array:X}";
+    }
+
+    /// <summary>
+    /// Places the custom attribute generator table of a run-time-filled registration (metadata before 27) into
+    /// <paramref name="codeReg"/>: one generator per attribute type range of the metadata. Returns the note.
+    /// </summary>
+    private static string AttributeGenerators(Native.INativeImage image, Il2CppCodeRegistration codeReg, LibCpp2IL.Metadata.Il2CppMetadata metadata)
+    {
+        int count = metadata.attributeTypeRanges?.Count ?? 0;
+        if (count == 0) return "no custom attribute generators (no attribute type ranges)";
+        int ptr = searchIs64 ? 8 : 4;
+        var exclude = new List<(ulong, ulong)>();
+        void Exclude(ulong start, ulong entries) { if (start != 0 && entries > 0) exclude.Add((start, start + entries * (ulong)ptr)); }
+        Exclude(codeReg.genericMethodPointers, codeReg.genericMethodPointersCount);
+        Exclude(codeReg.invokerPointers, codeReg.invokerPointersCount);
+        var found = Il2CppRegistrationSearch.CodePointerTables(image, count, exclude, searchCt);
+        if (found is not [var array]) return $"custom attribute generators are not mapped ({found.Count} tables of {count} pointers found, one expected)";
+        codeReg.customAttributeGeneratorListAddress = array;
+        codeReg.customAttributeCount = (ulong)count;
+        return $"custom attribute generators ({count}) at 0x{array:X}";
+    }
+
+    /// <summary>
+    /// Places the unresolved call tables of a run-time-filled registration into <paramref name="codeReg"/>: one per
+    /// call kind (virtual; instance and static from metadata 29.1), each with one entry per parameter range of the
+    /// metadata, in the order Il2Cpp lays them out. Returns the note.
+    /// </summary>
+    private static string UnresolvedCallPointers(Native.INativeImage image, Il2CppCodeRegistration codeReg, LibCpp2IL.Metadata.Il2CppMetadata metadata)
+    {
+        // Each parameter range is an (index, length) pair of 32-bit values.
+        int count = metadata.metadataHeader.unresolvedVirtualCallParameterRanges.Size / 8;
+        if (count == 0) return "no unresolved call tables (no parameter ranges)";
+        int ptr = searchIs64 ? 8 : 4;
+        var exclude = new List<(ulong, ulong)>();
+        void Exclude(ulong start, ulong entries) { if (start != 0 && entries > 0) exclude.Add((start, start + entries * (ulong)ptr)); }
+        Exclude(codeReg.genericMethodPointers, codeReg.genericMethodPointersCount);
+        Exclude(codeReg.invokerPointers, codeReg.invokerPointersCount);
+        if (codeReg.customAttributeGeneratorListAddress != codeReg.addrCodeGenModulePtrs) Exclude(codeReg.customAttributeGeneratorListAddress, codeReg.customAttributeCount);
+        int expected = metadata.MetadataVersion >= 29.1f ? 3 : 1;
+        var found = Il2CppRegistrationSearch.CodePointerTables(image, count, exclude, searchCt);
+        if (found.Count != expected) return $"unresolved calls are not mapped ({found.Count} tables of {count} pointers found, {expected} expected)";
+        codeReg.unresolvedVirtualCallCount = (ulong)count;
+        codeReg.unresolvedVirtualCallPointers = found[0];
+        if (expected == 3) (codeReg.unresolvedInstanceCallPointers, codeReg.unresolvedStaticCallPointers) = (found[1], found[2]);
+        return $"unresolved call tables ({expected} of {count}) from 0x{found[0]:X}";
     }
 
     /// <summary>The innermost frame of an exception, for reports.</summary>
