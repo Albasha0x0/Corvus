@@ -65,6 +65,7 @@ public partial class SimilarFunctionsRealTests(ITestOutputHelper output)
     [InlineData("win-arm64")]
     [InlineData("win-x86")]
     [InlineData("linux-arm")]
+    [Trait(PerfBudget.Trait, PerfBudget.Timing)]
     public void Instantiations_of_one_generic_method_find_each_other(string rid)
     {
         var o = Open(rid, "10.0.11");
@@ -108,7 +109,7 @@ public partial class SimilarFunctionsRealTests(ITestOutputHelper output)
                          $"query median {Median(times):F0} ms, max {times.Max():F0} ms; clusters {clusters.Count:N0} from {pairs:N0} pairs in {clusterTime.TotalSeconds:F2} s");
         Assert.True(sample.Count >= 100, $"only {sample.Count} sampled instantiations");
         Assert.True(r5 >= 0.7, $"recall@5 {r5:P1}");
-        Assert.True(Median(times) < 1000, $"median query {Median(times)} ms");
+        PerfBudget.Check(Median(times) < 1000, $"median query {Median(times)} ms", output);
     }
 
     /// <summary>One method in two releases (.NET 9 and 10 ilc): the same-named function of the other release among the cross-image hits.</summary>
@@ -142,6 +143,7 @@ public partial class SimilarFunctionsRealTests(ITestOutputHelper output)
 
     /// <summary>Speed on a large image (100 MB and more): sketches once, then sub-second queries; duplicates and clusters image-wide.</summary>
     [RequiresRealDataFact(RealData.LargeNativeImage)]
+    [Trait(PerfBudget.Trait, PerfBudget.Timing)]
     public void Large_image_queries_stay_under_a_second()
     {
         var image = NativeImageLoader.Open(RealData.Path(RealData.LargeNativeImage));
@@ -170,7 +172,7 @@ public partial class SimilarFunctionsRealTests(ITestOutputHelper output)
         output.WriteLine($"{Path.GetFileName(image.Path)} ({new FileInfo(image.Path).Length / 1e6:F0} MB, {image.Arch}): {f.Length:N0} functions; index {indexed.TotalSeconds:F1} s, " +
                          $"sketches {sketched.TotalSeconds:F1} s; {times.Count} queries median {Median(times):F0} ms, max {times.Max():F0} ms; " +
                          $"duplicates {duplicates.Count:N0} groups in {dupTime.TotalSeconds:F2} s; clusters {clusters.Count:N0} from {pairs:N0} pairs in {clusterTime.TotalSeconds:F2} s; heap {memory / 1e6:F0} MB");
-        Assert.True(times.Max() < 1000, $"slowest query {times.Max()} ms");
+        PerfBudget.Check(times.Max() < 1000, $"slowest query {times.Max()} ms", output);
     }
 
     private static double Median(List<double> values)

@@ -451,12 +451,14 @@ public class MsvcEhTests(ITestOutputHelper output)
 
     [Fact]
     [Trait("Speed", "Slow")]
+    [Trait(PerfBudget.Trait, PerfBudget.Timing)]
     public void System32_x64_metadata_sweep()
     {
         if (!OperatingSystem.IsWindows()) return;
         int files = 0, rejects = 0;
         var totals = new long[8];
         var failures = new List<string>();
+        var slow = new List<string>();
         var slowest = ("", TimeSpan.Zero);
         var total = Stopwatch.StartNew();
         foreach (var path in NativeCodeSweepTests.Sample(Environment.SystemDirectory))
@@ -478,7 +480,7 @@ public class MsvcEhTests(ITestOutputHelper output)
                 for (int i = 0; i < add.Length; i++) totals[i] += add[i];
                 rejects += r.RejectCount;
                 if (r.RejectCount > 0) output.WriteLine($"{Path.GetFileName(path)}: {r.RejectCount} rejects, e.g. {r.Rejects[0].Structure}: {r.Rejects[0].Reason}");
-                if (sw.Elapsed > TimeSpan.FromSeconds(10)) failures.Add($"{Path.GetFileName(path)}: {sw.Elapsed}");
+                if (sw.Elapsed > TimeSpan.FromSeconds(10)) slow.Add($"{Path.GetFileName(path)}: {sw.Elapsed}");
             }
             catch (Exception ex) { failures.Add($"{Path.GetFileName(path)}: {ex.GetType().Name}: {ex.Message}"); }
         }
@@ -487,5 +489,6 @@ public class MsvcEhTests(ITestOutputHelper output)
                          $"children {totals[6]}, fragments {totals[7]}, rejects {rejects}");
         foreach (var f in failures.Take(40)) output.WriteLine("FAIL " + f);
         Assert.Empty(failures);
+        PerfBudget.Check(slow.Count == 0, $"{slow.Count} files over 10 s: {string.Join(", ", slow.Take(10))}", output);
     }
 }

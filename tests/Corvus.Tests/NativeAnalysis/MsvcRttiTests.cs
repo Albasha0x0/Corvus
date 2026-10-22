@@ -314,6 +314,7 @@ public class MsvcRttiSweepTests(ITestOutputHelper output)
     /// </summary>
     [WindowsFact]
     [Trait("Speed", "Slow")]
+    [Trait(PerfBudget.Trait, PerfBudget.Timing)]
     public void SweepSystemImages()
     {
         var files = MsvcCorpus.SystemDirectories().Distinct(StringComparer.OrdinalIgnoreCase)
@@ -324,6 +325,7 @@ public class MsvcRttiSweepTests(ITestOutputHelper output)
         var endReasons = new Dictionary<string, int>();
         var slowest = (File: "", Time: TimeSpan.Zero);
         var failures = new List<string>();
+        var slow = new List<string>();
         var gate = new object();
         Parallel.ForEach(files, new ParallelOptions { MaxDegreeOfParallelism = Math.Max(2, Environment.ProcessorCount / 2) }, file =>
         {
@@ -366,7 +368,7 @@ public class MsvcRttiSweepTests(ITestOutputHelper output)
                 foreach (var v in result.Classes.SelectMany(c => c.Vtables))
                     endReasons[v.EndReason] = endReasons.GetValueOrDefault(v.EndReason) + 1;
                 if (t.Elapsed > slowest.Time) slowest = (file, t.Elapsed);
-                if (t.Elapsed > TimeSpan.FromSeconds(20)) failures.Add($"{file}: {t.Elapsed.TotalSeconds:F1} s");
+                if (t.Elapsed > TimeSpan.FromSeconds(20)) slow.Add($"{file}: {t.Elapsed.TotalSeconds:F1} s");
             }
         });
         output.WriteLine($"{images} images in {sw.Elapsed.TotalSeconds:F1} s; {withRtti} with RTTI: {classes} classes, {locators} locators, {vtables} vftables");
@@ -376,5 +378,6 @@ public class MsvcRttiSweepTests(ITestOutputHelper output)
         output.WriteLine($"slowest: {slowest.File} {slowest.Time.TotalSeconds:F2} s");
         Assert.True(failures.Count == 0, string.Join("\n", failures.Take(50)));
         Assert.True(images > 100, $"only {images} images");
+        PerfBudget.Check(slow.Count == 0, $"{slow.Count} images over 20 s: {string.Join(", ", slow.Take(10))}", output);
     }
 }

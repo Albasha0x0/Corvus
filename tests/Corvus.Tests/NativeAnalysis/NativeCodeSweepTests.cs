@@ -39,6 +39,7 @@ public class NativeCodeSweepTests(ITestOutputHelper output)
 
     /// <summary>One large image (CORVUS_NATIVE_LARGE_IMAGE, e.g. a game executable or a browser DLL): time, memory, completeness.</summary>
     [RequiresRealDataFact("CORVUS_NATIVE_LARGE_IMAGE")]
+    [Trait(PerfBudget.Trait, PerfBudget.Timing)]
     public void Large_image()
     {
         var path = RealData.Path("CORVUS_NATIVE_LARGE_IMAGE");
@@ -54,7 +55,7 @@ public class NativeCodeSweepTests(ITestOutputHelper output)
         output.WriteLine(index.Stats.ToString());
         foreach (var t in index.Truncations) output.WriteLine("truncated: " + t);
         if (image.Arch == NativeArch.X64) Assert.Empty(PdataStartsMissing(image, index).Missing);
-        Assert.True(sw.Elapsed < TimeSpan.FromMinutes(5), $"took {sw.Elapsed}");
+        PerfBudget.Check(sw.Elapsed < TimeSpan.FromMinutes(5), $"took {sw.Elapsed}", output);
         GC.KeepAlive(index);
     }
 
