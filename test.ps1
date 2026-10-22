@@ -732,13 +732,28 @@ try {
         $here = @(); $notes = @()
         if (-not $got.Started) { $here = $sent; $offloadRecord.state = 'not run there'; $notes += "$($got.Note); its classes ran here" }
         else {
-            $here = @(Get-RerunClasses $got $sent $lastTrx $mixed $trx (Get-FastestClassSeconds $timeHistory))
+            $fastest = Get-FastestClassSeconds $timeHistory
+            $here = @(Get-RerunClasses $got $sent $lastTrx $mixed $trx $fastest)
             $offloadRecord.state = if ($got.Failed) { "failed on $($offload.Name)" } else { 'passed' }
             if ($got.Note -notmatch '^run \d+$') { $notes += $got.Note }
             if ($got.Trx) {
                 Copy-Item $got.Trx (Join-Path $gitDir "corvus-remote/$(Get-TargetFileName $offload.Name).trx") -Force
                 # A target may run more classes than this run needed (it does not reuse passes); only the sent ones count.
                 Join-TrxFiles $trx @($trx, $got.Trx) (@($here) + @($candidates | Where-Object { $_ -notin $sent })) $mixed
+            }
+            # Live classes a test host left without a full result take the results of the push's own GitHub live jobs
+            # where those prove them, instead of a rerun here under the live permits. A class that failed on the host
+            # still reruns here: a pass on GitHub must not hide a failure two Windows machines could see.
+            $failedThere = @($got.Failed | ForEach-Object Class)
+            $liveHere = if ($offload.Kind -eq 'ssh' -and $here) { @($here | Where-Object { $_ -notin $failedThere -and $_ -in @(Get-RemoteClasses $tests -Group live) }) } else { @() }
+            if ($liveHere) {
+                $live = Receive-GitHubLive $root (git -C $root rev-parse HEAD).Trim() $liveHere $lastTrx (Join-Path $results 'github-live') $fastest
+                if ($live.Proved) {
+                    Join-TrxFiles $trx @($trx, $live.Trx) $live.Drop
+                    $here = @($here | Where-Object { $_ -notin $live.Proved })
+                    $notes += "no full result there, passed on GitHub ($($live.Note)): $($live.Proved -join ', ')"
+                }
+                else { $notes += "GitHub live jobs proved none of $($liveHere -join ', ') ($($live.Note))" }
             }
         }
         $hereTrx = Join-Path $results 'here/here.trx'

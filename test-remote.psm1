@@ -52,6 +52,9 @@ $script:OffloadJob = 'offload'
 # offload jobs to finish.
 $script:RunAppearSeconds = 120
 $script:RunFinishMinutes = 120
+# Minutes a push run waits for the GitHub live jobs in place of rerunning the live classes a test host left; they end
+# 10 to 22 min after the push, well inside a push run.
+$script:LiveFallbackMinutes = 10
 $script:PollSeconds = 15
 # A test host prepared by test-remote-setup.ps1 ([user@]name); it takes the offloaded classes ahead of GitHub when it
 # answers over ssh.
@@ -367,12 +370,41 @@ function Get-OffloadTarget([string]$repo, [bool]$releaseTier) {
     }
     $remote = "$([Environment]::GetEnvironmentVariable($script:HostVariable))".Trim()
     if ($remote -and (Test-RemoteHost $remote)) { return @{ Name = $remote; Kind = 'ssh'; Host = $remote; Variables = @(Get-HostVariables $remote) } }
+    Get-GitHubTarget $repo
+}
+
+# The GitHub target of $repo, @{ Name; Kind; Repository }, or $null without the gh command line, without the offload
+# job in ci.yml at HEAD, or with an origin outside github.com.
+function Get-GitHubTarget([string]$repo) {
     if (-not ([Environment]::GetEnvironmentVariable($script:GhVariable) -or (Get-Command gh -ErrorAction SilentlyContinue))) { return $null }
     $workflow = git -C $repo show "HEAD:.github/workflows/$script:Workflow" 2>$null
     if ($LASTEXITCODE -ne 0 -or -not ($workflow -match "^  ${script:OffloadJob}:")) { return $null }
     $url = (git -C $repo remote get-url origin 2>$null) -join ''
     if ($url -notmatch 'github\.com[:/]([^/]+/[^/]+?)(\.git)?/?$') { return $null }
     @{ Name = 'github'; Kind = 'github'; Repository = $Matches[1] }
+}
+
+# Of $classes, live classes a test host left without a full result, those the live jobs of $commit's GitHub offload proved on
+# Windows, as Get-RerunClasses judges against $localTrx and the $fastest class times. A failure on another platform does not count: a rerun here
+# proves Windows only. @{ Proved; Trx; Drop; Note }, Drop naming the other classes of Trx; Proved is empty when GitHub
+# is not usable or its live jobs did not finish within $finishMinutes.
+function Receive-GitHubLive([string]$repo, [string]$commit, [string[]]$classes, [string]$localTrx, [string]$folder,
+    [hashtable]$fastest = @{}, [int]$finishMinutes = $script:LiveFallbackMinutes, [int]$pollSeconds = $script:PollSeconds) {
+    $result = [pscustomobject]@{ Proved = @(); Trx = $null; Drop = @(); Note = $null }
+    $target = Get-GitHubTarget $repo
+    if (-not $target) { $result.Note = 'no GitHub target'; return $result }
+    $got = Receive-GitHubRun (Wait-GitHubRun $target.Repository $commit -pollSeconds $pollSeconds -group 'live' -finishMinutes $finishMinutes) $folder 'live'
+    $result.Note = $got.Note
+    if (-not ($got.Started -and $got.Trx)) { return $result }
+    $windows = [pscustomobject]@{ Trx = $got.Trx; Failed = @($got.Failed | Where-Object Platform -eq 'windows') }
+    $rerun = @(Get-RerunClasses $windows $classes $localTrx -fastest $fastest)
+    # A runner lacks some targets this machine has, so a test that ran here last time but not there keeps its class.
+    $ran = @{}; foreach ($t in Get-TestOutcomes $got.Trx) { if ($t.Outcome -ne 'NotExecuted') { $ran[$t.Key] = $true } }
+    if (Test-Path $localTrx) { $rerun += @(Get-TestOutcomes $localTrx | Where-Object { $_.Class -in $classes -and $_.Outcome -ne 'NotExecuted' -and -not $ran[$_.Key] } | ForEach-Object Class) }
+    $result.Proved = @($classes | Where-Object { $_ -notin $rerun } | Sort-Object -Unique)
+    $result.Trx = $got.Trx
+    $result.Drop = @(Get-ClassOutcomes $got.Trx | ForEach-Object Class | Where-Object { $_ -notin $result.Proved } | Sort-Object -Unique)
+    $result
 }
 
 # Starts the remote half of $classes on $target; returns a handle for Receive-Offload. GitHub runs the offload job on
@@ -583,9 +615,11 @@ function Invoke-Gh([string[]]$arguments) {
     & gh @arguments
 }
 
-# Waits for the commit's CI run on push and its offload jobs: @{ Kind; Repository; Run; Jobs; Note }, with Run $null
-# (and Note saying why) when the run never appeared or did not finish; Note names the offload jobs that did not succeed.
-function Wait-GitHubRun([string]$repository, [string]$commit, [int]$appearSeconds = $script:RunAppearSeconds, [int]$pollSeconds = $script:PollSeconds) {
+# Waits for the commit's CI run on push and its offload jobs (those of $group only, when given): @{ Kind; Repository;
+# Run; Jobs; Note }, with Run $null (and Note saying why) when the run never appeared or its jobs did not finish within
+# $finishMinutes; Note names the offload jobs that did not succeed.
+function Wait-GitHubRun([string]$repository, [string]$commit, [int]$appearSeconds = $script:RunAppearSeconds, [int]$pollSeconds = $script:PollSeconds,
+    [string]$group = '', [int]$finishMinutes = $script:RunFinishMinutes) {
     $state = @{ Kind = 'github'; Repository = $repository; Run = $null; Jobs = @(); Note = $null }
     $deadline = (Get-Date).AddSeconds($appearSeconds)
     $run = $null
@@ -596,12 +630,13 @@ function Wait-GitHubRun([string]$repository, [string]$commit, [int]$appearSecond
         if ((Get-Date) -gt $deadline) { $state.Note = "no CI run for the commit after $appearSeconds s"; return $state }
         Start-Sleep -Seconds $pollSeconds
     }
-    $deadline = (Get-Date).AddMinutes($script:RunFinishMinutes)
+    $deadline = (Get-Date).AddMinutes($finishMinutes)
+    $prefix = if ($group) { "$script:OffloadJob ($group *" } else { "$script:OffloadJob*" }
     while ($true) {
         $view = Invoke-Gh @('run', 'view', "$run", '-R', $repository, '--json', 'status,jobs') 2>$null
         if ($LASTEXITCODE -eq 0 -and $view) {
             $info = ($view -join '') | ConvertFrom-Json
-            $jobs = @($info.jobs | Where-Object { $_.name -like "$script:OffloadJob*" })
+            $jobs = @($info.jobs | Where-Object { $_.name -like $prefix })
             if ($jobs -and -not ($jobs | Where-Object status -ne 'completed')) {
                 $state.Run = $run; $state.Jobs = $jobs
                 $failed = @($jobs | Where-Object conclusion -ne 'success')
@@ -610,19 +645,21 @@ function Wait-GitHubRun([string]$repository, [string]$commit, [int]$appearSecond
             }
             if (-not $jobs -and $info.status -eq 'completed') { $state.Note = "run $run has no offload job"; return $state }
         }
-        if ((Get-Date) -gt $deadline) { $state.Note = "run $run did not finish in $script:RunFinishMinutes min"; return $state }
+        if ((Get-Date) -gt $deadline) { $state.Note = "run $run did not finish in $finishMinutes min"; return $state }
         Start-Sleep -Seconds $pollSeconds
     }
 }
 
-# Downloads a finished run's TRX artifacts (offload-<group>-<os>-<shard>) into $folder: @{ Started; Trx; Failed; Note }.
+# Downloads a finished run's TRX artifacts (offload-<group>-<os>-<shard>, of $group only when given) into $folder:
+# @{ Started; Trx; Failed; Note }.
 # Trx joins the Windows shards ($null when none came back); the other platforms' expected skips stay out. Failed lists
 # the classes with a failed test on any platform, as @{ Class; Platform }. Started false means no test ran there.
-function Receive-GitHubRun($state, [string]$folder) {
+function Receive-GitHubRun($state, [string]$folder, [string]$group = '') {
     $result = [pscustomobject]@{ Started = $false; Trx = $null; Failed = @(); Note = $state.Note }
     if (-not $state.Run) { return $result }
     New-Item -ItemType Directory -Force $folder | Out-Null
-    $null = Invoke-Gh @('run', 'download', "$($state.Run)", '-R', $state.Repository, '-p', "$script:OffloadJob-*", '-D', $folder) 2>$null
+    $pattern = if ($group) { "$script:OffloadJob-$group-*" } else { "$script:OffloadJob-*" }
+    $null = Invoke-Gh @('run', 'download', "$($state.Run)", '-R', $state.Repository, '-p', $pattern, '-D', $folder) 2>$null
     $files = @(Get-ChildItem $folder -Recurse -Filter *.trx -ErrorAction SilentlyContinue | Sort-Object FullName)
     $result.Failed = @(foreach ($file in $files) {
         $platform = if ($file.Directory.Name -match 'windows|ubuntu|macos') { $Matches[0] } else { $file.Directory.Name }
@@ -638,4 +675,4 @@ function Receive-GitHubRun($state, [string]$folder) {
     $result
 }
 
-Export-ModuleMember -Function Invoke-Transport, Test-RemoteHost, Get-RemoteRunScript, Invoke-RemoteRun, Receive-RemoteRun, New-RemoteSnapshot, Invoke-RemoteFilter, Invoke-Gh, Wait-GitHubRun, Receive-GitHubRun, Get-RemoteClasses, Get-HeldClasses, Get-HostVariables, Get-RealDataVariables, Get-RemoteShard, Get-LocalFilter, Get-ClassFilter, Get-ClassOutcomes, Get-TestOutcomes, Get-SkippedOnHost, Get-FastestClassSeconds, Get-SkippedOnBoth, Get-RerunClasses, Get-MixedClasses, Get-FailedThereNote, Join-TrxFiles, Get-TargetFileName, Save-RemoteRecord, Get-RemoteStatus, Get-OffloadTarget, Start-Offload, Receive-Offload
+Export-ModuleMember -Function Invoke-Transport, Test-RemoteHost, Get-RemoteRunScript, Invoke-RemoteRun, Receive-RemoteRun, New-RemoteSnapshot, Invoke-RemoteFilter, Invoke-Gh, Wait-GitHubRun, Receive-GitHubRun, Get-GitHubTarget, Receive-GitHubLive, Get-RemoteClasses, Get-HeldClasses, Get-HostVariables, Get-RealDataVariables, Get-RemoteShard, Get-LocalFilter, Get-ClassFilter, Get-ClassOutcomes, Get-TestOutcomes, Get-SkippedOnHost, Get-FastestClassSeconds, Get-SkippedOnBoth, Get-RerunClasses, Get-MixedClasses, Get-FailedThereNote, Join-TrxFiles, Get-TargetFileName, Save-RemoteRecord, Get-RemoteStatus, Get-OffloadTarget, Start-Offload, Receive-Offload

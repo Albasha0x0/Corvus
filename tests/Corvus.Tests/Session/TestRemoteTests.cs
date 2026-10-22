@@ -395,4 +395,56 @@ public sealed class TestRemoteTests : IDisposable
         Assert.Contains("off=True", lines);
         Assert.Contains("release=True", lines);
     }
+
+    [Fact]
+    [Trait("Speed", "Slow")]
+    public void Live_classes_a_host_left_take_the_windows_results_of_the_ci_live_jobs_without_waiting_for_the_rest()
+    {
+        // Test names follow each result's position, so a test keeps its name in both files: Epsilon's M4 ran here
+        // last time and was skipped there, while each side skipped one Epsilon test.
+        var shard0 = _dir.File("live0.trx");
+        File.WriteAllText(shard0, Trx(("LiveAlphaTests", "Passed"), ("LiveBetaTests", "Failed"), ("LiveOtherTests", "Passed"), ("LiveOtherTests", "Passed"),
+            ("LiveEpsilonTests", "NotExecuted"), ("LiveEpsilonTests", "Passed")));
+        var shard1 = _dir.File("live1.trx");
+        File.WriteAllText(shard1, Trx(("LiveOtherTests", "Passed"), ("LiveGammaTests", "Passed")));
+        var linux = _dir.File("live-linux.trx");
+        File.WriteAllText(linux, Trx(("LiveGammaTests", "Failed")));
+        var sweep = _dir.File("sweep.trx");
+        File.WriteAllText(sweep, Trx(("SweepOnlyTests", "Passed")));
+        var last = _dir.File("last.trx");
+        File.WriteAllText(last, Trx(("LiveAlphaTests", "Passed"), ("LiveGammaTests", "Passed"), ("LiveBetaTests", "Passed"), ("LiveDeltaTests", "Passed"),
+            ("LiveEpsilonTests", "Passed"), ("LiveEpsilonTests", "NotExecuted")));
+        // The sweep job is still running and its artifact downloads only without the live pattern.
+        string Gh(string liveStatus)
+        {
+            var path = _dir.File($"gh-live-{liveStatus}.ps1");
+            File.WriteAllText(path, $$"""
+                $verb = "$($args[0]) $($args[1])"
+                if ($verb -eq 'run list') { '[{"databaseId": 42}]'; exit 0 }
+                if ($verb -eq 'run view') { '{"status": "in_progress", "jobs": [{"name": "offload (live windows-latest 0/2)", "status": "{{liveStatus}}", "conclusion": "failure"}, {"name": "offload (live windows-latest 1/2)", "status": "completed", "conclusion": "success"}, {"name": "offload (live ubuntu-latest 0/1)", "status": "completed", "conclusion": "failure"}, {"name": "offload (sweep windows-latest 0/2)", "status": "in_progress", "conclusion": null}]}'; exit 0 }
+                if ($verb -eq 'run download') {
+                    $to = $args[[array]::IndexOf($args, '-D') + 1]; $pattern = $args[[array]::IndexOf($args, '-p') + 1]
+                    $shards = @{ 'offload-live-windows-latest-0' = {{Quote(shard0)}}; 'offload-live-windows-latest-1' = {{Quote(shard1)}}; 'offload-live-ubuntu-latest-0' = {{Quote(linux)}}; 'offload-sweep-windows-latest-0' = {{Quote(sweep)}} }
+                    foreach ($name in $shards.Keys) { if ($name -like $pattern) { New-Item -ItemType Directory -Force "$to/$name" | Out-Null; Copy-Item $shards[$name] "$to/$name/offload.trx" } }
+                    exit 0
+                }
+                exit 1
+                """);
+            return path;
+        }
+        var lines = TestReuseTests.Run($$"""
+            Import-Module {{Module}}
+            $classes = 'LiveAlphaTests', 'LiveBetaTests', 'LiveGammaTests', 'LiveDeltaTests', 'LiveEpsilonTests'
+            $env:CORVUS_TEST_GH = {{Quote(Gh("completed"))}}
+            $r = Receive-GitHubLive {{Quote(DocsTests.RepoRoot())}} 'abc' $classes {{Quote(last)}} {{Quote(Path.Combine(_dir.Path, "done"))}} @{} 0 0
+            'done=' + ($r.Proved -join ',') + '|' + ($r.Drop -join ',') + '|' + $r.Note
+            $env:CORVUS_TEST_GH = {{Quote(Gh("in_progress"))}}
+            $r = Receive-GitHubLive {{Quote(DocsTests.RepoRoot())}} 'abc' $classes {{Quote(last)}} {{Quote(Path.Combine(_dir.Path, "running"))}} @{} 0 0
+            'running=' + ($r.Proved -join ',') + '|' + $r.Note
+            """);
+        if (lines is ["skip"]) return;
+        // Gamma failed on Linux only; Beta failed on Windows; Delta has no results there.
+        Assert.Contains("done=LiveAlphaTests,LiveGammaTests|LiveBetaTests,LiveEpsilonTests,LiveOtherTests|offload (live windows-latest 0/2), offload (live ubuntu-latest 0/1) ended failure in run 42", lines);
+        Assert.Contains("running=|run 42 did not finish in 0 min", lines);
+    }
 }
