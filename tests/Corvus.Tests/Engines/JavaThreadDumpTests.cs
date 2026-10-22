@@ -33,4 +33,29 @@ public sealed class JavaThreadDumpTests
         }
         finally { jvm.Kill(); }
     }
+
+    [Fact]
+    public void A_jvm_that_refuses_jcmd_is_read_with_the_debugger()
+    {
+        if (Found.Value is not { } java || !File.Exists(Path.Combine(java.Home, "bin", OperatingSystem.IsWindows() ? "jhsdb.exe" : "jhsdb"))) return;
+        using var dir = new TempDir();
+        var source = dir.File("Hold.java");
+        File.WriteAllText(source, "class Hold { public static void main(String[] a) throws Exception { Thread.sleep(120_000); } }");
+        // Without the attach mechanism jcmd gets no answer, as from a JVM that does not reach a safepoint.
+        using var jvm = Process.Start(new ProcessStartInfo(java.Java, ["-XX:+DisableAttachMechanism", source]) { UseShellExecute = false, CreateNoWindow = true })!;
+        try
+        {
+            string? report = null, dump = null;
+            for (var clock = Stopwatch.StartNew(); dump?.Contains("java.lang.Thread.State", StringComparison.Ordinal) != true && clock.Elapsed < TimeSpan.FromSeconds(90); Thread.Sleep(1000))
+            {
+                report = JavaThreadDump.Report(java.Java, jvm.Id, dir.File("stalls"));
+                var file = report?[(report.IndexOf("full dump: ", StringComparison.Ordinal) + "full dump: ".Length)..];
+                dump = file != null && File.Exists(file) ? File.ReadAllText(file) : null;
+            }
+            Assert.NotNull(report);
+            Assert.Contains("jcmd Thread.print failed", report);
+            Assert.Contains("java.lang.Thread.State", dump);
+        }
+        finally { jvm.Kill(); }
+    }
 }
