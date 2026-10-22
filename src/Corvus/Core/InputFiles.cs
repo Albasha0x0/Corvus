@@ -13,6 +13,32 @@ public static class InputFiles
 
     public static bool SamePath(string? a, string? b) => string.Equals(a, b, PathComparison);
 
+    /// <summary>Longest file or directory name the host file systems take (NTFS, ext4, APFS), in characters.</summary>
+    public const int MaxNameLength = 255;
+
+    /// <summary>
+    /// Why the host would reject <paramref name="path"/> as a file name, checked without touching the file system: a
+    /// control character, on Windows a character it reserves or a colon past the drive, or a name longer than
+    /// <see cref="MaxNameLength"/>; null when none applies. Empty and whitespace are left to the caller.
+    /// </summary>
+    public static string? PathProblem(string path)
+    {
+        if (path.Any(char.IsControl)) return "it contains a control character";
+        var rest = path;
+        if (OperatingSystem.IsWindows())
+        {
+            // The extended-length and device prefixes hold '?' and '.' as syntax, not as names.
+            foreach (var prefix in new[] { @"\\?\UNC\", @"\\?\", @"\\.\" })
+                if (rest.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)) { rest = rest[prefix.Length..]; break; }
+            if (rest.Length >= 2 && rest[1] == ':' && char.IsAsciiLetter(rest[0])) rest = rest[2..];
+            if (rest.IndexOfAny(['<', '>', '"', '|', '?', '*', ':']) is >= 0 and var at)
+                return $"'{rest[at]}' is not allowed in a Windows file name";
+        }
+        if (rest.Split(['\\', '/']).FirstOrDefault(n => n.Length > MaxNameLength) is { } name)
+            return $"a name in it is {name.Length} characters long; the limit is {MaxNameLength}";
+        return null;
+    }
+
     /// <summary>
     /// The full path of an existing regular file, symlinks followed. Directories, FIFOs, sockets and devices are refused
     /// with a typed error: reading a FIFO or a terminal blocks until a writer appears.
@@ -20,6 +46,7 @@ public static class InputFiles
     public static string RequireRegularFile(string path, string what = "file")
     {
         if (string.IsNullOrWhiteSpace(path)) throw new ToolError(ErrorCode.InvalidArgument, $"invalid path '{path}': the {what} path is empty.");
+        if (PathProblem(path) is { } problem) throw new ToolError(ErrorCode.InvalidArgument, $"invalid {what} path: {problem}.");
         string full;
         try { full = Path.GetFullPath(path); }
         catch (PathTooLongException) { throw new ToolError(ErrorCode.InvalidArgument, "a path is too long.", "Pass a shorter path."); }

@@ -602,8 +602,8 @@ public sealed class ContractSweepTests : IAsyncLifetime
             await Call("get_type_info", new() { ["type"] = null }));
         // null for an optional parameter means "not given".
         Assert.Contains("Charge", await Call("get_type_info", new() { ["type"] = "Account", ["includeCompilerGenerated"] = null }));
-        Assert.StartsWith("Error (invalid_argument) in load_assembly: invalid path", await Call("load_assembly", new() { ["path"] = "" }));
-        Assert.Equal("Error (invalid_argument) in load_assembly: a path is too long.\nNext: Pass a shorter path.",
+        Assert.StartsWith("Error (invalid_argument) in load_assembly: parameter 'path' is empty.", await Call("load_assembly", new() { ["path"] = "" }));
+        Assert.StartsWith("Error (invalid_argument) in load_assembly: parameter 'path' is not a valid path: a name in it is 100000 characters long; the limit is 255.",
             await Call("load_assembly", new() { ["path"] = new string('A', 100_000) }));
         Assert.Contains("none from offset", await Call("search_strings", new() { ["query"] = "PREVIEW", ["offset"] = int.MaxValue }));
 

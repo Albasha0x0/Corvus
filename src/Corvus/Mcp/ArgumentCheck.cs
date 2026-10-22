@@ -41,6 +41,11 @@ public static class ArgumentCheck
             }
             if (types.Any(t => Matches(value, t)))
             {
+                if (value.ValueKind == JsonValueKind.String && PathParameters.Contains(name) && !CheckPath(name, value.GetString()!, required.Contains(name), tool, property))
+                {
+                    arguments.Remove(name);
+                    continue;
+                }
                 if (value.ValueKind == JsonValueKind.String && property.TryGetProperty("enum", out var allowed) && allowed.ValueKind == JsonValueKind.Array)
                     CheckValue(tool, name, value.GetString()!, allowed);
                 if (value.ValueKind == JsonValueKind.Array && property.TryGetProperty("items", out var items) && items.ValueKind == JsonValueKind.Object
@@ -62,6 +67,36 @@ public static class ArgumentCheck
                 Details = new { parameter = name },
             };
         }
+    }
+
+    /// <summary>Parameters that name a file or directory on this machine, in every tool that declares them.</summary>
+    public static readonly IReadOnlySet<string> PathParameters = new HashSet<string>(StringComparer.Ordinal)
+    {
+        "path", "outputPath", "outputDirectory", "mapping", "directory", "folder", "oldPath", "newPath", "headerPath",
+        "projectDir", "scriptPath", "sbomPath", "dacPath", "imageDirectories",
+    };
+
+    /// <summary>
+    /// Checks a path argument before any tool opens it, so the host's file API never sees a name it rejects (a JIT that
+    /// inlines System.IO hides where such an exception came from). Returns false for an empty optional path, which counts
+    /// as not given; throws invalid_argument naming the parameter for an empty required one or a malformed one.
+    /// </summary>
+    private static bool CheckPath(string name, string value, bool required, string? tool, JsonElement property)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            if (!required) return false;
+            throw new ToolError(ErrorCode.InvalidArgument, $"parameter '{name}' is empty.", PassHint(name, property, tool)) { Details = new { parameter = name } };
+        }
+        // imageDirectories lists folders separated by ';'.
+        foreach (var path in name == "imageDirectories" ? value.Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries) : [value])
+            if (InputFiles.PathProblem(path) is { } problem)
+                throw new ToolError(ErrorCode.InvalidArgument, $"parameter '{name}' is not a valid path: {problem}.",
+                    path.Split('\\', '/').Any(n => n.Length > InputFiles.MaxNameLength) ? "Pass a shorter path." : "Pass an absolute path without invalid characters.")
+                {
+                    Details = new { parameter = name },
+                };
+        return true;
     }
 
     /// <summary>
@@ -192,34 +227,32 @@ public static class ArgumentCheck
     }
 
     /// <summary>
-    /// A file system exception raised by System.IO for a path taken from the arguments (empty, too long, malformed,
-    /// missing, denied) as a tool error; null for anything else, which stays an internal error.
+    /// A file system exception for a path taken from the arguments (empty, too long, malformed, missing, denied) as a
+    /// tool error, decided by its type and, for an argument exception, by the System.IO parameter it names; null for
+    /// anything else, which stays an internal error.
     /// </summary>
     public static ToolError? FileSystemError(Exception ex)
     {
-        if (ex is not (ArgumentException or NotSupportedException or IOException or UnauthorizedAccessException) || !ThrownBySystemIO(ex)) return null;
+        // Not by stack frames: an optimizing JIT inlines System.IO into the caller, so its frames are not always there.
         var message = ex.Message.Length > 300 ? ex.Message[..300] + "..." : ex.Message;
         return ex switch
         {
             PathTooLongException => new ToolError(ErrorCode.InvalidArgument, "a path is too long.", "Pass a shorter path."),
-            ArgumentException or NotSupportedException => new ToolError(ErrorCode.InvalidArgument, $"invalid path: {message}", "Pass an absolute path without invalid characters."),
             FileNotFoundException or DirectoryNotFoundException => new ToolError(ErrorCode.NotFound, message),
-            _ => new ToolError(ErrorCode.IoError, message),
+            IOException or UnauthorizedAccessException => new ToolError(ErrorCode.IoError, message),
+            ArgumentException { ParamName: { } name } when FileApiParameters.Contains(name) =>
+                new ToolError(ErrorCode.InvalidArgument, $"invalid path: {message}", "Pass an absolute path without invalid characters."),
+            _ => null,
         };
     }
 
-    /// <summary>Whether the exception comes from System.IO before it passes through this server's code.</summary>
-    private static bool ThrownBySystemIO(Exception ex)
+    /// <summary>Parameter names the System.IO file and path APIs give their argument exceptions.</summary>
+    private static readonly HashSet<string> FileApiParameters = new(StringComparer.Ordinal)
     {
-        foreach (var frame in new System.Diagnostics.StackTrace(ex, false).GetFrames())
-        {
-            var ns = frame.GetMethod()?.DeclaringType?.Namespace;
-            if (ns == null) continue;
-            if (ns.StartsWith("Corvus", StringComparison.Ordinal)) return false;
-            if (ns == "System.IO" || ns.StartsWith("System.IO.", StringComparison.Ordinal)) return true;
-        }
-        return false;
-    }
+        "path", "path1", "path2", "path3", "path4", "paths", "fileName", "sourceFileName", "destFileName", "destinationFileName",
+        "destinationBackupFileName", "sourceDirName", "destDirName", "linkPath", "pathToTarget", "searchPattern", "relativeTo",
+        "basePath",
+    };
 
     private static bool Matches(JsonElement value, string? type) => type switch
     {
