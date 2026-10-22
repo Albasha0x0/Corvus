@@ -250,6 +250,21 @@ public sealed class LeakGuardFramework(IMessageSink messageSink) : XunitTestFram
         IMessageSink executionMessageSink, ITestFrameworkExecutionOptions executionOptions)
         : XunitTestAssemblyRunner(testAssembly, testCases, diagnosticMessageSink, executionMessageSink, executionOptions)
     {
+        // Permits are taken before the collection waits for a parallel slot, so a collection waiting for an engine
+        // holds no slot, and the wait stays out of its tests' times.
+        protected override async Task<RunSummary> RunTestCollectionAsync(IMessageBus messageBus, ITestCollection testCollection,
+            IEnumerable<IXunitTestCase> testCases, CancellationTokenSource cancellationTokenSource)
+        {
+            var needed = MachinePermits.Needed(testCases);
+            if (needed.Count == 0) return await base.RunTestCollectionAsync(messageBus, testCollection, testCases, cancellationTokenSource);
+            var (held, waited) = await MachinePermits.TakeAsync(needed, cancellationTokenSource.Token);
+            using (held)
+            {
+                MachinePermits.Record(needed, waited, testCollection.DisplayName);
+                return await base.RunTestCollectionAsync(messageBus, testCollection, testCases, cancellationTokenSource);
+            }
+        }
+
         protected override async Task BeforeTestAssemblyFinishedAsync()
         {
             if (LeakGuard.Check() is { } leaks)

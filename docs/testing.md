@@ -61,6 +61,11 @@
   their median and 90th percentile, regressions (over 5 s and 1.5 times the median in each of the last two runs), heavy
   lock and permit waits, and the failed tests. A run prints one line from it; `./test.ps1 -Status` shows each mode's
   latest run against its target.
+- **Machine-wide permits.** A test class that runs IDA (`[IdaFact]`), Ghidra (`[GhidraFact]`) or another heavy
+  resource (`[Permit("live")]`, `[Permit("reference-tool")]`) waits for a permit before it starts and holds it until its
+  last test ends (`Support/MachinePermits.cs`: IDA 2, Ghidra 2, live 2, reference tools 4). Every test process on the
+  machine takes the same permits, so lanes' runs and the background run together never exceed them. The wait stays out
+  of the tests' times, and the time report lists it per resource.
 - **Shared engine analyses.** IDA and Ghidra tests on the System32 sample start from a copy of one saved analysis per
   engine, engine install and server build (`Support/EngineSeed.cs`, kept under `corvus-test-data/engine-seed` in the
   temporary folder), instead of analysing it again in every empty cache: about half the time of those classes. Tests

@@ -92,10 +92,12 @@ if ($Status) {
     exit 0
 }
 
-# Starts timing a test run: the machine's load is sampled on a thread meanwhile.
+# Starts timing a test run: the machine's load is sampled on a thread meanwhile, and the tests log their permit waits.
 function Start-RunTiming {
     Import-Module (Join-Path $root 'test-time.psm1') -Force
     $script:loadJob = try { Start-MachineLoad } catch { $null }
+    $env:CORVUS_PERMIT_LOG = Join-Path $tempRoot "corvus-permits-$PID.tsv"
+    Remove-Item $env:CORVUS_PERMIT_LOG -ErrorAction SilentlyContinue
 }
 
 # Records a run's TRX times in the history and the time report and prints the report's one line. Timing never fails
@@ -109,10 +111,21 @@ function Save-RunTimes([string]$trx, [string]$mode, [int]$code, [hashtable]$extr
         $context.loadStart = if ($script:loadJob) { Receive-Job $script:loadJob -Wait -AutoRemoveJob } else { $null }
         $context.loadEnd = if ($endJob) { Receive-Job $endJob -Wait -AutoRemoveJob } else { $null }
         $context.heavyWait = $null; $context.permits = $null
+        if ($env:CORVUS_PERMIT_LOG -and (Test-Path $env:CORVUS_PERMIT_LOG)) {
+            # Seconds waited per resource (or set of resources a class takes together).
+            $context.permits = [ordered]@{}
+            foreach ($wait in Import-Csv $env:CORVUS_PERMIT_LOG -Delimiter "`t" -Header resources, seconds, collection | Group-Object resources | Sort-Object Name) {
+                $context.permits[$wait.Name] = [math]::Round(($wait.Group | Measure-Object { [double]::Parse($_.seconds, [cultureinfo]::InvariantCulture) } -Sum).Sum, 1)
+            }
+        }
         foreach ($name in $extra.Keys) { $context[$name] = $extra[$name] }
         Write-Host (Save-TestTimes $trx $context $timeHistory $timeReport)
     }
     catch { Write-Host "Recording the run times failed: $_" -ForegroundColor Yellow }
+    finally {
+        # Later test runs of this script (a failure rerun) log no waits.
+        if ($env:CORVUS_PERMIT_LOG) { Remove-Item $env:CORVUS_PERMIT_LOG -ErrorAction SilentlyContinue; Remove-Item Env:CORVUS_PERMIT_LOG }
+    }
 }
 
 # Mutation testing: one Stryker.NET run (CORVUS_STRYKER, else dotnet-stryker on PATH) over the files and tests of the
