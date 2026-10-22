@@ -87,10 +87,12 @@ public sealed class ProcessSnapshotTests
 
     [Trait("Speed", "Slow")]
     [LiveTargetFact("linux-x64")]
+    [Trait(PerfBudget.Trait, PerfBudget.Timing)]
     public Task A_program_in_vfork_is_refused_and_left_running_on_linux_x64() => VforkRefused(LiveTarget.LinuxX64);
 
     [Trait("Speed", "Slow")]
     [LiveTargetFact("linux-x86")]
+    [Trait(PerfBudget.Trait, PerfBudget.Timing)]
     public Task A_program_in_vfork_is_refused_and_left_running_on_linux_x86() => VforkRefused(LiveTarget.LinuxX86);
 
     private static async Task VforkRefused(LiveTarget target)
@@ -110,7 +112,8 @@ public sealed class ProcessSnapshotTests
             var refused = Assert.Throws<ToolError>(() => ProcessSnapshot.Write(pid, dir.File("held.core"), false, CancellationToken.None));
             Assert.Equal(ErrorCode.Timeout, refused.Code);
             Assert.Contains("waits in vfork", refused.Message);
-            Assert.InRange(sw.Elapsed, ProcessSnapshot.VforkWait, ProcessSnapshot.VforkWait + TimeSpan.FromSeconds(20));
+            Assert.True(sw.Elapsed >= ProcessSnapshot.VforkWait, $"refused after {sw.Elapsed}");
+            PerfBudget.Check(sw.Elapsed <= ProcessSnapshot.VforkWait + TimeSpan.FromSeconds(20), $"refused after {sw.Elapsed}");
             Assert.Equal('D', ProcessSnapshot.State(pid, pid));
             Assert.False(File.Exists(dir.File("held.core")));
 
