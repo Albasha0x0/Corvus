@@ -474,12 +474,14 @@ public sealed class InspectionService(AssemblyWorkspace workspace, NativeCodeSer
                 Views = views,
             };
         }
-        (string Source, string Container, List<UnpackService.ManagedAssembly> Assemblies, List<string> Notes, List<ContainerEntry>? Entries) managed;
+        (string Source, string Container, List<UnpackService.ManagedAssembly> Assemblies, List<string> Notes, List<ContainerEntry>? Entries,
+            List<UnpackService.ManagedAssembly> Manifests) managed;
         try { managed = UnpackService.Managed(input, facts.Sha256, Limits, ct); }
         catch (ToolError ex)
         {
             return WithViews(new FileSummary(facts, "unreadable container", [], [.. fileHighlights, $"The file is damaged: {ex.Message}"], [ex.Message, .. viewNotes]));
         }
+        DependencyView(input, managed.Assemblies, managed.Manifests, views, viewNotes, ct);
         var reportNotes = new List<string>(managed.Notes);
         reportNotes.AddRange(MappingNotes(input.Streamed ? input.Head : input.Bytes)); // the section table is in the headers
         if (input.Streamed)
@@ -538,6 +540,26 @@ public sealed class InspectionService(AssemblyWorkspace workspace, NativeCodeSer
         return WithViews(new FileSummary(facts, managed.Container, summarized, highlights.Distinct().ToList(), reportNotes));
     }
 
+    /// <summary>Adds view=dependencies, built from the assemblies and manifests already unpacked and the go and rust views.</summary>
+    private static void DependencyView(FileInput input, List<UnpackService.ManagedAssembly> assemblies, List<UnpackService.ManagedAssembly> manifests,
+        Dictionary<string, FileView> views, List<string> notes, CancellationToken ct)
+    {
+        try
+        {
+            var parsed = new List<Dependencies.DepsJson>();
+            foreach (var m in manifests)
+            {
+                if (Dependencies.DepsJson.Parse(m.Path, m.Bytes) is { } deps) parsed.Add(deps);
+                else notes.Add($"{m.Path}: not a readable deps.json; its packages are unknown.");
+            }
+            if (Dependencies.DependencyInventory.Of(input, assemblies, parsed, views, ct) is { } facts) views["dependencies"] = new FileView(facts, []);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            notes.Add($"The dependencies view could not read the file: {ex.Message}");
+        }
+    }
+
     /// <summary>Every <see cref="IFileSummaryView"/> that applies to the file, by name; a view that fails is a note.</summary>
     private static Dictionary<string, FileView> Views(FileInput file, List<string> notes, CancellationToken ct)
     {
@@ -580,7 +602,7 @@ public sealed class InspectionService(AssemblyWorkspace workspace, NativeCodeSer
     };
 
     // Public key tokens of Microsoft framework assemblies.
-    private static readonly HashSet<string> FrameworkTokens = new(StringComparer.OrdinalIgnoreCase)
+    internal static readonly HashSet<string> FrameworkTokens = new(StringComparer.OrdinalIgnoreCase)
     {
         "b77a5c561934e089", "b03f5f7f11d50a3a", "31bf3856ad364e35", "cc7b13ffcd2ddd51", "adb9793829ddae60", "7cec85d7bea7798e",
     };

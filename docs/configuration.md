@@ -199,7 +199,7 @@ Optional. `server_status` shows where each was found, its version, or the fix.
 | `CORVUS_TSHARK` | `tshark` 3+ (`PATH`, Wireshark folder) | Packet filters on fields not decoded in-process. |
 | `CORVUS_DIE` | Detect It Easy `diec` | `unity_overview detectItEasy=true`. |
 | `CORVUS_CLR32` | `Corvus.Clr32.exe` (`clr32/` beside the server) | Decoding 32-bit .NET dumps. |
-| `CORVUS_AAPT2`, `CORVUS_APKSIGNER`, `CORVUS_DEX_DISASSEMBLER`, `CORVUS_PROTO_COMPILER`, `CORVUS_WASM_TO_TEXT`, `CORVUS_WASM_VALIDATOR`, `CORVUS_HBC_DISASSEMBLER` | aapt2, apksigner, baksmali, protoc, wasm2wat, wasm-validate, hbcdump | Test oracles only. |
+| `CORVUS_AAPT2`, `CORVUS_APKSIGNER`, `CORVUS_DEX_DISASSEMBLER`, `CORVUS_PROTO_COMPILER`, `CORVUS_WASM_TO_TEXT`, `CORVUS_WASM_VALIDATOR`, `CORVUS_HBC_DISASSEMBLER`, `CORVUS_DEPENDENCY_LISTER` | aapt2, apksigner, baksmali, protoc, wasm2wat, wasm-validate, hbcdump, syft | Test oracles only. |
 
 ### Network
 

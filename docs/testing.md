@@ -154,6 +154,9 @@ their tool is missing:
   are compared with a reference tool's listing: `CORVUS_ARCHIVE_LISTER` (7-Zip), `CORVUS_SETUP_LISTER` (innounp),
   `CORVUS_MSI_LISTER` (lessmsi), `CORVUS_BUNDLE_EXTRACTOR` (the WiX `wix` tool). A format whose tool is unset is
   skipped; each installer must match at least 99% of the reference rows.
+- **Dependencies against a reference SBOM tool** (`DependencyListerComparisonTests`): with `CORVUS_DEPENDENCY_LISTER`
+  naming syft, an app with two NuGet packages is published as a framework-dependent single-file bundle and as a folder;
+  `view=dependencies` must list every NuGet package URL the tool lists, and both packages on each.
 - **Capture HTTP objects against Wireshark** (`CaptureObjectsTSharkTests`): with `CORVUS_TSHARK` set, synthetic
   captures (Content-Length, chunked, gzip / deflate / brotli, pipelining, resent segments, ranges, bodies ending at
   close, request bodies) must export exactly the files `tshark --export-objects http` exports, by SHA-256. With

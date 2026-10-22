@@ -28,7 +28,7 @@ public static partial class ParameterDomains
         ["extract_strings"] = new Dictionary<string, Domain> { ["types"] = Of([.. Services.Analysis.Values.Types]) },
         ["summarize_file"] = new Dictionary<string, Domain>
         {
-            ["view"] = Of(["overview", "managed", .. Core.Providers.Of<Services.Analysis.IFileSummaryView>().Select(v => v.Name).Order(StringComparer.Ordinal), "all"]),
+            ["view"] = Of(["overview", "managed", "dependencies", .. Core.Providers.Of<Services.Analysis.IFileSummaryView>().Select(v => v.Name).Order(StringComparer.Ordinal), "all"]),
         },
     };
 }

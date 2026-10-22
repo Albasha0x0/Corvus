@@ -368,12 +368,13 @@ public sealed class UnpackService(AssemblyWorkspace workspace)
     internal sealed record ManagedAssembly(string Path, byte[] Bytes, string Sha256, string Origin);
 
     /// <summary>Managed assemblies in a file; a plain assembly yields itself.</summary>
-    internal static (string Source, string Container, List<ManagedAssembly> Assemblies, List<string> Notes, List<ContainerEntry>? Entries) Managed(
+    internal static (string Source, string Container, List<ManagedAssembly> Assemblies, List<string> Notes, List<ContainerEntry>? Entries,
+        List<ManagedAssembly> Manifests) Managed(
         string path, AnalysisLimits limits, CancellationToken ct)
     {
         if (WebcilFolder(path, limits, ct) is { } folder)
             return (folder.Source, folder.Walked.Container,
-                folder.Walked.Items.Select(i => new ManagedAssembly(i.Relative, i.Bytes, i.Sha256, i.Origin)).ToList(), folder.Walked.Notes, null);
+                folder.Walked.Items.Select(i => new ManagedAssembly(i.Relative, i.Bytes, i.Sha256, i.Origin)).ToList(), folder.Walked.Notes, null, []);
         if (Deployment(path, limits, ct, allFiles: false) is { } deployment)
             return Managed(deployment.Source, null, deployment.Sha, deployment.Walked, limits);
         var (source, data, sha) = ReadSource(path, limits);
@@ -384,7 +385,8 @@ public sealed class UnpackService(AssemblyWorkspace workspace)
     /// Managed assemblies in a file summarize_file has open (<paramref name="sha"/> is its SHA-256): a streamed file's top level
     /// is read from a stream when its format allows (zip, HAR, archives; a capture or database is no container), else from its bytes.
     /// </summary>
-    internal static (string Source, string Container, List<ManagedAssembly> Assemblies, List<string> Notes, List<ContainerEntry>? Entries) Managed(
+    internal static (string Source, string Container, List<ManagedAssembly> Assemblies, List<string> Notes, List<ContainerEntry>? Entries,
+        List<ManagedAssembly> Manifests) Managed(
         FileInput input, string sha, AnalysisLimits limits, CancellationToken ct)
     {
         if (!input.Streamed) return Managed(input.Path, input.Bytes, sha, Walk(input.Bytes, sha, input.Path, limits, ct), limits);
@@ -397,7 +399,8 @@ public sealed class UnpackService(AssemblyWorkspace workspace)
         return Managed(input.Path, native ? input.Image : null, sha, Walk(large, sha, limits, ct), limits);
     }
 
-    private static (string Source, string Container, List<ManagedAssembly> Assemblies, List<string> Notes, List<ContainerEntry>? Entries) Managed(
+    private static (string Source, string Container, List<ManagedAssembly> Assemblies, List<string> Notes, List<ContainerEntry>? Entries,
+        List<ManagedAssembly> Manifests) Managed(
         string source, byte[]? data, string sha, Walked walked, AnalysisLimits limits)
     {
         var assemblies = walked.Items.Where(i => i.Kind == DotNet)
@@ -420,7 +423,23 @@ public sealed class UnpackService(AssemblyWorkspace workspace)
             assemblies.Insert(0, new ManagedAssembly(Path.GetFileName(app.Path), app.Bytes, Blob.Sha256(app.Bytes), ApphostAppOrigin));
             walked.Notes.Add($"Using the application next to the launcher: {Path.GetFileName(app.Path)}.");
         }
-        return (source, container, assemblies, walked.Notes, walked.Entries);
+        return (source, container, assemblies, walked.Notes, walked.Entries, Manifests(source, walked, limits));
+    }
+
+    /// <summary>The dependency manifests (.deps.json) inside the file, else the one beside it (App.deps.json next to App.exe or App.dll).</summary>
+    private static List<ManagedAssembly> Manifests(string source, Walked walked, AnalysisLimits limits)
+    {
+        var inside = walked.Items.Where(i => i.Relative.EndsWith(".deps.json", StringComparison.OrdinalIgnoreCase))
+            .Select(i => new ManagedAssembly(i.Relative.Replace(System.IO.Path.DirectorySeparatorChar, '/'), i.Bytes, i.Sha256, i.Origin)).ToList();
+        if (inside.Count > 0) return inside;
+        var beside = Path.ChangeExtension(source, ".deps.json");
+        try
+        {
+            if (beside == source || !File.Exists(beside) || new FileInfo(beside).Length > limits.MaxItemBytes) return [];
+            var bytes = File.ReadAllBytes(beside);
+            return [new ManagedAssembly(beside, bytes, Blob.Sha256(bytes), "the file beside it")];
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException) { return []; }
     }
 
     internal const string ApphostAppOrigin = "the application next to the apphost launcher";

@@ -18,7 +18,7 @@ public sealed class InspectionTools(InspectionService inspection, AssemblyWorksp
 
     [McpServerTool(Name = "summarize_file", Title = "Summarize file", UseStructuredContent = true, OutputSchemaType = typeof(FileSummaryRecord))]
     [Description("First look at a file or loaded assembly (never executed): type, hashes, signature, containers, assemblies, highlights (toolchain, " +
-                 "capability features, packaging tools), entry points. view=: managed, native, android, apple, electron, flutter, go, layers, nib, " +
+                 "capability features, packaging tools), entry points. view=: managed, dependencies, native, android, apple, electron, flutter, go, layers, nib, " +
                  "pcap, package (review before install), plist, protobuf, rust, script (layers peeled), sqlite (table= pages rows), sqlite-recover, " +
                  "all; views lists those that apply.")]
     public Task<string> SummarizeFile(
@@ -29,6 +29,8 @@ public sealed class InspectionTools(InspectionService inspection, AssemblyWorksp
         [Description("With table=: these columns (rowid too).")] string[]? columns = null,
         [Description(ToolSupport.RowOffsetDescription)] long offset = 0,
         [Description(ToolSupport.LimitDescription)] int? limit = null,
+        [Description("Write the dependencies view here (CycloneDX 1.6).")] string? sbomPath = null,
+        [Description("Overwrite sbomPath.")] bool overwrite = false,
         RequestContext<CallToolRequestParams> context = null!,
         CancellationToken cancellationToken = default) => OrderedProgress.Run(context, async progress =>
         {
@@ -51,6 +53,7 @@ public sealed class InspectionTools(InspectionService inspection, AssemblyWorksp
                 summary = summary with { Triage = await Task.Run(() => NativeTriageBuilder.Build(index, cancellationToken), cancellationToken) };
             }
             var record = ContainerText.Summary(summary, name);
+            if (sbomPath != null) record = record with { Notes = [.. record.Notes ?? [], WriteSbom(summary, sbomPath, overwrite)] };
             if (name == "layers" && graph != null)
             {
                 var facts = await Task.Run(() => graph.Build(summary.File.Path, (int)Math.Min(offset, int.MaxValue), limit ?? Services.Mobile.AppGraph.DefaultLimit, cancellationToken), cancellationToken);
@@ -58,6 +61,17 @@ public sealed class InspectionTools(InspectionService inspection, AssemblyWorksp
             }
             return ToolOutput.Report(ContainerText.Summary(record), record);
         });
+
+    /// <summary>Writes the dependencies view to <paramref name="sbomPath"/> (an existing file is refused unless <paramref name="overwrite"/>) and returns the note naming it.</summary>
+    private static string WriteSbom(InspectionService.FileSummary summary, string sbomPath, bool overwrite)
+    {
+        if (summary.Views.GetValueOrDefault("dependencies")?.Detail is not Services.Analysis.Dependencies.DependencyFacts facts)
+            throw new ToolError(ErrorCode.NotFound, "found no component in the file, so no SBOM was written.", "pass path= with a .NET app, bundle or package, or a Go or Rust program");
+        var bytes = Services.Analysis.Dependencies.CycloneDx.Write(facts, summary.File.Path, summary.File.Sha256, ServerIdentity.InformationalVersion,
+            DateTimeOffset.UtcNow, Guid.NewGuid());
+        var full = SafeFile.WriteAllBytes(sbomPath, bytes, overwrite);
+        return $"CycloneDX {Services.Analysis.Dependencies.CycloneDx.SpecVersion} SBOM written to {full}: {facts.ComponentTotal} components, {facts.WithPurl} with a package URL.";
+    }
 
     /// <summary>The loaded native image an argument names (a managed assembly of that name wins), or null.</summary>
     private LoadedNative? NativeNamed(string? assembly, string? path)
