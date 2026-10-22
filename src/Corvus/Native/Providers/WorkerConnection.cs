@@ -101,6 +101,12 @@ public sealed class WorkerConnection : IDisposable
     /// <summary>The memory limit in bytes when the worker's tree reached it, else null (also when the system cannot tell).</summary>
     public long? MemoryLimitReached => _process.MemoryLimitReached();
 
+    /// <summary>Why <see cref="Kill"/> or <see cref="Dispose"/> ended the worker, or null while it was not ended on purpose.</summary>
+    public string? KillReason
+    {
+        get { lock (_sync) return _killReason; }
+    }
+
     /// <summary>False once the process exited, its output closed or <see cref="Kill"/> was called.</summary>
     public bool IsAlive
     {

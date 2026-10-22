@@ -95,18 +95,42 @@ public sealed class WorkerPool(WorkerPoolOptions? options = null) : IDisposable
         var slot = SlotOf(kind);
         var connection = await ConnectAsync(kind, slot, cancellationToken).ConfigureAwait(false);
         try { return await connection.RequestAsync(op, args, timeout, cancellationToken).ConfigureAwait(false); }
+        catch (ToolError e) when (e.Code == ErrorCode.ProviderUnavailable && connection.KillReason is { } reason && reason != "disposed")
+        {
+            // The worker was stopped for another request that missed its time (that request gets the timeout or
+            // cancellation), so this one never failed on its own: it runs once more on a fresh worker.
+            await RetireAsync(slot, connection).ConfigureAwait(false);
+            connection = await ConnectAsync(kind, slot, cancellationToken).ConfigureAwait(false);
+            return await RequestOnce(kind, op, args, timeout, slot, connection, file, cancellationToken).ConfigureAwait(false);
+        }
         catch (ToolError e) when (e.Code is ErrorCode.LimitExceeded or ErrorCode.ProviderUnavailable)
         {
-            var outOfMemory = connection.MemoryLimitReached != null || slot.OutOfMemory;
-            // A worker that crashed or ran out of memory is not reused: the next call starts a fresh one.
-            if (e.Code == ErrorCode.ProviderUnavailable || outOfMemory) await RetireAsync(slot, connection).ConfigureAwait(false);
-            if (!outOfMemory) throw;
-            var what = (connection.MemoryLimitReached ?? MemoryLimitBytes) is { } bytes
-                ? $"its memory limit of {bytes >> 20} MB ({MemoryVariable})" : "the memory available to it";
-            throw new ToolError(ErrorCode.LimitExceeded,
-                $"The {kind} worker reached {what} while running '{op}'{(file != null ? $" on {file}" : "")}; nothing from that request is kept.",
-                $"raise {MemoryVariable}, or run the call on a smaller file") { Retryable = false };
+            throw await Failed(kind, op, slot, connection, e, file).ConfigureAwait(false);
         }
+    }
+
+    private async Task<JsonElement> RequestOnce(string kind, string op, JsonObject? args, TimeSpan timeout, Slot slot, WorkerConnection connection, string? file,
+        CancellationToken cancellationToken)
+    {
+        try { return await connection.RequestAsync(op, args, timeout, cancellationToken).ConfigureAwait(false); }
+        catch (ToolError e) when (e.Code is ErrorCode.LimitExceeded or ErrorCode.ProviderUnavailable)
+        {
+            throw await Failed(kind, op, slot, connection, e, file).ConfigureAwait(false);
+        }
+    }
+
+    /// <summary>The error of a request whose worker crashed or reached its memory limit; that worker is retired.</summary>
+    private async Task<ToolError> Failed(string kind, string op, Slot slot, WorkerConnection connection, ToolError e, string? file)
+    {
+        var outOfMemory = connection.MemoryLimitReached != null || slot.OutOfMemory;
+        // A worker that crashed or ran out of memory is not reused: the next call starts a fresh one.
+        if (e.Code == ErrorCode.ProviderUnavailable || outOfMemory) await RetireAsync(slot, connection).ConfigureAwait(false);
+        if (!outOfMemory) return e;
+        var what = (connection.MemoryLimitReached ?? MemoryLimitBytes) is { } bytes
+            ? $"its memory limit of {bytes >> 20} MB ({MemoryVariable})" : "the memory available to it";
+        return new ToolError(ErrorCode.LimitExceeded,
+            $"The {kind} worker reached {what} while running '{op}'{(file != null ? $" on {file}" : "")}; nothing from that request is kept.",
+            $"raise {MemoryVariable}, or run the call on a smaller file") { Retryable = false };
     }
 
     /// <summary>How long a cancelled request has to stop before its worker, and every request on it, is ended.</summary>
