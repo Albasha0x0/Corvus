@@ -181,11 +181,23 @@ jobs:
         env:
           PYTHON: ${{ steps.python.outputs.python-path }}
 
-      - name: GDB and ptrace scope (Linux)
+      # gcc-multilib builds the linux-x86 programs.
+      - name: GDB, multilib gcc and ptrace scope (Linux)
         if: matrix.group == 'live' && runner.os == 'Linux'
         run: |
-          sudo apt-get install -y --no-install-recommends gdb
+          sudo apt-get update -q
+          sudo apt-get install -y --no-install-recommends gdb gcc-multilib
           sudo sysctl -w kernel.yama.ptrace_scope=0
+
+      # The x86 programs of the managed session tests run on the 32-bit runtime, in its standard folder.
+      - name: x86 .NET 9 runtime (Windows)
+        if: matrix.group == 'live' && runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          Invoke-WebRequest https://dot.net/v1/dotnet-install.ps1 -OutFile dotnet-install.ps1
+          ./dotnet-install.ps1 -Channel 9.0 -Runtime dotnet -Architecture x86 -InstallDir "${env:ProgramFiles(x86)}\dotnet" -NoPath
+          # setup-dotnet's DOTNET_ROOT names the x64 install, which an x86 apphost reads when DOTNET_ROOT(x86) is unset.
+          "DOTNET_ROOT(x86)=${env:ProgramFiles(x86)}\dotnet" >> $env:GITHUB_ENV
 
       - name: Test
         shell: pwsh
