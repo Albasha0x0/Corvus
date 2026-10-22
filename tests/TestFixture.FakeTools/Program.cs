@@ -1,5 +1,4 @@
 using System.Text;
-using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Text.RegularExpressions;
 using TestFixture.FakeTools;
@@ -23,7 +22,7 @@ var script = scriptPath is { Length: > 0 } && File.Exists(scriptPath)
     ? JsonNode.Parse(File.ReadAllText(scriptPath))!.AsObject()
     : new JsonObject();
 var log = script["log"]?.GetValue<string>();
-Log(log, JsonSerializer.Serialize(args));
+Log(log, new JsonArray([.. args.Select(a => (JsonNode?)a)]).ToJsonString());
 // A barrier ("barriers": { "<joined arguments>": { "touch": file, "waitFor": file, "seconds": n } }) shows two calls
 // overlap: each marks its start, then waits up to n s (default 20) for the other's mark.
 if (script["barriers"]?[string.Join(' ', args)] is JsonObject barrier)
@@ -145,7 +144,7 @@ static int Jadx(JsonObject script, string? log)
         {
             var name = request["params"]!["name"]!.GetValue<string>();
             var arguments = request["params"]!["arguments"]?.AsObject() ?? [];
-            Log(log, JsonSerializer.Serialize(new { tool = name, arguments }));
+            Log(log, new JsonObject { ["tool"] = name, ["arguments"] = arguments.DeepClone() }.ToJsonString());
             if (name == "load_apk" && script["crashOnLoad"]?.GetValue<bool>() == true) Environment.Exit(3);
             // A canned answer is text, or an object of answers by class_name ("*" for the rest; "!" before a text marks an error).
             var key = arguments["class_name"]?.GetValue<string>() ?? "";
@@ -162,13 +161,13 @@ static int Jadx(JsonObject script, string? log)
                 {
                     "load_apk" => """{"state":"LOADED","class_count":1}""",
                     "get_class_source" => $"// source of {arguments["class_name"]}",
-                    "get_method_body" => JsonSerializer.Serialize(new
+                    "get_method_body" => new JsonObject
                     {
-                        mode = "java",
-                        fell_back = false,
-                        overload_index = arguments["overload_index"]?.GetValue<int>() ?? 0,
-                        body = $"// {arguments["class_name"]}.{arguments["method_name"]} overload {arguments["overload_index"]}",
-                    }),
+                        ["mode"] = "java",
+                        ["fell_back"] = false,
+                        ["overload_index"] = arguments["overload_index"]?.GetValue<int>() ?? 0,
+                        ["body"] = $"// {arguments["class_name"]}.{arguments["method_name"]} overload {arguments["overload_index"]}",
+                    }.ToJsonString(),
                     _ => "unknown tool",
                 };
             result = new JsonObject { ["content"] = new JsonArray(new JsonObject { ["type"] = "text", ["text"] = text }), ["isError"] = failed || text == "unknown tool" };

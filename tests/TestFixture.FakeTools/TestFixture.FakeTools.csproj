@@ -7,6 +7,9 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <InvariantGlobalization>true</InvariantGlobalization>
+    <!-- Corvus.Tests publishes it as a native program for this host, which starts in about a quarter of the time. -->
+    <PublishAot>true</PublishAot>
+    <RuntimeIdentifiers>$(NETCoreSdkRuntimeIdentifier)</RuntimeIdentifiers>
   </PropertyGroup>
 
 </Project>

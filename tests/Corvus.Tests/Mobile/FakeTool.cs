@@ -12,7 +12,10 @@ internal sealed class FakeTool : IDisposable
     public const string ScriptVariable = "ADB_FAKE_SCRIPT";
     private const string Program = "TestFixture.FakeTools";
 
-    public static string Executable => OperatingSystem.IsWindows() ? Path.Combine(AppContext.BaseDirectory, Program + ".exe") : UnixLauncher.Value;
+    public static string Executable => Native ?? (OperatingSystem.IsWindows() ? Path.Combine(AppContext.BaseDirectory, Program + ".exe") : UnixLauncher.Value);
+
+    /// <summary>The native build Corvus.Tests.csproj publishes beside the tests, or null where the host could not build it.</summary>
+    public static string? Native { get; } = Path.Combine(AppContext.BaseDirectory, "fake-tools-native", Program + (OperatingSystem.IsWindows() ? ".exe" : "")) is var path && File.Exists(path) ? path : null;
 
     // Off Windows the apphost finds a runtime outside the default locations (CI, ~/.dotnet) only through DOTNET_ROOT, which
     // the minimal environment drops: a script runs the program with this runtime's dotnet host instead.
@@ -79,13 +82,13 @@ internal sealed class FakeTool : IDisposable
 
     public List<string[]> ArgumentLists => Calls.OfType<JsonArray>().Select(a => a.Select(x => (string)x!).ToArray()).ToList();
 
-    /// <summary>The program under another name, e.g. "adb" or "java": a copy with its .dll beside it, off Windows a launcher.</summary>
+    /// <summary>The program under another name, e.g. "adb" or "java": a copy of the native build, else of the managed one with its .dll beside it (off Windows a launcher).</summary>
     public string CopyAs(string name)
     {
         var dir = _dir.File("bin-" + name);
-        if (!OperatingSystem.IsWindows()) return WriteLauncher(Path.Combine(dir, name));
+        if (Native == null && !OperatingSystem.IsWindows()) return WriteLauncher(Path.Combine(dir, name));
         System.IO.Directory.CreateDirectory(dir);
-        foreach (var ext in new[] { ".dll", ".runtimeconfig.json", ".deps.json" })
+        foreach (var ext in Native == null ? new[] { ".dll", ".runtimeconfig.json", ".deps.json" } : [])
             File.Copy(Path.Combine(AppContext.BaseDirectory, Program + ext), Path.Combine(dir, Program + ext), true);
         var exe = Path.Combine(dir, name + (OperatingSystem.IsWindows() ? ".exe" : ""));
         File.Copy(Executable, exe, true);

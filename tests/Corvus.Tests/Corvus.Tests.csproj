@@ -153,6 +153,29 @@
     <ProjectReference Include="..\TestFixture.FakeTools\TestFixture.FakeTools.csproj" />
   </ItemGroup>
 
+  <!-- The fake tools also as a native program, which starts in about 20 ms instead of 70 ms. FakeTool.Executable takes it
+       when it exists and the managed program otherwise, as on a host without the native toolchain;
+       CorvusNativeFakeTools=false skips it. -->
+  <ItemGroup>
+    <FakeToolsSources Include="$(MSBuildThisFileDirectory)..\TestFixture.FakeTools\*.cs;$(MSBuildThisFileDirectory)..\TestFixture.FakeTools\*.csproj" />
+  </ItemGroup>
+  <Target Name="NativeFakeToolsPaths">
+    <PropertyGroup>
+      <NativeFakeToolsDir>$(OutDir)fake-tools-native</NativeFakeToolsDir>
+      <NativeFakeTools>$(NativeFakeToolsDir)\TestFixture.FakeTools</NativeFakeTools>
+      <NativeFakeTools Condition="$([MSBuild]::IsOSPlatform('Windows'))">$(NativeFakeTools).exe</NativeFakeTools>
+      <!-- Workaround: the Build Tools' vcvarsall.bat runs vswhere.exe from PATH, and the native link fails without it
+           (VS 2022 Build Tools 17.14 with ILCompiler 10.0.13; upstream report pending). -->
+      <VsInstallerOnPath Condition="$([MSBuild]::IsOSPlatform('Windows'))">set &quot;PATH=$(MSBuildProgramFiles32)\Microsoft Visual Studio\Installer%3B%PATH%&quot; &amp;&amp; </VsInstallerOnPath>
+    </PropertyGroup>
+  </Target>
+  <Target Name="PublishNativeFakeTools" AfterTargets="Build" DependsOnTargets="NativeFakeToolsPaths" Condition="'$(CorvusNativeFakeTools)' != 'false'"
+          Inputs="@(FakeToolsSources)" Outputs="$(NativeFakeTools)">
+    <Exec Command="$(VsInstallerOnPath)dotnet publish &quot;$(MSBuildThisFileDirectory)..\TestFixture.FakeTools\TestFixture.FakeTools.csproj&quot; --no-restore -c Release -r $(NETCoreSdkRuntimeIdentifier) -o &quot;$(NativeFakeToolsDir)&quot; --nologo -v q"
+          ContinueOnError="true" StandardOutputImportance="low" StandardErrorImportance="low" IgnoreStandardErrorWarningFormat="true" />
+    <Message Importance="high" Condition="!Exists('$(NativeFakeTools)')" Text="The native fake tools were not built: the tests start the managed program." />
+  </Target>
+
   <!-- The guides' samples: built in their own bin/ folders, where the guide and showcase pages read them. -->
   <ItemGroup>
     <ProjectReference Include="..\..\samples\Notes\v1\Notes.csproj;..\..\samples\Notes\v2\Notes.csproj" ReferenceOutputAssembly="false" Private="false"
