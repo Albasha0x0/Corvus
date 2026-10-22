@@ -2436,13 +2436,13 @@ Structured output: `descriptor`, `javaName`, `dexFile`, `access`, `super`, `inte
 
 **Disassemble DEX** (read-only, idempotent)
 
-Smali (baksmali layout) of a DEX method or class (a class lists its method ids and sizes first); format=annotated adds code offsets. A jar or .class: the javap -c -p listing.
+Smali (baksmali layout) of a DEX method or class (a class lists its method ids and sizes first); format=annotated adds code offsets, simplified the string each decoder call returns. A jar or .class: the javap -c -p listing.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `path` | string | yes |  | An Android package, .dex, jar or .class. |
 | `symbol` | string | yes |  | Method (Lpkg/C;->m(I)V, pkg.C::m, pkg.C::m(int)) or class (pkg.C, Lpkg/C;). |
-| `format` | string |  |  | Output layout (default smali). Values: smali, annotated. |
+| `format` | string |  |  | Output layout; default smali. Values: smali, annotated, simplified. |
 | `offset` | integer |  |  |  |
 | `maxTokens` | integer |  |  |  |
 | `mapping` | string |  |  | R8/ProGuard mapping.txt: shows and accepts original names; kept per package. |
@@ -2471,7 +2471,7 @@ Structured output: `code`, `offset`, `nextOffset`, `totalChars`.
 
 **Search DEX code** (read-only, idempotent, long-running)
 
-Search DEX code. kind=string: literals with method and offset per use; type: defined classes and type uses; method / field: defined and referenced members with use counts; const: numeric constants; opcode: instructions by mnemonic.
+Search DEX code. kind=string: literals with method and offset per use, and the strings decoder calls return (recovered); type: defined classes and type uses; method / field: defined and referenced members with use counts; const: numeric constants; opcode: instructions by mnemonic.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|

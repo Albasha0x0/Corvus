@@ -229,22 +229,27 @@ public sealed class AndroidTools(AndroidPackageService packages, DexService dex,
     }, cancellationToken);
 
     [McpServerTool(Name = "disassemble_dex", Title = "Disassemble DEX", UseStructuredContent = true, OutputSchemaType = typeof(TextPageRecord))]
-    [Description("Smali (baksmali layout) of a DEX method or class (a class lists its method ids and sizes first); format=annotated adds code offsets. " +
-                 "A jar or .class: the javap -c -p listing.")]
+    [Description("Smali (baksmali layout) of a DEX method or class (a class lists its method ids and sizes first); format=annotated adds code offsets, " +
+                 "simplified the string each decoder call returns. A jar or .class: the javap -c -p listing.")]
     public Task<string> DisassembleDex(
         [Description("An Android package, .dex, jar or .class.")] string path,
         [Description("Method (Lpkg/C;->m(I)V, pkg.C::m, pkg.C::m(int)) or class (pkg.C, Lpkg/C;).")] string symbol,
-        [Description("Output layout (default smali).")] string? format = null,
+        [Description("Output layout; default smali.")] string? format = null,
         [Description(CharOffsetDescription)] int offset = 0,
         [Description(MaxTokensDescription)] int? maxTokens = null,
         [Description(MappingDescription)] string? mapping = null,
         CancellationToken cancellationToken = default) =>
-        Task.Run(() => pager.Page(dex.Disassemble(path, symbol, (format ?? "smali").Trim().ToLowerInvariant() switch
+        Task.Run(() =>
         {
-            "smali" or "" => false,
-            "annotated" => true,
-            var f => throw new ToolError(ErrorCode.InvalidArgument, $"unknown format '{f}'; use smali or annotated."),
-        }, cancellationToken, mapping), offset, maxTokens), cancellationToken);
+            var layout = (format ?? "smali").Trim().ToLowerInvariant() switch
+            {
+                "smali" or "" => "smali",
+                "annotated" => "annotated",
+                "simplified" => "simplified",
+                var f => throw new ToolError(ErrorCode.InvalidArgument, $"unknown format '{f}'; use smali, annotated or simplified."),
+            };
+            return pager.Page(dex.Disassemble(path, symbol, layout == "annotated", cancellationToken, mapping, layout == "simplified"), offset, maxTokens);
+        }, cancellationToken);
 
     [McpServerTool(Name = "decompile_java", Title = "Decompile Java", UseStructuredContent = true, OutputSchemaType = typeof(TextPageRecord))]
     [Description("Java source of a class or method of an Android package or jar via JADX (CORVUS_JAVA_DECOMPILER, JDK 17+), or of a jar or .class via " +
@@ -319,7 +324,7 @@ public sealed class AndroidTools(AndroidPackageService packages, DexService dex,
     }, cancellationToken));
 
     [McpServerTool(Name = "search_dex", Title = "Search DEX code", UseStructuredContent = true, OutputSchemaType = typeof(DexHitList))]
-    [Description("Search DEX code. kind=string: literals with method and offset per use; type: defined classes and type uses; method / field: defined " +
+    [Description("Search DEX code. kind=string: literals with method and offset per use, and the strings decoder calls return (recovered); type: defined classes and type uses; method / field: defined " +
                  "and referenced members with use counts; const: numeric constants; opcode: instructions by mnemonic.")]
     public Task<string> SearchDex(
         [Description(CodeDescription)] string path,

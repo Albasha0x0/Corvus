@@ -66,7 +66,7 @@ public sealed record DexClassPage(string Descriptor, string JavaName, string Dex
 }
 
 public sealed record DexHit(
-    [property: Description("string, type, method, field, const or opcode; class for a defined class.")] string Kind,
+    [property: Description("string, type, method, field, const or opcode; class for a defined class; recovered: the string the decoder call at offset returns; opcode names the decoder method.")] string Kind,
     [property: Description("The string, descriptor or value found.")] string Value,
     [property: Description("The method containing the instruction (exact id); null for a definition.")] string? Method,
     [property: Description("Code offset in 16-bit units.")] int? Offset, string? Opcode,
@@ -288,6 +288,7 @@ public sealed class DexService
                 }
                 int poolOnly = index.Files.Sum(f => Enumerable.Range(0, f.StringCount).Select(f.String).Count(s => pattern(s) && !used.Contains(s)));
                 if (poolOnly > 0) notes.Add($"{poolOnly} more matching string(s) are in the pools but not loaded by code (names, descriptors, annotation values).");
+                Recovered(index, pattern, hits, notes, MaxHits, ct);
                 break;
             case "type" or "class":
                 foreach (var c in index.Classes.Values.Where(c => pattern(c.Class.Descriptor) || pattern(DexFile.JavaName(c.Class.Descriptor)) || Original(c.Class.Descriptor)))
@@ -350,6 +351,26 @@ public sealed class DexService
         return new DexHitList(page, offset, hits.Count, notes);
     }
 
+    /// <summary>Hits for the strings decoder calls return: kind recovered, the call's opcode with its decoder; a note counts the calls not simplified.</summary>
+    private static void Recovered(DexIndex index, Func<string, bool> pattern, List<DexHit> hits, List<string> notes, int maxHits, CancellationToken ct)
+    {
+        var folds = DexStringFolding.For(index).Package(ct);
+        // A decoder that returns a literal argument as it is recovers nothing the literal hit does not show.
+        var literals = hits.Select(h => (h.Method, h.Value)).ToHashSet();
+        int recovered = 0;
+        foreach (var site in folds.Sites)
+            if (site.Fold is { Status: DexFoldStatus.Simplified, Value: { } value } && pattern(value) && hits.Count < maxHits && !literals.Contains((site.Method, value)))
+            {
+                hits.Add(new("recovered", value, site.Method, site.Offset, "invoke-static " + site.Decoder, null));
+                recovered++;
+            }
+        int other = folds.Sites.Count(s => s.Evaluated && s.Fold.Status != DexFoldStatus.Simplified);
+        if (recovered > 0 || other > 0)
+            notes.Add($"{recovered} matching string(s) recovered from string decoder calls; {other} call(s) with constant arguments not simplified (disassemble_dex format=simplified says why).");
+        if (folds.MethodsLeft > 0)
+            notes.Add($"{folds.MethodsLeft} method(s) with decoder calls not evaluated within {DexStringFolding.PackageTimeLimit.TotalSeconds:0} s; search again to continue.");
+    }
+
     /// <summary>The raw values a const instruction would hold for <paramref name="text"/>: integers, and float / double bit patterns.</summary>
     private static HashSet<long> ConstValues(string text)
     {
@@ -367,18 +388,36 @@ public sealed class DexService
         return values;
     }
 
-    /// <summary>Smali of one method (exact id or a single overload) or of a whole class.</summary>
-    public string Disassemble(string path, string symbol, bool annotated, CancellationToken ct, string? mapping = null)
+    /// <summary>
+    /// Smali of one method (exact id or a single overload) or of a whole class; <paramref name="simplified"/> adds the string each
+    /// decoder call returns, or why it is not known, after the call.
+    /// </summary>
+    public string Disassemble(string path, string symbol, bool annotated, CancellationToken ct, string? mapping = null, bool simplified = false)
     {
         if (JvmClasses.IsClassInput(path)) return JvmClasses.Listing(path, symbol, ct);
         var index = Index(path, ct);
         var names = Names(index, mapping, ct);
-        var text = Disassemble(index, Resolve(index, names, symbol.Trim()), annotated, ct);
+        var text = Disassemble(index, Resolve(index, names, symbol.Trim()), annotated, simplified, ct);
         return names == null ? text : string.Concat(names.Notes.Select(n => $"# {n}\n")) + names.Annotate(text);
     }
 
-    private static string Disassemble(DexIndex index, string symbol, bool annotated, CancellationToken ct)
+    private static string Disassemble(DexIndex index, string symbol, bool annotated, bool simplified, CancellationToken ct)
     {
+        var folding = simplified ? DexStringFolding.For(index) : null;
+        var counts = new int[4];
+        IReadOnlyDictionary<int, string>? Notes(DexFile file, DexEncodedMethod encoded)
+        {
+            if (folding == null || !index.Methods.TryGetValue(file.Method(encoded.MethodIndex).Descriptor, out var m) || m.File != file) return null;
+            var notes = new Dictionary<int, string>();
+            foreach (var site in folding.Method(m))
+            {
+                ct.ThrowIfCancellationRequested();
+                counts[site.Evaluated ? (int)site.Fold.Status : 3]++;
+                notes[site.Offset] = site.Fold.Status == DexFoldStatus.Simplified ? "simplified: " + Quoted(site.Fold.Value!) : $"not simplified: {site.Fold.Reason}";
+            }
+            return notes;
+        }
+        string Counts() => folding == null ? "" : $"# string decoder calls: {counts[0]} simplified, {counts[1]} partial, {counts[2]} unknown, {counts[3]} with arguments that are not constants\n";
         bool member = symbol.Contains("->", StringComparison.Ordinal) || symbol.Contains("::", StringComparison.Ordinal) || symbol.Contains('(', StringComparison.Ordinal);
         if (!member && index.FindClass(symbol) is { } cls)
         {
@@ -388,15 +427,20 @@ public sealed class DexService
             foreach (var x in methods)
                 head.Append("#   ").Append(cls.File.Method(x.MethodIndex).Descriptor)
                     .Append(x.CodeOffset != 0 && cls.File.Code(x.CodeOffset) is { } code ? $"  {code.Instructions.Length} units" : "").Append('\n');
-            return head + new DalvikDisassembler(cls.File) { Annotated = annotated }.Class(cls.Class);
+            var smali = new DalvikDisassembler(cls.File) { Annotated = annotated, Notes = e => Notes(cls.File, e) }.Class(cls.Class);
+            return head + Counts() + smali;
         }
         var id = index.ResolveMethod(symbol, ct);
         if (!index.Methods.TryGetValue(id, out var m))
             throw new ToolError(ErrorCode.NotFound, $"{id} is called by the package but not defined in it (a framework or library method).",
                 "find_dex_references with direction=to lists its callers");
-        var text = new DalvikDisassembler(m.File) { Annotated = annotated }.Method(m.Encoded, m.File.Annotations(m.Class));
-        return $"# {id} in {m.File.Name}\n{text}";
+        var text = new DalvikDisassembler(m.File) { Annotated = annotated, Notes = e => Notes(m.File, e) }.Method(m.Encoded, m.File.Annotations(m.Class));
+        return $"# {id} in {m.File.Name}\n{Counts()}{text}";
     }
+
+    /// <summary>A recovered string quoted in smali escapes; a longer one shows its first 1,000 characters.</summary>
+    private static string Quoted(string value) =>
+        value.Length <= 1_000 ? $"\"{DexFile.Escape(value)}\"" : $"\"{DexFile.Escape(value[..1_000])}\" ... ({value.Length:N0} characters)";
 
     public DexReferenceList References(string path, string target, string? kind, string? direction, int offset, int limit, CancellationToken ct)
     {

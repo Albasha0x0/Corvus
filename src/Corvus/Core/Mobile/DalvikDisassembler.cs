@@ -12,6 +12,9 @@ public sealed class DalvikDisassembler(DexFile dex)
 {
     public bool Annotated { get; init; }
 
+    /// <summary>A comment line to write after an instruction, by method and code offset; null writes none.</summary>
+    public Func<DexEncodedMethod, IReadOnlyDictionary<int, string>?>? Notes { get; init; }
+
     public string Class(DexClass c)
     {
         var sb = new StringBuilder();
@@ -138,12 +141,12 @@ public sealed class DalvikDisassembler(DexFile dex)
             Annotation(sb, a, "    ");
             sb.Append('\n');
         }
-        if (code != null) Body(sb, code, parameterBase, lines);
+        if (code != null) Body(sb, code, parameterBase, lines, Notes?.Invoke(m));
         else if (sb[^1] == '\n' && sb[^2] == '\n') sb.Length--; // annotations end without a blank line when no code follows
         sb.Append(".end method\n");
     }
 
-    private void Body(StringBuilder sb, DexCode code, int parameterBase, List<(int Offset, int Line)> lines)
+    private void Body(StringBuilder sb, DexCode code, int parameterBase, List<(int Offset, int Line)> lines, IReadOnlyDictionary<int, string>? notes)
     {
         var insns = Dalvik.Decode(code.Instructions);
         var at = insns.ToDictionary(i => i.Offset);
@@ -184,6 +187,7 @@ public sealed class DalvikDisassembler(DexFile dex)
                 sb.Append("    ").Append(Text(i, parameterBase, code.Instructions, payloadOwner));
                 if (Annotated) sb.Append("    # ").Append($"{i.Offset:x4}: ").AppendJoin(' ', code.Instructions.AsSpan(i.Offset, i.Length).ToArray().Select(u => u.ToString("x4", CultureInfo.InvariantCulture)));
                 sb.Append('\n');
+                if (notes != null && notes.TryGetValue(i.Offset, out var note)) sb.Append("    # ").Append(note).Append('\n');
             }
             int end = i.Offset + i.Length;
             var ending = code.Tries.Where(t => t.Start + t.Count == end).ToList();

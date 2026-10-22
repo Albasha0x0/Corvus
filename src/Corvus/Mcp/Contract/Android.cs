@@ -39,7 +39,7 @@ public static partial class ParameterDomains
 {
     private static Dictionary<string, IReadOnlyDictionary<string, Domain>> AndroidTools() => new(StringComparer.Ordinal)
     {
-        ["disassemble_dex"] = new Dictionary<string, Domain> { ["format"] = Of(["smali", "annotated"]) },
+        ["disassemble_dex"] = new Dictionary<string, Domain> { ["format"] = Of(["smali", "annotated", "simplified"]) },
         ["decompile_java"] = new Dictionary<string, Domain> { ["engine"] = Of(["jadx"]) },
         ["get_android_device_info"] = new Dictionary<string, Domain> { ["view"] = Of(Corvus.Services.Mobile.DeviceService.DeviceViews) },
         ["read_android_log"] = new Dictionary<string, Domain>

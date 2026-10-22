@@ -7,7 +7,7 @@
         "type": "object",
         "properties": {
           "kind": {
-            "description": "string, type, method, field, const or opcode; class for a defined class.",
+            "description": "string, type, method, field, const or opcode; class for a defined class; recovered: the string the decoder call at offset returns; opcode names the decoder method.",
             "type": "string"
           },
           "value": {
