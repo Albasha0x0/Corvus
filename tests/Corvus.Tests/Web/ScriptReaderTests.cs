@@ -179,19 +179,21 @@ public sealed class ScriptReaderTests(ITestOutputHelper output)
     [Fact]
     public void Damaged_scripts_read_without_failing()
     {
-        var failures = new List<string>();
-        foreach (var (language, name) in new[]
-                 {
-                     ("powershell", "string-reverse-1.ps1"), ("powershell", "encoding-bxor-1.ps1"), ("powershell", "compress-1.ps1"),
-                     ("powershell", "token-all-1.ps1"), ("vbscript", "hex-function.vbs"), ("vbscript", "msxml-base64.vbs"),
-                     ("batch", "for-loop.bat"), ("batch", "mshta-vbscript.cmd"), ("javascript", "obfuscator-strings-rc4.js"),
-                     ("javascript", "obfuscator-control-flow.js"), ("javascript", "packer.js"),
-                 })
-            failures.AddRange(FormatFuzz.Run(File.ReadAllBytes(Fixture(language, name)), b =>
-            {
-                var r = ScriptReader.Read(Encoding.UTF8.GetString(b), language, milliseconds: 50);
-                Assert.NotNull(r.Plain);
-            }, 25));
-        Assert.True(failures.Count == 0, string.Join("\n", failures.Take(10)));
+        (string Language, string Name)[] scripts =
+        [
+            ("powershell", "string-reverse-1.ps1"), ("powershell", "encoding-bxor-1.ps1"), ("powershell", "compress-1.ps1"),
+            ("powershell", "token-all-1.ps1"), ("vbscript", "hex-function.vbs"), ("vbscript", "msxml-base64.vbs"),
+            ("batch", "for-loop.bat"), ("batch", "mshta-vbscript.cmd"), ("javascript", "obfuscator-strings-rc4.js"),
+            ("javascript", "obfuscator-control-flow.js"), ("javascript", "packer.js"),
+        ];
+        // On a busy machine each read runs to its 50 ms deadline, so the scripts are fuzzed side by side.
+        var failures = new List<string>[scripts.Length];
+        Parallel.For(0, scripts.Length, i => failures[i] = FormatFuzz.Run(File.ReadAllBytes(Fixture(scripts[i].Language, scripts[i].Name)), b =>
+        {
+            var r = ScriptReader.Read(Encoding.UTF8.GetString(b), scripts[i].Language, milliseconds: 50);
+            Assert.NotNull(r.Plain);
+        }, 25));
+        var all = failures.SelectMany(f => f).ToList();
+        Assert.True(all.Count == 0, string.Join("\n", all.Take(10)));
     }
 }

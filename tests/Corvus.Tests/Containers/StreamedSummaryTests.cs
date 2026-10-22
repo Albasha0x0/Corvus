@@ -74,13 +74,14 @@ public sealed class StreamedSummaryTests : IDisposable
         var path = _dir.File("app.nupkg");
         using (var zip = ZipFile.Open(path, ZipArchiveMode.Create))
         {
-            zip.CreateEntryFromFile(typeof(StreamedSummaryTests).Assembly.Location, "lib/net10.0/Corvus.Tests.dll");
+            zip.CreateEntryFromFile(Env.FixturePath, "lib/net10.0/" + Path.GetFileName(Env.FixturePath));
             zip.CreateEntry("app.nuspec").Open().Dispose();
         }
         var whole = Summary(path, streamed: false);
         var streamed = Summary(path, streamed: true);
         Assert.Equal("NuGet package", streamed.Container);
         Assert.Equal(whole.Container, streamed.Container);
+        Assert.NotEmpty(streamed.Assemblies);
         Assert.Equal(whole.Assemblies.Select(a => (a.Path, a.Sha256)), streamed.Assemblies.Select(a => (a.Path, a.Sha256)));
     }
 

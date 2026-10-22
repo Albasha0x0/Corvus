@@ -17,7 +17,7 @@ public sealed class CryptoConstantTests : IDisposable
     }
 
     [Fact]
-    public async Task Constants_name_their_algorithms()
+    public async Task Constants_name_their_algorithms_in_a_raw_image()
     {
         await using var server = await InProcessServer.StartAsync();
         var fixture = _dir.File("blob.bin");
@@ -29,7 +29,14 @@ public sealed class CryptoConstantTests : IDisposable
         var raw = await Survey(server, new() { ["assembly"] = id });
         Assert.Contains("AES (S-box, inverse S-box or T-table) @0x100", raw);
         Assert.Contains("SHA-256 (initial values or round constants) @0x150", raw);
+    }
 
+    // The two library surveys scan megabytes of native code, so they run in the full set.
+    [Fact]
+    [Trait("Speed", "Slow")]
+    public async Task Constants_name_their_algorithms_in_native_libraries()
+    {
+        await using var server = await InProcessServer.StartAsync();
         Assert.Contains("const:chacha", await Survey(server, new() { ["path"] = RealPackages.File("SQLitePCLRaw.lib.e_sqlite3", "2.1.11", "runtimes", "win-x64", "native", "e_sqlite3.dll") }));
         var skia = await Survey(server, new() { ["path"] = RealPackages.File("SkiaSharp.NativeAssets.Win32", "2.88.9", "runtimes", "win-x64", "native", "libSkiaSharp.dll") });
         Assert.Contains("const:crc32", skia);
