@@ -64,22 +64,30 @@ function Get-RootReaders([string]$testsDir) {
     } | ForEach-Object Name
 }
 
-# The last change of a file or folder a setting names (a tool, an engine install, a data folder), so a tool or engine
-# updated in place changes every key: a file's size and time, a folder's newest entry one level deep. $null for a
-# value that names no existing path.
+# The state of a file or folder a setting names (a tool, an engine install, a data folder), so one changed in place
+# changes every key: a file's size and write time; a folder's entries to three levels down, by relative name and a
+# file's size and write time (the first 20000, so a file copied in with its old time counts too). A subfolder's own
+# write time is left out: it moves again shortly after a file in it changes, so two reads in a row differ. $null for
+# a value that names no existing path.
 function Get-PathStamp([string]$value) {
     if (-not $value -or $value.IndexOfAny([IO.Path]::GetInvalidPathChars()) -ge 0) { return $null }
     try {
         $item = Get-Item -LiteralPath $value -Force -ErrorAction Stop
         if (-not $item.PSIsContainer) { return "$($item.Length) $($item.LastWriteTimeUtc.Ticks)" }
-        $newest = $item.LastWriteTimeUtc
-        foreach ($entry in $item.EnumerateFileSystemInfos()) { if ($entry.LastWriteTimeUtc -gt $newest) { $newest = $entry.LastWriteTimeUtc } }
-        return "$($newest.Ticks)"
+        $options = [IO.EnumerationOptions]@{ RecurseSubdirectories = $true; MaxRecursionDepth = 2; IgnoreInaccessible = $true; AttributesToSkip = [IO.FileAttributes]::ReparsePoint }
+        $lines = [Collections.Generic.List[string]]::new()
+        foreach ($entry in $item.EnumerateFileSystemInfos('*', $options)) {
+            if ($lines.Count -ge 20000) { break }
+            $name = $entry.FullName.Substring($item.FullName.Length)
+            $lines.Add($(if ($entry -is [IO.FileInfo]) { "$name|$($entry.Length)|$($entry.LastWriteTimeUtc.Ticks)" } else { $name }))
+        }
+        $lines.Sort([StringComparer]::Ordinal)
+        return [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData([Text.Encoding]::UTF8.GetBytes($lines -join "`n"))).Substring(0, 16)
     }
     catch { return $null }
 }
 
-# The inputs every family key shares: SDK, OS build and the settings (with the last change of the paths they name),
+# The inputs every family key shares: SDK, OS build and the settings (with the state of the paths they name),
 # with $override in place of the current values.
 function Get-RunEnvironment([hashtable]$override = @{}) {
     $os = if ($IsWindows) { $v = Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion'; "windows $($v.CurrentBuild).$($v.UBR)" } else { uname -srm }

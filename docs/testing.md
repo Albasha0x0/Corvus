@@ -27,9 +27,9 @@
   passed on (in `.git`), and `-IfChanged` and `release.ps1` skip a second full run on that tree. A run keeps its results
   until the next one: if recording them fails, `./test.ps1 -Stamp` records them without a rerun, on the same tree only. Each full run on a
   clean tree also records which test families passed, under a key of the family's own folders, all shared code, the
-  repository files its tests read, the SDK, the OS build and the `CORVUS_*` settings, with the last change of each
-  tool, engine install or data folder a setting names (and of the IDA install IDA's own configuration names), so a tool
-  updated in place reruns everything (`test-reuse.psm1`). A run that reuses nothing checks the selection: a family
+  repository files its tests read, the SDK, the OS build and the `CORVUS_*` settings, with the state of each tool,
+  engine install or data folder a setting names (a file's size and write time, a folder's files to three levels down;
+  and the IDA install IDA's own configuration names), so a tool updated in place reruns everything (`test-reuse.psm1`). A run that reuses nothing checks the selection: a family
   that fails under the key of a recorded pass is a selection miss, logged in `.git/corvus-selection-misses.txt` and shown
   by `-Status`.
   `./test.ps1 -Full -Reuse` then runs only the families whose key changed, plus the contract tests and the classes

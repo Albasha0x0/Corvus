@@ -353,6 +353,33 @@ public class TestReuseTests
 
     [Fact]
     [Trait("Speed", "Slow")]
+    public void A_file_copied_into_an_engine_folder_with_its_old_time_changes_the_folder_stamp()
+    {
+        var module = Path.Combine(DocsTests.RepoRoot(), "test-reuse.psm1");
+        var dir = Path.Combine(Path.GetTempPath(), $"corvus-reuse-{Guid.NewGuid():N}");
+        var lib = Path.Combine(dir, "lib", "plugins");
+        Directory.CreateDirectory(lib);
+        File.WriteAllText(Path.Combine(lib, "a.jar"), "v1");
+        try
+        {
+            var lines = Run($$"""
+                Import-Module '{{module.Replace("'", "''")}}'
+                $before = Get-PathStamp '{{dir}}'
+                'same=' + ($before -eq (Get-PathStamp '{{dir}}'))
+                Set-Content '{{Path.Combine(lib, "b.jar")}}' 'x'
+                (Get-Item '{{Path.Combine(lib, "b.jar")}}').LastWriteTimeUtc = [datetime]::UtcNow.AddYears(-2)
+                'copied=' + ($before -ne (Get-PathStamp '{{dir}}'))
+                """);
+            if (lines is ["skip"]) return; // no pwsh on this machine
+            string Line(string name) => lines.Single(l => l.StartsWith(name + "=")).Substring(name.Length + 1);
+            Assert.Equal("True", Line("same"));
+            Assert.Equal("True", Line("copied"));
+        }
+        finally { Directory.Delete(dir, true); }
+    }
+
+    [Fact]
+    [Trait("Speed", "Slow")]
     public void A_failure_under_the_key_of_a_recorded_pass_is_a_selection_miss()
     {
         var module = Path.Combine(DocsTests.RepoRoot(), "test-reuse.psm1");
