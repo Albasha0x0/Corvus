@@ -52,6 +52,8 @@ $running = Join-Path $gitDir 'corvus-background.json'
 $queued = Join-Path $gitDir 'corvus-background.next'
 $commit = (git -C $root rev-parse --short HEAD).Trim()
 Write-Nightly "start: $Strength full run of $commit"
+# The night's run analyses 3 engine seeds cold again; push runs leave the check off.
+$env:CORVUS_SEED_VALIDATE = '3'
 $flags = @{ Full = $true; Background = $true }
 if ($Strength -eq 'whole') { $flags.Whole = $true } elseif ($Strength -eq 'exhaustive') { $flags.Exhaustive = $true }
 & (Join-Path $root 'test.ps1') @flags *> $runLog

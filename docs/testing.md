@@ -110,8 +110,10 @@
 - **Nightly run.** `./nightly.ps1 -Register [-At 02:00]` adds a Windows scheduled task for the current user (opt-in;
   `-Unregister` removes it). Each night, once the machine has been idle for 10 minutes, it starts a full run of HEAD in
   the background worktree (`-Strength`, whole by default, which holds the heavy lock), waits for it and any run queued
-  behind it, then runs `./test.ps1 -Perf`, unless another full run holds or waits for the heavy lock by then. Each step
-  goes to `.git/corvus-nightly.log`, the test output to `.git/corvus-nightly.log.run`, and `-Status` shows the last step.
+  behind it, then runs `./test.ps1 -Perf`, unless another full run holds or waits for the heavy lock by then. The
+  night's run also compares 3 engine seeds with a cold analysis (`CORVUS_SEED_VALIDATE=3`, left out of the reuse
+  keys so a push run's pass still counts). Each step goes to `.git/corvus-nightly.log`, the test output to
+  `.git/corvus-nightly.log.run`, and `-Status` shows the last step.
 
 CI (`.github/workflows/ci.yml`) runs the quick set as a smoke lane; the release workflow builds the release archives.
 The full set and the real-application runs are done locally. To run the Live family (slow tests included) on macOS
