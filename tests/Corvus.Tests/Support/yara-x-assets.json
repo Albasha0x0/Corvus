@@ -1,6 +1,9 @@
 {
   "version": "1.22.0",
   "release": "https://github.com/VirusTotal/yara-x/releases/download/v1.22.0/",
+  "source": "https://github.com/VirusTotal/yara-x",
+  "commit": "e27597f2c05e13fe1c2bb459781aef8899afc485",
+  "cargoC": "0.10.25+cargo-0.99.0",
   "assets": [
     { "rid": "win-x64", "part": "library", "file": "yara-x-capi-v1.22.0-x86_64-pc-windows-msvc.zip", "sha256": "40317f65781e3a17bffe31f9837143a51c1c28ce5061eac2b90695fbb30e1664", "member": "yara_x_capi.dll" },
     { "rid": "win-x64", "part": "cli", "file": "yara-x-v1.22.0-x86_64-pc-windows-msvc.zip", "sha256": "eac36a58699b94d3732a7fe1d8453fe89e0077bb18ac2c99b4c2ee102a431f2e", "member": "yr.exe" },

@@ -188,6 +188,24 @@ public sealed class YaraSearchTests : IDisposable
         Assert.Contains(found.Notes, n => n.StartsWith("Process memory: 3 regions", StringComparison.Ordinal) && n.Contains("cross a region boundary are not matched"));
     }
 
+    [Fact]
+    public async Task Without_the_library_the_scan_is_refused_naming_the_platform()
+    {
+        var rules = _dir.File("one.yar");
+        File.WriteAllText(rules, "rule any { condition: true }\n");
+        // The build output holds no runtimes/<rid>/native build, so only the variable could supply one.
+        using var pool = new WorkerPool(new WorkerPoolOptions
+        {
+            Enabled = true,
+            MemoryLimitBytes = 0,
+            Start = WorkerPool.OwnCommand() with { Environment = new Dictionary<string, string?> { [YaraX.LibraryVariable] = _dir.File("absent.dll") } },
+        });
+
+        var e = await Assert.ThrowsAsync<ToolError>(() => Scan(pool, rules, rules));
+        Assert.Equal(ErrorCode.ProviderUnavailable, e.Code);
+        Assert.Contains($"YARA-X 1.22.0 is not available for {System.Runtime.InteropServices.RuntimeInformation.RuntimeIdentifier}", e.Message);
+    }
+
     private static void Add(ZipArchive zip, string name, byte[] bytes)
     {
         using var entry = zip.CreateEntry(name, CompressionLevel.Optimal).Open();

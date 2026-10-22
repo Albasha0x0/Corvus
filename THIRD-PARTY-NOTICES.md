@@ -156,7 +156,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ## YARA-X
 
 `search_container kind=yara` calls the C API of [VirusTotal/yara-x](https://github.com/VirusTotal/yara-x) 1.22.0
-(`libyara_x_capi`) inside a `corvus worker` process (`src/Corvus/Native/Providers/Worker/Yara`).
+(`libyara_x_capi`) inside a `corvus worker` process (`src/Corvus/Native/Providers/Worker/Yara`). The release archives
+and the .NET tool ship the library under `runtimes/<rid>/native`: upstream's win-x64 build, and builds of the 1.22.0
+source for the other platforms.
 
 ```
 Copyright (c) 2024. The YARA-X Authors. All Rights Reserved.

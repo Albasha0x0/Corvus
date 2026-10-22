@@ -1,14 +1,16 @@
 # Downloads the YARA-X release assets for this machine's runtime identifier (yara-x-assets.json), checks each against
 # its recorded SHA-256 and extracts the listed file into -Destination. The YARA tests read that folder from
 # CORVUS_TEST_YARA_X; a platform with no upstream build gets no file, and its tests skip with the reason.
-# Usage:  pwsh tests/Corvus.Tests/Support/fetch-yara-x.ps1 -Destination <folder>
-param([Parameter(Mandatory)][string]$Destination)
+# -Part library or cli fetches that part only. Release packaging builds the library from "commit" where upstream
+# publishes none.
+# Usage:  pwsh tests/Corvus.Tests/Support/fetch-yara-x.ps1 -Destination <folder> [-Part library|cli]
+param([Parameter(Mandatory)][string]$Destination, [ValidateSet('library', 'cli')][string]$Part)
 $ErrorActionPreference = 'Stop'
 
 $table = Get-Content (Join-Path $PSScriptRoot 'yara-x-assets.json') -Raw | ConvertFrom-Json
 $rid = [System.Runtime.InteropServices.RuntimeInformation]::RuntimeIdentifier
 New-Item -ItemType Directory -Force $Destination | Out-Null
-$assets = @($table.assets | Where-Object rid -eq $rid)
+$assets = @($table.assets | Where-Object { $_.rid -eq $rid -and (-not $Part -or $_.part -eq $Part) })
 if ($assets.Count -eq 0) { Write-Host "YARA-X $($table.version) publishes no build for $rid."; exit 0 }
 
 foreach ($asset in $assets) {

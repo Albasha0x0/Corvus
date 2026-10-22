@@ -42,6 +42,10 @@
     <None Include="PACKAGE.md" Pack="true" PackagePath="/README.md" />
     <None Include="..\..\THIRD-PARTY-NOTICES.md" Pack="true" PackagePath="/" Visible="false" />
   </ItemGroup>
+  <!-- The release's YARA-X libraries, laid out as <rid>/native/<file>, beside the tool's program where the worker probes. -->
+  <ItemGroup Condition="'$(YaraXRuntimes)' != ''">
+    <None Include="$(YaraXRuntimes)\**\*" Pack="true" PackagePath="tools/$(TargetFramework)/any/runtimes" Visible="false" />
+  </ItemGroup>
 
   <ItemGroup>
     <InternalsVisibleTo Include="Corvus.Tests" />

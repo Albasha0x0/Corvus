@@ -356,6 +356,9 @@ boundary are not matched. Each row is a rule that matched, with the file or memb
 namespace, tags, metadata and every pattern match as offset and length (at most 100 per pattern). A rule that does not compile is named with its file, line,
 column and error, and the other rules still run. Modules `pe`, `elf`, `macho`, `dotnet`, `dex`, `hash`, `math`,
 `time` and `lnk` are available; `cuckoo` and `vt` are not. On the fixture rules the matches equal those of `yr scan`.
+The release archives and the .NET tool ship the library for win-x64, win-arm64, linux-x64, linux-arm64 (glibc 2.34 or
+later), osx-x64 and osx-arm64; on musl, or elsewhere, the scan is refused naming the platform until
+`CORVUS_YARA_LIBRARY` names a build.
 
 **ReadyToRun** (`readyToRun`): the image carries precompiled native code next to its IL (crossgen2,
 `PublishReadyToRun`, and the shared framework itself). The IL is still there and decompiles normally.
