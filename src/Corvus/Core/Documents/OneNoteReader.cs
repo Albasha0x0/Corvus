@@ -49,13 +49,18 @@ internal sealed class OneNoteReader : IContainerReader
         return files;
     }
 
+    // A whole section is read: NonBacktracking matches in linear time, so no
+    // match timeout.
+    private static readonly Regex FileName = new(
+        @"[\w\-. ()\[\]]{1,120}\.(?:exe|dll|scr|hta|bat|cmd|js|jse|vbs|vbe|wsf|wsh|ps1|lnk|chm|zip|rar|7z|iso|img|vhd|vhdx|msi|jar|docm|xlsm|pptm|doc|xls|pdf|one|url|reg|cpl|txt)\b",
+        RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.NonBacktracking);
+
     /// <summary>File names stored as UTF-16 in the section (the EmbeddedFileName property and others), in file order.</summary>
     public static List<string> Names(byte[] data)
     {
         var text = Encoding.Unicode.GetString(data, 0, data.Length & ~1);
         var names = new List<string>();
-        foreach (Match m in Regex.Matches(text, @"[\w\-. ()\[\]]{1,120}\.(?:exe|dll|scr|hta|bat|cmd|js|jse|vbs|vbe|wsf|wsh|ps1|lnk|chm|zip|rar|7z|iso|img|vhd|vhdx|msi|jar|docm|xlsm|pptm|doc|xls|pdf|one|url|reg|cpl|txt)\b",
-                     RegexOptions.IgnoreCase | RegexOptions.CultureInvariant, TimeSpan.FromSeconds(5)))
+        foreach (Match m in FileName.Matches(text))
             if (!names.Contains(m.Value.Trim())) names.Add(m.Value.Trim());
         return names;
     }

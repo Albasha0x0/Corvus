@@ -161,6 +161,6 @@ public static partial class MessageShapes
     }
 
     // the keyword opens the document (after comments); a shorthand "{ ... }" is an anonymous query
-    [GeneratedRegex(@"^\s*(?:#[^\n]*\n\s*)*(query|mutation|subscription)\b\s*([_A-Za-z][_0-9A-Za-z]*)?",RegexOptions.CultureInvariant, matchTimeoutMilliseconds: 1000)]
+    [GeneratedRegex(@"^\s*(?:#[^\n]*\n\s*)*(query|mutation|subscription)\b\s*([_A-Za-z][_0-9A-Za-z]*)?", RegexOptions.CultureInvariant)]
     private static partial Regex OperationHead();
 }

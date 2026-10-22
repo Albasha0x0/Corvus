@@ -73,12 +73,15 @@ public sealed record NativeImageFacts(
         return (facts, highlights);
     }
 
+    // NonBacktracking matches in linear time, so no match timeout.
+    private static readonly System.Text.RegularExpressions.Regex EntitlementKey = new("<key>([^<]{1,256})</key>", System.Text.RegularExpressions.RegexOptions.NonBacktracking);
+
     /// <summary>The keys of an entitlements property list (plist XML), in order.</summary>
     private static List<string>? EntitlementKeys(string? xml)
     {
         if (string.IsNullOrEmpty(xml)) return null;
         var keys = new List<string>();
-        foreach (System.Text.RegularExpressions.Match k in System.Text.RegularExpressions.Regex.Matches(xml, "<key>([^<]{1,256})</key>", System.Text.RegularExpressions.RegexOptions.None, RegexTimeouts.Limit))
+        foreach (System.Text.RegularExpressions.Match k in EntitlementKey.Matches(xml))
             keys.Add(k.Groups[1].Value);
         return keys;
     }

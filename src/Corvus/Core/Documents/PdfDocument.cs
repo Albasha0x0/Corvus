@@ -169,7 +169,7 @@ internal sealed class PdfDocument
         foreach (var (obj, xml) in Xfa)
         {
             var text = Encoding.UTF8.GetString(xml);
-            foreach (Match m in Regex.Matches(text, @"<script\b[^>]*>(.*?)</script>", RegexOptions.Singleline | RegexOptions.IgnoreCase, TimeSpan.FromSeconds(5)))
+            foreach (Match m in XfaScript.Matches(text))
                 Scripts.Add(new PdfScript(obj, "XFA form script", System.Net.WebUtility.HtmlDecode(m.Groups[1].Value)));
         }
         Scan();
@@ -280,24 +280,30 @@ internal sealed class PdfDocument
         return null;
     }
 
-    private static readonly (string Pattern, string Description)[] ScriptRules =
+    // Scripts and XFA forms are read whole: NonBacktracking matches in linear
+    // time, so the rules take no match timeout.
+    private static Regex R(string pattern, RegexOptions options = RegexOptions.CultureInvariant) => new(pattern, options | RegexOptions.NonBacktracking);
+
+    private static readonly Regex XfaScript = R(@"<script\b[^>]*>(.*?)</script>", RegexOptions.Singleline | RegexOptions.IgnoreCase);
+
+    private static readonly (Regex Pattern, string Description)[] ScriptRules =
     [
-        (@"\beval\s*\(", "runs code built at run time"),
-        (@"\bunescape\s*\(", "decodes %u-escaped data, often shellcode"),
-        (@"String\.fromCharCode", "builds strings from character codes"),
-        (@"\butil\.printf\s*\(", "util.printf, an old overflow target"),
-        (@"Collab\.(collectEmailInfo|getIcon)", "Collab API, an old overflow target"),
-        (@"media\.newPlayer", "media.newPlayer, an old use-after-free target"),
-        (@"spell\.customDictionaryOpen", "spell.customDictionaryOpen, an old overflow target"),
-        (@"\bgetAnnots\s*\(", "reads annotations, a place to hide data"),
-        (@"\bexportDataObject\s*\(", "writes an embedded file to disk and may open it"),
-        (@"\blaunchURL\s*\(|\bgetURL\s*\(", "opens a URL"),
-        (@"\bsubmitForm\s*\(", "sends form data to a server"),
-        (@"\bSOAP\.|\bNet\.HTTP", "network request from the script"),
-        (@"\bapp\.setTimeOut\s*\(|\bapp\.setInterval\s*\(", "runs code later"),
-        (@"\bapp\.openDoc\s*\(", "opens another document"),
-        (@"\butil\.stringFromStream\s*\(", "reads a stream into a string"),
-        (@"\bthis\.getField\s*\(|\bgetPageNthWord\s*\(", "reads document text or fields, a place to hide data"),
+        (R(@"\beval\s*\("), "runs code built at run time"),
+        (R(@"\bunescape\s*\("), "decodes %u-escaped data, often shellcode"),
+        (R(@"String\.fromCharCode"), "builds strings from character codes"),
+        (R(@"\butil\.printf\s*\("), "util.printf, an old overflow target"),
+        (R(@"Collab\.(collectEmailInfo|getIcon)"), "Collab API, an old overflow target"),
+        (R(@"media\.newPlayer"), "media.newPlayer, an old use-after-free target"),
+        (R(@"spell\.customDictionaryOpen"), "spell.customDictionaryOpen, an old overflow target"),
+        (R(@"\bgetAnnots\s*\("), "reads annotations, a place to hide data"),
+        (R(@"\bexportDataObject\s*\("), "writes an embedded file to disk and may open it"),
+        (R(@"\blaunchURL\s*\(|\bgetURL\s*\("), "opens a URL"),
+        (R(@"\bsubmitForm\s*\("), "sends form data to a server"),
+        (R(@"\bSOAP\.|\bNet\.HTTP"), "network request from the script"),
+        (R(@"\bapp\.setTimeOut\s*\(|\bapp\.setInterval\s*\("), "runs code later"),
+        (R(@"\bapp\.openDoc\s*\("), "opens another document"),
+        (R(@"\butil\.stringFromStream\s*\("), "reads a stream into a string"),
+        (R(@"\bthis\.getField\s*\(|\bgetPageNthWord\s*\("), "reads document text or fields, a place to hide data"),
     ];
 
     private void Scan()
@@ -305,7 +311,7 @@ internal sealed class PdfDocument
         foreach (var s in Scripts)
             foreach (var (pattern, description) in ScriptRules)
             {
-                var m = Regex.Match(s.Code, pattern, RegexOptions.CultureInvariant, TimeSpan.FromSeconds(5));
+                var m = pattern.Match(s.Code);
                 if (!m.Success) continue;
                 int line = 1;
                 for (int i = 0; i < m.Index; i++) if (s.Code[i] == '\n') line++;

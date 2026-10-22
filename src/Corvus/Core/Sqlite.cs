@@ -648,10 +648,10 @@ public sealed partial class SqliteDatabase
             if (!m.Success) continue;
             string name = Unquote(m.Groups[1].Value);
             var rest = part[m.Length..];
-            if (alias < 0 && IntegerPrimaryKey.IsMatch(rest)) alias = shape.Columns.Count;
+            if (alias < 0 && IntegerPrimaryKey().IsMatch(rest)) alias = shape.Columns.Count;
             if (ColumnPrimaryKey.IsMatch(rest)) shape.PrimaryKey.Add(name);
             var (dflt, generated) = Clauses(rest);
-            shape.Columns.Add((name, DeclaredType.Match(rest).Value.Trim(), dflt, generated));
+            shape.Columns.Add((name, DeclaredType().Match(rest).Value.Trim(), dflt, generated));
         }
         bool withoutRowId = close > 0 && WithoutRowIdClause.IsMatch(sql[(close + 1)..]);
         // a table-level PRIMARY KEY(x) on an INTEGER column is also a rowid alias
@@ -740,18 +740,25 @@ public sealed partial class SqliteDatabase
         return name;
     }
 
-    private static readonly Regex TableConstraint = new(@"^(?:CONSTRAINT|PRIMARY\s+KEY|UNIQUE|CHECK|FOREIGN\s+KEY)\b", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant, RegexTimeouts.Limit);
-    private static readonly Regex TablePrimaryKey = new(@"PRIMARY\s+KEY\s*\(([^)]*)\)", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant, RegexTimeouts.Limit);
-    private static readonly Regex ColumnName = new(@"^(""(?:[^""]|"""")*""|`[^`]*`|\[[^\]]*\]|'[^']*'|[^\s(,]+)", RegexOptions.CultureInvariant, RegexTimeouts.Limit);
-    private static readonly Regex IntegerPrimaryKey = new(@"^\s*INTEGER\s+(?:CONSTRAINT\s+\S+\s+)?PRIMARY\s+KEY(?!\s+DESC)", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant, RegexTimeouts.Limit);
-    private static readonly Regex ColumnPrimaryKey = new(@"\bPRIMARY\s+KEY\b", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant, RegexTimeouts.Limit);
-    private static readonly Regex DeclaredType = new(@"^\s*(?:(?!(?:CONSTRAINT|PRIMARY|NOT|NULL|UNIQUE|CHECK|DEFAULT|COLLATE|REFERENCES|GENERATED|AS)\b)[A-Za-z_][\w]*\s*)*(?:\([^)]*\))?",
-        RegexOptions.IgnoreCase | RegexOptions.CultureInvariant, RegexTimeouts.Limit);
-    private static readonly Regex DefaultClause = new(@"\bDEFAULT\s*", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant, RegexTimeouts.Limit);
+    // Schema text comes from the file: NonBacktracking matches in linear time,
+    // so no match timeout. The two patterns with a lookahead are generated
+    // regexes over one column definition, anchored at its start.
+    [GeneratedRegex(@"^\s*INTEGER\s+(?:CONSTRAINT\s+\S+\s+)?PRIMARY\s+KEY(?!\s+DESC)", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
+    private static partial Regex IntegerPrimaryKey();
+
+    // Each word is tried once: the loop cannot fail, so it never backtracks.
+    [GeneratedRegex(@"^\s*(?:(?!(?:CONSTRAINT|PRIMARY|NOT|NULL|UNIQUE|CHECK|DEFAULT|COLLATE|REFERENCES|GENERATED|AS)\b)[A-Za-z_][\w]*\s*)*(?:\([^)]*\))?", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
+    private static partial Regex DeclaredType();
+
+    private static readonly Regex TableConstraint = new(@"^(?:CONSTRAINT|PRIMARY\s+KEY|UNIQUE|CHECK|FOREIGN\s+KEY)\b", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.NonBacktracking);
+    private static readonly Regex TablePrimaryKey = new(@"PRIMARY\s+KEY\s*\(([^)]*)\)", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.NonBacktracking);
+    private static readonly Regex ColumnName = new(@"^(""(?:[^""]|"""")*""|`[^`]*`|\[[^\]]*\]|'[^']*'|[^\s(,]+)", RegexOptions.CultureInvariant | RegexOptions.NonBacktracking);
+    private static readonly Regex ColumnPrimaryKey = new(@"\bPRIMARY\s+KEY\b", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.NonBacktracking);
+    private static readonly Regex DefaultClause = new(@"\bDEFAULT\s*", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.NonBacktracking);
     private static readonly Regex DefaultLiteral = new(
         @"\(?\s*(?:'(?<str>(?:[^']|'')*)'|""(?<dq>(?:[^""]|"""")*)""|[xX]'(?<blob>[0-9a-fA-F]*)'|(?<kw>NULL|TRUE|FALSE)\b|(?<num>[+-]?\s*(?:0[xX][0-9a-fA-F]+|(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?)))",
-        RegexOptions.IgnoreCase | RegexOptions.CultureInvariant, RegexTimeouts.Limit);
-    private static readonly Regex GeneratedClause = new(@"(?:\bGENERATED\s+ALWAYS\s+)?\bAS\s*\(", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant, RegexTimeouts.Limit);
-    private static readonly Regex StoredKeyword = new(@"^\s*STORED\b", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant, RegexTimeouts.Limit);
-    private static readonly Regex WithoutRowIdClause = new(@"\bWITHOUT\s+ROWID\b", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant, RegexTimeouts.Limit);
+        RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.NonBacktracking);
+    private static readonly Regex GeneratedClause = new(@"(?:\bGENERATED\s+ALWAYS\s+)?\bAS\s*\(", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.NonBacktracking);
+    private static readonly Regex StoredKeyword = new(@"^\s*STORED\b", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.NonBacktracking);
+    private static readonly Regex WithoutRowIdClause = new(@"\bWITHOUT\s+ROWID\b", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.NonBacktracking);
 }

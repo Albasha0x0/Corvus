@@ -175,7 +175,7 @@ internal sealed class ShellLink
             {
                 // a URI item: the address is the string in it with a scheme
                 var text = (item[3] & 0x80) != 0 ? Encoding.Unicode.GetString(item[6..][..((item.Length - 6) & ~1)]) : Encoding.Latin1.GetString(item[6..]);
-                var uri = System.Text.RegularExpressions.Regex.Match(text, @"[A-Za-z][A-Za-z0-9+.\-]*://[^\0\s]+", System.Text.RegularExpressions.RegexOptions.None, TimeSpan.FromSeconds(1));
+                var uri = UriText.Match(text);
                 if (uri.Success) return uri.Value;
                 parts.Add("<URI item>");
             }
@@ -187,6 +187,9 @@ internal sealed class ShellLink
     }
 
     /// <summary>The long name of a file entry item, from its 0xBEEF0004 extension block.</summary>
+    // NonBacktracking matches in linear time, so no match timeout.
+    private static readonly System.Text.RegularExpressions.Regex UriText = new(@"[A-Za-z][A-Za-z0-9+.\-]*://[^\0\s]+", System.Text.RegularExpressions.RegexOptions.NonBacktracking);
+
     private static string? LongName(ReadOnlySpan<byte> item)
     {
         for (int i = 14; i + 8 <= item.Length; i++)

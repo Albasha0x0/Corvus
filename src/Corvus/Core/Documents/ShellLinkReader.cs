@@ -32,6 +32,12 @@ internal static class ShellLinkRules
 
     private static readonly string[] DocumentIcons = [".pdf", ".doc", ".docx", ".xls", ".xlsx", ".txt", ".jpg", ".png", ".rtf", ".html", "msedge", "chrome", "acrord", "acrobat", "winword", "excel"];
 
+    // Arguments run to 65,535 characters: NonBacktracking matches in linear
+    // time, so no match timeout.
+    private static readonly Regex EncodedCommand = new(@"(?i)(-e(nc(odedcommand)?)?\s+[A-Za-z0-9+/=]{20,}|FromBase64String|\biex\b|Invoke-Expression|DownloadString|DownloadFile)",
+        RegexOptions.CultureInvariant | RegexOptions.NonBacktracking);
+    private static readonly Regex Url = new(@"(?i)\b(?:https?|ftp)://[^\s'""\)]+", RegexOptions.CultureInvariant | RegexOptions.NonBacktracking);
+
     public static string Clip(string s) => s.Length <= 200 ? s : s[..197] + "...";
 
     public static List<MacroFinding> Scan(ShellLink link)
@@ -44,9 +50,9 @@ internal static class ShellLinkRules
         if (args.Length > 250) f.Add(new MacroFinding("Suspicious", "long arguments", $"{args.Length} characters of arguments; the properties dialog shows only the first 259 of target and arguments"));
         int leading = args.TakeWhile(char.IsWhiteSpace).Count();
         if (leading >= 50) f.Add(new MacroFinding("Suspicious", "padded arguments", $"the arguments start with {leading} blanks, which pushes them out of view"));
-        var encoded = Regex.Match(args, @"(?i)(-e(nc(odedcommand)?)?\s+[A-Za-z0-9+/=]{20,}|FromBase64String|\biex\b|Invoke-Expression|DownloadString|DownloadFile)", RegexOptions.CultureInvariant, TimeSpan.FromSeconds(2));
+        var encoded = EncodedCommand.Match(args);
         if (encoded.Success) f.Add(new MacroFinding("Suspicious", encoded.Value.Length > 40 ? encoded.Value[..40] + "..." : encoded.Value, "encoded or downloaded commands in the arguments"));
-        foreach (Match m in Regex.Matches(args, @"(?i)\b(?:https?|ftp)://[^\s'""\)]+", RegexOptions.CultureInvariant, TimeSpan.FromSeconds(2)))
+        foreach (Match m in Url.Matches(args))
             f.Add(new MacroFinding("IOC", m.Value, "URL"));
         if (link.ShowCommand.StartsWith("minimized", StringComparison.Ordinal) && Launchers.Contains(program))
             f.Add(new MacroFinding("Suspicious", "minimized window", "the program starts minimized, out of sight"));

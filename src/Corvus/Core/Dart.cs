@@ -93,5 +93,5 @@ public static class DartScan
         data.IndexOf("io/flutter/embedding/engine/FlutterJNI"u8) >= 0 || data.IndexOf("FlutterEngine"u8) >= 0 || data.IndexOf("flutter/shell/"u8) >= 0;
 
     private static readonly Regex Version = new(@"\b\d+\.\d+\.\d+(?:-[0-9A-Za-z.]+)? \((?:stable|beta|dev|main|be)\) \([^()\x00]{4,80}\) on ""[a-z0-9]+_[a-z0-9]+""",
-        RegexOptions.CultureInvariant, RegexTimeouts.Limit);
+        RegexOptions.CultureInvariant | RegexOptions.NonBacktracking);
 }

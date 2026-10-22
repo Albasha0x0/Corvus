@@ -19,7 +19,9 @@ internal sealed record MacroFinding(string Type, string Keyword, string Descript
 /// </summary>
 internal static class MacroScan
 {
-    private static readonly TimeSpan Timeout = TimeSpan.FromSeconds(5);
+    // Macro text is read whole: NonBacktracking matches in linear time, so the
+    // rules take no match timeout.
+    private const RegexOptions Linear = RegexOptions.CultureInvariant | RegexOptions.NonBacktracking;
 
     private static readonly (string Description, string[] Keywords)[] AutoExec =
     [
@@ -108,17 +110,17 @@ internal static class MacroScan
 
     private static readonly (string Type, Regex Pattern)[] Iocs =
     [
-        ("URL", new Regex(@"\b(?:http|ftp)s?\://" + Server + @"(?:\:[0-9]{1,5})?(?:/[a-zA-Z0-9\-\._\?\,\'/\\\+&%\$#\=~]*)?", RegexOptions.CultureInvariant, Timeout)),
-        ("IPv4 address", new Regex(Ipv4, RegexOptions.CultureInvariant, Timeout)),
-        ("E-mail address", new Regex(@"(?i)\b[A-Z0-9._%+-]+@" + Server + @"\b", RegexOptions.CultureInvariant, Timeout)),
+        ("URL", new Regex(@"\b(?:http|ftp)s?\://" + Server + @"(?:\:[0-9]{1,5})?(?:/[a-zA-Z0-9\-\._\?\,\'/\\\+&%\$#\=~]*)?", Linear)),
+        ("IPv4 address", new Regex(Ipv4, Linear)),
+        ("E-mail address", new Regex(@"(?i)\b[A-Z0-9._%+-]+@" + Server + @"\b", Linear)),
         ("Executable file name", new Regex(@"(?i)\b\w+\.(EXE|PIF|GADGET|MSI|MSP|MSC|VBS|VBE|VB|JSE|JS|WSF|WSC|WSH|WS|BAT|CMD|DLL|SCR|HTA|CPL|CLASS|JAR|PS1XML|PS1|PS2XML|PS2|PSC1|PSC2|SCF|LNK|INF|REG)\b",
-            RegexOptions.CultureInvariant, Timeout)),
+            Linear)),
     ];
 
     private static readonly string[] ExcludedUrls = ["http://schemas.openxmlformats.org/", "http://schemas.microsoft.com/"];
-    private static readonly Regex HexString = new("(?:[0-9A-Fa-f]{2}){4,}", RegexOptions.CultureInvariant, Timeout);
-    private static readonly Regex Base64String = new("\"(?:[A-Za-z0-9+/]{4}){1,}(?:[A-Za-z0-9+/]{2}[AEIMQUYcgkosw048]=|[A-Za-z0-9+/][AQgw]==)?\"", RegexOptions.CultureInvariant, Timeout);
-    private static readonly Regex NotHex = new("[G-Zg-z]", RegexOptions.CultureInvariant, Timeout);
+    private static readonly Regex HexString = new("(?:[0-9A-Fa-f]{2}){4,}", Linear);
+    private static readonly Regex Base64String = new("\"(?:[A-Za-z0-9+/]{4}){1,}(?:[A-Za-z0-9+/]{2}[AEIMQUYcgkosw048]=|[A-Za-z0-9+/][AQgw]==)?\"", Linear);
+    private static readonly Regex NotHex = new("[G-Zg-z]", Linear);
     private static readonly HashSet<string> Base64Allowed = ["thisdocument", "thisworkbook", "test", "temp", "http", "open", "exit", "kernel32", "virtualalloc", "createthread"];
 
     private static readonly Dictionary<string, Regex> Cache = [];
@@ -128,7 +130,7 @@ internal static class MacroScan
         lock (Cache)
         {
             if (!Cache.TryGetValue(pattern, out var r))
-                Cache[pattern] = r = new Regex(@"\b" + pattern + @"\b", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant, Timeout);
+                Cache[pattern] = r = new Regex(@"\b" + pattern + @"\b", RegexOptions.IgnoreCase | Linear);
             return r;
         }
     }
@@ -150,43 +152,36 @@ internal static class MacroScan
 
         var hex = new List<(string Encoded, string Decoded)>();
         var b64 = new List<(string Encoded, string Decoded)>();
-        try
+        foreach (Match m in HexString.Matches(code))
+            if (!hex.Any(h => h.Encoded == m.Value)) hex.Add((m.Value, Latin1(Convert.FromHexString(m.Value))));
+        foreach (Match m in Base64String.Matches(code))
         {
-            foreach (Match m in HexString.Matches(code))
-                if (!hex.Any(h => h.Encoded == m.Value)) hex.Add((m.Value, Latin1(Convert.FromHexString(m.Value))));
-            foreach (Match m in Base64String.Matches(code))
-            {
-                var value = m.Value.Trim('"');
-                if (!NotHex.IsMatch(value) || Base64Allowed.Contains(value.ToLowerInvariant()) || b64.Any(b => b.Encoded == value)) continue;
-                try { b64.Add((value, Latin1(Convert.FromBase64String(value)))); }
-                catch (FormatException) { }
-            }
-
-            foreach (var (text, decoded) in new[] { (code, (string?)null), (string.Concat(hex.Select(h => "\n" + h.Decoded)), "Hex"), (string.Concat(b64.Select(b => "\n" + b.Decoded)), "Base64") })
-            {
-                if (text.Length == 0) continue;
-                foreach (var (description, keywords) in AutoExec)
-                    foreach (var k in keywords)
-                        if (Word(Regex.Escape(k)) is var r && r.IsMatch(text)) Add(new MacroFinding("AutoExec", k, description) { Decoded = decoded }, r);
-                foreach (var (description, patterns) in AutoExecPatterns)
-                    foreach (var p in patterns)
-                        if (Word(p) is var r && r.Match(text) is { Success: true } m) Add(new MacroFinding("AutoExec", m.Value, description) { Decoded = decoded }, r);
-                foreach (var (description, keywords) in Suspicious)
-                    foreach (var k in keywords)
-                        if (Word(Regex.Escape(k)) is var r && r.IsMatch(text)) Add(new MacroFinding("Suspicious", k, description) { Decoded = decoded }, r);
-                foreach (var (description, patterns) in SuspiciousPatterns)
-                    foreach (var p in patterns)
-                        if (Word(p) is var r && r.Match(text) is { Success: true } m) Add(new MacroFinding("Suspicious", m.Value, description) { Decoded = decoded }, r);
-                if (decoded == null && text.Contains('\b')) Add(new MacroFinding("Suspicious", "\\b", "backspace characters can hide code when printed"), null);
-                foreach (var (type, pattern) in Iocs)
-                    foreach (Match m in pattern.Matches(text))
-                        if (!ExcludedUrls.Any(u => m.Value.StartsWith(u, StringComparison.Ordinal)))
-                            Add(new MacroFinding("IOC", m.Value, type) { Decoded = decoded }, new Regex(Regex.Escape(m.Value), RegexOptions.CultureInvariant, Timeout));
-            }
+            var value = m.Value.Trim('"');
+            if (!NotHex.IsMatch(value) || Base64Allowed.Contains(value.ToLowerInvariant()) || b64.Any(b => b.Encoded == value)) continue;
+            try { b64.Add((value, Latin1(Convert.FromBase64String(value)))); }
+            catch (FormatException) { }
         }
-        catch (RegexMatchTimeoutException)
+
+        foreach (var (text, decoded) in new[] { (code, (string?)null), (string.Concat(hex.Select(h => "\n" + h.Decoded)), "Hex"), (string.Concat(b64.Select(b => "\n" + b.Decoded)), "Base64") })
         {
-            rows.Add(new MacroFinding("Note", "timeout", "a rule ran past its time limit: the findings are incomplete"));
+            if (text.Length == 0) continue;
+            foreach (var (description, keywords) in AutoExec)
+                foreach (var k in keywords)
+                    if (Word(Regex.Escape(k)) is var r && r.IsMatch(text)) Add(new MacroFinding("AutoExec", k, description) { Decoded = decoded }, r);
+            foreach (var (description, patterns) in AutoExecPatterns)
+                foreach (var p in patterns)
+                    if (Word(p) is var r && r.Match(text) is { Success: true } m) Add(new MacroFinding("AutoExec", m.Value, description) { Decoded = decoded }, r);
+            foreach (var (description, keywords) in Suspicious)
+                foreach (var k in keywords)
+                    if (Word(Regex.Escape(k)) is var r && r.IsMatch(text)) Add(new MacroFinding("Suspicious", k, description) { Decoded = decoded }, r);
+            foreach (var (description, patterns) in SuspiciousPatterns)
+                foreach (var p in patterns)
+                    if (Word(p) is var r && r.Match(text) is { Success: true } m) Add(new MacroFinding("Suspicious", m.Value, description) { Decoded = decoded }, r);
+            if (decoded == null && text.Contains('\b')) Add(new MacroFinding("Suspicious", "\\b", "backspace characters can hide code when printed"), null);
+            foreach (var (type, pattern) in Iocs)
+                foreach (Match m in pattern.Matches(text))
+                    if (!ExcludedUrls.Any(u => m.Value.StartsWith(u, StringComparison.Ordinal)))
+                        Add(new MacroFinding("IOC", m.Value, type) { Decoded = decoded }, new Regex(Regex.Escape(m.Value), Linear));
         }
         if (hex.Count > 0) Add(new MacroFinding("Suspicious", "Hex Strings", "hex-encoded strings, may hide strings"), null);
         if (b64.Count > 0) Add(new MacroFinding("Suspicious", "Base64 Strings", "base64-encoded strings, may hide strings"), null);

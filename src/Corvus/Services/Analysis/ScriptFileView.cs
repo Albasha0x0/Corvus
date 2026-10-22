@@ -81,11 +81,15 @@ internal sealed class ScriptFileView : IFileSummaryView
 
     private sealed record Block(string Language, string Text);
 
+    // A whole page is read: NonBacktracking matches in linear time, so no match
+    // timeout.
+    private static readonly Regex ScriptBlock = new(@"<script\b([^>]*)>(.*?)</script\s*>", RegexOptions.IgnoreCase | RegexOptions.Singleline | RegexOptions.NonBacktracking);
+
     /// <summary>The script blocks of an HTML application, Windows Script File or page, with their languages.</summary>
     private static List<Block> Blocks(string text)
     {
         var list = new List<Block>();
-        foreach (Match m in Regex.Matches(text, @"<script\b([^>]*)>(.*?)</script\s*>", RegexOptions.IgnoreCase | RegexOptions.Singleline, TimeSpan.FromSeconds(2)))
+        foreach (Match m in ScriptBlock.Matches(text))
         {
             var attributes = m.Groups[1].Value;
             var body = m.Groups[2].Value;
