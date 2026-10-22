@@ -35,17 +35,18 @@ public class NativeToolSweepTests(ITestOutputHelper output)
     }
 
     [WindowsFact]
-    public Task System32() => Sweep("System32", Sample(NativeToolHarness.NativeFiles(Path.Combine(Windows, "System32")), Limit), IdaSample);
+    public Task System32() => ChildTest.Rerun(this, output) ? Task.CompletedTask : Sweep("System32", Sample(NativeToolHarness.NativeFiles(Path.Combine(Windows, "System32")), Limit), IdaSample);
 
     [WindowsFact]
-    public Task System32_Drivers() => Sweep("System32\\drivers", Sample(NativeToolHarness.NativeFiles(Path.Combine(Windows, "System32", "drivers")), Limit / 3), 0);
+    public Task System32_Drivers() => ChildTest.Rerun(this, output) ? Task.CompletedTask : Sweep("System32\\drivers", Sample(NativeToolHarness.NativeFiles(Path.Combine(Windows, "System32", "drivers")), Limit / 3), 0);
 
     [WindowsFact]
-    public Task SysWow64() => Sweep("SysWOW64", Sample(NativeToolHarness.NativeFiles(Path.Combine(Windows, "SysWOW64")), Limit), IdaSample > 0 ? 1 : 0);
+    public Task SysWow64() => ChildTest.Rerun(this, output) ? Task.CompletedTask : Sweep("SysWOW64", Sample(NativeToolHarness.NativeFiles(Path.Combine(Windows, "SysWOW64")), Limit), IdaSample > 0 ? 1 : 0);
 
     [WindowsFact]
     public Task ProgramFiles()
     {
+        if (ChildTest.Rerun(this, output)) return Task.CompletedTask;
         var files = new List<string>();
         foreach (var folder in new[] { Environment.SpecialFolder.ProgramFiles, Environment.SpecialFolder.ProgramFilesX86 }.Select(Environment.GetFolderPath).Distinct())
             if (folder.Length > 0) files.AddRange(Sample(NativeToolHarness.NativeFiles(folder, recursive: true), ProgramFilesLimit));
@@ -57,6 +58,7 @@ public class NativeToolSweepTests(ITestOutputHelper output)
     [WindowsFact]
     public Task Largest()
     {
+        if (ChildTest.Rerun(this, output)) return Task.CompletedTask;
         var roots = new[] { Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86),
             Path.Combine(Windows, "System32") }.Where(r => r.Length > 0).Distinct();
         var candidates = roots.SelectMany(r => EnumerateLarge(r, 8_000_000)).Where(f => NativeToolHarness.IsNativePe(f))

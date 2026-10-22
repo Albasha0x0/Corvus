@@ -266,6 +266,7 @@ public sealed class StreamedSummaryMemoryTests(ITestOutputHelper output) : IDisp
     [Trait("Speed", "Slow")]
     public void Two_gigabyte_capture_summary_stays_within_the_memory_ceiling()
     {
+        if (ChildTest.Rerun(this, output)) return;
         var path = _dir.File("large.pcap");
         using (var f = new FileStream(path, FileMode.Create, FileAccess.Write, FileShare.None, 1 << 20)) StreamedSummaryTests.WritePcap(f, 2L * 1024 * 1024 * 1024 / (16 + 28 + 1400), 1400);
         long length = new FileInfo(path).Length;
@@ -295,16 +296,15 @@ public sealed class StreamedSummaryMemoryTests(ITestOutputHelper output) : IDisp
     }
 
     /// <summary>A 1 GiB input of each streamed kind: a native image with an overlay, an APK, a flow file, a module, a binary plist, a HAR.</summary>
-    private string Gigabyte(string kind)
+    private string Gigabyte(string kind, long size = 1L << 30)
     {
-        const long Size = 1L << 30;
-        var path = _dir.File("large." + kind);
+        var path = _dir.File($"large-{size}." + kind);
         using var f = new FileStream(path, FileMode.Create, FileAccess.Write, FileShare.None, 1 << 20);
         switch (kind)
         {
             case "so":
                 f.Write(new NativeFormats.ElfWriter().Build());
-                Pattern(f, Size);
+                Pattern(f, size);
                 break;
             case "apk":
                 using (var zip = new ZipArchive(f, ZipArchiveMode.Create, leaveOpen: true))
@@ -312,7 +312,7 @@ public sealed class StreamedSummaryMemoryTests(ITestOutputHelper output) : IDisp
                     foreach (var (name, data) in new[] { ("AndroidManifest.xml", AndroidSamples.Manifest()), ("resources.arsc", AndroidSamples.Resources()), ("classes.dex", AndroidSamples.Dex()) })
                         using (var e = zip.CreateEntry(name).Open()) e.Write(data);
                     using var big = zip.CreateEntry("assets/big.bin", CompressionLevel.NoCompression).Open();
-                    Pattern(big, Size);
+                    Pattern(big, size);
                 }
                 break;
             case "flows":
@@ -321,18 +321,18 @@ public sealed class StreamedSummaryMemoryTests(ITestOutputHelper output) : IDisp
                 static byte[] D(params byte[][] items) { byte[] inner = [.. items.SelectMany(x => x)]; return [.. Encoding.ASCII.GetBytes($"{inner.Length}:"), .. inner, (byte)'}']; }
                 var flow = D(S("type"), S("http"), S("request"), D(S("method"), S("GET"), S("scheme"), S("https"), S("host"), S("a.example"), S("path"), S("/items/1")),
                     S("response"), D(S("status_code"), "3:200#"u8.ToArray(), S("content"), B(new byte[64 << 10])));
-                for (long w = 0; w < Size; w += flow.Length) f.Write(flow);
+                for (long w = 0; w < size; w += flow.Length) f.Write(flow);
                 break;
             case "wasm":
-                f.Write([0x00, 0x61, 0x73, 0x6D, 0x01, 0x00, 0x00, 0x00, 0x00, .. WasmAsm.Leb(1 + 3 + (ulong)Size), 3, .. "big"u8]);
-                Pattern(f, Size);
+                f.Write([0x00, 0x61, 0x73, 0x6D, 0x01, 0x00, 0x00, 0x00, 0x00, .. WasmAsm.Leb(1 + 3 + (ulong)size), 3, .. "big"u8]);
+                Pattern(f, size);
                 break;
             case "plist":
                 f.Write([.. "bplist00"u8, 0x4F, 0x13]);
                 Span<byte> be = stackalloc byte[8];
-                BinaryPrimitives.WriteInt64BigEndian(be, Size);
+                BinaryPrimitives.WriteInt64BigEndian(be, size);
                 f.Write(be);
-                Pattern(f, Size);
+                Pattern(f, size);
                 long table = f.Position;
                 BinaryPrimitives.WriteInt64BigEndian(be, 8);
                 f.Write(be);
@@ -345,7 +345,7 @@ public sealed class StreamedSummaryMemoryTests(ITestOutputHelper output) : IDisp
             case "har":
                 var entry = Encoding.UTF8.GetBytes("""{"request":{"method":"GET","url":"https://a.example/items/1"},"response":{"status":200,"content":{"text":" """.TrimEnd() + new string('x', 60_000) + "\"}}}");
                 f.Write("""{"log":{"entries":["""u8);
-                for (long w = 0; w < Size; w += entry.Length + 1) { f.Write(entry); f.WriteByte((byte)','); }
+                for (long w = 0; w < size; w += entry.Length + 1) { f.Write(entry); f.WriteByte((byte)','); }
                 f.Write(entry);
                 f.Write("]}}"u8);
                 break;
@@ -363,6 +363,14 @@ public sealed class StreamedSummaryMemoryTests(ITestOutputHelper output) : IDisp
     [InlineData("har")]
     public void Gigabyte_inputs_stay_within_the_memory_ceiling(string kind)
     {
+        if (ChildTest.Rerun(this, output, [kind])) return;
+        void Read(string path)
+        {
+            if (kind == "har") Assert.Single(new UnpackService(_ws).Search(path, "*", "endpoint", 100, AnalysisLimits.Default, default).Items);
+            else new InspectionService(_ws).Summarize(null, path, default, new FileViewOptions("all"));
+        }
+        // The same work on 16 MB first, so the code it loads and the heap it sizes are not counted.
+        Read(Gigabyte(kind, 16 << 20));
         var path = Gigabyte(kind);
         GC.Collect();
         GC.WaitForPendingFinalizers();
@@ -371,8 +379,7 @@ public sealed class StreamedSummaryMemoryTests(ITestOutputHelper output) : IDisp
         var sampler = new Thread(() => { while (!done.Wait(20)) peak = Math.Max(peak, Environment.WorkingSet); }) { IsBackground = true };
         sampler.Start();
         var clock = Stopwatch.StartNew();
-        if (kind == "har") Assert.Single(new UnpackService(_ws).Search(path, "*", "endpoint", 100, AnalysisLimits.Default, default).Items);
-        else new InspectionService(_ws).Summarize(null, path, default, new FileViewOptions("all"));
+        Read(path);
         clock.Stop();
         done.Set();
         sampler.Join();

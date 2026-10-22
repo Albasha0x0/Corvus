@@ -278,6 +278,7 @@ public sealed class DwarfMemoryTests(ITestOutputHelper output)
     [Trait("Speed", "Slow")]
     public void A_gigabyte_debug_file_reads_within_the_memory_budget()
     {
+        if (ChildTest.Rerun(this, output)) return;
         using var dir = new TempDir();
         var image = NativeImageLoader.Open(NativeFixtures.NativeAotLib("linux-x64", "libSystem.Native.so"));
         var (abbrev, unit) = Unit();

@@ -214,6 +214,7 @@ public sealed class CaptureRequestTests(ITestOutputHelper output) : IDisposable
     [Trait(PerfBudget.Trait, PerfBudget.Timing)]
     public async Task A_500_MB_har_is_streamed_within_its_budget()
     {
+        if (ChildTest.Rerun(this, output)) return;
         var path = _dir.File("big.har");
         var body = new string('x', 6000);
         long written;

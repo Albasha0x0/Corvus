@@ -5,6 +5,9 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <IsPackable>false</IsPackable>
+    <!-- ChildTest.Main runs a test's body in a process of its own. -->
+    <GenerateProgramFile>false</GenerateProgramFile>
+    <StartupObject>Corvus.Tests.ChildTest</StartupObject>
   </PropertyGroup>
 
   <!-- Quick-set time on 20 threads: one workstation GC heap made it 43 s instead of 33 s; tiered PGO's instrumented code

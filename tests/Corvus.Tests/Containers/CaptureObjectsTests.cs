@@ -6,6 +6,7 @@ using Corvus.Core;
 using Corvus.Core.Pcap;
 using Corvus.Services.Analysis;
 using static Corvus.Tests.PcapTests;
+using Xunit.Abstractions;
 
 namespace Corvus.Tests;
 
@@ -14,7 +15,7 @@ namespace Corvus.Tests;
 /// decrypted with a key log (OpenSSL-made sessions), other streams written, JA3 / JA4 / JA4S fingerprints.
 /// </summary>
 [Collection(nameof(SerialTimingTests))] // the 1 GiB budget measures the whole process
-public sealed class CaptureObjectsTests : IDisposable
+public sealed class CaptureObjectsTests(ITestOutputHelper output) : IDisposable
 {
     private readonly TempDir _dir = new();
     private readonly AssemblyWorkspace _ws = new();
@@ -379,6 +380,7 @@ public sealed class CaptureObjectsTests : IDisposable
     [Trait("Speed", "Slow")]
     public async Task A_1_GiB_capture_is_reassembled_within_its_budget()
     {
+        if (ChildTest.Rerun(this, output)) return;
         var path = _dir.File("big.pcap");
         var record = new byte[16 * 1024 + 5];
         record[0] = 23; record[1] = 3; record[2] = 3; record[3] = 0x40; record[4] = 0;
