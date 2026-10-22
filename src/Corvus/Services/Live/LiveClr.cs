@@ -123,9 +123,9 @@ public sealed class LiveClr : IDisposable
 
     /// <summary>
     /// The metadata tokens of the methods of an assembly the runtime has prepared code for: JIT-compiled at a first call,
-    /// or ReadyToRun code bound at a first call.
+    /// or ReadyToRun code bound at a first call. Null when the read failed.
     /// </summary>
-    public IReadOnlyList<uint> Prepared(string path) => Read(live => live.Prepared(path)) ?? [];
+    public IReadOnlyList<uint>? Prepared(string path) => Read(live => live.Prepared(path));
 
     private readonly Dictionary<string, Native.ReadyToRun.R2RImage?> _r2r = new(StringComparer.OrdinalIgnoreCase);
 

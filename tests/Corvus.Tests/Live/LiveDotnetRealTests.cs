@@ -727,7 +727,9 @@ public sealed class LiveDotnetRealTests(ITestOutputHelper output) : LiveToolCall
     [DotnetTargetFact("win-x64")]
     public async Task Managed_coverage_of_a_32_bit_framework_program()
     {
-        var exe = Calc32(rounds: 100);
+        // The program exits only after the run has started.
+        var gate = _dir.File("exit.gate");
+        var exe = Calc32(gate: gate);
         await using var server = await Server();
         await Spawn(server, exe, "live-1");
         await Ok(server, "live_break", new() { ["session"] = "live-1", ["action"] = "set", ["at"] = "Calc::Add" });
@@ -738,8 +740,10 @@ public sealed class LiveDotnetRealTests(ITestOutputHelper output) : LiveToolCall
         var start = await Ok(server, "live_coverage", new() { ["session"] = "live-1", ["action"] = "start", ["match"] = "Calc.exe!" });
         var run = Regex.Match(start, @"^(cov-\d+) recording which of \d+ methods of Calc\.exe run in live-1, from the runtime's record");
         Assert.True(run.Success, start);
+        File.WriteAllText(gate, "");
         await UntilExited(server, "live-1");
         var report = await Ok(server, "live_coverage", new() { ["action"] = "report", ["run"] = run.Groups[1].Value });
+        Assert.Matches(@": 3 of 4 functions ran \(75%\), complete", report);
         Assert.Matches(@"ran  0x06000001  Calc::Add\(int, int\)", report);
         Assert.Matches(@"ran  0x06000003  Calc::Main\(\)", report);
         Assert.DoesNotMatch(@"ran  0x06000002", report);
@@ -795,6 +799,10 @@ public sealed class LiveDotnetRealTests(ITestOutputHelper output) : LiveToolCall
             await UntilExited(server, "live-1");
             var report = await Ok(server, "live_coverage", new() { ["action"] = "report", ["run"] = run.Groups[1].Value });
             Assert.Matches(@"ran  0x06000004  Calc::Late\(\)", report);
+            // No read of the runtime succeeded: what the run did not see is unknown.
+            Assert.Contains("seen to run; the rest are unknown, not missed: no read of the program's runtime succeeded", report);
+            var all = await Ok(server, "live_coverage", new() { ["action"] = "report", ["run"] = run.Groups[1].Value, ["show"] = "all" });
+            Assert.Matches(@"\?  0x06000002  Calc::Unused\(\)", all);
             var events = await Ok(server, "live_events", new() { ["session"] = "live-1", ["kind"] = "error" });
             Assert.Single(Regex.Matches(events, "the 32-bit .NET decoder stopped"));
             Assert.Contains($"{run.Groups[1].Value} counts first compiles from now on", events);

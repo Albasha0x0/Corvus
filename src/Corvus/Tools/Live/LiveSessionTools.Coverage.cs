@@ -24,6 +24,8 @@ public sealed partial class LiveSessionTools
     {
         [Description("Functions refused; reasons in the text.")]
         public int Unplaced { get; init; }
+        [Description("No read of the runtime succeeded: unseen methods are unknown.")]
+        public bool Unread { get; init; }
     }
 
     public sealed record LiveCoverageReport(LiveCoverageSummary? Run, IReadOnlyList<LiveCoverageRow> Items, int Offset,
@@ -85,16 +87,15 @@ public sealed partial class LiveSessionTools
                     await live.StopCoverageAsync(live.Get(r.Session), r, cancellationToken).ConfigureAwait(false);
                     // a run whose program ended first keeps that state: its counts stop at the end, not at this stop
                     var state = r.State == "ended" ? "ended with its program, before the stop" : r.State;
-                    return ToolOutput.With($"{r.Id} {state}: {r.Ran:N0} of {ToolSupport.Plural(r.Placed.Count, "function")} ran\n",
+                    return ToolOutput.With($"{r.Id} {state}: {Ran(r)}\n",
                         new LiveCoverageReport(Summary(r), [], 0, 0, []));
                 }
                 case "list":
                 {
-                    var runs = live.CoverageRuns.Where(r => string.IsNullOrWhiteSpace(session) || r.Session.Equals(session.Trim(), StringComparison.OrdinalIgnoreCase))
-                        .Select(Summary).ToList();
-                    var text = runs.Count == 0 ? "No coverage runs.\n"
-                        : string.Concat(runs.Select(r => $"{r.Run} {r.Session} {r.Image}: {r.Ran:N0} of {r.Points:N0} functions ran, {r.State}\n"));
-                    return ToolOutput.With(text, new LiveCoverageReport(null, [], 0, 0, runs));
+                    var listed = live.CoverageRuns.Where(r => string.IsNullOrWhiteSpace(session) || r.Session.Equals(session.Trim(), StringComparison.OrdinalIgnoreCase)).ToList();
+                    var text = listed.Count == 0 ? "No coverage runs.\n"
+                        : string.Concat(listed.Select(r => $"{r.Id} {r.Session} {r.ImageId}: {Ran(r)}, {r.State}\n"));
+                    return ToolOutput.With(text, new LiveCoverageReport(null, [], 0, 0, listed.Select(Summary).ToList()));
                 }
                 case "report":
                     return await CoverageReport(live.GetCoverage(RequireRun(run, session)), match, show, format, offset, limit, cancellationToken).ConfigureAwait(false);
@@ -124,7 +125,12 @@ public sealed partial class LiveSessionTools
     }
 
     private static LiveCoverageSummary Summary(Services.LiveCoverageRun r) =>
-        new(r.Id, r.Session, r.ImageId, r.Sha256, r.State, r.Placed.Count, r.Ran, r.HitLimit) { Unplaced = r.Unplaced.Count };
+        new(r.Id, r.Session, r.ImageId, r.Sha256, r.State, r.Placed.Count, r.Ran, r.HitLimit) { Unplaced = r.Unplaced.Count, Unread = r.Unread };
+
+    /// <summary>How many of the run's functions ran; for a run whose runtime was never read, the rest are unknown.</summary>
+    private static string Ran(Services.LiveCoverageRun r) => r.Unread
+        ? $"{r.Ran:N0} of {ToolSupport.Plural(r.Placed.Count, "function")} seen to run; the rest are unknown, not missed: no read of the program's runtime succeeded"
+        : $"{r.Ran:N0} of {ToolSupport.Plural(r.Placed.Count, "function")} ran";
 
     /// <summary>A function's VA; a managed method's metadata token.</summary>
     private static string Va(Services.LiveCoverageRun r, uint rva) => r.Image == null ? $"0x{rva:X8}" : NativeAddress.Va(r.Image.Image, rva);
@@ -136,7 +142,7 @@ public sealed partial class LiveSessionTools
     }
 
     private static string Count(Services.LiveCoverageRun r, long hits) =>
-        hits == 0 ? "-" : r.Image == null ? "ran" : hits >= r.HitLimit ? $"{r.HitLimit:N0}+" : hits.ToString("N0", CultureInfo.InvariantCulture);
+        hits == 0 ? (r.Unread ? "?" : "-") : r.Image == null ? "ran" : hits >= r.HitLimit ? $"{r.HitLimit:N0}+" : hits.ToString("N0", CultureInfo.InvariantCulture);
 
     private async Task<string> CoverageReport(Services.LiveCoverageRun r, string? match, string show, string format, int offset, int limit, CancellationToken ct)
     {
@@ -154,8 +160,8 @@ public sealed partial class LiveSessionTools
             .Where(p => mode == "all" || (mode == "ran") == (r.HitsAt(p.Rva) > 0)).ToList();
         // the busiest first
         var rows = points.Select(p => Row(r, p)).OrderByDescending(x => x.Hits).ThenBy(x => x.Address, StringComparer.Ordinal).ToList();
-        var head = new StringBuilder($"{r.Id} {r.ImageId}: {r.Ran:N0} of {ToolSupport.Plural(placed.Count, "function")} ran " +
-                                     $"({(placed.Count == 0 ? 0 : 100.0 * r.Ran / placed.Count):0.#}%), {r.State}{(r.PendingModule is { } pending ? $", waiting for {pending} to load" : "")}\n");
+        var head = new StringBuilder($"{r.Id} {r.ImageId}: {Ran(r)}" + (r.Unread ? "" : $" ({(placed.Count == 0 ? 0 : 100.0 * r.Ran / placed.Count):0.#}%)") +
+                                     $", {r.State}{(r.PendingModule is { } pending ? $", waiting for {pending} to load" : "")}\n");
         if (dot)
         {
             if (points.Count > MaxCoverageDot)
@@ -211,6 +217,8 @@ public sealed partial class LiveSessionTools
             else neither++;
         }
         var text = new StringBuilder($"{a.Id} and {b.Id} on {a.ImageId}: {ToolSupport.Plural(onlyA.Count, "function")} ran only in {a.Id}, {onlyB.Count:N0} only in {b.Id}, {both:N0} in both, {neither:N0} in neither\n");
+        foreach (var unread in new[] { a, b }.Where(r => r.Unread))
+            text.AppendLine($"{unread.Id} never read the program's runtime: a function it did not see run is unknown there, not missed");
         foreach (var (id, rows) in new[] { (a.Id, onlyA), (b.Id, onlyB) })
         {
             if (rows.Count == 0) continue;

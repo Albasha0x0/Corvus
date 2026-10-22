@@ -96,6 +96,19 @@ public sealed class LiveCoverageRun
     /// <summary>Points that ran at least once.</summary>
     public int Ran => _hits.Count;
 
+    /// <summary>A run read from the runtime's record of prepared methods, rather than counted from stops or compiles.</summary>
+    internal bool ReadsRuntime { get; init; }
+
+    private bool _read;
+
+    /// <summary>
+    /// True for a run read from the runtime while no read has succeeded: a method not seen to run is unknown, not missed.
+    /// </summary>
+    public bool Unread
+    {
+        get { lock (_live) return ReadsRuntime && !_read; }
+    }
+
     private readonly ConcurrentDictionary<string, byte> _exits = new(StringComparer.Ordinal);
 
     internal void Arm(string pointId, uint rva) => _live[pointId] = rva;
@@ -129,6 +142,20 @@ public sealed class LiveCoverageRun
     {
         lock (_live)
             if (_state == "recording") _hits.TryAdd(token, 1);
+    }
+
+    /// <summary>
+    /// Records a read of the runtime: the methods it found prepared, and whether the process was still running, so the read
+    /// saw every loaded module.
+    /// </summary>
+    internal void MarkRead(IEnumerable<uint> tokens, bool whileRunning)
+    {
+        lock (_live)
+        {
+            if (_state != "recording") return;
+            foreach (var token in tokens) _hits.TryAdd(token, 1);
+            _read |= whileRunning;
+        }
     }
 
     internal IReadOnlyList<string> ExitPoints => [.. _exits.Keys];
@@ -428,6 +455,16 @@ public sealed partial class LiveSessionService
         return names;
     }
 
+    /// <summary>
+    /// Whether the session's process object is signaled; false where no handle is held, so such a read counts as taken
+    /// while running.
+    /// </summary>
+    private static bool HasEnded(LiveSession session)
+    {
+        try { return session.ProcessHandle is { IsInvalid: false, IsClosed: false } h && Native.Live.LiveNative.WaitForSingleObject(h, 0) == 0; }
+        catch (ObjectDisposedException) { return true; }
+    }
+
     /// <summary>A run whose program ended while it started missed the exit that ends runs: it is ended here.</summary>
     private static void EndedMeanwhile(LiveSession session, LiveCoverageRun run)
     {
@@ -463,16 +500,17 @@ public sealed partial class LiveSessionService
         if (await ClrAsync(session, ct).ConfigureAwait(false) is { Unavailable: { } reason } && !reason.StartsWith("load_failed", StringComparison.Ordinal))
             return await StartJitCoverageAsync(session, asm, points, reason, ct).ConfigureAwait(false);
         if (BeforeCoverageRun is { } before) await before().ConfigureAwait(false);
-        var run = new LiveCoverageRun("cov-" + Interlocked.Increment(ref _nextCoverage), session, file, asm.OriginalSha256, points) { AssemblyPath = asm.FilePath };
+        var run = new LiveCoverageRun("cov-" + Interlocked.Increment(ref _nextCoverage), session, file, asm.OriginalSha256, points) { AssemblyPath = asm.FilePath, ReadsRuntime = true };
         var tokens = points.Select(p => p.Rva).ToHashSet();
         var path = asm.FilePath;
         run.Sample = wait => run.SampleAsync(async () =>
         {
             try
             {
-                if (run.State == "recording" && await ClrAsync(session, CancellationToken.None).ConfigureAwait(false) is { Unavailable: null } clr)
-                    foreach (var token in clr.Prepared(path))
-                        if (tokens.Contains(token)) run.MarkRan(token);
+                // A read that ends after the process finds its modules gone.
+                if (run.State == "recording" && await ClrAsync(session, CancellationToken.None).ConfigureAwait(false) is { Unavailable: null } clr
+                    && clr.Prepared(path) is { } prepared)
+                    run.MarkRead(prepared.Where(tokens.Contains), whileRunning: !HasEnded(session));
             }
             catch (Exception e) when (e is ToolError or InvalidOperationException or ObjectDisposedException or OperationCanceledException) { }
         }, wait);
