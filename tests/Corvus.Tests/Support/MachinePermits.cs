@@ -78,10 +78,13 @@ public static class MachinePermits
             ? Task.FromResult((new PermitHandle(), TimeSpan.Zero))
             : TakeAsync(resources, Folder, Counts, cancellation, WaitLimit, Heartbeat);
 
+    // Tests measure the limit on their own clock and learn from polled when the waiter has checked the records.
     internal static async Task<(PermitHandle Held, TimeSpan Waited)> TakeAsync(IReadOnlyList<string> resources, string folder,
-        IReadOnlyDictionary<string, int> counts, CancellationToken cancellation, TimeSpan? limit = null, TimeSpan? heartbeat = null)
+        IReadOnlyDictionary<string, int> counts, CancellationToken cancellation, TimeSpan? limit = null, TimeSpan? heartbeat = null,
+        Func<TimeSpan>? clock = null, Action? polled = null)
     {
         var watch = Stopwatch.StartNew();
+        clock ??= () => watch.Elapsed;
         var held = new PermitHandle(heartbeat);
         try
         {
@@ -90,16 +93,17 @@ public static class MachinePermits
                 var dir = Path.Combine(folder, resource);
                 Directory.CreateDirectory(dir);
                 var count = counts[resource];
-                var quiet = Stopwatch.StartNew();
+                var quietSince = clock();
                 var seen = Owners(dir, count);
                 FileStream? slot;
                 while ((slot = TryTake(dir, count)) == null)
                 {
                     // A permit changing hands or a holder's progress restarts the limit; one holder keeping its
                     // permit without either fails the wait.
-                    if (Owners(dir, count) is var now && now != seen) (seen, quiet) = (now, Stopwatch.StartNew());
-                    else if (quiet.Elapsed > limit)
+                    if (Owners(dir, count) is var now && now != seen) (seen, quietSince) = (now, clock());
+                    else if (clock() - quietSince > limit)
                         throw new TimeoutException($"No {resource} permit within {limit.Value.TotalMinutes:0.##} min without progress: {Holders(dir, count)}.");
+                    polled?.Invoke();
                     await Task.Delay(Poll, cancellation);
                 }
                 held.Add(slot);
