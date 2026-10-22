@@ -11,7 +11,10 @@ namespace Corvus.Core;
 /// </summary>
 public static class LockedJsonFile
 {
-    public static readonly TimeSpan DefaultTimeout = TimeSpan.FromSeconds(2);
+    /// <summary>How long an update waits for another writer of the same file before it reports the save as not made.</summary>
+    // A holder only reads, merges and writes one small file, so a wait costs nothing without contention; on a loaded
+    // machine that write took over 2 s, and a save that gives up loses the user's note or name.
+    public static readonly TimeSpan DefaultTimeout = TimeSpan.FromSeconds(30);
 
     /// <summary>What an update does with the file: write new bytes, delete it, or leave it untouched with a problem.</summary>
     public readonly record struct Change(byte[]? Bytes, bool Delete, string? Problem)
