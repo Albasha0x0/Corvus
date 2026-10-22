@@ -212,25 +212,47 @@ function Get-SkippedOnBoth([string]$remoteTrx, [string]$hereTrx, [string]$lastTr
         ForEach-Object Class | Sort-Object -Unique)
 }
 
+# Per class, the fewest summed test seconds of any push or whole run in $historyFile (corvus-test-history.jsonl).
+# Empty when the file is absent.
+function Get-FastestClassSeconds([string]$historyFile) {
+    $sums = @{}
+    if (-not (Test-Path $historyFile)) { return $sums }
+    $pattern = '^\{"kind":"test","run":"([^"]+)","mode":"(?:push|full)","name":"(?:[^"\\]|\\.)*","class":"([^"+]+)[^"]*","start":([-\d.eE]+),"end":([-\d.eE]+)'
+    foreach ($line in [IO.File]::ReadLines($historyFile)) {
+        if ($line -notmatch $pattern) { continue }
+        $key = "$($Matches[2])`t$($Matches[1])"
+        $sums[$key] = [double]$sums[$key] + [double]$Matches[4] - [double]$Matches[3]
+    }
+    $fastest = @{}
+    foreach ($key in $sums.Keys) {
+        $class = $key.Split("`t")[0]
+        if (-not $fastest.ContainsKey($class) -or $sums[$key] -lt $fastest[$class]) { $fastest[$class] = $sums[$key] }
+    }
+    $fastest
+}
+
 # Classes whose results in $remoteTrx prove less than in $localTrx (the last local whole run): a test skipped there
-# that ran here, or far less time than here (a test that returns early without its inputs). They run here.
-function Get-SkippedOnHost([string]$remoteTrx, [string]$localTrx) {
+# that ran here, or far less time than here (a test that returns early without its inputs). The time compared is the
+# fewer of the last local run's and the fastest in $fastest: a loaded machine runs a class many times slower than an
+# idle one, so the last local time alone would make a class on an idle host look short.
+function Get-SkippedOnHost([string]$remoteTrx, [string]$localTrx, [hashtable]$fastest = @{}) {
     $before = @{}; if (Test-Path $localTrx) { foreach ($c in Get-ClassOutcomes $localTrx) { $before[$c.Class] = $c } }
     @(Get-ClassOutcomes $remoteTrx | Where-Object {
         $here = $before[$_.Class]
-        ($_.Skipped -and -not ($here -and $here.Skipped)) -or ($here -and $here.Seconds -ge $script:ShortFloorSeconds -and $_.Seconds -lt $here.Seconds * $script:ShortShare)
+        $seconds = if (-not $here) { 0 } elseif ($fastest.ContainsKey($_.Class)) { [math]::Min($here.Seconds, $fastest[$_.Class]) } else { $here.Seconds }
+        ($_.Skipped -and -not ($here -and $here.Skipped)) -or ($seconds -ge $script:ShortFloorSeconds -and $_.Seconds -lt $seconds * $script:ShortShare)
     } | ForEach-Object Class | Sort-Object -Unique)
 }
 
 # The sent classes that rerun here after the remote half: those with a failed test there on any platform, those that
 # proved less there (Get-SkippedOnHost; for $mixed classes, whose IDA tests skip there, Get-SkippedOnBoth against this
 # run's $hereTrx), and those with no results there that ran here in $localTrx (all of them when there is no
-# $localTrx). Sorted; empty when the remote half covered every class.
-function Get-RerunClasses($got, [string[]]$sent, [string]$localTrx, [string[]]$mixed = @(), [string]$hereTrx = '') {
+# $localTrx). $fastest is Get-FastestClassSeconds. Sorted; empty when the remote half covered every class.
+function Get-RerunClasses($got, [string[]]$sent, [string]$localTrx, [string[]]$mixed = @(), [string]$hereTrx = '', [hashtable]$fastest = @{}) {
     $there = @{}; if ($got.Trx) { foreach ($c in Get-ClassOutcomes $got.Trx) { $there[$c.Class] = $true } }
     $ranHere = if (Test-Path $localTrx) { @(Get-ClassOutcomes $localTrx | ForEach-Object Class) } else { $null }
     $missing = @($sent | Where-Object { -not $there[$_] -and ($null -eq $ranHere -or $_ -in $ranHere) })
-    $short = if ($got.Trx) { @(Get-SkippedOnHost $got.Trx $localTrx | Where-Object { $_ -notin $mixed }) } else { @() }
+    $short = if ($got.Trx) { @(Get-SkippedOnHost $got.Trx $localTrx $fastest | Where-Object { $_ -notin $mixed }) } else { @() }
     $both = if ($got.Trx) { @(Get-SkippedOnBoth $got.Trx $hereTrx $localTrx $mixed) } else { @() }
     @(@($got.Failed | ForEach-Object Class) + $short + $both + $missing | Where-Object { $_ -in $sent } | Sort-Object -Unique)
 }
@@ -355,11 +377,11 @@ function Get-OffloadTarget([string]$repo, [bool]$releaseTier) {
 
 # Starts the remote half of $classes on $target; returns a handle for Receive-Offload. GitHub runs the offload job on
 # push by itself, so its handle waits for that run; a test host runs the classes it is sent.
-function Start-Offload($target, [string]$commit, [string[]]$classes, [bool]$releaseTier, [string]$module) {
+function Start-Offload($target, [string]$commit, [string[]]$classes, [bool]$releaseTier, [string]$module, [string[]]$mixed = @()) {
     switch ($target.Kind) {
         'ssh' {
             $id = [guid]::NewGuid().ToString('N').Substring(0, 12)
-            $script = Get-RemoteRunScript $commit (Get-ClassFilter $classes $releaseTier) $id
+            $script = Get-RemoteRunScript $commit (Get-ClassFilter $classes $releaseTier $mixed) $id
             Start-ThreadJob -ArgumentList $module, $target.Host, $script, $id -ScriptBlock {
                 param($module, $remoteHost, $script, $id)
                 Import-Module $module
@@ -616,4 +638,4 @@ function Receive-GitHubRun($state, [string]$folder) {
     $result
 }
 
-Export-ModuleMember -Function Invoke-Transport, Test-RemoteHost, Get-RemoteRunScript, Invoke-RemoteRun, Receive-RemoteRun, New-RemoteSnapshot, Invoke-RemoteFilter, Invoke-Gh, Wait-GitHubRun, Receive-GitHubRun, Get-RemoteClasses, Get-HeldClasses, Get-HostVariables, Get-RealDataVariables, Get-RemoteShard, Get-LocalFilter, Get-ClassFilter, Get-ClassOutcomes, Get-TestOutcomes, Get-SkippedOnHost, Get-SkippedOnBoth, Get-RerunClasses, Get-MixedClasses, Get-FailedThereNote, Join-TrxFiles, Get-TargetFileName, Save-RemoteRecord, Get-RemoteStatus, Get-OffloadTarget, Start-Offload, Receive-Offload
+Export-ModuleMember -Function Invoke-Transport, Test-RemoteHost, Get-RemoteRunScript, Invoke-RemoteRun, Receive-RemoteRun, New-RemoteSnapshot, Invoke-RemoteFilter, Invoke-Gh, Wait-GitHubRun, Receive-GitHubRun, Get-RemoteClasses, Get-HeldClasses, Get-HostVariables, Get-RealDataVariables, Get-RemoteShard, Get-LocalFilter, Get-ClassFilter, Get-ClassOutcomes, Get-TestOutcomes, Get-SkippedOnHost, Get-FastestClassSeconds, Get-SkippedOnBoth, Get-RerunClasses, Get-MixedClasses, Get-FailedThereNote, Join-TrxFiles, Get-TargetFileName, Save-RemoteRecord, Get-RemoteStatus, Get-OffloadTarget, Start-Offload, Receive-Offload

@@ -151,15 +151,25 @@ public sealed class TestRemoteTests : IDisposable
     public void Remote_results_join_the_local_ones_and_classes_that_skipped_there_rerun_here()
     {
         var remote = _dir.File("remote.trx");
-        File.WriteAllText(remote, Trx(("FormatSweepTests", "Failed"), ("RoundTripTests", "Passed"), ("ToolSweepTests", "NotExecuted"), ("LocalSkipTests", "NotExecuted"), ("EarlyTests", "Passed")));
+        File.WriteAllText(remote, Trx(("FormatSweepTests", "Failed"), ("RoundTripTests", "Passed"), ("ToolSweepTests", "NotExecuted"), ("LocalSkipTests", "NotExecuted"), ("EarlyTests", "Passed"), ("LoadedTests", "Passed@5")));
         var local = _dir.File("full.trx");
         File.WriteAllText(local, Trx(("PlainTests", "Passed")));
         var before = _dir.File("last.trx");
-        File.WriteAllText(before, Trx(("ToolSweepTests", "Passed"), ("LocalSkipTests", "NotExecuted"), ("EarlyTests", "Passed@40")));
+        File.WriteAllText(before, Trx(("ToolSweepTests", "Passed"), ("LocalSkipTests", "NotExecuted"), ("EarlyTests", "Passed@40"), ("LoadedTests", "Passed@400")));
+        var history = _dir.File("history.jsonl");
+        File.WriteAllLines(history, [
+            """{"kind":"run","run":"r1","mode":"push"}""",
+            """{"kind":"test","run":"r1","mode":"push","name":"Corvus.Tests.LoadedTests.M0","class":"LoadedTests","start":10,"end":13,"outcome":"Passed","wait":0}""",
+            """{"kind":"test","run":"r1","mode":"push","name":"Corvus.Tests.LoadedTests+Inner.M1","class":"LoadedTests+Inner","start":13,"end":16,"outcome":"Passed","wait":0}""",
+            """{"kind":"test","run":"r2","mode":"push","name":"Corvus.Tests.LoadedTests.M0","class":"LoadedTests","start":0,"end":90,"outcome":"Passed","wait":0}""",
+            """{"kind":"test","run":"r3","mode":"quick","name":"Corvus.Tests.EarlyTests.M0","class":"EarlyTests","start":0,"end":1,"outcome":"Passed","wait":0}"""]);
         var lines = TestReuseTests.Run($$"""
             Import-Module {{Module}}
             Import-Module {{Quote(Path.Combine(DocsTests.RepoRoot(), "test-reuse.psm1"))}}
-            $here = @(Get-SkippedOnHost {{Quote(remote)}} {{Quote(before)}})
+            $fastest = Get-FastestClassSeconds {{Quote(history)}}
+            'fastest=' + (($fastest.Keys | Sort-Object | ForEach-Object { "$_=$($fastest[$_])" }) -join ',')
+            'loaded=' + ((Get-SkippedOnHost {{Quote(remote)}} {{Quote(before)}}) -join ',')
+            $here = @(Get-SkippedOnHost {{Quote(remote)}} {{Quote(before)}} $fastest)
             'here=' + ($here -join ',')
             Join-TrxFiles {{Quote(local)}} @({{Quote(local)}}, {{Quote(remote)}}) $here
             'failed=' + ((Get-FailedTests {{Quote(local)}}) -join ',')
@@ -174,12 +184,14 @@ public sealed class TestRemoteTests : IDisposable
             """);
         if (lines is ["skip"]) return;
         // ToolSweepTests skipped a test there that ran here last time; LocalSkipTests skips here too; EarlyTests took 1 s
-        // there and 40 s here.
+        // there and 40 s here; LoadedTests took 5 s there, 400 s in the last run here and 6 s in the fastest push run.
+        Assert.Contains("fastest=LoadedTests=6", lines);
+        Assert.Contains("loaded=EarlyTests,LoadedTests,ToolSweepTests", lines);
         Assert.Contains("here=EarlyTests,ToolSweepTests", lines);
         Assert.Contains("failed=Corvus.Tests.FormatSweepTests.M0", lines);
         Assert.Contains("passed=Dotnet,DotnetEdits", lines);
-        Assert.Contains("classes=FormatSweepTests,LocalSkipTests,PlainTests,RoundTripTests", lines);
-        Assert.Contains("total=4", lines);
+        Assert.Contains("classes=FormatSweepTests,LoadedTests,LocalSkipTests,PlainTests,RoundTripTests", lines);
+        Assert.Contains("total=5", lines);
         Assert.Contains("status=github: FAILED (exit 1) on abc at now (3 classes, 12.5 s)", lines);
         Assert.Contains("running=github: running (results joined when the local tests end) on def at now (3 classes)", lines);
     }
@@ -250,10 +262,10 @@ public sealed class TestRemoteTests : IDisposable
             $env:CORVUS_TEST_REMOTE = 'tester@host2'
             $target = Get-OffloadTarget {{Quote(DocsTests.RepoRoot())}} $false
             'target=' + $target.Kind + ',' + $target.Name + ',' + ($target.Variables -join ',')
-            $got = Receive-Offload (Start-Offload $target 'abc123' @('FormatSweepTests', 'RoundTripTests') $false {{Module}}) {{Quote(Path.Combine(_dir.Path, "back"))}}
+            $got = Receive-Offload (Start-Offload $target 'abc123' @('FormatSweepTests', 'RoundTripTests') $false {{Module}} @('RoundTripTests')) {{Quote(Path.Combine(_dir.Path, "back"))}}
             'got=' + $got.Started + ',' + $got.Note + ',' + (($got.Failed | ForEach-Object { "$($_.Class)@$($_.Platform)" }) -join ',') + ',' + ([xml](Get-Content $got.Trx -Raw)).TestRun.ResultSummary.Counters.total
             $script = Get-Content {{Quote(sent)}} -Raw
-            'script=' + $script.Contains("cat-file -e 'abc123^{commit}'") + ',' + $script.Contains("--filter '(FullyQualifiedName~.FormatSweepTests|FullyQualifiedName~.RoundTripTests)&Tier!=Release'")
+            'script=' + $script.Contains("cat-file -e 'abc123^{commit}'") + ',' + $script.Contains("--filter '(FullyQualifiedName~.FormatSweepTests|(FullyQualifiedName~.RoundTripTests&Engine!=ida))&Tier!=Release'")
             $env:CORVUS_TEST_REMOTE = 'tester@down'
             'down=' + ((Get-OffloadTarget {{Quote(DocsTests.RepoRoot())}} $false).Kind -ne 'ssh')
             $late = Receive-RemoteRun @{ Kind = 'ssh'; Host = 'tester@host2'; Output = @('corvus-remote: the commit did not reach the host from origin in 120 s') } {{Quote(Path.Combine(_dir.Path, "late"))}}

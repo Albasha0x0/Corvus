@@ -103,7 +103,7 @@ if ($RemoteRun) {
     if (-not $classes) { Write-Host "Shard $Shard of $(if ($Group) { $Group } else { 'every group' }) has no class."; exit 0 }
     Write-Host "Shard $Shard of $(if ($Group) { $Group } else { 'every group' }): $($classes -join ', ')"
     $env:CORVUS_ALL_TESTS = '1'; $env:CORVUS_SWEEP = if ($Exhaustive) { 'exhaustive' } else { $null }
-    & dotnet test $tests --nologo -c Release --filter (Get-ClassFilter $classes $Exhaustive.IsPresent) --logger 'trx;LogFileName=offload.trx' `
+    & dotnet test $tests --nologo -c Release --filter (Get-ClassFilter $classes $Exhaustive.IsPresent (Get-MixedClasses $tests)) --logger 'trx;LogFileName=offload.trx' `
         --results-directory (Join-Path $root 'TestResults') --blame-hang --blame-hang-timeout 30m --blame-hang-dump-type mini
     exit $LASTEXITCODE
 }
@@ -673,7 +673,7 @@ if ($offload) {
     $offloadRecord = [ordered]@{ target = $offload.Name; commit = (git -C $root rev-parse --short HEAD).Trim(); at = (Get-Date -Format 'yyyy-MM-dd HH:mm'); classes = $sent.Count; held = $held.Count; state = 'running'; seconds = $null; note = $null }
     if ($sent) {
         $offloadClock = [Diagnostics.Stopwatch]::StartNew()
-        $offloadHandle = Start-Offload $offload (git -C $root rev-parse HEAD).Trim() $sent ($runFilter -notmatch 'Tier!=Release') (Join-Path $root 'test-remote.psm1')
+        $offloadHandle = Start-Offload $offload (git -C $root rev-parse HEAD).Trim() $sent ($runFilter -notmatch 'Tier!=Release') (Join-Path $root 'test-remote.psm1') $mixed
         $runFilter = Get-LocalFilter $runFilter $sent $mixed
         Write-Host "Offloading $($sent.Count) classes to $($offload.Name); the rest run here."
     }
@@ -724,7 +724,7 @@ try {
         $here = @(); $notes = @()
         if (-not $got.Started) { $here = $sent; $offloadRecord.state = 'not run there'; $notes += "$($got.Note); its classes ran here" }
         else {
-            $here = @(Get-RerunClasses $got $sent $lastTrx $mixed $trx)
+            $here = @(Get-RerunClasses $got $sent $lastTrx $mixed $trx (Get-FastestClassSeconds $timeHistory))
             $offloadRecord.state = if ($got.Failed) { "failed on $($offload.Name)" } else { 'passed' }
             if ($got.Note -notmatch '^run \d+$') { $notes += $got.Note }
             if ($got.Trx) {
