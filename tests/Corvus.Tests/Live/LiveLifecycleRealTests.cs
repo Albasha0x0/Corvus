@@ -243,12 +243,15 @@ public sealed class LiveLifecycleRealTests(ITestOutputHelper output) : LiveToolC
     private async Task StuckExit(LiveTarget target, bool attach)
     {
         var exe = Build(target);
+        var folder = Path.GetDirectoryName(exe)!;
+        foreach (var stale in Directory.GetFiles(folder, "hold-*")) File.Delete(stale);
         const int together = 5;
         await using var server = await Server();
-        int next = 0;
+        int next = 0, held = 0;
         // two rounds of five sessions at once, each program held in its exit
         for (int round = 0; round < Runs / together; round++)
         {
+            var heldBefore = held;
             var sessions = new List<(string Session, int Pid, Process? Program)>();
             try
             {
@@ -278,10 +281,22 @@ public sealed class LiveLifecycleRealTests(ITestOutputHelper output) : LiveToolC
                     var exited = await UntilExited(server, session, seconds: 60);
                     Output.WriteLine($"{session}: exited {sw.Elapsed.TotalSeconds:F1} s after the start");
                     Assert.Matches(@"exit code 7(?![0-9xX])", exited);
-                    Assert.Contains("called ExitProcess(7) but its exit did not finish in 10 s", await Events(server, session, kind: "error"));
+                    var errors = await Events(server, session, kind: "error");
+                    // The program's hold-<pid> marks a hold entered: Windows can end the exit without the TLS callback
+                    // (1 in 10 quiet, more under load; cause unconfirmed, perhaps a loader lock a terminated thread held).
+                    if (File.Exists(Path.Combine(folder, $"hold-{pid}")))
+                    {
+                        held++;
+                        Assert.Contains("called ExitProcess(7) but its exit did not finish in 10 s", errors);
+                    }
+                    else
+                    {
+                        Assert.DoesNotContain("called ExitProcess", errors);
+                        Output.WriteLine($"{session}: the program finished its exit without entering its hold");
+                    }
                     Ended(pid);
                 }
-                Assert.True(sw.Elapsed.TotalSeconds >= 9.5, $"exited {sw.Elapsed} after the start");
+                if (held > heldBefore) Assert.True(sw.Elapsed.TotalSeconds >= 9.5, $"exited {sw.Elapsed} after the start");
                 PerfBudget.Time($"live/stuck-exit-end/{target.Name}", sw.Elapsed, TimeSpan.FromSeconds(40), Output);
                 foreach (var (session, pid, _) in sessions) await CloseReleased(server, session, pid);
             }
@@ -295,6 +310,7 @@ public sealed class LiveLifecycleRealTests(ITestOutputHelper output) : LiveToolC
                 }
             }
         }
+        Assert.True(held > 0, "no program entered its hold");
     }
 
     // ---- a start that fails after the program is running

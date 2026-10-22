@@ -267,7 +267,8 @@ internal static class LivePrograms
     /// lifecycle [steps] [calls]: steps joined by '+'; "line" waits for a line on stdin, "sleep" pauses 10 minutes, then
     /// AddLine runs that many times (default 1000), the program prints the line count and ends: "fastexit" by _exit(3),
     /// "fault" by a write through a null pointer, "stuck" by returning 7 with a TLS callback that holds the exit forever
-    /// (MSVC), otherwise by returning 5. AtExit is registered with atexit.
+    /// and first creates hold-&lt;pid&gt; beside the program (MSVC), otherwise by returning 5.
+    /// AtExit is registered with atexit.
     /// </summary>
     public const string Lifecycle = Platform + """
         #include <string.h>
@@ -284,7 +285,22 @@ internal static class LivePrograms
             g_sink += 1;
         }
         #ifdef _MSC_VER
-        static void NTAPI OnTls(PVOID h, DWORD reason, PVOID r) { if (reason == DLL_PROCESS_DETACH && g_stuck) for (;;) Sleep(10); }
+        static void NTAPI OnTls(PVOID h, DWORD reason, PVOID r)
+        {
+            if (reason != DLL_PROCESS_DETACH || !g_stuck) return;
+            // hold-<pid> beside the program marks the hold entered; built by hand, as the C runtime has ended.
+            char path[MAX_PATH + 32], digits[16];
+            DWORD len = GetModuleFileNameA(NULL, path, MAX_PATH), pid = GetCurrentProcessId();
+            int d = 0;
+            while (len > 0 && path[len - 1] != '\\') len--;
+            memcpy(path + len, "hold-", 5);
+            len += 5;
+            do { digits[d++] = (char)('0' + pid % 10); pid /= 10; } while (pid);
+            while (d) path[len++] = digits[--d];
+            path[len] = 0;
+            CloseHandle(CreateFileA(path, GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, 0, NULL));
+            for (;;) Sleep(10);
+        }
         #ifdef _M_IX86
         #pragma comment(linker, "/INCLUDE:__tls_used")
         #pragma comment(linker, "/INCLUDE:_tls_callback")
