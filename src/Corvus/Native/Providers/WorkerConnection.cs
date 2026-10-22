@@ -53,6 +53,8 @@ public sealed class WorkerConnection : IDisposable
     private readonly BlockingCollection<(byte[] Line, TaskCompletionSource Written)> _writes = [];
     private long _nextId;
     private int _waiting;
+    // Environment.TickCount64 of the last stdout line: a live worker reports progress every 2 s.
+    private long _lastLineTicks = Environment.TickCount64;
     private string? _killReason;
     private int _disposed;
 
@@ -138,6 +140,18 @@ public sealed class WorkerConnection : IDisposable
             _remediation(ErrorCode.Timeout, "start"));
     }
 
+    /// <summary>
+    /// The request's last stage and how long ago the worker last wrote, so a busy worker is told from one that stopped
+    /// answering; empty when there is neither.
+    /// </summary>
+    private string Activity(long id)
+    {
+        string? stage;
+        lock (_sync) stage = _running.TryGetValue(id, out var r) ? r.Stage : null;
+        var quiet = TimeSpan.FromMilliseconds(Environment.TickCount64 - Volatile.Read(ref _lastLineTicks));
+        return (stage != null ? $" Last stage: {stage}." : "") + $" Last worker message: {Seconds(quiet)} ago.";
+    }
+
     /// <summary>The stall report of the running worker as a message suffix, or empty.</summary>
     private string Stall()
     {
@@ -202,9 +216,11 @@ public sealed class WorkerConnection : IDisposable
                 Kill($"'{op}' cancelled");
                 throw new OperationCanceledException(cancellationToken);
             }
+            var activity = Activity(id);
             var stall = Stall();
             Kill($"'{op}' timed out");
-            throw new ToolError(ErrorCode.Timeout, $"{_name} did not finish '{op}' within {Seconds(timeout)}; the worker was stopped.{stall}",
+            throw new ToolError(ErrorCode.Timeout,
+                $"{_name} did not finish '{op}' within {Seconds(timeout)}; the worker was stopped.{activity}{stall}{StderrSuffix()}",
                 _remediation(ErrorCode.Timeout, op));
         }
         finally
@@ -324,6 +340,7 @@ public sealed class WorkerConnection : IDisposable
             using var reader = new StreamReader(_process.StandardOutput, new UTF8Encoding(false), false, 4096, leaveOpen: true);
             while (reader.ReadLine() is { } line)
             {
+                Volatile.Write(ref _lastLineTicks, Environment.TickCount64);
                 switch (WorkerProtocol.Parse(line))
                 {
                     case WorkerMessage.Response r:
