@@ -84,6 +84,8 @@ if (-not $Perf) {
     Import-Module (Join-Path $root 'test-reuse.psm1') -Force
     Set-RunPriority
 }
+# MSBuild's worker nodes set their own priority, normal unless the build asks for low, so a lowered run asks for low.
+$buildPriority = @(if ((Get-Process -Id $PID).PriorityClass -in 'BelowNormal', 'Idle') { '-lowPriority:true' })
 
 # A filter run on the test host (test-remote.psm1): the working tree as it is, $Repeat times, one script at a time
 # there; failed runs' TRX files come back to TestResults/remote.
@@ -103,7 +105,7 @@ if ($RemoteRun) {
     if (-not $classes) { Write-Host "Shard $Shard of $(if ($Group) { $Group } else { 'every group' }) has no class."; exit 0 }
     Write-Host "Shard $Shard of $(if ($Group) { $Group } else { 'every group' }): $($classes -join ', ')"
     $env:CORVUS_ALL_TESTS = '1'; $env:CORVUS_SWEEP = if ($Exhaustive) { 'exhaustive' } else { $null }
-    & dotnet test $tests --nologo -c Release --filter (Get-ClassFilter $classes $Exhaustive.IsPresent (Get-MixedClasses $tests)) --logger 'trx;LogFileName=offload.trx' `
+    & dotnet test $tests --nologo @buildPriority -c Release --filter (Get-ClassFilter $classes $Exhaustive.IsPresent (Get-MixedClasses $tests)) --logger 'trx;LogFileName=offload.trx' `
         --results-directory (Join-Path $root 'TestResults') --blame-hang --blame-hang-timeout 30m --blame-hang-dump-type mini
     exit $LASTEXITCODE
 }
@@ -208,7 +210,7 @@ if ($Perf) {
         $serial = @('--', 'xUnit.MaxParallelThreads=1', 'xUnit.ParallelizeTestCollections=false')
         Start-RunTiming 'perf'
         $perfFilter = if ($Filter) { "Perf=Timing&($Filter)" } else { 'Perf=Timing' }
-        & dotnet test $tests --nologo --filter $perfFilter --logger 'trx;LogFileName=full.trx' --results-directory $results @serial
+        & dotnet test $tests --nologo @buildPriority --filter $perfFilter --logger 'trx;LogFileName=full.trx' --results-directory $results @serial
         $code = $LASTEXITCODE
         $trx = Join-Path $results 'full.trx'
         Save-RunTimes $trx 'perf' $code @{ heavyWait = $waited }
@@ -221,7 +223,7 @@ if ($Perf) {
             param($pending)
             $script:sample++
             $out = Join-Path $results "sample-$script:sample"
-            & dotnet test $tests --nologo --no-build --filter (($pending | ForEach-Object { "FullyQualifiedName~$_" }) -join '|') `
+            & dotnet test $tests --nologo @buildPriority --no-build --filter (($pending | ForEach-Object { "FullyQualifiedName~$_" }) -join '|') `
                 --logger 'trx;LogFileName=sample.trx' --results-directory $out @serial | Out-Host
             $sampleTrx = Join-Path $out 'sample.trx'
             # A sample that wrote no results counts as over budget for every test in it.
@@ -233,7 +235,7 @@ if ($Perf) {
         $candidates = @(Get-Regressions | Where-Object { $_ -like "test`t*" } | ForEach-Object { ($_ -split "`t")[1] })
         for ($extra = 2; $extra -le 5 -and $candidates; $extra++) {
             $out = Join-Path $results "baseline-$extra"
-            & dotnet test $tests --nologo --no-build --filter (($candidates | ForEach-Object { "FullyQualifiedName~$_" }) -join '|') `
+            & dotnet test $tests --nologo @buildPriority --no-build --filter (($candidates | ForEach-Object { "FullyQualifiedName~$_" }) -join '|') `
                 --logger 'trx;LogFileName=sample.trx' --results-directory $out @serial | Out-Host
             if (Test-Path (Join-Path $out 'sample.trx')) { $samples.Add((Join-Path $out 'sample.trx')) }
         }
@@ -283,7 +285,7 @@ if ($Mutation) {
     finally { Pop-Location }
     if ($LASTEXITCODE -ne 0) { Write-Host "Stryker failed ($LASTEXITCODE); output in $out." -ForegroundColor Red; exit $LASTEXITCODE }
     $env:CORVUS_MUTATION_REPORT = $out
-    try { & dotnet test $tests --nologo --filter 'FullyQualifiedName~MutationTests' -p:CORVUS_ALL_TESTS=1 }
+    try { & dotnet test $tests --nologo @buildPriority --filter 'FullyQualifiedName~MutationTests' -p:CORVUS_ALL_TESTS=1 }
     finally { Remove-Item Env:CORVUS_MUTATION_REPORT }
     $code = $LASTEXITCODE
     $summary = Join-Path $out 'summary.txt'
@@ -461,7 +463,7 @@ if (-not ($Full -or $All -or $Affected -or $Filter -or $Coverage -or $CoverageMa
             Write-Host "Changed since ${Base}: $($changed.Count) files; quick tests of $($families -join ', ')."
             $results = Join-Path $tempRoot "corvus-trx-$PID"
             Start-RunTiming 'quick'
-            & dotnet test $tests --nologo --filter $quickFilter --logger 'trx;LogFileName=full.trx' --results-directory $results
+            & dotnet test $tests --nologo @buildPriority --filter $quickFilter --logger 'trx;LogFileName=full.trx' --results-directory $results
             $code = $LASTEXITCODE
             Save-RunTimes (Join-Path $results 'full.trx') 'quick' $code
             if (Test-Path $results) { Remove-Item -Recurse -Force $results }
@@ -563,7 +565,7 @@ function Invoke-SecondGhidra {
     # CORVUS_TEST_ENGINE=ghidra: the IDA-only tests skip; another Ghidra version cannot change them
     $saved = $env:CORVUS_GHIDRA_DIR, $env:CORVUS_ALL_TESTS, $env:CORVUS_TEST_ENGINE
     $env:CORVUS_GHIDRA_DIR = $env:CORVUS_SECOND_GHIDRA_DIR; $env:CORVUS_ALL_TESTS = '1'; $env:CORVUS_TEST_ENGINE = 'ghidra'
-    try { & dotnet test $tests --nologo --filter $filter --logger 'trx;LogFileName=second.trx' --results-directory $results | Out-Host; $code = $LASTEXITCODE }
+    try { & dotnet test $tests --nologo @buildPriority --filter $filter --logger 'trx;LogFileName=second.trx' --results-directory $results | Out-Host; $code = $LASTEXITCODE }
     finally { $env:CORVUS_GHIDRA_DIR, $env:CORVUS_ALL_TESTS, $env:CORVUS_TEST_ENGINE = $saved }
     $trx = Join-Path $results 'second.trx'
     if ($key) {
@@ -586,14 +588,14 @@ if ($SecondGhidra) { exit (Invoke-SecondGhidra) }
 if ($CoverageMap) {
     Import-Module (Join-Path $root 'test-reuse.psm1') -Force
     $classMap = Get-ClassMap $tests
-    & dotnet build $tests --nologo -v q
+    & dotnet build $tests --nologo @buildPriority -v q
     if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
     $slow = @(Get-SlowClasses (Join-Path $gitDir 'corvus-last-run.trx'))
     $families = [ordered]@{}; $classes = [ordered]@{}
     function Get-MapFiles([string]$name, [string[]]$classNames) {
         $out = Join-Path $tempRoot "corvus-map-$PID-$name"
         $filter = ($classNames | ForEach-Object { "FullyQualifiedName~.$_" }) -join '|'
-        & dotnet test $tests --nologo --no-build --filter $filter --results-directory $out --collect 'XPlat Code Coverage' -- `
+        & dotnet test $tests --nologo @buildPriority --no-build --filter $filter --results-directory $out --collect 'XPlat Code Coverage' -- `
             'DataCollectionRunSettings.DataCollectors.DataCollector.Configuration.Include=[corvus]*' | Out-Null
         $report = Get-ChildItem $out -Recurse -Filter coverage.cobertura.xml -ErrorAction SilentlyContinue | Select-Object -First 1
         $result = if ($report) { [pscustomobject]@{ Files = @(Get-CoveredFiles $report.FullName $root) } } else { $null }
@@ -636,7 +638,7 @@ if ($wholeSuite -and (Get-CleanTree)) {
     }
     else { $coveredBy = Read-CoverageMap $coverageMapFile }
     # The tools found outside the settings come from the test assembly's own table, so it is built first.
-    & dotnet build $tests --nologo -v q | Out-Null
+    & dotnet build $tests --nologo @buildPriority -v q | Out-Null
     $built = $LASTEXITCODE -eq 0
     $familyKeys = Get-FamilyKeys $treeLines @($classMap.Keys) $readers (Get-RunEnvironment -tools (Get-LocatedTools $tests)) $coveredBy
     if (-not $coveredBy) { Write-Host 'No coverage map from the last week (./test.ps1 -CoverageMap): shared code keys every family.' }
@@ -661,7 +663,7 @@ if ($Full) {
     if ($missingEngines) { Write-Host "Engine tests will be skipped: $($missingEngines -join ', ')." -ForegroundColor Yellow }
 }
 
-$arguments = @('test', $tests, '--nologo')
+$arguments = @('test', $tests, '--nologo') + $buildPriority
 if ($built) { $arguments += '--no-build' }
 # Measurements, accuracy oracles and the largest inputs (Tier=Release) run at release strength only; a filter given
 # on the command line and coverage runs (the floors count them) keep them.
@@ -756,7 +758,7 @@ try {
         $hereTrx = Join-Path $results 'here/here.trx'
         if ($here) {
             Write-Host "Running here what $($offload.Name) did not prove: $($here.Count) classes."
-            & dotnet test $tests --nologo --no-build --filter (Get-ClassFilter $here ($runFilter -notmatch 'Tier!=Release') $mixed) --logger 'trx;LogFileName=here.trx' --results-directory (Join-Path $results 'here') | Out-Host
+            & dotnet test $tests --nologo @buildPriority --no-build --filter (Get-ClassFilter $here ($runFilter -notmatch 'Tier!=Release') $mixed) --logger 'trx;LogFileName=here.trx' --results-directory (Join-Path $results 'here') | Out-Host
             if ($LASTEXITCODE -ne 0 -and $code -eq 0) { $code = $LASTEXITCODE }
             Join-TrxFiles $trx @($trx, $hereTrx) @() $mixed
         }
@@ -809,7 +811,7 @@ try {
         if ($Full -and $code -ne 0 -and $split.Blocking -and -not $Coverage) {
             $again = @($split.Blocking | Select-Object -First 25)
             $rerun = Join-Path $results 'rerun'
-            & dotnet test $tests --nologo --no-build --filter (($again | ForEach-Object { "FullyQualifiedName~$_" }) -join '|') `
+            & dotnet test $tests --nologo @buildPriority --no-build --filter (($again | ForEach-Object { "FullyQualifiedName~$_" }) -join '|') `
                 --logger 'trx;LogFileName=rerun.trx' --results-directory $rerun | Out-Host
             $rerunTrx = Join-Path $rerun 'rerun.trx'
             $passedAgain = $null
@@ -847,7 +849,7 @@ try {
             # Instrumentation slows every test, so timing budgets can fail here; the plain full run gates them, this run gates the floors.
             if ($code -ne 0) { Write-Host 'Some tests failed under coverage instrumentation (timing budgets are expected to); the floor check decides this run.' -ForegroundColor Yellow }
             $env:CORVUS_COVERAGE_REPORT = $results
-            try { & dotnet test $tests --nologo --no-build --filter 'FullyQualifiedName~CoverageFloorTests' }
+            try { & dotnet test $tests --nologo @buildPriority --no-build --filter 'FullyQualifiedName~CoverageFloorTests' }
             finally { Remove-Item Env:CORVUS_COVERAGE_REPORT }
             $code = $LASTEXITCODE
         }

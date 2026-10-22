@@ -264,6 +264,7 @@ internal static class Tools
     {
         var psi = new ProcessStartInfo("dotnet") { WorkingDirectory = workingDirectory ?? "" };
         foreach (var a in args) psi.ArgumentList.Add(a);
+        if (args is [var verb, ..] && MSBuildVerbs.Contains(verb)) foreach (var a in BuildPriority()) psi.ArgumentList.Insert(1, a);
         foreach (var key in psi.Environment.Keys.Where(k => k.StartsWith("MSBuild", StringComparison.OrdinalIgnoreCase)).ToList()) psi.Environment.Remove(key);
         psi.Environment["MSBUILDDISABLENODEREUSE"] = "1";
         psi.Environment["DOTNET_CLI_USE_MSBUILD_SERVER"] = "0";
@@ -287,6 +288,22 @@ internal static class Tools
             try { Directory.Delete(temp, true); }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
         }
+    }
+
+    private static readonly string[] MSBuildVerbs = ["build", "publish", "pack", "test", "msbuild", "restore"];
+
+    /// <summary>
+    /// The MSBuild switch that keeps a build's worker nodes at this process's lowered priority, or none when it runs at
+    /// normal priority or higher: the nodes set their own priority, normal unless the switch asks for low.
+    /// </summary>
+    public static string[] BuildPriority()
+    {
+        try
+        {
+            using var self = Process.GetCurrentProcess();
+            return self.PriorityClass is ProcessPriorityClass.BelowNormal or ProcessPriorityClass.Idle ? ["-lowPriority:true"] : [];
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or System.ComponentModel.Win32Exception or PlatformNotSupportedException) { return []; }
     }
 
     /// <summary>
