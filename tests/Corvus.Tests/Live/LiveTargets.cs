@@ -409,6 +409,30 @@ internal static class LivePrograms
         EXPORT int PluginOther(int i) { return i * 2; }
         """;
 
+    /// <summary>children (Linux): prints "ready", reads a line, then prints how many SIGCHLD signals it received ("children N").</summary>
+    public const string ChildSignals = """
+        #include <signal.h>
+        #include <stdio.h>
+        #include <string.h>
+        static volatile sig_atomic_t g_children;
+        static void OnChild(int sig) { (void)sig; g_children++; }
+        int main(void)
+        {
+            struct sigaction sa;
+            memset(&sa, 0, sizeof sa);
+            sa.sa_handler = OnChild;
+            sa.sa_flags = SA_RESTART;
+            sigaction(SIGCHLD, &sa, NULL);
+            char line[16];
+            printf("ready\n");
+            fflush(stdout);
+            if (!fgets(line, sizeof line, stdin)) return 9;
+            printf("children %d\n", (int)g_children);
+            fflush(stdout);
+            return 0;
+        }
+        """;
+
     /// <summary>loader [library] [calls]: loads the library after a pause, calls PluginWork and PluginOther that many times, prints the sum.</summary>
     public const string Loader = Platform + """
         #ifndef _WIN32

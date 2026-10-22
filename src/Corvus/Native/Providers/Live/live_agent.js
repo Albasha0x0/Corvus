@@ -295,8 +295,32 @@ if (typeof Process.attachModuleObserver === 'function') {
     onRemoved(m) { if (observing) send({ type: 'module', action: 'unloaded', module: moduleRow(m) }); },
   });
 }
+// The program's thread ids, without Frida's own. On Linux, Process.enumerateThreads and the thread observer's first
+// attach read every thread's registers through a helper process that ptrace-attaches it, and a helper whose thread
+// never stops waits forever: under load a session's open hung in the script's load that way. Workaround for
+// frida/frida-gum#1196, tested on Frida 17.24.3, no fix yet: /proc lists the ids without a helper.
+const readTaskDir = (() => {
+  if (Process.platform !== 'linux') return null;
+  const [open, read, close] = ['opendir', 'readdir64', 'closedir'].map(globalExport);
+  if (open === null || read === null || close === null) return null;
+  return { open: new NativeFunction(open, 'pointer', ['pointer']), read: new NativeFunction(read, 'pointer', ['pointer']),
+    close: new NativeFunction(close, 'int', ['pointer']), path: Memory.allocUtf8String('/proc/self/task') };
+})();
+function threadIds() {
+  if (readTaskDir === null) return Process.enumerateThreads().map(t => t.id);
+  const dir = readTaskDir.open(readTaskDir.path), ids = [];
+  if (dir.isNull()) return ids;
+  // In struct dirent64 d_name follows d_ino (8 bytes), d_off (8), d_reclen (2) and d_type (1) on every architecture.
+  for (let entry = readTaskDir.read(dir); !entry.isNull(); entry = readTaskDir.read(dir)) {
+    const id = parseInt(entry.add(19).readUtf8String(), 10);
+    if (id > 0 && !(typeof Cloak !== 'undefined' && Cloak.hasThread(id))) ids.push(id);
+  }
+  readTaskDir.close(dir);
+  return ids;
+}
+
 // every thread id reported; an ended thread stays, since the thread list can still name it for a moment
-const threads = new Set(Process.enumerateThreads().map(t => t.id));
+const threads = new Set(threadIds());
 
 function threadStarted(id) {
   if (threads.has(id)) return;
@@ -304,12 +328,35 @@ function threadStarted(id) {
   send({ type: 'thread', action: 'started', tid: id });
 }
 
-let threadObserver = null;
-if (typeof Process.attachThreadObserver === 'function') {
+// Thread ends: from the observer, or on Linux from a scan of /proc every THREAD_SCAN_MS, which reports each id once.
+const THREAD_SCAN_MS = 200;
+const endedThreads = new Set();
+function scanThreads() {
+  const running = new Set(threadIds());
+  for (const id of threads) {
+    if (running.has(id) || endedThreads.has(id)) continue;
+    endedThreads.add(id);
+    if (observing) send({ type: 'thread', action: 'ended', tid: id });
+  }
+}
+let threadObserver = null, threadScan = null;
+if (readTaskDir !== null) {
+  threadScan = setInterval(scanThreads, THREAD_SCAN_MS);
+} else if (typeof Process.attachThreadObserver === 'function') {
   threadObserver = Process.attachThreadObserver({
     onAdded(t) { if (observing) threadStarted(t.id); },
     onRemoved(t) { if (observing) send({ type: 'thread', action: 'ended', tid: t.id }); },
   });
+}
+function stopThreadEvents() {
+  if (threadObserver !== null) {
+    threadObserver.detach();
+    threadObserver = null;
+  }
+  if (threadScan !== null) {
+    clearInterval(threadScan);
+    threadScan = null;
+  }
 }
 function globalExport(name) {
   return typeof Module.findGlobalExportByName === 'function' ? Module.findGlobalExportByName(name) : Module.findExportByName(null, name);
@@ -383,6 +430,7 @@ Process.setExceptionHandler(d => {
 let exiting = false;
 function beforeExit(code) {
   const tid = Process.getCurrentThreadId();
+  if (threadScan !== null) scanThreads();
   flushAll();
   exiting = true;
   expect('exit-' + tid);
@@ -559,10 +607,7 @@ rpc.exports = {
     // Observers go first: a callback on a Frida thread during the unload faults
     // in the script runtime. Workaround for frida/frida-gum#1194: fails on
     // 17.23.3 to 17.24.3; no fix release yet.
-    if (threadObserver !== null) {
-      threadObserver.detach();
-      threadObserver = null;
-    }
+    stopThreadEvents();
     if (moduleObserver !== null) {
       moduleObserver.detach();
       moduleObserver = null;

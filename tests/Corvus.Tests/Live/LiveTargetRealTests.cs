@@ -131,6 +131,34 @@ public sealed class LiveTargetRealTests(ITestOutputHelper output) : LiveToolCall
         Ended(pid);
     }
 
+    // ---- a session reads the program's threads without starting a process in it
+
+    [LiveTargetFact("linux-x64", attaches: true)] public Task A_session_starts_no_process_in_the_program_on_linux_x64() => NoProcessStarted(LiveTarget.LinuxX64);
+    [LiveTargetFact("linux-x86", attaches: true)] public Task A_session_starts_no_process_in_the_program_on_linux_x86() => NoProcessStarted(LiveTarget.LinuxX86);
+
+    // Frida reads a thread's registers through a process it starts in the program, which signals SIGCHLD when it ends;
+    // a session that reads only thread ids starts none, so the program counts no SIGCHLD.
+    private async Task NoProcessStarted(LiveTarget target)
+    {
+        var exe = target.Build(_dir, "children", LivePrograms.ChildSignals);
+        using var program = Process.Start(new ProcessStartInfo(exe) { RedirectStandardInput = true, RedirectStandardOutput = true, UseShellExecute = false })!;
+        Assert.Equal("ready", program.StandardOutput.ReadLine());
+        await using var server = await Server();
+        if (Corvus.Native.Live.PtraceScope.Refusing(started: false) is not null)
+        {
+            program.Kill();
+            return;
+        }
+        await Ok(server, "live_session", new() { ["action"] = "attach", ["program"] = $"{program.Id}" });
+        // Long enough for several thread scans.
+        await Task.Delay(1000);
+        await Ok(server, "live_session", new() { ["action"] = "close", ["session"] = "live-1" });
+        program.StandardInput.WriteLine("go");
+        program.StandardInput.Flush();
+        Assert.Equal("children 0", program.StandardOutput.ReadLine());
+        Assert.True(program.WaitForExit(30_000));
+    }
+
     // ---- attach to a running program; close leaves it running
 
     [LiveTargetFact("win-x64")] public Task Attach_on_win_x64() => Attach(LiveTarget.WinX64);
