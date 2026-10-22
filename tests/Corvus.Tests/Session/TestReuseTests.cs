@@ -168,6 +168,67 @@ public class TestReuseTests
 
     [Fact]
     [Trait("Speed", "Slow")]
+    public void A_class_mapped_on_its_own_reruns_only_when_its_own_files_change()
+    {
+        var module = Path.Combine(DocsTests.RepoRoot(), "test-reuse.psm1");
+        var dir = Path.Combine(Path.GetTempPath(), $"corvus-reuse-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(dir);
+        var map = Path.Combine(dir, "map.json");
+        File.WriteAllText(map, $$"""
+            { "at": "{{DateTime.Now:yyyy-MM-dd HH:mm}}", "families": { "Mobile": ["src/Corvus/Core/Dex.cs"], "Containers": ["src/Corvus/Core/Zip.cs"] },
+              "classes": { "JavapC": { "family": "Mobile", "files": ["src/Corvus/Core/Jvm.cs"] } } }
+            """);
+        var trx = Path.Combine(dir, "run.trx");
+        File.WriteAllText(trx, """
+            <TestRun xmlns="http://microsoft.com/schemas/VisualStudio/TeamTest/2010">
+              <Results>
+                <UnitTestResult testId="1" duration="00:00:20.0000000" outcome="Passed" />
+                <UnitTestResult testId="2" duration="00:00:15.0000000" outcome="Passed" />
+                <UnitTestResult testId="3" duration="00:00:01.0000000" outcome="Passed" />
+              </Results>
+              <TestDefinitions>
+                <UnitTest id="1"><TestMethod className="Corvus.Tests.JavapC" name="A" /></UnitTest>
+                <UnitTest id="2"><TestMethod className="Corvus.Tests.JavapC+Nested" name="B" /></UnitTest>
+                <UnitTest id="3"><TestMethod className="Corvus.Tests.DexD" name="C" /></UnitTest>
+              </TestDefinitions>
+            </TestRun>
+            """);
+        try
+        {
+            var lines = Run($$"""
+                Import-Module '{{module.Replace("'", "''")}}'
+                'slow=' + ((Get-SlowClasses '{{trx}}') -join ',')
+                'folded=' + ((Read-CoverageMap '{{map}}')['src/Corvus/Core/Jvm.cs'] -join ',')
+                $cc = Read-ClassCoverage '{{map}}'
+                $m = Split-ClassMap @{ Mobile = @('JavapC', 'DexD'); Containers = @('ZipE') } $cc
+                'split=' + (($m.Keys | Sort-Object | ForEach-Object { "$_=$($m[$_] -join '+')" }) -join ',')
+                $base = "100644 blob j1`tsrc/Corvus/Core/Jvm.cs", "100644 blob z1`tsrc/Corvus/Core/Zip.cs", "100644 blob t1`ttests/Corvus.Tests/Mobile/DexD.cs"
+                $paths = $base | ForEach-Object { $_.Substring($_.IndexOf("`t") + 1) }
+                $c = Add-ClassTestScopes (Read-CoverageMap '{{map}}' -Classes) $cc $paths
+                $f = @($m.Keys)
+                $k0 = Get-FamilyKeys $base $f @() 'env' $c
+                function Changed($lines) { $k = Get-FamilyKeys $lines $f @() 'env' $c; ($f | Sort-Object | Where-Object { $k[$_] -ne $k0[$_] }) -join ',' }
+                'reader=' + (Changed ($base -replace 'j1', 'j2'))
+                'other=' + (Changed ($base -replace 'z1', 'z2'))
+                'test=' + (Changed ($base -replace 't1', 't2'))
+                'filter=' + (Get-ReuseFilter @('class:JavapC') $m)
+                """);
+            if (lines is ["skip"]) return; // no pwsh on this machine
+            string Line(string name) => lines.Single(l => l.StartsWith(name + "=")).Substring(name.Length + 1);
+            Assert.Equal("JavapC", Line("slow"));            // 35 s with its nested class; DexD is quick
+            Assert.Equal("Mobile", Line("folded"));          // picking quick tests: the class counts for its family
+            Assert.Equal("class:JavapC=JavapC,Containers=ZipE,Mobile=DexD", Line("split"));
+            Assert.Equal("class:JavapC", Line("reader"));    // the reader only the class ran
+            Assert.Equal("Containers", Line("other"));
+            Assert.Equal("class:JavapC,Mobile", Line("test")); // its family's test folder
+            Assert.Contains("FullyQualifiedName~.JavapC", Line("filter"));
+            Assert.DoesNotContain("DexD", Line("filter"));
+        }
+        finally { Directory.Delete(dir, true); }
+    }
+
+    [Fact]
+    [Trait("Speed", "Slow")]
     public void The_heavy_lock_script_is_called_to_take_and_release_and_no_variable_means_no_lock()
     {
         var module = Path.Combine(DocsTests.RepoRoot(), "test-reuse.psm1");

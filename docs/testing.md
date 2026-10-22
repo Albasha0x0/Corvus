@@ -30,7 +30,9 @@
   `./test.ps1 -Full -Reuse` then runs only the families whose key changed, plus the contract tests and the classes
   known to be flaky under load; its stamp is marked `reused`. `./test.ps1 -CoverageMap` (weekly; one instrumented run
   per family) records which source files each family's tests run, and for a week the keys follow it: a shared file
-  keys only the families that ran it, and a file no family ran keeps the folder rules. `release.ps1` runs the suite through `test.ps1` before
+  keys only the families that ran it, and a file no family ran keeps the folder rules. The slow test classes of the last full run (30 s or more)
+  get a coverage run of their own and a key of their own: a change reruns such a class only when a source file it ran,
+  a file of its test folder or a setting changed, so a reader change reruns the comparisons against that reader alone. `release.ps1` runs the suite through `test.ps1` before
   the version bump, so every release run records its passes: patch releases take a reused pass; minor releases (`x.y.0`)
   want a whole exhaustive pass, or a reused one when only documentation changed since the last whole pass. With
   `CORVUS_SECOND_GHIDRA_DIR` set (another Ghidra, such as the oldest supported one), every whole-suite full run (and

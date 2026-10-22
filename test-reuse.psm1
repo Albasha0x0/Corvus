@@ -35,6 +35,28 @@ function Get-ClassMap([string]$testsDir) {
     return $map
 }
 
+# Test classes whose summed duration in a TRX file is at least $minSeconds: the ones worth a coverage run and a reuse
+# key of their own (a few slow classes hold most of a full run's time).
+function Get-SlowClasses([string]$trxPath, [double]$minSeconds = 30) {
+    if (-not (Test-Path $trxPath)) { return @() }
+    [xml]$trx = Get-Content $trxPath -Raw
+    $ns = @{ t = 'http://microsoft.com/schemas/VisualStudio/TeamTest/2010' }
+    $classOf = @{}
+    foreach ($test in Select-Xml -Xml $trx -XPath '//t:UnitTest' -Namespace $ns) {
+        $classOf[$test.Node.id] = ($test.Node.TestMethod.className -split '\.')[-1] -replace '\+.*$', ''
+    }
+    $seconds = @{}
+    foreach ($result in Select-Xml -Xml $trx -XPath '//t:UnitTestResult' -Namespace $ns) {
+        if (-not $result.Node.duration) { continue }
+        $class = $classOf[$result.Node.testId]
+        $seconds[$class] = $seconds[$class] + [TimeSpan]::Parse($result.Node.duration, [cultureinfo]::InvariantCulture).TotalSeconds
+    }
+    @($seconds.Keys | Where-Object { $seconds[$_] -ge $minSeconds } | Sort-Object)
+}
+
+# Whether a test folder's classes always run (-Reuse never skips them).
+function Test-AlwaysRunFolder([string]$family) { $family -in $script:AlwaysRunFolders }
+
 # Families whose tests read files outside src/ and tests/ (docs, scripts, workflows), found by their use of RepoRoot().
 function Get-RootReaders([string]$testsDir) {
     Get-ChildItem $testsDir -Directory | Where-Object Name -notin 'bin', 'obj' | Where-Object {
@@ -76,15 +98,60 @@ function Get-FamilyKeys([string[]]$treeLines, [string[]]$families, [string[]]$ro
     return $keys
 }
 
-# Which source files each family's tests ran, as @{ path = @(families) }, from the map test.ps1 -CoverageMap writes; $null
-# when there is none or it is older than $maxDays (calls added since would be missed; the folder rules then apply).
-function Read-CoverageMap([string]$file, [int]$maxDays = 7) {
+# The map test.ps1 -CoverageMap writes, as a hashtable; $null when there is none or it is older than $maxDays (calls
+# added since would be missed; the folder rules then apply).
+function Read-MapFile([string]$file, [int]$maxDays) {
     if (-not (Test-Path $file)) { return $null }
     $map = Get-Content $file -Raw | ConvertFrom-Json -AsHashtable
     if ([datetime]::ParseExact($map.at, 'yyyy-MM-dd HH:mm', [cultureinfo]::InvariantCulture) -lt (Get-Date).AddDays(-$maxDays)) { return $null }
+    return $map
+}
+
+# Which source files each family's tests ran, as @{ path = @(families) }; $null without a current map. A class mapped
+# on its own (Read-ClassCoverage) counts for its family, or with -Classes for itself as 'class:<name>' (Split-ClassMap).
+function Read-CoverageMap([string]$file, [int]$maxDays = 7, [switch]$Classes) {
+    $map = Read-MapFile $file $maxDays
+    if (-not $map) { return $null }
     $byPath = @{}
     foreach ($family in $map.families.Keys) { foreach ($path in $map.families[$family]) { $byPath[$path] = @($byPath[$path]) + $family | Where-Object { $_ } } }
+    if ($map.classes) {
+        foreach ($class in $map.classes.Keys) {
+            $scope = if ($Classes) { "class:$class" } else { $map.classes[$class].family }
+            foreach ($path in $map.classes[$class].files) { $byPath[$path] = @($byPath[$path]) + $scope | Where-Object { $_ } | Sort-Object -Unique }
+        }
+    }
     return $byPath
+}
+
+# The classes mapped on their own, as @{ class = @{ family; files } }; empty without a current map or with an older map.
+function Read-ClassCoverage([string]$file, [int]$maxDays = 7) {
+    $map = Read-MapFile $file $maxDays
+    if (-not $map -or -not $map.classes) { return @{} }
+    return $map.classes
+}
+
+# A class map with each class mapped on its own moved out of its family into a family of its own, 'class:<name>', so the
+# reuse functions key, filter and record it like a family.
+function Split-ClassMap([hashtable]$classMap, [hashtable]$classCoverage) {
+    $split = @{}
+    foreach ($family in $classMap.Keys) {
+        $rest = @($classMap[$family] | Where-Object { -not $classCoverage[$_] })
+        if ($rest) { $split[$family] = $rest }
+        foreach ($class in $classMap[$family] | Where-Object { $classCoverage[$_] }) { $split["class:$class"] = @($class) }
+    }
+    return $split
+}
+
+# Coverage scopes with the test files of each class mapped on its own: every file of its family's test folder keys the
+# family and each such class of it (a class may use any helper or fixture of its folder).
+function Add-ClassTestScopes([hashtable]$coverage, [hashtable]$classCoverage, [string[]]$paths) {
+    $scoped = @{} + $coverage
+    $byFamily = @{}
+    foreach ($class in $classCoverage.Keys) { $byFamily[$classCoverage[$class].family] = @($byFamily[$classCoverage[$class].family]) + "class:$class" | Where-Object { $_ } }
+    foreach ($path in $paths) {
+        if ($path -match '^tests/Corvus\.Tests/([^/]+)/' -and $byFamily[$Matches[1]]) { $scoped[$path] = @($Matches[1]) + $byFamily[$Matches[1]] }
+    }
+    return $scoped
 }
 
 # The repository paths of the source files with a line hit in a coverlet Cobertura report.
@@ -187,4 +254,4 @@ function Exit-HeavyLock([string]$name) {
     if ($env:CORVUS_HEAVY_LOCK) { & $env:CORVUS_HEAVY_LOCK release $name | Out-Host }
 }
 
-Export-ModuleMember -Function Enter-HeavyLock, Exit-HeavyLock, Get-RunEnvironment, Get-ReuseScope, Get-ClassMap, Get-RootReaders, Get-FamilyKeys, Read-CoverageMap, Get-CoveredFiles, Get-StaleFamilies, Get-ReuseFilter, Get-PassedFamilies, Save-FamilyPasses, Test-DocsOnly, Get-FailedTests
+Export-ModuleMember -Function Enter-HeavyLock, Exit-HeavyLock, Get-RunEnvironment, Get-ReuseScope, Get-ClassMap, Get-SlowClasses, Test-AlwaysRunFolder, Read-ClassCoverage, Split-ClassMap, Add-ClassTestScopes, Get-RootReaders, Get-FamilyKeys, Read-CoverageMap, Get-CoveredFiles, Get-StaleFamilies, Get-ReuseFilter, Get-PassedFamilies, Save-FamilyPasses, Test-DocsOnly, Get-FailedTests

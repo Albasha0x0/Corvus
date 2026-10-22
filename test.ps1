@@ -15,7 +15,7 @@
 #         ./test.ps1 -Status              # the last background run: passed / failed / running, and its log
 #         ./test.ps1 -Stamp               # records the last full run's passes when its recording step failed (same tree only)
 #         ./test.ps1 -Full -Coverage      # also collects line coverage (coverlet) and checks Ratchets/coverage.txt
-#         ./test.ps1 -CoverageMap         # which source files each family's tests run (weekly): -Reuse keys families on them
+#         ./test.ps1 -CoverageMap         # which source files each family's tests (and each slow class) run (weekly): -Reuse keys on them
 #         ./test.ps1 -Mutation [-Target sqlite,pe]  # mutation testing of the core readers (Stryker.NET; tests/mutation.json),
 #                                         #   surviving mutants checked against Ratchets/mutation-survivors.txt (gates and releases)
 #Requires -Version 7.0
@@ -318,7 +318,9 @@ if ($Stamp) {
     $tree = Get-CleanTree
     if ($tree -ne $run.tree) { Write-Host "The saved run was on tree $($run.tree); this tree is $(if ($tree) { $tree } else { 'not clean' }). Run the suite again." -ForegroundColor Red; exit 2 }
     Import-Module (Join-Path $root 'test-reuse.psm1') -Force
-    $passed = Get-PassedFamilies $lastTrx (Get-ClassMap $tests) $run.code
+    # the classes the run keyed on their own, by their 'class:<name>' keys
+    $own = @{}; foreach ($name in $run.keys.Keys | Where-Object { $_ -like 'class:*' }) { $own[$name.Substring(6)] = $true }
+    $passed = Get-PassedFamilies $lastTrx (Split-ClassMap (Get-ClassMap $tests) $own) $run.code
     Save-FamilyPasses $familyStamps $passed $run.keys $run.mode $run.commit
     Write-Host "Recorded $($run.mode) passes for $($passed.Count) families from the run of $($run.at)."
     if ($run.code -ne 0) { Write-Host "The saved run failed (exit $($run.code)): the tree is not stamped." -ForegroundColor Red; exit 1 }
@@ -367,29 +369,42 @@ function Invoke-SecondGhidra {
 if ($SecondGhidra) { exit (Invoke-SecondGhidra) }
 
 # One instrumented run per family records the source files its tests ran; failures do not matter here (timing budgets
-# fail under instrumentation), only what ran. Read-CoverageMap drops the map after a week.
+# fail under instrumentation), only what ran. The slow classes of the last full run (30 s or more, outside the always-run
+# folders) get a run of their own, so -Reuse keys each on its own files. Read-CoverageMap drops the map after a week.
 if ($CoverageMap) {
     Import-Module (Join-Path $root 'test-reuse.psm1') -Force
     $classMap = Get-ClassMap $tests
     & dotnet build $tests --nologo -v q
     if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-    $families = [ordered]@{}
+    $slow = @(Get-SlowClasses (Join-Path $gitDir 'corvus-last-run.trx'))
+    $families = [ordered]@{}; $classes = [ordered]@{}
+    function Get-MapFiles([string]$name, [string[]]$classNames) {
+        $out = Join-Path $tempRoot "corvus-map-$PID-$name"
+        $filter = ($classNames | ForEach-Object { "FullyQualifiedName~.$_" }) -join '|'
+        & dotnet test $tests --nologo --no-build --filter $filter --results-directory $out --collect 'XPlat Code Coverage' -- `
+            'DataCollectionRunSettings.DataCollectors.DataCollector.Configuration.Include=[corvus]*' | Out-Null
+        $report = Get-ChildItem $out -Recurse -Filter coverage.cobertura.xml -ErrorAction SilentlyContinue | Select-Object -First 1
+        $result = if ($report) { [pscustomobject]@{ Files = @(Get-CoveredFiles $report.FullName $root) } } else { $null }
+        Write-Host "$name`: $(if ($result) { "$($result.Files.Count) source files" } else { 'no report' })"
+        if (Test-Path $out) { Remove-Item -Recurse -Force $out }
+        return $result
+    }
     $saved = $env:CORVUS_ALL_TESTS; $env:CORVUS_ALL_TESTS = '1'
     try {
         foreach ($family in $classMap.Keys | Sort-Object) {
-            $out = Join-Path $tempRoot "corvus-map-$PID-$family"
-            $filter = ($classMap[$family] | ForEach-Object { "FullyQualifiedName~.$_" }) -join '|'
-            & dotnet test $tests --nologo --no-build --filter $filter --results-directory $out --collect 'XPlat Code Coverage' -- `
-                'DataCollectionRunSettings.DataCollectors.DataCollector.Configuration.Include=[corvus]*' | Out-Null
-            $report = Get-ChildItem $out -Recurse -Filter coverage.cobertura.xml -ErrorAction SilentlyContinue | Select-Object -First 1
+            $own = if (Test-AlwaysRunFolder $family) { @() } else { @($classMap[$family] | Where-Object { $_ -in $slow }) }
+            foreach ($class in $own) {
+                # a class without a report stays with its family
+                if ($run = Get-MapFiles $class @($class)) { $classes[$class] = [ordered]@{ family = $family; files = $run.Files } }
+            }
+            $rest = @($classMap[$family] | Where-Object { -not $classes[$_] })
             # a family without a report keeps the folder rules for every file
-            if ($report) { $families[$family] = @(Get-CoveredFiles $report.FullName $root) }
-            Write-Host "$family`: $(if ($report) { "$($families[$family].Count) source files" } else { 'no report' })"
-            if (Test-Path $out) { Remove-Item -Recurse -Force $out }
+            if (-not $rest) { $families[$family] = @() }
+            elseif ($run = Get-MapFiles $family $rest) { $families[$family] = $run.Files }
         }
     }
     finally { $env:CORVUS_ALL_TESTS = $saved }
-    $record = [ordered]@{ commit = (git -C $root rev-parse --short HEAD).Trim(); at = (Get-Date -Format 'yyyy-MM-dd HH:mm'); families = $families }
+    $record = [ordered]@{ commit = (git -C $root rev-parse --short HEAD).Trim(); at = (Get-Date -Format 'yyyy-MM-dd HH:mm'); families = $families; classes = $classes }
     Set-Content -Path $coverageMapFile -Value ($record | ConvertTo-Json -Depth 4) -NoNewline
     Write-Host "Coverage map: $coverageMapFile"
     exit 0
@@ -398,8 +413,17 @@ if ($CoverageMap) {
 if ($wholeSuite -and (Get-CleanTree)) {
     Import-Module (Join-Path $root 'test-reuse.psm1') -Force
     $classMap = Get-ClassMap $tests
-    $coveredBy = Read-CoverageMap $coverageMapFile
-    $familyKeys = Get-FamilyKeys @(git -C $root ls-tree -r HEAD) @($classMap.Keys) @(Get-RootReaders $tests) (Get-RunEnvironment) $coveredBy
+    $treeLines = @(git -C $root ls-tree -r HEAD)
+    $readers = @(Get-RootReaders $tests)
+    # Classes the coverage map ran on their own are keyed, run and recorded on their own, as 'class:<name>'.
+    $classCoverage = Read-ClassCoverage $coverageMapFile
+    if ($classCoverage.Count) {
+        $classMap = Split-ClassMap $classMap $classCoverage
+        $coveredBy = Add-ClassTestScopes (Read-CoverageMap $coverageMapFile -Classes) $classCoverage @($treeLines | ForEach-Object { $_.Substring($_.IndexOf("`t") + 1) })
+        $readers += @($classCoverage.Keys | Where-Object { $classCoverage[$_].family -in $readers } | ForEach-Object { "class:$_" })
+    }
+    else { $coveredBy = Read-CoverageMap $coverageMapFile }
+    $familyKeys = Get-FamilyKeys $treeLines @($classMap.Keys) $readers (Get-RunEnvironment) $coveredBy
     if (-not $coveredBy) { Write-Host 'No coverage map from the last week (./test.ps1 -CoverageMap): shared code keys every family.' }
     if ($Reuse) {
         $stamps = if (Test-Path $familyStamps) { Get-Content $familyStamps -Raw | ConvertFrom-Json } else { $null }
