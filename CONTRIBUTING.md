@@ -19,7 +19,7 @@ $env:CORVUS_ALL_TESTS=1; dotnet test   # everything (or dotnet test -p:CORVUS_AL
 
 Run the quick set while iterating and the full set before a pull request. Tests that need real-world data (application
 folders, Il2Cpp games, external tools) read their locations from `CORVUS_*` environment variables and are skipped when
-those are unset; the README's "Build, test, publish" section lists them. Real libraries in tests come from
+those are unset; the [test data variables](docs/testing.md#test-data-variables) table lists them. Real libraries in tests come from
 `<PackageDownload>` items in the test project, never from paths on one machine. A new external tool used by tests is
 found through an environment variable with a neutral name.
 

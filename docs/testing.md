@@ -155,9 +155,151 @@ Long engine classes are split into nested classes (by engine and topic) because 
 - Real libraries come from `<PackageDownload>` items in the test project, read through `RealPackages.Lib`; tests never
   read paths of one machine.
 - Data that cannot be redistributed (application folders, Il2Cpp games, external tools) is found through `CORVUS_*`
-  environment variables (README, "Build, test, publish"), and a test without its data is skipped.
+  environment variables (the table below), and a test without its data is skipped.
 - A new external tool used by tests is wired through an environment variable with a neutral name, with its command-line
   options kept in one table.
+
+### Test data variables
+
+Every `CORVUS_*` variable the tests and test scripts read, except the server's own (in [configuration](configuration.md)).
+`TestDataVariablesTests` checks the list against the code: a variable read and not listed, a listed variable no longer
+read, or a "Read by" cell that differs from the classes and scripts that read it fails the test. With
+`CORVUS_UPDATE_DOCS=1` it rewrites the "Read by" cells and adds a missing variable as a row to describe.
+
+| Variable | What it names | Read by |
+|---|---|---|
+| `CORVUS_ACCURACY_DIR` | A research folder (images.json and the reference scores) for the function discovery dump; results go under its results/ours. | AccuracyTests |
+| `CORVUS_ACCURACY_IDS` | Comma-separated image ids of images.json to dump (default all). | AccuracyTests |
+| `CORVUS_AGENT_SERVER` | The server the agent task runner starts instead of this repository's build. | tests/agents/run-tasks.ps1 |
+| `CORVUS_ALL_TESTS` | `1` runs the full set: real-library builds, whole-server sweeps and the downloads the quick set leaves out. | FormatFuzz, FridaEnvironmentTests, test-remote.psm1, test-reuse.psm1, test.ps1 |
+| `CORVUS_ANDROID_PACKAGE` | A real Android package (.apk, .aab or split set). | AndroidRealTests, DalvikDisassemblerTests, OutputBudgetTests |
+| `CORVUS_ARCHIVE_LISTER` | The 7-Zip command line the NSIS listings are compared with. | InstallerComparisonTests |
+| `CORVUS_ASSEMBLY_DIR` | A folder of real .NET assemblies. | CppBindingTests, RealAssemblyTests, SerialTimingTests |
+| `CORVUS_BACKGROUND_DIR` | The folder background runs keep their worktree in (default: the temp folder). | test-reuse.psm1, test.ps1 |
+| `CORVUS_BUNDLE_EXTRACTOR` | The WiX command line whose `burn extract` the WiX Burn listings are compared with. | InstallerComparisonTests |
+| `CORVUS_BUNDLE_PAIRS` | A folder of folders, each holding two builds of one JavaScript bundle as old.* and new.*. | JsBundleFilesTests, JsDiffTests |
+| `CORVUS_CALLPATH_TARGET` | A method to search call paths to (default: picked from the assemblies). | SerialTimingTests |
+| `CORVUS_CAPTURES` | A folder of network captures (key logs beside them as `<name>*.keys`) whose HTTP objects are compared with TShark's. | CaptureObjectsTSharkTests |
+| `CORVUS_CDB` | The cdb debugger the minidump stacks are compared with (default: the Windows SDK's). | MinidumpRealTests |
+| `CORVUS_CLAUDE` | The claude command line that validates the plugin manifests (default: claude on PATH). | PluginManifestTests |
+| `CORVUS_CLIENT_CHECKS` | `1` runs the real-client checks: each installed agent client answers a known question through this build (model calls cost tokens). | ClientCheckTests, tests/agents/run-tasks.ps1 |
+| `CORVUS_COMPARE_ASSEMBLY` | The assembly compared between the two builds below. | ComparerTests |
+| `CORVUS_COMPARE_EXPECT` | Known type moves between the two builds, `Old.Name=>New.Name;...` (optional). | ComparerTests |
+| `CORVUS_COMPARE_NEW_DIR` | The newer of two builds of one application (a folder). | ComparerTests, FolderCompareTests, RealAssemblyTests |
+| `CORVUS_COMPARE_OLD_DIR` | The older of the two builds. | ComparerTests, FolderCompareTests, RealAssemblyTests |
+| `CORVUS_COVERAGE_REPORT` | The coverlet report of a full run, checked against the coverage floors (`./test.ps1 -Full -Coverage` sets it). | CoverageFloorTests, test.ps1 |
+| `CORVUS_DEBUG_ARGS` | `1` prints the call sites whose arguments were not recovered in the system DLL recovery run. | CallArgumentTests |
+| `CORVUS_DIFF_PAIRS` | Build pairs matched per source (default 6). | NativeDiffRealTests |
+| `CORVUS_ELECTRON_APPS` | A folder of installed Electron apps; every .asar below it (six levels) is read. | ElectronGraphTests, ElectronTests, JsEndpointsTests, NodeApiTests |
+| `CORVUS_ELF_CORES` | A folder of Linux or Android ELF core files, with the program's libraries beside them. | ElfCoreTests |
+| `CORVUS_EXPORT_LIST` | A file listing assemblies whose exported projects must build; errors go to `<list>.report.txt`. | ExportBuildTests |
+| `CORVUS_EXPORT_REAL` | `1` exports real libraries to projects and builds them. | ExportBuildTests |
+| `CORVUS_FIRMWARE_IMAGES` | A folder of firmware images whose filesystems are compared file by file with the reference extractors. | FirmwareComparisonTests |
+| `CORVUS_FIXTURE_HERMESC` | A folder with one subfolder per Hermes compiler release, for rebuilding the Hermes fixtures. | tests/Corvus.Tests/Web/HermesFixtures/build.ps1 |
+| `CORVUS_FIXTURE_LLVM` | A folder holding ld.lld, llvm-objcopy and llvm-nm, for rebuilding the CFI and instruction-set fixtures. | tests/Corvus.Tests/Dumps/CfiFixtures/build.ps1, tests/Corvus.Tests/Engines/IsaFixtures/build.ps1 |
+| `CORVUS_FIXTURE_POWERSHELL_LAYERS` | The folder of the PowerShell transformation module the script fixtures are generated with; nothing runs the output. | tests/Corvus.Tests/Web/ScriptFixtures/generate.ps1 |
+| `CORVUS_FIXTURE_PYTHONS` | The Python interpreters (separated by the path separator) that compile the Python fixtures. | tests/Corvus.Tests/Containers/PythonFixtures/build.ps1 |
+| `CORVUS_FIXTURE_RUSTC` | The rustc that builds the CFI and instruction-set fixtures (default: rustc on PATH). | tests/Corvus.Tests/Dumps/CfiFixtures/build.ps1, tests/Corvus.Tests/Engines/IsaFixtures/build.ps1 |
+| `CORVUS_FORMAT_FUZZ_ITERATIONS` | Mutated inputs per ELF and Mach-O fuzz test (default 300). | ElfFileTests, MachOFileTests |
+| `CORVUS_FS_REFERENCE` | The program that runs the firmware reference script as root: sh on Linux, wsl.exe on Windows. | FirmwareComparisonTests |
+| `CORVUS_FUZZ_CASES` | Mutated inputs per container and inspection fixture (defaults 40 and 30). | InspectionTests, UnpackTests |
+| `CORVUS_FUZZ_COUNT` | Seeds of the simplify and save fuzz tests (defaults 40 and 60). | SaveFidelityTests, SimplifyFuzzTests |
+| `CORVUS_FUZZ_SEED` | One simplify fuzz seed to run, or `random` for a fresh one. | SimplifyFuzzTests |
+| `CORVUS_GO_SAMPLES` | A folder of Go programs (ELF, PE, Mach-O) whose function tables are read; none is run. | GoRealTests |
+| `CORVUS_HBC_DIR` | A folder of Hermes bytecode bundles, read and compared with hbcdump. | HermesTests |
+| `CORVUS_HEAVY_LOCK` | A script that takes and reports a machine-wide lock (`heavy <name> -OwnerPid <pid>`), held by whole-suite runs. | nightly.ps1, test-reuse.psm1 |
+| `CORVUS_HOSTAPI_PROJECT_DIR` | The root of a C/C++ project with a host function table, for `generate_cpp_binding style=hostapi`. | CppBindingTests |
+| `CORVUS_IDA_ORACLE_FILES` | Images (separated by `;`) whose functions are compared with IDA's (default: a fixed set of system DLLs). | NativeCodeOracleTests |
+| `CORVUS_IL2CPP_DUMMY_DIR` | A DummyDll folder written by an Il2Cpp dumper. | Il2CppExportTests, RealAssemblyTests |
+| `CORVUS_IL2CPP_GAME` | An Il2Cpp game folder or its global-metadata.dat. | Il2CppRawTests, ImportedNamesTests, LiveCompiledNamesRealTests, OutputBudgetTests, SessionFileTests |
+| `CORVUS_IL2CPP_GAME_DUMP` | A dumper's output for `CORVUS_IL2CPP_GAME` (DummyDll folder, script.json, stringliteral.json), compared with the built-in reader. | Il2CppRawTests |
+| `CORVUS_IL2CPP_GENERICS_GAME` | A Windows Il2Cpp game whose code registration is filled at run time. | Il2CppRawTests |
+| `CORVUS_IL2CPP_MOBILE` | A folder of Android packages of Il2Cpp games. | Il2CppMobileTests, NativeIdaFormatsTests |
+| `CORVUS_IL2CPP_STRINGS_DIR` | A DummyDll folder with stringliteral.json and script.json (and optionally GameAssembly.dll) beside it. | DumpRealDataTests, Il2CppNavigationTests, Il2CppStringTests |
+| `CORVUS_INSTALLERS` | A folder of installers (NSIS, Inno Setup, MSI, WiX Burn) compared by file name and size with the reference listers. | InstallerComparisonTests |
+| `CORVUS_JAVA_JARS` | A folder of jars (searched three levels deep) disassembled and compared with javap. | JvmClassTests |
+| `CORVUS_LARGE_NATIVE_IMAGE` | A native image of 100 MB or more, for speed measurements. | SimilarFunctionsRealTests |
+| `CORVUS_LIVE_SOAK_MINUTES` | Minutes the observed program runs in the long session test (default 2). | LiveLongSessionRealTests |
+| `CORVUS_LLVM_BIN` | An LLVM bin folder (clang, llvm-dwp, llvm-readobj, ...) that builds the DWARF and format fixtures and checks their output. | Arm64FormatCodeTests, DwarfDebugMapTests, DwarfObjectTests, DwarfOracleTests, DwarfSplitTests, DwarfVariablesTests, ElfFileTests, FormatWriterTests, ItaniumDemangleTests, MachOFileTests, NativeFixtures |
+| `CORVUS_MOBILE_APPS` | A folder of app packages (.apk, .ipa), searched two levels deep. | AppGraphTests, MobileRulesTests |
+| `CORVUS_MSI_LISTER` | The lessmsi command line the MSI listings are compared with. | InstallerComparisonTests |
+| `CORVUS_NATIVEAOT_SAMPLES` | `1` builds the NativeAOT sample for several frameworks and options and checks the recovered names against its PDB (Windows, with the C++ build tools). | LiveCompiledNamesRealTests, NativeAotSampleTests |
+| `CORVUS_NATIVE_ADAPTER_SAMPLE` | Images per folder the adapter consistency test reads (default 60; 0 for all). | NativeAdapterConsistencyTests |
+| `CORVUS_NATIVE_LARGE_IMAGE` | One large image whose code index is measured for time, memory and completeness. | NativeCodeSweepTests |
+| `CORVUS_NATIVE_STDIO_SAMPLE` | Images per folder of the stdio sweep (default 25). | NativeStdioSweepTests |
+| `CORVUS_NATIVE_STRESS_SECONDS` | Seconds the native concurrency test runs (default 30). | NativeConcurrencyTests |
+| `CORVUS_NATIVE_SWEEP_LIMIT` | Images of the code index sweep (default 400 in an exhaustive run, a quarter of it in a routine one). | NativeCodeSweepTests |
+| `CORVUS_NATIVE_TOOL_FUZZ_DUMP` | A folder that receives the failing inputs of the native tool fuzz test. | NativeToolFuzzTests |
+| `CORVUS_NATIVE_TOOL_FUZZ_ITERATIONS` | Iterations of the native tool fuzz test (default 2,500). | NativeToolFuzzTests |
+| `CORVUS_NATIVE_TOOL_FUZZ_SEED` | The base seed of the native tool fuzz test. | NativeToolFuzzTests |
+| `CORVUS_NATIVE_TOOL_SWEEP_IDA` | Images of the native tool sweep also read through IDA (default 2). | NativeToolSweepTests |
+| `CORVUS_NATIVE_TOOL_SWEEP_LIMIT` | Images of the native tool sweep (default 120 in an exhaustive run, a quarter of it in a routine one). | NativeToolSweepTests |
+| `CORVUS_NATIVE_TOOL_SWEEP_PF_LIMIT` | Images from the program folders in the native tool sweep (default 120 in an exhaustive run, a quarter of it in a routine one). | NativeToolSweepTests |
+| `CORVUS_NETWORK_TESTS` | `1` runs the tests that download from Microsoft's symbol server (runtime DACs, PDBs). | ElfCoreHeapRealTests, ManagedDumpRealTests, PdbOracleTests |
+| `CORVUS_PACKAGES_BAD` | A folder of known-bad packages (npm, PyPI, editor extensions) in subfolders; the noteworthy share is checked against floors. | PackageDatasetTests |
+| `CORVUS_PACKAGES_GOOD` | A folder of ordinary packages, grouped the same way. | PackageDatasetTests |
+| `CORVUS_PACKAGES_REPORT` | A file for one line per package (folder, file, review, findings). | PackageDatasetTests |
+| `CORVUS_PDB_SAMPLE` | `image path\|function\|function...`: a real image shipped with its PDB, whose named functions are typed through IDA. | PdbIdaTypesTests |
+| `CORVUS_PDFJS` | A folder of extracted pdfjs-dist packages, measured for data flow. | JsFlowTests |
+| `CORVUS_PE_FUZZ_DUMP` | A folder that receives the PE fuzz inputs over their time or memory bound. | NativePeFuzzTests |
+| `CORVUS_PE_FUZZ_ITERATIONS` | Iterations of the PE fuzz test (default 20,000). | NativePeFuzzTests |
+| `CORVUS_PE_FUZZ_SEED` | The base seed of the PE fuzz test. | NativePeFuzzTests |
+| `CORVUS_PE_FUZZ_TIME_BOUND_MS` | Time bound per PE fuzz input, in milliseconds (default 10,000). | NativePeFuzzTests |
+| `CORVUS_PE_SWEEP_LIMIT` | Images of the PE sweep (default all). | NativePeSweepTests |
+| `CORVUS_PE_SWEEP_REPORT` | A file for the PE sweep report. | NativePeSweepTests |
+| `CORVUS_PERF_FACTOR` | How far over its baseline the simplify sweep may run before it fails (default 5 times). | SimplifySweepTests |
+| `CORVUS_PIPELINE_BUDGET_MINUTES` | A pipeline round trip part's total time (default 90 in an exhaustive run, else 45). | PipelineRoundTripTests |
+| `CORVUS_PIPELINE_KEEP` | Set to keep the pipeline round trip's work files. | PipelineRoundTripTests |
+| `CORVUS_PIPELINE_ONLY` | A substring of the pipeline option names to run. | PipelineRoundTripTests |
+| `CORVUS_PIPELINE_PARALLEL` | Pipeline round trips run at once per part (default 1). | PipelineRoundTripTests |
+| `CORVUS_PIPELINE_PROFILES` | A folder of bundled .crproj profiles (default: Build/Profiles next to the tool). | PipelineRoundTripTests |
+| `CORVUS_PIPELINE_RECHECK` | `1` runs the pipeline options that are skipped with a reason, to see whether they still fail. | PipelineRoundTripTests |
+| `CORVUS_PIPELINE_REPORT` | A file for the pipeline report (each part writes its own, its number before the extension). | PipelineRoundTripTests |
+| `CORVUS_PIPELINE_SAMPLE` | A substring of the pipeline sample names to run. | PipelineRoundTripTests |
+| `CORVUS_PIPELINE_SAMPLES` | A folder of the pipeline tool's sample projects (one Program.cs each), round-tripped beside PipelineSamples/*.cs. | PipelineRoundTripTests |
+| `CORVUS_PIPELINE_SEED` | One pipeline seed to run. | PipelineRoundTripTests |
+| `CORVUS_PIPELINE_SEEDS` | Pipeline seeds per option (default 3 in an exhaustive run, else one of the three by day). | PipelineRoundTripTests |
+| `CORVUS_PIPELINE_TOOL` | The executable of the transformation pipeline tool, which reads a .crproj project. | PipelineRoundTripTests |
+| `CORVUS_R2R_COMPOSITE_DIR` | A composite ReadyToRun app: the output of a self-contained `dotnet publish` with composite ReadyToRun. | ReadyToRunTests |
+| `CORVUS_REFERENCE_SERVER` | The server the agent task runner compares against (`{"command": ..., "args": [...]}`). | tests/agents/run-tasks.ps1 |
+| `CORVUS_RELEASE_WSL` | The WSL distribution release.ps1 checks the update from the previous release in (default Ubuntu). | release.ps1 |
+| `CORVUS_SECOND_GHIDRA_DIR` | A second Ghidra installation; `./test.ps1 -SecondGhidra` runs the engine tests on it. | test.ps1 |
+| `CORVUS_SERVER_EXE` | A published server to time for the catalog latency figure (default: the test build through dotnet). | CatalogTimingTests |
+| `CORVUS_SETUP_LISTER` | The innounp command line the Inno Setup listings are compared with. | InstallerComparisonTests |
+| `CORVUS_SNAPSHOT_RUNS` | Repetitions of the .NET snapshot run (such as 30). | LiveDotnetRealTests |
+| `CORVUS_STRYKER` | The Stryker.NET executable for `./test.ps1 -Mutation` (default: dotnet-stryker on PATH). | test.ps1 |
+| `CORVUS_STUB_APPS` | `;`-separated `assembly path\|member token\|method token\|type token` entries: applications with missing references, whose first resolutions build stubs. | StubAppsRealDataTests |
+| `CORVUS_SWEEP` | `exhaustive` sweeps every input of the real-image sweeps (`./test.ps1 -Full -Exhaustive` sets it); `full` runs the whole simplify sweep. | SimplifySweepTests, SweepScope, test-reuse.psm1, test.ps1 |
+| `CORVUS_TEST_OFFLOAD` | `0` keeps the offloaded classes in the local run. | test-remote.psm1 |
+| `CORVUS_TEST_PRIORITY` | `normal` keeps a test run at normal priority. | test-reuse.psm1 |
+| `CORVUS_TEST_YARA_X` | The folder fetch-yara-x.ps1 fills with the YARA-X builds the tests use. | YaraTestTools, tests/Corvus.Tests/Support/fetch-yara-x.ps1 |
+| `CORVUS_UNITY_TITLES` | `;`-separated Unity game folders, overviewed beside the game libraries found on the machine. | UnityOverviewTests |
+| `CORVUS_UPDATE_DOCS` | `1` rewrites the generated documents instead of failing on a difference. | DocsTests, ErrorContractTests, MigrationReasonTests, ProtocolSampleTests, SampleDocsTests, SaveFidelityTests, SchemaDocsTests, SimplifyContractTests, SkillTests, release.ps1, test-reuse.psm1 |
+| `CORVUS_UPDATE_RATCHETS` | `1` drops ratchet entries that now comply and writes a missing list from the current state. | CountRatchet, Ratchet |
+| `CORVUS_VCALL_IMAGE` | A real C++ image for the virtual call acceptance run. | VirtualCallTests |
+| `CORVUS_VCALL_SAMPLE` | Call sites of that image sampled (default 150). | VirtualCallTests |
+| `CORVUS_WASM_DIR` | A folder of .wasm files, validated and converted to text, compared with WABT. | WasmTextTests, WasmValidationTests |
+| `CORVUS_WEBPACK_APPS` | A folder of folders, each an app's extracted webpack output. | JsRuntimeTests |
+| `CORVUS_WPF_APPS` | A folder of WPF programs (.exe, three levels deep) whose BAML must decompile to XAML that parses. | XamlEventsTests |
+| `CORVUS_SEED_VALIDATE` | How many engine seeds to compare with a cold analysis of their input; the night's run sets `3`. | EngineSeedTests, nightly.ps1, test-reuse.psm1 |
+| `CORVUS_TEST_REMOTE` | The test host (`user@host`) prepared by `test-remote-setup.ps1`; a whole-suite run sends its offloaded classes there when it answers over ssh. | test-remote-setup.ps1, test-remote.psm1, test.ps1 |
+| `CORVUS_TEST_SCP` | The scp program, or a `.ps1` script standing in for it; OpenSSH's own when unset. | test-remote-setup.ps1, test-remote.psm1 |
+| `CORVUS_TEST_SSH` | The ssh program, or a `.ps1` script standing in for it; OpenSSH's own when unset. | test-remote-setup.ps1, test-remote.psm1 |
+
+### Variables the test scripts set
+
+`test.ps1` and the test harness set these for their own runs; they are not inputs.
+
+- `CORVUS_CHILD_TEST` (ChildTest): marks the process ChildTest starts to run one test's body alone.
+- `CORVUS_MUTATION_REPORT` (MutationTests, test.ps1): the Stryker.NET report `./test.ps1 -Mutation` hands to MutationTests.
+- `CORVUS_PERF` (PdbIdaTypesTests, PerfBudget, test.ps1): `1` in the perf run, the only run whose budgets fail tests.
+- `CORVUS_PERMITS_HELD` (MachinePermits, test-reuse.psm1, test.ps1): `1` when the run holds the machine permits itself, so its tests take none.
+- `CORVUS_PERMIT_LOG` (MachinePermits, test-reuse.psm1, test.ps1): the file tests append their permit waits to, for the run's time record.
+- `CORVUS_TEST_ENGINE` (NativeIdaProviderTests, test.ps1): `ghidra` in the second-Ghidra pass, where the IDA-only tests skip.
+- `CORVUS_TEST_GH` (test-remote.psm1): a stand-in for gh in the offload tests.
+- `CORVUS_TEST_HISTORY` (CollectionOrder, test-reuse.psm1, test.ps1): the recorded class times, so the longest classes start first.
+- `CORVUS_TEST_MODE` (CollectionOrder, test-reuse.psm1, test.ps1): the run's mode, which picks the recorded times that apply.
+- `CORVUS_TEST_PUSH_RUN` (test-remote.psm1, test.ps1): `1` in the background run a push starts.
 
 ## Guard tests
 
