@@ -19,12 +19,17 @@ internal static class FormatFuzz
             var bytes = Mutate(seed, rng);
             var cpu = ThreadCpuClock.Now();
             try { read(bytes); }
-            catch (Exception ex) { failures.Add($"iteration {i}: {ex.GetType().Name}: {ex.Message} (in {ex.TargetSite?.DeclaringType?.FullName}.{ex.TargetSite?.Name})"); }
+            catch (Exception ex) { failures.Add($"iteration {i}: {ex.GetType().Name}: {ex.Message} (in {Where(ex)})"); }
             // a few ms each; the bound is CPU time, so a starved machine does not trip it
             if (ThreadCpuClock.Now() - cpu is var took && took > TimeSpan.FromSeconds(2)) failures.Add($"iteration {i}: took {took.TotalSeconds:0.0} s of CPU");
         }
         return failures;
     }
+
+    /// <summary>Where an exception was thrown: the pattern for a regex timeout, whose throwing method is the regex runner.</summary>
+    private static string Where(Exception ex) => ex is System.Text.RegularExpressions.RegexMatchTimeoutException t
+        ? $"the regex '{t.Pattern}' ({t.MatchTimeout.TotalMilliseconds:0} ms limit) on {t.Input.Length:N0} chars"
+        : $"{ex.TargetSite?.DeclaringType?.FullName}.{ex.TargetSite?.Name}";
 
     private static byte[] Mutate(byte[] seed, Random rng)
     {
