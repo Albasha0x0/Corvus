@@ -428,6 +428,9 @@ class Session:
             return self.device.spawn(argv, stdio="pipe", env=env or None, cwd=cwd or None)
         except frida.ExecutableNotFoundError as e:
             raise Failure("not_found", str(e))
+        # Frida 17.24.3 gives a macOS start 10 s (frida-core darwin helper,
+        # prepare_target; source-derived). Seen in CI runs; not reproduced
+        # standalone in 400 starts on macos-latest, so no upstream report.
         except frida.TimedOutError as e:
             after = descendants(os.getpid())
             if before is None or after is None:
