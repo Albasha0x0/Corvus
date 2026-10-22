@@ -49,6 +49,15 @@ public sealed class JsDiffTests : IDisposable
         Assert.Equal(1, d.Identical);
     }
 
+    [Fact]
+    public void A_line_of_unclosed_quotes_splits_into_tokens_without_a_timeout()
+    {
+        // The tokenizer regex rescanned each quote to the line end and ran past its 1 s timeout.
+        Assert.Equal("\"a\\\"b\"\n'c'\n`d\ne`\nf1\n2.5\n+", JsDiff.Tokens("\"a\\\"b\" 'c' `d\ne` f1 2.5+"));
+        Assert.Equal("\"\n\\\nx", JsDiff.Tokens("\"\\\nx"));
+        Assert.Equal(100_000, JsDiff.Tokens(string.Concat(Enumerable.Repeat("\"\\", 50_000))).Split('\n').Length);
+    }
+
     /// <summary>A mutated build compared with its original: rows or a typed error, never a crash.</summary>
     [Fact]
     [FuzzEntry(typeof(JsDiff))]

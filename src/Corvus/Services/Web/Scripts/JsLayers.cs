@@ -794,8 +794,11 @@ internal sealed class JsPass
             var key = Encode(i, radix);
             words[key] = i < k.Length && k[i] is string w && w.Length > 0 ? w : key;
         }
-        return Regex.Replace(p, @"\b\w+\b", m => words.TryGetValue(m.Value, out var w) ? w : m.Value, RegexOptions.None, TimeSpan.FromSeconds(2));
+        return PackedWord.Replace(p, m => words.TryGetValue(m.Value, out var w) ? w : m.Value);
     }
+
+    // NonBacktracking matches in linear time, so no match timeout.
+    private static readonly Regex PackedWord = new(@"\b\w+\b", RegexOptions.NonBacktracking);
 
     private static string Encode(int c, int a) => (c < a ? "" : Encode(c / a, a)) + ((c % a) > 35 ? ((char)(c % a + 29)).ToString() : JsConstants.ToRadix(c % a, 36));
 

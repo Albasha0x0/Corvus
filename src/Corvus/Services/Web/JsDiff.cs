@@ -260,8 +260,49 @@ internal static partial class JsDiff
     }
 
     /// <summary>The module's tokens one per line, for a line diff that reads as a token diff.</summary>
-    private static string Tokens(string code) => string.Join('\n', Token().Matches(code).Select(m => m.Value));
+    internal static string Tokens(string code)
+    {
+        var tokens = new List<string>();
+        // Where a string opened by each quote kind stopped unclosed: a later
+        // quote of that kind before it is an escaped one, whose scan would stop
+        // there too, so each stretch is scanned once.
+        var failsBefore = new Dictionary<char, int>();
+        for (int at = 0; at < code.Length && Token.Match(code, at) is { Success: true } m; )
+        {
+            char q = code[m.Index];
+            int length = m.Length;
+            if (q is '"' or '\'' or '`' && m.Index >= failsBefore.GetValueOrDefault(q))
+            {
+                int end = StringEnd(code, m.Index);
+                if (end > 0) length = end - m.Index;
+                else failsBefore[q] = -end;
+            }
+            tokens.Add(code.Substring(m.Index, length));
+            at = m.Index + length;
+        }
+        return string.Join('\n', tokens);
+    }
 
-    [GeneratedRegex(@"""(?:\\.|[^""\\\n])*""|'(?:\\.|[^'\\\n])*'|`(?:\\.|[^`\\])*`|[A-Za-z_$][\w$]*|\d[\w.]*|\S", RegexOptions.None, 1000)]
-    private static partial Regex Token();
+    /// <summary>
+    /// The end of the string literal opening at <paramref name="start"/>, or minus the position where its scan stopped
+    /// unclosed: a line end (not in a template), a backslash before a line end, or the end of the code.
+    /// </summary>
+    private static int StringEnd(string code, int start)
+    {
+        char q = code[start];
+        int i = start + 1;
+        while (i < code.Length)
+        {
+            char c = code[i];
+            if (c == q) return i + 1;
+            if (c == '\\' && i + 1 < code.Length && code[i + 1] != '\n') i += 2;
+            else if (c == '\\' || c == '\n' && q != '`') break;
+            else i++;
+        }
+        return -i;
+    }
+
+    // A quote matches as one character here; Tokens reads the string it opens.
+    // NonBacktracking matches in linear time, so no match timeout.
+    private static readonly Regex Token = new(@"[A-Za-z_$][\w$]*|\d[\w.]*|\S", RegexOptions.NonBacktracking);
 }
