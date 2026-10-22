@@ -109,8 +109,32 @@ public class WorkspaceTests
         var watch = System.Diagnostics.Stopwatch.StartNew();
         ws.Read(() => { ws.Dispose(); return 0; });
         // The elapsed time is the only sign that dispose skipped its wait; half of DisposeWait (10 s) leaves a wide margin.
-        Assert.True(watch.Elapsed < AssemblyWorkspace.DisposeWait / 2);
+        Assert.True(watch.Elapsed < ws.DisposeWait / 2);
         Assert.Throws<ObjectDisposedException>(() => ws.Write(() => 0));
+    }
+
+    [Fact]
+    public async Task A_call_still_in_the_lock_after_the_dispose_wait_keeps_its_assemblies_until_it_leaves()
+    {
+        // Regression: a push run on d055446d ended with an access violation in background indexing after a dispose.
+        var ws = new AssemblyWorkspace { DisposeWait = TimeSpan.FromMilliseconds(100) };
+        var asm = ws.Load(Env.FixturePath);
+        using var held = new ManualResetEventSlim();
+        using var release = new ManualResetEventSlim();
+        var reader = Task.Run(() => ws.Read(() =>
+        {
+            held.Set();
+            release.Wait();
+            return asm.Module.GetTypes().SelectMany(t => t.Methods).Count(m => FastIlReader.Read(asm, m) != null);
+        }));
+        held.Wait();
+
+        ws.Dispose();
+        Assert.False(asm.IsDisposed);
+        release.Set();
+        Assert.True(await reader > 0);
+        Assert.True(asm.IsDisposed);
+        Assert.Throws<ObjectDisposedException>(() => ws.Read(() => 0));
     }
 
     [Fact]

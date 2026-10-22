@@ -15,10 +15,10 @@ public sealed class AssemblyWorkspace : IDisposable
     // Every Read or Write counts itself in _users before it checks _disposed,
     // so once Dispose has set _disposed and seen _users reach 0, no call can
     // touch the lock again.
-    private int _users, _disposed;
+    private int _users, _disposed, _released;
 
-    /// <summary>How long Dispose waits for running and queued calls to leave the lock before it leaves the lock undisposed.</summary>
-    internal static TimeSpan DisposeWait { get; set; } = TimeSpan.FromSeconds(10);
+    /// <summary>How long Dispose waits for running and queued calls to leave the lock before it returns without them.</summary>
+    internal TimeSpan DisposeWait { get; init; } = TimeSpan.FromSeconds(10);
     private readonly List<LoadedAssembly> _assemblies = new();
     private readonly List<LoadedNative> _natives = new();
     private readonly List<string> _searchDirectories = new();
@@ -200,7 +200,7 @@ public sealed class AssemblyWorkspace : IDisposable
                 _lock.ExitReadLock();
             }
         }
-        finally { Interlocked.Decrement(ref _users); }
+        finally { Leave(); }
     }
 
     public T Write<T>(Func<T> action) => Write(action, CallToken);
@@ -222,7 +222,7 @@ public sealed class AssemblyWorkspace : IDisposable
                 _lock.ExitWriteLock();
             }
         }
-        finally { Interlocked.Decrement(ref _users); }
+        finally { Leave(); }
     }
 
     /// <summary>Counts a call into the lock; throws <see cref="ObjectDisposedException"/> once Dispose has begun.</summary>
@@ -230,8 +230,14 @@ public sealed class AssemblyWorkspace : IDisposable
     {
         Interlocked.Increment(ref _users);
         if (Volatile.Read(ref _disposed) == 0) return;
-        Interlocked.Decrement(ref _users);
+        Leave();
         throw new ObjectDisposedException(nameof(AssemblyWorkspace));
+    }
+
+    /// <summary>Ends a counted call; the last call to leave a disposed workspace releases its assemblies and lock.</summary>
+    private void Leave()
+    {
+        if (Interlocked.Decrement(ref _users) == 0 && Volatile.Read(ref _disposed) != 0) Release();
     }
 
     private void Enter(bool write, CancellationToken cancellationToken)
@@ -1164,7 +1170,8 @@ public sealed class AssemblyWorkspace : IDisposable
 
     /// <summary>
     /// Refuses new calls, cancels background work, waits up to <see cref="DisposeWait"/> for calls holding or queued for the
-    /// lock, then disposes the assemblies and the lock. A lock still in use after the wait is left to the garbage collector.
+    /// lock, then disposes the assemblies and the lock. When calls still use the lock after the wait, the last one to leave
+    /// disposes them instead.
     /// </summary>
     public void Dispose()
     {
@@ -1174,12 +1181,20 @@ public sealed class AssemblyWorkspace : IDisposable
         foreach (var n in _natives.ToArray())
             n.Release();
         // A Dispose called under this thread's own lock cannot wait for itself.
-        bool idle = !LockHeld && SpinWait.SpinUntil(() => Volatile.Read(ref _users) == 0, DisposeWait);
+        if (!LockHeld) SpinWait.SpinUntil(() => Volatile.Read(ref _users) == 0, DisposeWait);
+        if (Volatile.Read(ref _users) == 0) Release();
+        else _logger?.LogWarning("Workspace disposed while {Count} calls still use its lock; the last to leave disposes the assemblies", Volatile.Read(ref _users));
+    }
+
+    // A call in the lock reads its assemblies' mapped images, so they are disposed only once no call uses the lock: an
+    // image disposed under a running call ended the process with an access violation.
+    private void Release()
+    {
+        if (Interlocked.Exchange(ref _released, 1) != 0) return;
         foreach (var a in _assemblies)
             a.Dispose();
         _assemblies.Clear();
         _natives.Clear();
-        if (idle) _lock.Dispose();
-        else _logger?.LogWarning("Workspace disposed while {Count} calls still use its lock; the lock is not disposed", Volatile.Read(ref _users));
+        _lock.Dispose();
     }
 }

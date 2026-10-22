@@ -374,8 +374,12 @@ public sealed class LoadedAssembly : IDisposable
         }
     }
 
+    /// <summary>True once <see cref="Dispose"/> has run.</summary>
+    internal bool IsDisposed { get; private set; }
+
     public void Dispose()
     {
+        IsDisposed = true;
         lock (_sync)
         {
             _peFile?.Dispose();
