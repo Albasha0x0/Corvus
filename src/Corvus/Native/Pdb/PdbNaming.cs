@@ -50,9 +50,15 @@ public static class PdbNaming
         _ => 6,
     };
 
-    private static bool IsDecorated(string name) => name.Length > 1 && name[0] == '?';
+    // An x86 C decoration ("_f@8", "@f@8", "f@@8") is a decorated name too; an import cell ("__imp__f@8") keeps its
+    // name, so it is not taken for the function.
+    private static bool IsDecorated(string name) => name.Length > 1 && (name[0] == '?'
+        || name.Contains('@') && MsvcDemangler.Demangle(name) is { Kind: MsvcSymbolKind.CFunction, IsImport: false });
 
-    /// <summary>The qualified name of a decorated public ("?f@A@@QEAAXXZ" -> "A::f"), else the name as is.</summary>
+    /// <summary>
+    /// The qualified name of a decorated public ("?f@A@@QEAAXXZ" -> "A::f", "_CreateFileW@28" -> "CreateFileW"), else
+    /// the name as is.
+    /// </summary>
     public static string Display(string name) =>
         IsDecorated(name) && MsvcDemangler.Undecorate(name, MsvcNameStyle.NameOnly) is { Length: > 0 } plain ? plain : name;
 

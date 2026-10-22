@@ -150,6 +150,23 @@ public class PdbTests
     }
 
     [Fact]
+    public void An_x86_public_is_named_without_its_c_decoration()
+    {
+        var p = new PdbBuilder();
+        p.GlobalRecords.Add(PdbBuilder.Pub("_CreateFileW@28", 1, 0x10, true));
+        p.GlobalRecords.Add(PdbBuilder.Pub("@Fast@8", 1, 0x20, true));
+        p.GlobalRecords.Add(PdbBuilder.Pub("__imp__CreateFileW@28", 2, 0x8, false));
+        p.GlobalRecords.Add(PdbBuilder.Pub("_cdecl_name", 1, 0x30, true));
+        var names = PdbNaming.Choose(PdbFile.FromBytes(p.Build())).ToDictionary(n => n.Rva);
+        Assert.Equal(("CreateFileW", "_CreateFileW@28"), (names[0x1010].Name, names[0x1010].Decorated));
+        Assert.Equal("Fast", names[0x1020].Name);
+        Assert.Equal("__imp__CreateFileW@28", names[0x3008].Name);
+        // A leading underscore alone is also a real C name, so it stays.
+        Assert.Equal("_cdecl_name", names[0x1030].Name);
+        Assert.Equal("__stdcall CreateFileW", PdbNaming.Signature(names[0x1010].Decorated));
+    }
+
+    [Fact]
     public void AddressesMapThroughOmap()
     {
         var p = new PdbBuilder
