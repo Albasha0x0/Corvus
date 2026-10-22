@@ -43,7 +43,7 @@ public sealed record GoBuildInfo(string GoVersion, string? Path, GoModule? Main,
             var chunk = new byte[1 << 16];
             foreach (var s in image.Sections.Where(s => !s.IsExecutable))
             {
-                long backed = image.FileBackedLength(s.Rva, Math.Min(s.MappedSize, (long)image.SizeOfImage - s.Rva));
+                long backed = image.FileBytesLength(s);
                 uint start = (s.Rva + 15) & ~15u;
                 for (long offset = start - s.Rva; offset < backed && budget > 0; offset += chunk.Length, budget -= chunk.Length)
                 {

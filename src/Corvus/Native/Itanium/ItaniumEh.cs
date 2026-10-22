@@ -79,12 +79,7 @@ public static class ItaniumEh
     private static NativeSection? Section(INativeImage image, string elf, string macho) =>
         image.Sections.FirstOrDefault(s => s.Name == (image.Format == ImageFormat.MachO ? macho : elf));
 
-    private static byte[] Bytes(INativeImage image, NativeSection s)
-    {
-        var bytes = new byte[Math.Min(s.MappedSize, 256u << 20)];
-        int n = image.Read(s.Rva, bytes);
-        return n == bytes.Length ? bytes : bytes[..Math.Max(0, n)];
-    }
+    private static byte[] Bytes(INativeImage image, NativeSection s) => image.ReadFileBytes(s, 256L << 20);
 
     private sealed record CfiData(ByteView View, List<CfiFde> Fdes);
     private static readonly ConditionalWeakTable<INativeImage, CfiData> Cfi = new();

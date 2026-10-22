@@ -48,6 +48,14 @@ public sealed class HydratedImage
 
     public bool IsPointerSlot(uint rva) => Array.BinarySearch(pointerSlots, rva) >= 0;
 
+    /// <summary>Length of the section's readable bytes: its file bytes, extended by the rehydrated range that overlaps it.</summary>
+    public long ReadableLength(NativeSection section)
+    {
+        long length = Image.FileBytesLength(section);
+        long end = Math.Min((long)DestinationRva + overlay.Length, (long)section.Rva + section.MappedSize);
+        return overlay.Length == 0 ? length : Math.Max(length, end - section.Rva);
+    }
+
     /// <summary>Mapped bytes with the rehydrated range replaced; same contract as <see cref="INativeImage.Read"/>.</summary>
     public int Read(uint rva, Span<byte> destination)
     {

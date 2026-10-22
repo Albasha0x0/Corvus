@@ -83,7 +83,7 @@ public static partial class MsvcEh
             {
                 if (!section.IsExecutable || section.MappedSize < 6 || section.Rva >= image.SizeOfImage) continue;
                 // Instructions are file bytes: the zero fill past them, or past SizeOfImage, holds none.
-                long backed = image.FileBackedLength(section.Rva, Math.Min(section.MappedSize, (long)image.SizeOfImage - section.Rva));
+                long backed = image.FileBytesLength(section);
                 if (backed < 6) continue;
                 int size = (int)Math.Min(backed, Math.Max(0, budget));
                 if (size < 6) yield break;

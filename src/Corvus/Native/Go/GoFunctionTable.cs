@@ -59,7 +59,7 @@ public sealed class GoFunctionTable
             if (image.Arch is not (NativeArch.X86 or NativeArch.X64 or NativeArch.Arm or NativeArch.Arm64 or NativeArch.RiscV or NativeArch.Mips or NativeArch.PowerPc)) return null;
             var named = image.Sections.Where(s => s.Name.EndsWith("gopclntab", StringComparison.Ordinal)).ToList();
             foreach (var s in named)
-                if (Read(image, s.Rva, s.MappedSize) is { } t) return t;
+                if (Read(image, s.Rva, (uint)image.FileBytesLength(s)) is { } t) return t;
             if (named.Count > 0) return null;
             // stripped of section names (PE keeps runtime.pclntab in .rdata): look for the header in data, then in code
             byte[]? buffer = null;
@@ -76,7 +76,7 @@ public sealed class GoFunctionTable
     {
         const int Chunk = ScanChunk;
         // the header magic has 0xFF bytes, so the zero fill past the file-backed bytes (can be gigabytes) holds none
-        long backed = image.FileBackedLength(s.Rva, Math.Min(s.MappedSize, (long)image.SizeOfImage - s.Rva));
+        long backed = image.FileBytesLength(s);
         for (uint offset = 0; offset < backed; offset += Chunk)
         {
             int n = image.Read(s.Rva + offset, bytes);

@@ -257,8 +257,8 @@ public sealed partial class JniBindings(DexService dex)
         {
             if (section.IsExecutable || section.MappedSize < 3u * (uint)ptr || section.RawSize == 0 || NoTables.Any(p => section.Name.StartsWith(p, StringComparison.Ordinal))) continue;
             ct.ThrowIfCancellationRequested();
-            var data = new byte[section.MappedSize];
-            int got = image.Read(section.Rva, data);
+            var data = image.ReadFileBytes(section);
+            int got = data.Length;
             ulong P(int at) => ptr == 8 ? BitConverter.ToUInt64(data, at) : BitConverter.ToUInt32(data, at);
             Table? open = null;
             int start = (int)((ptr - section.Rva % (uint)ptr) % (uint)ptr);

@@ -108,8 +108,8 @@ public static class Il2CppRegistrationSearch
         {
             if (section.IsExecutable || section.RawSize == 0 || section.MappedSize < (ulong)count * (uint)ptr) continue;
             ct.ThrowIfCancellationRequested();
-            var bytes = new byte[Math.Min(section.MappedSize, (uint)Array.MaxLength)];
-            int n = image.Read(section.Rva, bytes) / ptr * ptr;
+            var bytes = image.ReadFileBytes(section);
+            int n = bytes.Length / ptr * ptr;
             long nullAt = -1, run = 0;
             void End()
             {
@@ -136,8 +136,8 @@ public static class Il2CppRegistrationSearch
         {
             if (section.IsExecutable || section.RawSize == 0) continue;
             ct.ThrowIfCancellationRequested();
-            var bytes = new byte[Math.Min(section.MappedSize, (uint)Array.MaxLength)];
-            int n = image.Read(section.Rva, bytes);
+            var bytes = image.ReadFileBytes(section);
+            int n = bytes.Length;
             for (int at = 0; at < n;)
             {
                 int hit = bytes.AsSpan(at, n - at).IndexOf(needle);

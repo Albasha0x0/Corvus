@@ -99,7 +99,7 @@ public static class PascalVmt
             {
                 if (s.RawSize == 0 || s.MappedSize < 4 * _ptr || s.Rva >= image.SizeOfImage || IsMetadata(s.Name)) continue;
                 // VMTs are initialized data: only the section's file bytes
-                long length = image.FileBackedLength(s.Rva, Math.Min(s.MappedSize, (long)image.SizeOfImage - s.Rva));
+                long length = image.FileBytesLength(s);
                 if (length < 4 * _ptr || length > MaxSectionBytes || _scanned + length > 2 * MaxSectionBytes) continue;
                 ct.ThrowIfCancellationRequested();
                 var bytes = new byte[length];

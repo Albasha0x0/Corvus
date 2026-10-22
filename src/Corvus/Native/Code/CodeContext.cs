@@ -173,7 +173,7 @@ internal sealed class CodeContext
             foreach (var s in Image.Sections)
             {
                 if (s.IsExecutable || s.Rva == 0 || s.Rva >= Image.SizeOfImage || s.Name.EndsWith("typelink", StringComparison.Ordinal)) continue;
-                long length = Image.FileBackedLength(s.Rva, Math.Min(s.MappedSize, Image.SizeOfImage - s.Rva));
+                long length = Image.FileBytesLength(s);
                 uint start = (s.Rva + (uint)size - 1) & ~((uint)size - 1);
                 uint previous = 0, previousTarget = 0;
                 bool previousAdded = false;

@@ -64,9 +64,7 @@ public static class CodePatterns
         foreach (var s in image.Sections)
         {
             if (!allSections && !s.IsExecutable) continue;
-            var data = new byte[Math.Min(s.MappedSize, 512u << 20)];
-            int read = image.Read(s.Rva, data);
-            result.Add((s.Rva, read == data.Length ? data : data[..read], s.Name));
+            result.Add((s.Rva, image.ReadFileBytes(s, 512L << 20), s.Name));
         }
         return result;
     }

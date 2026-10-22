@@ -229,8 +229,8 @@ public sealed class FeatureTrace
             var seen = new HashSet<uint>();
             foreach (var section in _index.Image.Sections.Where(s => s.IsExecutable))
             {
-                var bytes = new byte[section.MappedSize];
-                int n = _index.Image.Read(section.Rva, bytes);
+                var bytes = _index.Image.ReadFileBytes(section);
+                int n = bytes.Length;
                 for (int at = bytes.AsSpan(0, n).IndexOf(pattern); at >= 0; )
                 {
                     ct.ThrowIfCancellationRequested();

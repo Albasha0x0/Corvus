@@ -193,7 +193,7 @@ public static class MsvcRtti
             {
                 if (s.RawSize == 0 || s.MappedSize == 0 || s.Rva >= image.SizeOfImage) continue;
                 // RTTI is initialized data: the zero fill past a section's file bytes holds none.
-                long length = image.FileBackedLength(s.Rva, Math.Min(s.MappedSize, (long)image.SizeOfImage - s.Rva));
+                long length = image.FileBytesLength(s);
                 if (length == 0) continue;
                 if (length > options.MaxSectionBytes || bytesScanned + length > 2 * options.MaxSectionBytes)
                 {

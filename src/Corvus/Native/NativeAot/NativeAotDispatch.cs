@@ -113,7 +113,7 @@ public sealed class NativeAotDispatch
         {
             if (section.IsExecutable || section.MappedSize < 2 * ptr) continue;
             ct.ThrowIfCancellationRequested();
-            var bytes = new byte[Math.Min(section.MappedSize, (uint)Array.MaxLength)];
+            var bytes = new byte[image.ReadableLength(section)];
             int n = image.Read(section.Rva, bytes);
             for (int at = (int)((ptr - section.Rva % ptr) % ptr); at + 2 * ptr <= n; at += ptr)
             {

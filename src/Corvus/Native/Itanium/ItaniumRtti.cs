@@ -251,10 +251,11 @@ public static class ItaniumRtti
             foreach (var s in image.Sections)
             {
                 if (s.IsExecutable != executable || s.MappedSize < _ptr || IsMetadata(s.Name)) continue;
-                if (s.MappedSize > MaxSectionBytes) { _notes.Add($"section {s.Name} ({s.MappedSize} bytes) is too large to scan"); continue; }
+                long length = image.FileBytesLength(s);
+                if (length > MaxSectionBytes) { _notes.Add($"section {s.Name} ({length} bytes) is too large to scan"); continue; }
                 ct.ThrowIfCancellationRequested();
-                var bytes = new byte[s.MappedSize];
-                int n = image.Read(s.Rva, bytes);
+                var bytes = image.ReadFileBytes(s);
+                int n = bytes.Length;
                 _scanned += n;
                 uint first = (uint)((_ptr - s.Rva % _ptr) % _ptr);
                 for (uint i = first; i + _ptr <= n; i += (uint)_ptr)

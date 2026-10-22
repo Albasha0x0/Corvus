@@ -36,4 +36,19 @@ public static class NativeImageExtensions
         }
         return lo;
     }
+
+    /// <summary>
+    /// Length of the section's bytes that come from the file and lie within SizeOfImage; 0 when none do. Zero fill is
+    /// left out, so a damaged header's virtual size never sizes a read.
+    /// </summary>
+    public static long FileBytesLength(this INativeImage image, NativeSection section) =>
+        section.Rva >= image.SizeOfImage ? 0 : image.FileBackedLength(section.Rva, Math.Min(section.MappedSize, (long)image.SizeOfImage - section.Rva));
+
+    /// <summary>The section's file bytes (<see cref="FileBytesLength"/>), at most <paramref name="max"/>; empty when none are mapped.</summary>
+    public static byte[] ReadFileBytes(this INativeImage image, NativeSection section, long max = int.MaxValue)
+    {
+        var bytes = new byte[Math.Min(image.FileBytesLength(section), Math.Min(max, Array.MaxLength))];
+        int n = image.Read(section.Rva, bytes);
+        return n == bytes.Length ? bytes : bytes[..Math.Max(0, n)];
+    }
 }
