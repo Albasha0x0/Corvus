@@ -39,10 +39,10 @@ public static class ToolAvailability
             "Detect It Easy (diec) was not found in CORVUS_DIE or on PATH", "set CORVUS_DIE to the Detect It Easy folder (or diec.exe)");
         foreach (var tool in new[] { ExternalTools.JavaDecompiler, ExternalTools.Java })
         {
-            var probe = ExternalTools.Probe(tool);
+            var probe = ExternalTools.Probe(tool, ExternalTools.StatusWait);
             yield return ("decompile_java", null, probe.Usable, $"{probe.Name}: {probe.Problem}", probe.Remediation);
         }
-        var adb = ExternalTools.Probe(ExternalTools.Adb);
+        var adb = ExternalTools.Probe(ExternalTools.Adb, ExternalTools.StatusWait);
         foreach (var tool in DeviceTools) yield return (tool, null, adb.Usable, $"{adb.Name}: {adb.Problem}", adb.Remediation);
     }
 

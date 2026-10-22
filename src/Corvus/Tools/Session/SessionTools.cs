@@ -101,12 +101,20 @@ public sealed class SessionTools(AssemblyWorkspace workspace, IndexingService in
         ];
         capabilities.Add(new("native PE analysis", true, "built in", null));
         // The engines are checked beside the external programs, each check in parallel (see ExternalToolCapabilities).
-        var external = Task.Run(() => ExternalToolCapabilities().ToList());
+        var deadline = DateTime.UtcNow + Native.Providers.ExternalTools.StatusWait;
+        var external = OwnThread(() => ExternalToolCapabilities(Native.Providers.ExternalTools.StatusWait).ToList());
         var providers = engines?.Providers ?? [];
-        var checks = providers.Select(provider => Task.Run(provider.CheckAvailability)).ToList();
+        var checks = providers.Select(provider => OwnThread(provider.CheckAvailability)).ToList();
         var availability = new List<Native.Providers.ProviderAvailability>();
         foreach (var (provider, check) in providers.Zip(checks))
         {
+            if (!Settle(check, deadline))
+            {
+                // Unknown is not absent: the engine's tools stay listed while its check runs on.
+                availability.Add(Native.Providers.ProviderAvailability.Ok(provider.Id, new Dictionary<string, string>()));
+                capabilities.Add(new($"native decompilation ({provider.DisplayName})", true, Pending, null));
+                continue;
+            }
             var a = check.GetAwaiter().GetResult();
             availability.Add(a);
             capabilities.Add(new($"native decompilation ({provider.DisplayName})", a.IsAvailable,
@@ -159,13 +167,31 @@ public sealed class SessionTools(AssemblyWorkspace workspace, IndexingService in
             context?.Services is { } services ? StatusSections.Collect(services) : []);
     }
 
-    /// <summary>One capability per external program the server runs (test oracles left out), probed once per file.</summary>
-    internal static IEnumerable<Capability> ExternalToolCapabilities()
+    private const string Pending = "its check is still running; call server_status again";
+
+    // A check may start a program and block for seconds; a pool thread would
+    // starve the requests running beside it on a machine with few cores.
+    private static Task<T> OwnThread<T>(Func<T> check) =>
+        Task.Factory.StartNew(check, CancellationToken.None, TaskCreationOptions.LongRunning, TaskScheduler.Default);
+
+    // True when the task finished by the deadline, whether it succeeded or not.
+    private static bool Settle(Task task, DateTime deadline)
+    {
+        var left = deadline - DateTime.UtcNow;
+        return task.IsCompleted || left > TimeSpan.Zero && ((IAsyncResult)task).AsyncWaitHandle.WaitOne(left);
+    }
+
+    /// <summary>
+    /// One capability per external program the server runs (test oracles left out), probed once per file. A version check
+    /// still running after <paramref name="wait"/> (default: no limit) is reported as an unknown version.
+    /// </summary>
+    internal static IEnumerable<Capability> ExternalToolCapabilities(TimeSpan? wait = null)
     {
         var tools = Native.Providers.ExternalTools.Table.Where(t => !t.TestOracle).ToList();
         // Side by side: each probe may start a program, so a first status waits for the slowest, not for their sum.
-        var probes = tools.AsParallel().AsOrdered().WithDegreeOfParallelism(tools.Count).Select(Native.Providers.ExternalTools.Probe).ToList();
-        return probes.Select(p => new Capability($"{p.Name}: {p.Purpose}", p.Usable, p.Usable ? Found(p) : p.Problem!, p.Usable ? null : p.Remediation));
+        var probes = tools.Select(t => OwnThread(() => wait is { } w ? Native.Providers.ExternalTools.Probe(t, w) : Native.Providers.ExternalTools.Probe(t))).ToList();
+        return probes.Select(task => task.GetAwaiter().GetResult())
+            .Select(p => new Capability($"{p.Name}: {p.Purpose}", p.Usable, p.Usable ? Found(p) : p.Problem!, p.Usable ? null : p.Remediation)).ToList();
     }
 
     // A path the user set in the tool's variable is theirs already; a searched one is named.

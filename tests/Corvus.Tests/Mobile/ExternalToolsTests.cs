@@ -153,6 +153,21 @@ public class ExternalToolsTests(ITestOutputHelper output)
     }
 
     [Fact]
+    public void A_version_check_still_running_when_status_stops_waiting_is_an_unknown_version_read_by_the_next_call()
+    {
+        using var fake = new FakeTool();
+        fake.On("^--version$", stdout: "osv-scanner version: 2.7.0", sleepMs: 3000);
+        using var env = new EnvironmentScope().Set("CORVUS_OSV_SCANNER", fake.CopyAs("osv-scanner")).Set(FakeTool.ScriptVariable, fake.ScriptPath);
+        var watch = System.Diagnostics.Stopwatch.StartNew();
+        var first = Assert.Single(Corvus.Tools.SessionTools.ExternalToolCapabilities(TimeSpan.FromMilliseconds(300)), c => c.Name.StartsWith("osv-scanner", StringComparison.Ordinal));
+        Assert.True(watch.Elapsed < TimeSpan.FromSeconds(2.5), $"{watch.Elapsed}");
+        Assert.True(first.Available);
+        Assert.EndsWith("version unknown (its version check is still running; call server_status again)", first.Detail);
+        var next = Assert.Single(Corvus.Tools.SessionTools.ExternalToolCapabilities(), c => c.Name.StartsWith("osv-scanner", StringComparison.Ordinal));
+        Assert.Contains("version 2.7.0", next.Detail);
+    }
+
+    [Fact]
     public void ServerStatus_ListsEachExternalTool_WithItsFix()
     {
         using var fake = new FakeTool();

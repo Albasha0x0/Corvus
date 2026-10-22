@@ -237,6 +237,24 @@ public static partial class ExternalTools
         return probe;
     }
 
+    /// <summary>
+    /// <see cref="Probe(ExternalTool)"/> bounded by <paramref name="wait"/>: a version check still running then is reported
+    /// usable with its version unknown, and finishes for the next call.
+    /// </summary>
+    public static ExternalToolProbe Probe(ExternalTool tool, TimeSpan wait)
+    {
+        // A thread of its own for the same reason as SessionTools.OwnThread.
+        var probe = Task.Factory.StartNew(() => Probe(tool), CancellationToken.None, TaskCreationOptions.LongRunning, TaskScheduler.Default);
+        if (((IAsyncResult)probe).AsyncWaitHandle.WaitOne(wait) || Locate(tool) is not { } at) return probe.GetAwaiter().GetResult();
+        return new(tool.Id, tool.Name, tool.Purpose, true, at.Path, at.Source, null, null, Remediation(tool)) { VersionUnknown = StillRunning };
+    }
+
+    /// <summary>How long server_status waits for a check (engines and external programs); tests shorten it.</summary>
+    internal static TimeSpan StatusWait { get; set; } = TimeSpan.FromSeconds(5);
+
+    /// <summary>The unknown-version note of a check still running when a bounded probe stopped waiting.</summary>
+    public const string StillRunning = "its version check is still running; call server_status again";
+
     private static string Stamp(string path)
     {
         try { return File.GetLastWriteTimeUtc(path).Ticks.ToString(System.Globalization.CultureInfo.InvariantCulture); }
