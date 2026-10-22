@@ -402,6 +402,9 @@
 - **Session opens on Linux:** the agent reads thread ids from `/proc` and scans it for thread ends instead of a Frida
   helper process inside the program, so a session open no longer hangs under load. It works around
   frida/frida-gum#1196. Verified on Ubuntu 24.04 x64 and x86 with Frida 17.24.3. [e7c1a1b5](https://github.com/Albasha0x0/Corvus/commit/e7c1a1b5)
+- **Script loads:** `live_script action=load` names a user script's top-level exception in its reply, settled by the
+  worker before it replies, so a busy machine no longer reports the script loaded without it. Verified with Frida
+  17.24.3 on Windows 11 x64 with 64-bit and 32-bit programs. [b452e1c2](https://github.com/Albasha0x0/Corvus/commit/b452e1c2)
 - **Session timeouts:** a call Frida gave up waiting on (its 25 s D-Bus limit, reported as `TransportError: timeout was
   reached`) is a retryable `timeout` whose Next line says to call again, not `failed`; a program the session started is
   still ended. Verified with Frida 17.24.3 on Windows 11 x64. [ae992e95](https://github.com/Albasha0x0/Corvus/commit/ae992e95)
