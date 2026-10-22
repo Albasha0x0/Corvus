@@ -411,6 +411,18 @@ public sealed class NativeIdaProviderTests(ITestOutputHelper output, IdaCacheFix
     }
 
     [IdaFact]
+    public async Task A_fatal_IDA_error_that_ends_the_worker_is_named_in_the_error()
+    {
+        await using var s = (IdaSession)await Isolated().OpenAsync(System64, null, Offline);
+        // IDA's error() prints its message and ends the process from inside idalib.
+        var e = await Assert.ThrowsAsync<ToolError>(() => s.CallAsync("python",
+            IdaProvider.Args(("code", "import ida_kernwin; ida_kernwin.error('sample fatal message')"), ("reset", false)), default));
+        output.WriteLine(e.Message);
+        Assert.Equal(ErrorCode.ProviderUnavailable, e.Code);
+        Assert.Contains("sample fatal message", e.Message);
+    }
+
+    [IdaFact]
     public async Task Worker_crash_is_reported_with_stderr_and_recovered()
     {
         await using var s = (IdaSession)await Provider.OpenAsync(System64, null, Offline with { RequestTimeout = TimeSpan.FromSeconds(60) });

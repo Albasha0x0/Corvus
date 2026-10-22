@@ -161,6 +161,10 @@ def ida():
         import idapro
     except BaseException as e:
         raise WorkerError("provider_unavailable", "idalib failed to load: %s" % (str(e).strip() or type(e).__name__))
+    # IDA's own messages go to stderr (fd 1 is redirected there), so a fatal
+    # error that ends the process inside idalib names its cause.
+    if hasattr(idapro, "enable_console_messages"):
+        idapro.enable_console_messages(True)
     import ida_auto, ida_bytes, ida_entry, ida_funcs, ida_ida, ida_lines, ida_loader, ida_nalt, ida_name, ida_segment, ida_ua, ida_xref, idautils
     mods = dict(idapro=idapro, ida_auto=ida_auto, ida_bytes=ida_bytes, ida_entry=ida_entry, ida_funcs=ida_funcs,
                 ida_ida=ida_ida, ida_lines=ida_lines, ida_loader=ida_loader, ida_nalt=ida_nalt, ida_name=ida_name,
