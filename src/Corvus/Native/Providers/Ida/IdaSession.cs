@@ -158,7 +158,8 @@ internal sealed class IdaSession(IdaProvider provider, IdaInstallation ida, Pyth
         };
         await worker.WaitReadyAsync(provider.Options.StartTimeout, cancellationToken).ConfigureAwait(false);
 
-        provider.CheckVersion(await worker.RequestAsync("hello", null, provider.Options.StartTimeout, cancellationToken).ConfigureAwait(false));
+        // Loading idalib reports progress: a busy machine stretches it, so the start limit counts from the last report.
+        provider.CheckVersion(await worker.RequestAsync("hello", null, Options.OpenTimeout, cancellationToken, quiet: provider.Options.StartTimeout).ConfigureAwait(false));
         var reuse = File.Exists(_databasePath);
         ReusedDatabase = reuse;
         Volatile.Write(ref stage, reuse ? "load" : "analysis");

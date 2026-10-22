@@ -159,6 +159,31 @@ public class WorkerConnectionTests
     }
 
     [Fact]
+    public async Task A_request_reporting_progress_outlasts_its_quiet_limit_and_a_silent_one_is_stopped()
+    {
+        using (var worker = new FakeWorkerProcess())
+        using (var c = worker.Connect(null))
+        {
+            var held = c.RequestAsync("hold", new JsonObject { ["tag"] = "late" }, NoLimit, default, quiet: TimeSpan.FromSeconds(1));
+            // Progress every 200 ms for 3 s: three times the quiet limit in all, never 1 s apart.
+            for (var clock = System.Diagnostics.Stopwatch.StartNew(); clock.Elapsed < TimeSpan.FromSeconds(3); await Task.Delay(200))
+            {
+                Assert.False(held.IsCompleted);
+                worker.Emit(new JsonObject { ["event"] = "progress", ["id"] = 1L, ["stage"] = "load" });
+            }
+            worker.Release();
+            Assert.Equal("late", (await held).GetProperty("tag").GetString());
+        }
+        using (var worker = new FakeWorkerProcess())
+        using (var c = worker.Connect(null))
+        {
+            var e = await Assert.ThrowsAsync<ToolError>(() => c.RequestAsync("hold", null, NoLimit, default, quiet: TimeSpan.FromMilliseconds(500)));
+            Assert.Equal(ErrorCode.Timeout, e.Code);
+            Assert.Contains("reported no progress on 'hold' for", e.Message);
+        }
+    }
+
+    [Fact]
     public async Task A_stall_report_that_read_nothing_says_the_worker_state_is_unknown()
     {
         foreach (var (answer, shown) in new[] { (WorkerConnection.StateUnknown + "jcmd Thread.print failed", "jcmd Thread.print failed"), ((string?)null, "the report read nothing") })

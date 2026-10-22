@@ -31,6 +31,8 @@ public sealed record WorkerRequestState(long Id, string Op, DateTime StartedUtc,
 {
     /// <summary>Progress events the worker sent for this request; none means the worker never reported running it.</summary>
     public int ProgressEvents { get; init; }
+    /// <summary>When the request was sent or last reported progress, in <see cref="Environment.TickCount64"/> milliseconds.</summary>
+    public long LastProgressTicks { get; init; }
 }
 
 /// <summary>
@@ -210,8 +212,11 @@ public sealed class WorkerConnection : IDisposable
         ? $"Raise {ServerOptions.EngineOpenTimeoutVariable} (seconds for an engine's start and analysis) and call again."
         : $"Retry with a larger time limit (timeoutSeconds where the tool takes it, or {ServerOptions.EngineRequestTimeoutVariable}).";
 
-    /// <summary>Sends one request and waits for its response; throws <see cref="ToolError"/> for worker errors.</summary>
-    public async Task<JsonElement> RequestAsync(string op, JsonObject? args, TimeSpan timeout, CancellationToken cancellationToken)
+    /// <summary>
+    /// Sends one request and waits for its response; throws <see cref="ToolError"/> for worker errors. With
+    /// <paramref name="quiet"/>, the request also stops once the worker reports no progress on it for that long.
+    /// </summary>
+    public async Task<JsonElement> RequestAsync(string op, JsonObject? args, TimeSpan timeout, CancellationToken cancellationToken, TimeSpan? quiet = null)
     {
         var serial = !_options.Concurrent;
         if (serial)
@@ -230,12 +235,13 @@ public sealed class WorkerConnection : IDisposable
             lock (_sync)
             {
                 _pending[id] = tcs;
-                _running[id] = new WorkerRequestState(id, op, DateTime.UtcNow, null);
+                _running[id] = new WorkerRequestState(id, op, DateTime.UtcNow, null) { LastProgressTicks = Environment.TickCount64 };
             }
             var write = Send(WorkerProtocol.EncodeRequest(id, op, args, timeout));
 
             using var timer = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
             timer.CancelAfter(timeout);
+            var wentQuiet = quiet is { } q ? QuietAsync(id, q, timer) : Task.FromResult(false);
             var stop = Task.Delay(Timeout.Infinite, timer.Token);
             try
             {
@@ -248,6 +254,9 @@ public sealed class WorkerConnection : IDisposable
             if (tcs.Task.IsCompleted) return Result(tcs.Task.Result);
             if (_closed.Task.IsCompleted && !timer.IsCancellationRequested) throw await DiedAsync(op).ConfigureAwait(false);
             var cancelled = cancellationToken.IsCancellationRequested;
+            var limit = wentQuiet.IsCompletedSuccessfully && wentQuiet.Result
+                ? $"reported no progress on '{op}' for {Seconds(quiet!.Value)}"
+                : $"did not finish '{op}' within {Seconds(timeout)}";
             // Read the worker at the timeout, before the cancel, so the state shows the request still running or lost.
             var activity = cancelled ? "" : Activity(id, write);
             var stall = cancelled ? "" : Stall();
@@ -255,7 +264,7 @@ public sealed class WorkerConnection : IDisposable
             {
                 if (cancelled) throw new OperationCanceledException(cancellationToken);
                 if (tcs.Task.Result.Ok) return tcs.Task.Result.Result;
-                throw new ToolError(ErrorCode.Timeout, $"{_name} did not finish '{op}' within {Seconds(timeout)}; the request was cancelled.{activity}{stall}",
+                throw new ToolError(ErrorCode.Timeout, $"{_name} {limit}; the request was cancelled.{activity}{stall}",
                     _remediation(ErrorCode.Timeout, op));
             }
             if (cancelled)
@@ -265,7 +274,7 @@ public sealed class WorkerConnection : IDisposable
             }
             Kill($"'{op}' timed out");
             throw new ToolError(ErrorCode.Timeout,
-                $"{_name} did not finish '{op}' within {Seconds(timeout)}; the worker was stopped.{activity}{stall}{StderrSuffix()}",
+                $"{_name} {limit}; the worker was stopped.{activity}{stall}{StderrSuffix()}",
                 _remediation(ErrorCode.Timeout, op));
         }
         finally
@@ -278,6 +287,33 @@ public sealed class WorkerConnection : IDisposable
             }
             if (serial) _gate.Release();
         }
+    }
+
+    // True once request id has gone quiet without a progress event, and then
+    // cancels timer; false when the request ends first or the timer fires.
+    private async Task<bool> QuietAsync(long id, TimeSpan quiet, CancellationTokenSource timer)
+    {
+        var token = timer.Token;
+        try
+        {
+            while (true)
+            {
+                long last;
+                lock (_sync)
+                {
+                    if (!_running.TryGetValue(id, out var r)) return false;
+                    last = r.LastProgressTicks;
+                }
+                var left = last + (long)quiet.TotalMilliseconds - Environment.TickCount64;
+                if (left <= 0)
+                {
+                    timer.Cancel();
+                    return true;
+                }
+                await Task.Delay(TimeSpan.FromMilliseconds(left), token).ConfigureAwait(false);
+            }
+        }
+        catch (Exception ex) when (ex is OperationCanceledException or ObjectDisposedException) { return false; }
     }
 
     private JsonElement Result(WorkerMessage.Response r)
@@ -478,7 +514,7 @@ public sealed class WorkerConnection : IDisposable
         {
             var key = id ?? (_running.Count == 1 ? _running.Keys.First() : -1);
             if (_running.TryGetValue(key, out var r))
-                _running[key] = r with { Stage = string.IsNullOrEmpty(stage) ? r.Stage : stage, ProgressEvents = r.ProgressEvents + 1 };
+                _running[key] = r with { Stage = string.IsNullOrEmpty(stage) ? r.Stage : stage, ProgressEvents = r.ProgressEvents + 1, LastProgressTicks = Environment.TickCount64 };
         }
     }
 }
