@@ -13,6 +13,7 @@
 #                                         #   -Whole: exhaustive without reuse, the pass a minor release gates on)
 #         ./test.ps1 -SecondGhidra        # the Engines tests with CORVUS_SECOND_GHIDRA_DIR, unless they passed on these inputs
 #         ./test.ps1 -Status              # the last background run: passed / failed / running, its log, and run times
+#         ./test.ps1 -Wait                # returns when the background run and any run queued behind it end: 0 passed, 1 not
 #         ./test.ps1 -Perf                # the speed measurements with their budgets, alone on the machine (nightly, after -Full)
 #         ./test.ps1 -Stamp               # records the last full run's passes when its recording step failed (same tree only)
 #         ./test.ps1 -RemoteRun -Shard 0/4 # CI: one shard of the classes a push run offloads (test-remote.psm1)
@@ -42,7 +43,8 @@ param(
     [switch]$Perf,
     [switch]$RemoteRun,
     [string]$Shard = '0/1',
-    [switch]$CrossPlatform
+    [switch]$CrossPlatform,
+    [switch]$Wait
 )
 
 $ErrorActionPreference = 'Stop'
@@ -153,8 +155,8 @@ function Save-RunTimes([string]$trx, [string]$mode, [int]$code, [hashtable]$extr
         if ($env:CORVUS_PERMIT_LOG -and (Test-Path $env:CORVUS_PERMIT_LOG)) {
             # Seconds waited per resource (or set of resources a class takes together).
             $context.permits = [ordered]@{}
-            foreach ($wait in Import-Csv $env:CORVUS_PERMIT_LOG -Delimiter "`t" -Header resources, seconds, collection | Group-Object resources | Sort-Object Name) {
-                $context.permits[$wait.Name] = [math]::Round(($wait.Group | Measure-Object { [double]::Parse($_.seconds, [cultureinfo]::InvariantCulture) } -Sum).Sum, 1)
+            foreach ($permitWait in Import-Csv $env:CORVUS_PERMIT_LOG -Delimiter "`t" -Header resources, seconds, collection | Group-Object resources | Sort-Object Name) {
+                $context.permits[$permitWait.Name] = [math]::Round(($permitWait.Group | Measure-Object { [double]::Parse($_.seconds, [cultureinfo]::InvariantCulture) } -Sum).Sum, 1)
             }
         }
         foreach ($name in $extra.Keys) { $context[$name] = $extra[$name] }
@@ -282,6 +284,23 @@ if ($Mutation) {
 $running = Join-Path $gitDir 'corvus-background.json'
 $lastPassed = Join-Path $gitDir 'corvus-background.passed'
 $queued = Join-Path $gitDir 'corvus-background.next'
+
+# Waits while a run's record names a live process or a run is queued. The last run's process starts the queued run
+# after removing both files, so the wait also lasts while that process lives.
+if ($Wait) {
+    $dispatcher = $null
+    while ($true) {
+        $run = Get-Content $running -Raw -ErrorAction SilentlyContinue | ConvertFrom-Json -ErrorAction SilentlyContinue
+        $alive = if ($run) { Get-Process -Id $run.pid -ErrorAction SilentlyContinue | Where-Object { $_.StartTime.ToUniversalTime().Ticks -eq $run.started } }
+        if ($alive) { $dispatcher = $alive }
+        elseif (-not (Test-Path $queued) -and -not ($dispatcher -and -not $dispatcher.HasExited)) { break }
+        Start-Sleep -Seconds 5
+    }
+    $text = if (Test-Path $result) { (Get-Content $result -Raw).Trim() } else { 'No background run yet.' }
+    Write-Host $text
+    exit $(if ($text -match ' passed at ') { 0 } else { 1 })
+}
+
 if ($Background) {
     $commit = (git -C $root rev-parse HEAD).Trim()
     if (git -C $root status --porcelain) { Write-Host 'Uncommitted changes are not part of the background run (it tests HEAD).' }

@@ -48,8 +48,6 @@ function Write-Nightly([string]$message) {
     Write-Host $line
 }
 
-$running = Join-Path $gitDir 'corvus-background.json'
-$queued = Join-Path $gitDir 'corvus-background.next'
 $commit = (git -C $root rev-parse --short HEAD).Trim()
 Write-Nightly "start: $Strength full run of $commit"
 # The night's run analyses 3 engine seeds cold again; push runs leave the check off.
@@ -59,11 +57,7 @@ if ($Strength -eq 'whole') { $flags.Whole = $true } elseif ($Strength -eq 'exhau
 & (Join-Path $root 'test.ps1') @flags *> $runLog
 
 # The run and any run queued behind it end before the perf run.
-while ((Test-Path $running) -or (Test-Path $queued)) {
-    $record = Get-Content $running -Raw -ErrorAction SilentlyContinue | ConvertFrom-Json -ErrorAction SilentlyContinue
-    if ($record -and -not (Get-Process -Id $record.pid -ErrorAction SilentlyContinue) -and -not (Test-Path $queued)) { break }
-    Start-Sleep -Seconds 60
-}
+& (Join-Path $root 'test.ps1') -Wait *>> $runLog
 Write-Nightly "full run: $(Get-Content (Join-Path $gitDir 'corvus-background.result') -Raw -ErrorAction SilentlyContinue)"
 
 # The lock script's status names a holder "heavy: <name>" and a waiter "heavy waiting: <name>"; full runs are corvus-full-<pid>.

@@ -15,7 +15,9 @@
   shows the result; the worktree goes under `CORVUS_BACKGROUND_DIR`, else the temp folder, so it can sit where the
   antivirus does not quarantine the script fixtures; it is kept between runs, so each run checks out its commit there and
   builds incrementally), and a failure is fixed in the next commit. A push while a run is going is queued: when the run
-  ends, one run starts on the newest commit, at the strongest strength asked meanwhile. A whole-suite run without reuse (the nightly run, a release gate) holds an exclusive machine lock while it runs when `CORVUS_HEAVY_LOCK` names a lock script
+  ends, one run starts on the newest commit, at the strongest strength asked meanwhile. `./test.ps1 -Wait` returns
+  when the run and any run queued behind it end, prints the result and exits 0 on a pass, so a script or agent waits
+  on it instead of polling `-Status`. A whole-suite run without reuse (the nightly run, a release gate) holds an exclusive machine lock while it runs when `CORVUS_HEAVY_LOCK` names a lock script
   (called as `heavy <name> -OwnerPid <pid>`, which waits for the lock, and `release <name>`), so other load on the machine waits for it; a push run (`-Reuse`) takes none and relies on the machine-wide permits. Every test run except `-Perf`, in the
   foreground or the background, runs at below-normal priority (nice 10 on Linux and macOS; its builds, test hosts and
   engine workers inherit it), so the desktop stays responsive; `CORVUS_TEST_PRIORITY=normal` keeps normal priority. A
