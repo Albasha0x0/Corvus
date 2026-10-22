@@ -31,7 +31,7 @@ internal static class UnityScriptLayout
     /// <summary>
     /// The layout of <paramref name="script"/> for serialized file <paramref name="format"/> written by engine
     /// <paramref name="unityVersion"/>; with <paramref name="attributesKept"/> false (Il2Cpp metadata) a private field
-    /// of a serializable type is unknown, since whether it carries [SerializeField] is not kept.
+    /// of a serializable type is unknown unless its dummy module carries the fields' custom attributes.
     /// </summary>
     public static Layout Build(TypeDef script, int format, bool attributesKept, string? unityVersion = null)
     {
@@ -115,8 +115,8 @@ internal static class UnityScriptLayout
             if (plan is Skip) return true;
             if (!f.IsPublic && !Has(f, "UnityEngine.SerializeField"))
             {
-                if (attributesKept) return true;
-                return Stop(name, "a private field; whether it is [SerializeField] is not kept in Il2Cpp metadata");
+                if (attributesKept || Il2CppDummyBuilder.FieldAttributesRead(f.Module)) return true;
+                return Stop(name, "a private field; whether it is [SerializeField] was not read from the Il2Cpp metadata");
             }
             return plan is Unknown u ? Stop(name, u.Reason) : Emit(plan, f.Name, level, depth, element: false, name);
         }

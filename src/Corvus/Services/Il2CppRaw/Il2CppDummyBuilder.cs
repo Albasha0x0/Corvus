@@ -14,11 +14,18 @@ namespace Corvus.Services;
 /// Builds Il2CppDumper-format dummy assemblies from the LibCpp2IL state: one module per metadata image with its types,
 /// fields, methods, properties and events, the methods' native addresses as [Address(RVA, Offset, VA, Slot)], field
 /// offsets as [FieldOffset(Offset)] and metadata tokens as [Token(Token)] (attributes of an Il2CppDummyDll assembly),
-/// enum and constant values, and stub bodies that return a default value. The original custom attributes are not built.
+/// enum and constant values, and stub bodies that return a default value. Fields carry their original custom
+/// attributes by type, without arguments, in modules marked with [FieldAttributes]; other members carry none.
 /// </summary>
 internal sealed class Il2CppDummyBuilder
 {
     public const string AttributeAssembly = "Il2CppDummyDll";
+
+    /// <summary>The assembly attribute of a module whose fields carry their original custom attributes.</summary>
+    public const string FieldAttributesMarker = AttributeAssembly + ".FieldAttributesAttribute";
+
+    /// <summary>Whether <paramref name="module"/> is a dummy module whose fields carry their original custom attributes.</summary>
+    public static bool FieldAttributesRead(ModuleDef? module) => module?.Assembly?.CustomAttributes.Any(a => a.TypeFullName == FieldAttributesMarker) == true;
 
     private readonly Il2CppMetadata _meta;
     private readonly Il2CppBinary _bin;
@@ -33,7 +40,9 @@ internal sealed class Il2CppDummyBuilder
     private readonly Dictionary<(int Module, Il2CppType Type), TypeSig> _sigs = new(new SigKeyComparer());
     private readonly Dictionary<int, (MemberRef Address, MemberRef FieldOffset, MemberRef Token, CorLibTypeSig String)> _attributeCtors = new();
     private ModuleDefUser? _attributeModule;
-    private TypeDefUser? _addressType, _fieldOffsetType, _tokenType;
+    private TypeDefUser? _addressType, _fieldOffsetType, _tokenType, _fieldAttributesType;
+    private readonly Dictionary<uint, int[]>?[] _memberAttributes;
+    private readonly Dictionary<(int Module, int Type), MemberRef> _attributeRefs = new();
 
     public int Types { get; private set; }
     public int Methods { get; private set; }
@@ -50,6 +59,7 @@ internal sealed class Il2CppDummyBuilder
         _modules = new ModuleDefUser[meta.imageDefinitions.Length];
         _typeImage = new int[meta.typeDefs.Length];
         _types = new TypeDefUser?[meta.typeDefs.Length];
+        _memberAttributes = new Dictionary<uint, int[]>?[meta.imageDefinitions.Length];
     }
 
     /// <summary>Builds every module (and the attribute module) in memory.</summary>
@@ -99,6 +109,21 @@ internal sealed class Il2CppDummyBuilder
             else _modules[_typeImage[t]].Types.Add(_types[t]!);
         }
         BuildAttributeModule(corlibRef);
+        // A module is marked only when every attribute range of its image reads, so an unmarked one stays unknown.
+        for (int i = 0; i < images.Length; i++)
+        {
+            try
+            {
+                _memberAttributes[i] = Il2CppAttributeTypes.Read(_meta, images[i], Definition);
+                var ctor = new MemberRefUser(_modules[i], ".ctor", MethodSig.CreateInstance(Corlib(Il2CppTypeEnum.IL2CPP_TYPE_VOID, i)),
+                    new TypeRefUser(_modules[i], AttributeAssembly, _fieldAttributesType!.Name, new AssemblyRefUser(_attributeModule!.Assembly)));
+                _modules[i].Assembly.CustomAttributes.Add(new CustomAttribute(ctor));
+            }
+            catch (Exception ex) when (ex is not OutOfMemoryException)
+            {
+                _unreadable($"assembly {_modules[i].Name}", "unreadable_attributes", $"{ex.Message}; its fields carry no custom attributes");
+            }
+        }
         for (int t = 0; t < _types.Length; t++)
         {
             if ((t & 0xFF) == 0) ct.ThrowIfCancellationRequested();
@@ -307,6 +332,16 @@ internal sealed class Il2CppDummyBuilder
         _addressType = Define("AddressAttribute", "RVA", "Offset", "VA", "Slot");
         _fieldOffsetType = Define("FieldOffsetAttribute", "Offset");
         _tokenType = Define("TokenAttribute", "Token");
+        _fieldAttributesType = Define("FieldAttributesAttribute");
+    }
+
+    /// <summary>A parameterless constructor reference to attribute type <paramref name="type"/> from module <paramref name="module"/>.</summary>
+    private MemberRef AttributeCtor(int type, int module)
+    {
+        if (_attributeRefs.TryGetValue((module, type), out var r)) return r;
+        r = new MemberRefUser(_modules[module], ".ctor", MethodSig.CreateInstance(Corlib(Il2CppTypeEnum.IL2CPP_TYPE_VOID, module)), Ref(type, module));
+        _attributeRefs[(module, type)] = r;
+        return r;
     }
 
     private (MemberRef Address, MemberRef FieldOffset, MemberRef Token, CorLibTypeSig String) Ctors(int module)
@@ -359,6 +394,9 @@ internal sealed class Il2CppDummyBuilder
                 else field.Attributes &= ~dnlib.DotNet.FieldAttributes.HasDefault;
             }
             field.CustomAttributes.Add(Attribute(ctors.Token, ctors.String, ("Token", Hex(f.token))));
+            if (_memberAttributes[module]?.TryGetValue(f.token, out var attributeTypes) == true)
+                foreach (int a in attributeTypes)
+                    if (a >= 0 && a < _types.Length) field.CustomAttributes.Add(new CustomAttribute(AttributeCtor(a, module)));
             if ((attrs & dnlib.DotNet.FieldAttributes.Literal) == 0)
             {
                 int offset = _bin.GetFieldOffsetFromIndex(typeIndex, i, Il2CppIndex.Of<Il2CppFieldDefinition>(d.FirstFieldIdx.Value + i), d.IsValueType, (attrs & dnlib.DotNet.FieldAttributes.Static) != 0);

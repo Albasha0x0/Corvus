@@ -23,7 +23,7 @@ public sealed class Il2CppRawLoader(AssemblyWorkspace workspace, string? cacheRo
     public const string DummyFolder = "DummyDll";
     public const int MaxEntries = 8;
     internal static readonly TimeSpan InUseWindow = TimeSpan.FromMinutes(10);
-    private const int CacheFormat = 3; // bump when the reader's output changes: older entries are then read again
+    private const int CacheFormat = 4; // bump when the reader's output changes: older entries are then read again
 
     public static string DefaultRoot =>
         Environment.GetEnvironmentVariable(RootVariable) is { Length: > 0 } custom
@@ -254,7 +254,7 @@ public sealed class Il2CppRawLoader(AssemblyWorkspace workspace, string? cacheRo
             foreach (var (reason, count, examples) in summary.Take(12))
                 sb.AppendLine($"    {reason}: {count} (e.g. {string.Join("; ", examples.Select(e => $"{e.Item}: {Format.Clip(e.Detail, 120)}"))})");
         }
-        sb.AppendLine("  not covered: the original custom attributes; C prototypes of script.json (instantiations are matched to their definitions by token instead)");
+        sb.AppendLine("  not covered: custom attributes other than the field attribute types, and attribute arguments; C prototypes of script.json (instantiations are matched to their definitions by token instead)");
         foreach (var note in r.Notes.Take(12)) sb.AppendLine($"  note: {Format.Clip(note, 400)}");
         sb.Append("Next: get_il2cpp_info / find_method_by_address / search_strings on these assemblies; apply_il2cpp_names to name the native image.");
         return sb.ToString();

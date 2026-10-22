@@ -308,6 +308,21 @@ public sealed class UnityFieldTests : IDisposable
     }
 
     [Fact]
+    public void Il2Cpp_metadata_with_field_attributes_continues_past_a_private_field()
+    {
+        using var module = dnlib.DotNet.ModuleDefMD.Load(Assemblies.Value.Scripts);
+        var expected = UnityScriptLayout.Build(module.Find("Player", false), 22, attributesKept: true);
+        // The dummy builder marks a module whose fields keep their attribute types.
+        var marker = new dnlib.DotNet.TypeRefUser(module, Il2CppDummyBuilder.AttributeAssembly, "FieldAttributesAttribute", new dnlib.DotNet.AssemblyRefUser(Il2CppDummyBuilder.AttributeAssembly));
+        module.Assembly.CustomAttributes.Add(new dnlib.DotNet.CustomAttribute(new dnlib.DotNet.MemberRefUser(module, ".ctor", dnlib.DotNet.MethodSig.CreateInstance(module.CorLibTypes.Void), marker)));
+        var layout = UnityScriptLayout.Build(module.Find("Player", false), 22, attributesKept: false);
+        // Both stop at the engine reference the test's module cannot resolve, after the private fields.
+        Assert.Equal(expected.Unknown, layout.Unknown);
+        Assert.Contains(layout.Tree, n => n is { Level: 1, Name: "spawn" });
+        Assert.Equal(expected.Tree.Select(n => (n.Level, n.Name, n.Type)), layout.Tree.Select(n => (n.Level, n.Name, n.Type)));
+    }
+
+    [Fact]
     public void A_Color32_field_is_one_rgba_value_as_the_engine_writes_it()
     {
         using var module = dnlib.DotNet.ModuleDefMD.Load(Assemblies.Value.Scripts);
