@@ -14,7 +14,10 @@
       "url": "https://github.com/adoptium/temurin24-binaries/releases/download/jdk-24.0.1%2B9/OpenJDK24U-jdk_x64_windows_hotspot_24.0.1_9.zip",
       "sha256": "2ef7f20c00577747d23999c7b29a0d35d73aeeb9d67aec0aa9825e59084447c3",
       "folder": "jdk-24.0.1+9",
-      "variable": "CORVUS_GHIDRA_JAVA"
+      "variable": "CORVUS_GHIDRA_JAVA",
+      "variables": {
+        "CORVUS_JAVA": "jdk-24.0.1+9/bin/java.exe"
+      }
     },
     {
       "name": "pwsh",
@@ -42,6 +45,116 @@
       "folder": "python-3.13.16",
       "into": "python-3.13.16",
       "bin": "tools"
+    },
+    {
+      "name": "wabt",
+      "version": "1.0.42",
+      "url": "https://github.com/WebAssembly/wabt/releases/download/1.0.42/wabt-1.0.42-windows-x64.tar.gz",
+      "sha256": "62f1eb2b51aa57cf0f0b8ba333bf2c72a049930aa9c5de01dcad271c4fe48c88",
+      "folder": "wabt-1.0.42",
+      "variables": {
+        "CORVUS_WASM_TO_TEXT": "wabt-1.0.42/bin/wasm2wat.exe",
+        "CORVUS_WASM_VALIDATOR": "wabt-1.0.42/bin/wasm-validate.exe"
+      }
+    },
+    {
+      "name": "baksmali",
+      "version": "2.5.2",
+      "url": "https://bitbucket.org/JesusFreke/smali/downloads/baksmali-2.5.2.jar",
+      "sha256": "d3116248cce4f82ec5a31eb7f95ee75daff42ddf6eed0ab573973dc53fbad2e5",
+      "folder": "baksmali-2.5.2",
+      "into": "baksmali-2.5.2",
+      "variables": {
+        "CORVUS_DEX_DISASSEMBLER": "baksmali-2.5.2/baksmali-2.5.2.jar"
+      }
+    },
+    {
+      "name": "jadx-headless-mcp",
+      "version": "0.7.1",
+      "url": "https://github.com/1013503897/jadx-headless-mcp/releases/download/v0.7.1/jadx-headless-mcp-0.7.1-all.jar",
+      "sha256": "6e5eacf500b64292bfb73c49797c1958f6ee44646e43e868039ae7feb573ff75",
+      "folder": "jadx-headless-mcp-0.7.1",
+      "into": "jadx-headless-mcp-0.7.1",
+      "variables": {
+        "CORVUS_JAVA_DECOMPILER": "jadx-headless-mcp-0.7.1/jadx-headless-mcp-0.7.1-all.jar"
+      }
+    },
+    {
+      "name": "vineflower",
+      "version": "1.11.1",
+      "url": "https://github.com/Vineflower/vineflower/releases/download/1.11.1/vineflower-1.11.1.jar",
+      "sha256": "a615d07ddbbcd489369674f40e42df639c32be95410890b38f173d5c1e2ea39c",
+      "folder": "vineflower-1.11.1",
+      "into": "vineflower-1.11.1",
+      "variables": {
+        "CORVUS_JAVA_DECOMPILER2": "vineflower-1.11.1/vineflower-1.11.1.jar"
+      }
+    },
+    {
+      "name": "wireshark",
+      "version": "4.6.9",
+      "url": "https://www.wireshark.org/download/win64/Wireshark-4.6.9-x64.msi",
+      "sha256": "1975dfc96581a9b674fda3f41ac1585963b4ba52ea9459f3b6d9cedfac3a7217",
+      "folder": "wireshark-4.6.9/Wireshark",
+      "into": "wireshark-4.6.9",
+      "variables": {
+        "CORVUS_TSHARK": "wireshark-4.6.9/Wireshark/tshark.exe"
+      }
+    },
+    {
+      "name": "hermes-0.7.2",
+      "version": "0.7.2",
+      "url": "https://github.com/facebook/hermes/releases/download/v0.7.2/hermes-cli-windows-v0.7.2.tar.gz",
+      "sha256": "75f277f77eaaf3f77359354f8dbb5d11c35efbca7fd04f9ef76d1fcd6d061845",
+      "folder": "hermes/v0.7.2",
+      "into": "hermes/v0.7.2",
+      "variables": {
+        "CORVUS_HBC_DISASSEMBLER": "hermes"
+      }
+    },
+    {
+      "name": "hermes-0.8.0",
+      "version": "0.8.0",
+      "url": "https://github.com/facebook/hermes/releases/download/v0.8.0/hermes-cli-windows-v0.8.0.tar.gz",
+      "sha256": "3bda2b861e40d834be5ac4aeb077da520ffbd72b2fd5fbf6b71a105beacb7278",
+      "folder": "hermes/v0.8.0",
+      "into": "hermes/v0.8.0",
+      "variables": {
+        "CORVUS_HBC_DISASSEMBLER": "hermes"
+      }
+    },
+    {
+      "name": "hermes-0.11.0",
+      "version": "0.11.0",
+      "url": "https://github.com/facebook/hermes/releases/download/v0.11.0/hermes-cli-windows-v0.11.0.tar.gz",
+      "sha256": "a19db9928f2e8e95e71c4b9db601063bfccd2867cd81b5d4eb898a793869d84b",
+      "folder": "hermes/v0.11.0",
+      "into": "hermes/v0.11.0",
+      "variables": {
+        "CORVUS_HBC_DISASSEMBLER": "hermes"
+      }
+    },
+    {
+      "name": "hermes-0.12.0",
+      "version": "0.12.0",
+      "url": "https://github.com/facebook/hermes/releases/download/v0.12.0/hermes-cli-windows-v0.12.0.tar.gz",
+      "sha256": "2284de5235160cac2080c111b727d1985f5c8ab67349daaa97356e2035ddc9e0",
+      "folder": "hermes/v0.12.0",
+      "into": "hermes/v0.12.0",
+      "variables": {
+        "CORVUS_HBC_DISASSEMBLER": "hermes"
+      }
+    },
+    {
+      "name": "hermes-0.13.0",
+      "version": "0.13.0",
+      "url": "https://github.com/facebook/hermes/releases/download/v0.13.0/hermes-cli-windows.tar.gz",
+      "sha256": "485907ae87f267f7901f45c12979fea9703967ee2fa930bab887d022de9d6478",
+      "folder": "hermes/v0.13.0",
+      "into": "hermes/v0.13.0",
+      "variables": {
+        "CORVUS_HBC_DISASSEMBLER": "hermes"
+      }
     }
   ]
 }

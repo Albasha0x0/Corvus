@@ -79,7 +79,10 @@
   `CORVUS_TEST_OFFLOAD=0` runs everything here.
 - **Test host.** Prepare a second machine for test runs: `./test-remote-setup.ps1 -Target user@host` sets up a Windows
   machine over OpenSSH with the PowerShell 7, MinGit, Python, JDK and Ghidra releases pinned with their SHA-256 in
-  `Support/remote-tools-assets.json` (under `~/corvus-test-host/tools`), the Frida release the server pins, a clone of
+  `Support/remote-tools-assets.json` (under `~/corvus-test-host/tools`), the reference tools the real-data classes
+  compare against from the same table (wabt, baksmali, jadx-headless-mcp, Vineflower, the Hermes CLI releases and
+  TShark, the last from the Wireshark installer package by an administrative extract, with their variables set), the
+  Frida release the server pins, a clone of
   the repository, the .NET SDK `global.json` names with the x64 and x86 runtimes the tests start programs on (checked
   against Microsoft's release metadata), and the Visual C++ build tools (the bootstrapper's Microsoft signature is
   checked). A step keeps what is already there, so running it again fills only the gaps; `-Check` changes nothing and

@@ -1,5 +1,6 @@
 # Prepares a Windows machine as a test host, from this machine over OpenSSH: the tools pinned in
-# tests/Corvus.Tests/Support/remote-tools-assets.json (PowerShell 7, MinGit, Python, the JDK and Ghidra) under
+# tests/Corvus.Tests/Support/remote-tools-assets.json (PowerShell 7, MinGit, Python, the JDK, Ghidra and the reference
+# tools the real-data classes compare against) under
 # ~/corvus-test-host/tools, Frida's pinned release in that Python, a clone of the repository, the .NET SDK global.json
 # names with the runtimes the tests start programs on, and the Visual C++ build tools. Each step keeps what is already
 # there, so a second run only fills gaps; -Check changes nothing and names what is missing (exit 1 when anything is).

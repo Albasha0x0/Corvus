@@ -101,6 +101,56 @@ public sealed class TestRemoteSetupTests : IDisposable
 
     [Fact]
     [Trait("Speed", "Slow")]
+    public void A_pinned_archive_and_a_pinned_file_are_unpacked_and_name_their_variables()
+    {
+        if (!OperatingSystem.IsWindows()) return;
+        // The fetch script and a table of its own in one folder; downloads come from file URIs, which Windows
+        // PowerShell reads (PowerShell 7 does not).
+        var support = Path.Combine(_dir.Path, "support");
+        var source = Path.Combine(_dir.Path, "source");
+        Directory.CreateDirectory(support);
+        Directory.CreateDirectory(Path.Combine(source, "kit-1.0", "bin"));
+        File.Copy(Path.Combine(DocsTests.RepoRoot(), "tests", "Corvus.Tests", "Support", "fetch-remote-tools.ps1"), Path.Combine(support, "fetch-remote-tools.ps1"));
+        File.WriteAllText(Path.Combine(source, "kit-1.0", "bin", "tool.exe"), "kit");
+        var zip = Path.Combine(_dir.Path, "kit-1.0.zip");
+        System.IO.Compression.ZipFile.CreateFromDirectory(source, zip, System.IO.Compression.CompressionLevel.Fastest, false);
+        string Sha(string path) => Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(File.ReadAllBytes(path))).ToLowerInvariant();
+        var jar = Path.Combine(_dir.Path, "lib-2.0.jar");
+        File.WriteAllText(jar, "jar");
+        File.WriteAllText(Path.Combine(support, "remote-tools-assets.json"), $$"""
+            { "tools": [
+              { "name": "kit", "version": "1.0", "url": "{{new Uri(zip).AbsoluteUri}}", "sha256": "{{Sha(zip)}}", "folder": "kit-1.0",
+                "variables": { "KIT_TOOL": "kit-1.0/bin/tool.exe" } },
+              { "name": "lib", "version": "2.0", "url": "{{new Uri(jar).AbsoluteUri}}", "sha256": "{{Sha(jar)}}", "folder": "lib-2.0", "into": "lib-2.0",
+                "variables": { "LIB_JAR": "lib-2.0/lib-2.0.jar" } },
+              { "name": "bad", "version": "3.0", "url": "{{new Uri(jar).AbsoluteUri}}", "sha256": "{{new string('0', 64)}}", "folder": "bad-3.0" }
+            ] }
+            """);
+        var tools = Path.Combine(_dir.Path, "tools");
+        var lines = TestReuseTests.Run($$"""
+            $fetch = {{Quote(Path.Combine(support, "fetch-remote-tools.ps1"))}}
+            # Through -Command, so that -Name reaches the script as two names, not one "kit,lib".
+            powershell -NoProfile -ExecutionPolicy Bypass -Command "& '$fetch' -Destination {{Quote(tools)}} -Name kit, lib"
+            'exit=' + $LASTEXITCODE
+            'files=' + (Test-Path {{Quote(Path.Combine(tools, "kit-1.0", "bin", "tool.exe"))}}) + ',' + (Test-Path {{Quote(Path.Combine(tools, "lib-2.0", "lib-2.0.jar"))}}) + ',' + @(Get-ChildItem {{Quote(tools)}} -File).Count
+            Remove-Item {{Quote(zip)}}
+            'kept=' + ((powershell -NoProfile -ExecutionPolicy Bypass -File $fetch -Destination {{Quote(tools)}} -Name kit) -join ';')
+            powershell -NoProfile -ExecutionPolicy Bypass -File $fetch -Destination {{Quote(tools)}} -Name bad 2>&1 | Out-Null
+            'bad=' + $LASTEXITCODE + ',' + (Test-Path {{Quote(Path.Combine(tools, "bad-3.0"))}})
+            """);
+        if (lines is ["skip"]) return;
+        Assert.Contains($"KIT_TOOL={Path.Combine(tools, "kit-1.0", "bin", "tool.exe")}", lines);
+        Assert.Contains($"LIB_JAR={Path.Combine(tools, "lib-2.0", "lib-2.0.jar")}", lines);
+        Assert.Contains("exit=0", lines);
+        // The archive is extracted and removed, the jar kept as it is.
+        Assert.Contains("files=True,True,0", lines);
+        // A tool already there is not downloaded again (its source is gone).
+        Assert.Contains($"kept=KIT_TOOL={Path.Combine(tools, "kit-1.0", "bin", "tool.exe")}", lines);
+        Assert.Contains("bad=1,False", lines);
+    }
+
+    [Fact]
+    [Trait("Speed", "Slow")]
     public void A_check_of_an_empty_host_folder_names_each_missing_tool_and_changes_nothing()
     {
         var host = Path.Combine(_dir.Path, "host");
