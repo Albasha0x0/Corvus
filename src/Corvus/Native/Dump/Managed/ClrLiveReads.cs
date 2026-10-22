@@ -25,14 +25,19 @@ public sealed class ClrLiveReads(ClrRuntime runtime)
     /// <summary>Drops what was read before: the program has run since.</summary>
     public void Refresh() => Runtime.FlushCachedData();
 
+    private static bool Holds(ulong start, ulong size, ulong ip) => start > 0 && ip >= start && ip - start < size;
+
     public LiveMethod? MethodAt(ulong ip)
     {
         if (Runtime.GetMethodByInstructionPointer(ip) is not { } m) return null;
         var hc = m.HotColdInfo;
-        ulong start = hc.ColdSize > 0 && ip >= hc.ColdStart && ip - hc.ColdStart < hc.ColdSize ? hc.ColdStart : hc.HotStart;
-        // A method can come without a hot/cold start (seen on a 32-bit ReadyToRun frame): its native code or IL map
-        // may still give one; otherwise the start is unknown, never the address itself.
-        if (start == 0 || start > ip) start = m.NativeCode is > 0 and var code && code <= ip ? code : 0;
+        // The hot/cold ranges and the IL map can each describe another version
+        // of the method's code (ReadyToRun code a JIT tier replaced), so a start
+        // counts only when its range holds the address.
+        ulong start = Holds(hc.HotStart, hc.HotSize, ip) ? hc.HotStart : Holds(hc.ColdStart, hc.ColdSize, ip) ? hc.ColdStart : 0;
+        // A method can come without a hot/cold start (seen on a 32-bit
+        // ReadyToRun frame): its native code may still give one.
+        if (start == 0 && hc.HotStart == 0 && m.NativeCode is > 0 and var code && code <= ip) start = code;
         var map = m.ILOffsetMap;
         if (start == 0 && map.Any(x => x.StartAddress <= ip && ip < x.EndAddress))
             start = map.Where(x => x.StartAddress > 0).Min(x => x.StartAddress);

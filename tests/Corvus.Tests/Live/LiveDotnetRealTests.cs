@@ -294,10 +294,12 @@ public sealed class LiveDotnetRealTests(ITestOutputHelper output) : LiveToolCall
         }
         Assert.False(thread.Length == 0, "no stop on an open of the input file in 50 stops");
         // native frames by module and export; the managed caller named by the runtime (on x86 read by the 32-bit decoder process)
+        // The caller's offset is within its method: a start read from another
+        // version of the method's code gave offsets past 0x10000.
         // glibc exports open and its aliases at one address.
         var api = target.Windows ? @"KERNELBASE\.dll!CreateFileW" : @"libc\.so\.6!(?:__libc_|__)?open(?:64)?\b";
         var caller = !target.Windows ? @"libSystem\.Native\.so!SystemNative_Open\S*"
-            : @"System\.Private\.CoreLib\.dll!\S.*\(.*\)\+0x[0-9A-F]+";
+            : @"System\.Private\.CoreLib\.dll!\S.*\(.*\)\+0x[0-9A-F]{1,4}";
         // a frame with debug information ends in its source file and line
         Assert.Matches($@"thread {thread} stopped at s1 \({api}\)\r?\n  #0 0x[0-9A-F]+ {api}(?:  \S+:\d+)?\r?\n  #1 0x(?<b>[0-9A-F]+) ({caller})(?:  \S+:\d+)?\r?\n", stop);
 
