@@ -1,5 +1,7 @@
 using System.IO.Compression;
 using System.Text.Json.Nodes;
+using Corvus.Native.Providers.Worker;
+using Corvus.Native.Providers.Worker.Yara;
 
 namespace Corvus.Tests;
 
@@ -35,7 +37,7 @@ public class FileBatchTests
         Assert.Equal(3, container["result"]!["items"]!.AsArray().Count);
         Assert.Equal(5, (int)container["result"]!["total"]!);
         Assert.Equal("not_applicable", (string?)Section(document, "strings")["status"]);
-        Assert.Equal("unavailable", (string?)Section(document, "yara")["status"]);
+        Assert.Equal("not_applicable", (string?)Section(document, "yara")["status"]);
     }
 
     [Fact]
@@ -62,7 +64,49 @@ public class FileBatchTests
         Assert.Equal(124, code);
         Assert.False((bool)document!["complete"]!);
         Assert.Equal("timeout", (string?)Section(document, "summary")["status"]);
-        Assert.Equal("unavailable", (string?)Section(document, "yara")["status"]);
+        Assert.Equal("not_applicable", (string?)Section(document, "yara")["status"]);
+    }
+
+    [YaraFact]
+    public async Task Given_rules_the_yara_section_lists_the_rules_that_matched()
+    {
+        using var dir = new TempDir();
+        var file = dir.File("notes.txt");
+        File.WriteAllText(file, "a fixture note for the batch scan");
+        var rules = dir.File("batch.yar");
+        File.WriteAllText(rules, """
+            rule names_the_fixture { strings: $a = "fixture note" condition: $a }
+            rule absent_text { strings: $n = "not in the fixture" condition: $n }
+            """);
+        using var pool = new WorkerPool(new WorkerPoolOptions
+        {
+            Enabled = true,
+            MemoryLimitBytes = 0,
+            Start = WorkerPool.OwnCommand() with { Environment = new Dictionary<string, string?> { [YaraX.LibraryVariable] = YaraTestTools.Library } },
+        });
+        using var shared = WorkerPool.UseShared(pool);
+        var (code, document, _) = await Batch("--file", file, "--rules", rules);
+        Assert.Equal(0, code);
+        var yara = Section(document!, "yara");
+        Assert.Equal("complete", (string?)yara["status"]);
+        Assert.Equal("names_the_fixture", Assert.Single(yara["result"]!["items"]!.AsArray())!["name"]!.GetValue<string>());
+    }
+
+    [Fact]
+    public async Task With_the_worker_host_off_the_yara_section_is_unavailable_and_names_the_variable()
+    {
+        using var dir = new TempDir();
+        var file = dir.File("notes.txt");
+        File.WriteAllText(file, "text");
+        var rules = dir.File("batch.yar");
+        File.WriteAllText(rules, "rule any_text { condition: true }");
+        using var pool = new WorkerPool(new WorkerPoolOptions { Enabled = false });
+        using var shared = WorkerPool.UseShared(pool);
+        var (code, document, _) = await Batch("--file", file, "--rules", rules);
+        Assert.Equal(0, code);
+        var yara = Section(document!, "yara");
+        Assert.Equal("unavailable", (string?)yara["status"]);
+        Assert.Contains(WorkerPool.EnableVariable, (string?)yara["reason"]);
     }
 
     [Fact]
@@ -73,6 +117,9 @@ public class FileBatchTests
         Assert.Equal(2, code);
         Assert.Empty(output);
         (code, _, output) = await Batch("--file", dir.Path, "--limit", "noSuchLimit=3");
+        Assert.Equal(2, code);
+        Assert.Empty(output);
+        (code, _, output) = await Batch("--file", dir.Path, "--rules", Path.Combine(dir.Path, "absent.yar"));
         Assert.Equal(2, code);
         Assert.Empty(output);
     }

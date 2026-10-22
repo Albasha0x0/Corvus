@@ -89,26 +89,26 @@ for a pipeline that scans files without an agent. Nothing in the file runs, and 
 | `summary` | `summarize_file`: type, hashes, signature, container, assemblies, highlights | always |
 | `container` | `search_container kind=file`: the files inside, not extracted | the summary names a container |
 | `strings` | `extract_strings`: typed values (URLs, domains, IPs, paths, registry keys) | the file is a .NET assembly |
-| `yara` | YARA rule matches | reported as `unavailable` until YARA support ships |
+| `yara` | `search_container kind=yara`: the rules that matched the file and its members, in a worker process | `--rules` names a rule file or folder; `unavailable`, with the reason, when `CORVUS_WORKER_HOST=0` |
 
 ```json
 {"schema": "corvus.batch/1", "corvus": "2.4.0",
  "file": {"path": "...", "size": 887, "sha256": "...", "type": "zip"},
  "complete": false,
- "limits": {"timeSeconds": 120, "containerFiles": 500, "strings": 500, "summaryHighlights": 25},
+ "limits": {"timeSeconds": 120, "containerFiles": 500, "strings": 500, "yaraMatches": 500, "summaryHighlights": 25},
  "sections": [
    {"name": "summary", "tool": "summarize_file", "status": "complete", "result": {...}},
    {"name": "container", "tool": "search_container", "status": "partial", "limit": "containerFiles", "result": {...}},
    {"name": "strings", "tool": "extract_strings", "status": "not_applicable", "reason": "..."},
-   {"name": "yara", "status": "unavailable", "reason": "..."}]}
+   {"name": "yara", "tool": "search_container", "status": "not_applicable", "reason": "..."}]}
 ```
 
 - `result` is the tool's structured output, as `--structured` prints it; `error` is the tool's error record.
 - `status` is `complete`, `partial` (the section keeps every row it read and `limit` names the limit it reached),
   `not_applicable`, `unavailable`, `error` or `timeout`. `complete` is true only when every section is `complete` or
   `not_applicable`.
-- Limits: `--time-limit <seconds>` for the whole run (default 120, at most 86400), `--limit containerFiles=N` and
-  `--limit strings=N` (default 500 each); the summary shows at most 25 highlights. The `limits` record holds the
+- Limits: `--time-limit <seconds>` for the whole run (default 120, at most 86400), `--limit containerFiles=N`,
+  `--limit strings=N` and `--limit yaraMatches=N` (default 500 each); the summary shows at most 25 highlights. The `limits` record holds the
   values used.
 - Exit code 0 when the document is written, whatever the section statuses; 124 when the time limit ended the run (the
   document is still written, with finished sections kept and the rest marked `timeout`); 2 for a missing file or a

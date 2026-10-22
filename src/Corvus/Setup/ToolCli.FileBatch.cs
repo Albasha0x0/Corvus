@@ -30,6 +30,7 @@ internal static partial class ToolCli
         ["timeSeconds"] = 120,
         ["containerFiles"] = 500,
         ["strings"] = 500,
+        ["yaraMatches"] = 500,
         ["summaryHighlights"] = Corvus.Tools.ContainerText.MaxHighlights,
     };
 
@@ -40,7 +41,7 @@ internal static partial class ToolCli
         new("summary", "summarize_file", "summaryHighlights"),
         new("container", "search_container", "containerFiles"),
         new("strings", "extract_strings", "strings"),
-        new("yara", "yara", null),
+        new("yara", "search_container", "yaraMatches"),
     ];
 
     /// <summary>
@@ -57,12 +58,14 @@ internal static partial class ToolCli
         {
             var (name, value) = spec.IndexOf('=') is var eq and > 0 ? (spec[..eq], spec[(eq + 1)..]) : (spec, "");
             if (!limits.ContainsKey(name) || name == "timeSeconds" || name == "summaryHighlights")
-                throw new UsageException($"Unknown limit '{name}'. Limits: containerFiles, strings.");
+                throw new UsageException($"Unknown limit '{name}'. Limits: containerFiles, strings, yaraMatches.");
             limits[name] = int.TryParse(value, CultureInfo.InvariantCulture, out var n) && n > 0 ? n : throw new UsageException($"--limit {name} needs a positive count.");
         }
         if (a.TimeLimit != null)
             limits["timeSeconds"] = double.TryParse(a.TimeLimit, NumberStyles.Float, CultureInfo.InvariantCulture, out var s) && s > 0 && s <= 86_400
                 ? s : throw new UsageException("--time-limit needs a number of seconds above 0, at most 86400.");
+        var rules = a.Rules == null ? null : Path.GetFullPath(a.Rules);
+        if (rules != null && !File.Exists(rules) && !Directory.Exists(rules)) throw new UsageException($"No such rule file or folder: {a.Rules}.");
 
         using var deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         deadline.CancelAfter(TimeSpan.FromSeconds(limits["timeSeconds"]));
@@ -76,12 +79,17 @@ internal static partial class ToolCli
             catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested) { timedOut = true; }
             foreach (var step in FileBatchSteps)
             {
-                if (timedOut && step.Name != "yara")
+                if (step.Name == "yara" && rules == null)
+                {
+                    sections.Add(Section(step, SectionStatus.NotApplicable, "No rules were given; --rules names a rule file or folder."));
+                    continue;
+                }
+                if (timedOut)
                 {
                     sections.Add(Section(step, SectionStatus.Timeout, "The time limit ended the run before this step."));
                     continue;
                 }
-                var (arguments, skip) = Arguments(step, path, summary, limits);
+                var (arguments, skip) = Arguments(step, path, rules, summary, limits);
                 if (skip != null)
                 {
                     sections.Add(skip);
@@ -123,11 +131,11 @@ internal static partial class ToolCli
     }
 
     /// <summary>A step's arguments, or the section that says why it does not run on this file.</summary>
-    private static (Dictionary<string, object?>? Arguments, JsonObject? Skip) Arguments(FileBatchStep step, string path, JsonNode? summary, Dictionary<string, double> limits)
+    private static (Dictionary<string, object?>? Arguments, JsonObject? Skip) Arguments(FileBatchStep step, string path, string? rules, JsonNode? summary,
+        Dictionary<string, double> limits)
     {
         if (step.Name == "summary") return (new() { ["path"] = path }, null);
-        // YARA-X is not in this build yet; the section keeps its place so readers of the document need no change.
-        if (step.Name == "yara") return (null, Section(step, SectionStatus.Unavailable, "YARA-X is not in this build."));
+        if (step.Name == "yara") return (new() { ["path"] = path, ["kind"] = "yara", ["query"] = rules, ["limit"] = (int)limits["yaraMatches"] }, null);
         if (summary == null) return (null, Section(step, SectionStatus.Error, "The summary failed, so whether this step applies is unknown."));
         if (step.Name == "container")
             return (string?)summary["container"] is { } container && !container.StartsWith("none", StringComparison.Ordinal)
@@ -140,8 +148,7 @@ internal static partial class ToolCli
 
     private static JsonObject Section(FileBatchStep step, string status, string reason)
     {
-        var section = new JsonObject { ["name"] = step.Name };
-        if (step.Name != "yara") section["tool"] = step.Tool;
+        var section = new JsonObject { ["name"] = step.Name, ["tool"] = step.Tool };
         section["status"] = status;
         section["reason"] = reason;
         return section;
@@ -166,6 +173,8 @@ internal static partial class ToolCli
                 "provider_unavailable" or "unsupported" => SectionStatus.Unavailable,
                 _ => (bool?)error?["partial"] == true ? SectionStatus.Partial : SectionStatus.Error,
             };
+            // An unavailable section names its reason, such as the worker host being off, as the skipped ones do.
+            if ((string?)section["status"] == SectionStatus.Unavailable) section["reason"] = (string?)error?["message"] ?? text;
             section["error"] = error?.DeepClone() ?? new JsonObject { ["message"] = text };
             section["result"] = structured;
             return section;
