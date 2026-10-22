@@ -87,9 +87,9 @@ function Get-PathStamp([string]$value) {
     catch { return $null }
 }
 
-# The inputs every family key shares: SDK, OS build and the settings (with the state of the paths they name),
-# with $override in place of the current values.
-function Get-RunEnvironment([hashtable]$override = @{}) {
+# The inputs every family key shares: SDK, OS build, the settings (with the state of the paths they name) and the
+# located tools' lines ($tools, from Get-LocatedTools), with $override in place of the current values.
+function Get-RunEnvironment([hashtable]$override = @{}, [string[]]$tools = @()) {
     $os = if ($IsWindows) { $v = Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion'; "windows $($v.CurrentBuild).$($v.UBR)" } else { uname -srm }
     $values = @{}
     Get-ChildItem env: | Where-Object { ($_.Name -like 'CORVUS_*' -and $_.Name -notin 'CORVUS_ALL_TESTS', 'CORVUS_SWEEP', 'CORVUS_UPDATE_DOCS', 'CORVUS_BACKGROUND_DIR', 'CORVUS_HEAVY_LOCK', 'CORVUS_PERMIT_LOG', 'CORVUS_TEST_HISTORY', 'CORVUS_TEST_MODE', 'CORVUS_STALL_DIR', 'CORVUS_PERMITS_HELD') -or $_.Name -in 'JAVA_HOME', 'GHIDRA_INSTALL_DIR' } |
@@ -101,7 +101,14 @@ function Get-RunEnvironment([hashtable]$override = @{}) {
     }
     foreach ($name in $override.Keys) { $values[$name] = $override[$name] }
     $settings = $values.Keys | Sort-Object | ForEach-Object { "$_=$($values[$_])" + $(if ($stamp = Get-PathStamp $values[$_]) { " @$stamp" }) }
-    (@("sdk $(dotnet --version)", $os) + $settings) -join "`n"
+    (@("sdk $(dotnet --version)", $os) + $settings + $tools) -join "`n"
+}
+
+# Where the test assembly finds each external tool, one line per tool (LocatedTools.cs); none when it is not built.
+function Get-LocatedTools([string]$testsDir) {
+    $assembly = Get-ChildItem (Join-Path $testsDir 'bin') -Recurse -Filter 'Corvus.Tests.dll' -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending | Select-Object -First 1
+    if (-not $assembly) { return @() }
+    @(& dotnet exec $assembly.FullName --located-tools 2>$null | Where-Object { $_ -like 'tool *' })
 }
 
 # One key per family from `git ls-tree -r` lines ("<mode> blob <sha>\t<path>") and an environment string. With a
@@ -378,4 +385,4 @@ function Exit-HeavyLock([string]$name) {
     if ($env:CORVUS_HEAVY_LOCK) { & $env:CORVUS_HEAVY_LOCK release $name | Out-Host }
 }
 
-Export-ModuleMember -Function Add-FullPass, Get-FullPass, Enter-RunLock, Get-SelectionMisses, Get-PathStamp, Enter-HeavyLock, Exit-HeavyLock, Get-RunEnvironment, Get-ReuseScope, Get-ClassMap, Get-SlowClasses, Test-AlwaysRunFolder, Read-ClassCoverage, Split-ClassMap, Add-ClassTestScopes, Get-RootReaders, Get-FamilyKeys, Read-CoverageMap, Get-CoveredFiles, Get-StaleFamilies, Get-ReuseFilter, Get-PassedFamilies, Save-FamilyPasses, Test-DocsOnly, Get-FailedTests, Get-PassedTests, Test-RunCompleted, Get-FailureLabels, Read-Quarantine, Split-Quarantined
+Export-ModuleMember -Function Add-FullPass, Get-FullPass, Enter-RunLock, Get-SelectionMisses, Get-PathStamp, Get-LocatedTools, Enter-HeavyLock, Exit-HeavyLock, Get-RunEnvironment, Get-ReuseScope, Get-ClassMap, Get-SlowClasses, Test-AlwaysRunFolder, Read-ClassCoverage, Split-ClassMap, Add-ClassTestScopes, Get-RootReaders, Get-FamilyKeys, Read-CoverageMap, Get-CoveredFiles, Get-StaleFamilies, Get-ReuseFilter, Get-PassedFamilies, Save-FamilyPasses, Test-DocsOnly, Get-FailedTests, Get-PassedTests, Test-RunCompleted, Get-FailureLabels, Read-Quarantine, Split-Quarantined

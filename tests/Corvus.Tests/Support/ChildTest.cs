@@ -57,7 +57,7 @@ public static class ChildTest
 
     /// <summary>
     /// The assembly's entry point: runs the test method the arguments name in a child (exit code 0 when it passes), or the
-    /// perf run's baseline comparison (<see cref="PerfRegressions.Main"/>).
+    /// perf run's baseline comparison (<see cref="PerfRegressions.Main"/>), or the located tools (<see cref="LocatedTools.Main"/>).
     /// </summary>
     public static int Main(string[] args)
     {
@@ -65,6 +65,7 @@ public static class ChildTest
         {
             [Flag, var typeName, var methodName, .. var rest] => Run(typeName, methodName, rest),
             [PerfRegressions.Flag, .. var trxPaths] => PerfRegressions.Main(trxPaths),
+            [LocatedTools.Flag] => LocatedTools.Main(),
             _ => 2,
         };
         // Exit now: a foreground thread the test started must not keep the child running.

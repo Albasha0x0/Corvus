@@ -29,7 +29,8 @@
   clean tree also records which test families passed, under a key of the family's own folders, all shared code, the
   repository files its tests read, the SDK, the OS build and the `CORVUS_*` settings, with the state of each tool,
   engine install or data folder a setting names (a file's size and write time, a folder's files to three levels down;
-  and the IDA install IDA's own configuration names), so a tool updated in place reruns everything (`test-reuse.psm1`). A run that reuses nothing checks the selection: a family
+  and the IDA install IDA's own configuration names) and of each external tool found on PATH or in a default folder,
+  so a tool installed or updated in place reruns everything (`test-reuse.psm1`). A run that reuses nothing checks the selection: a family
   that fails under the key of a recorded pass is a selection miss, logged in `.git/corvus-selection-misses.txt` and shown
   by `-Status`.
   `./test.ps1 -Full -Reuse` then runs only the families whose key changed, plus the contract tests and the classes

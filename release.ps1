@@ -140,7 +140,7 @@ if (-not $VerifyOnly) {
             if (Test-Path $stampsFile) {
                 $tests = Join-Path $root 'tests/Corvus.Tests'
                 $classMap = Get-ClassMap $tests
-                $keys = Get-FamilyKeys @(git ls-tree -r HEAD) @($classMap.Keys) @(Get-RootReaders $tests) (Get-RunEnvironment) (Read-CoverageMap (Join-Path $gitDir 'corvus-coverage-map.json'))
+                $keys = Get-FamilyKeys @(git ls-tree -r HEAD) @($classMap.Keys) @(Get-RootReaders $tests) (Get-RunEnvironment -tools (Get-LocatedTools $tests)) (Read-CoverageMap (Join-Path $gitDir 'corvus-coverage-map.json'))
                 $stale = @(Get-StaleFamilies $keys (Get-Content $stampsFile -Raw | ConvertFrom-Json) $false | Where-Object { $_ -ne 'Contract' })
                 if ($stale) { Write-Host "Not yet verified on these inputs: $($stale -join ', ')." -ForegroundColor Yellow }
             }

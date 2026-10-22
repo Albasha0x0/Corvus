@@ -457,7 +457,7 @@ $familyStamps = Join-Path $gitDir 'corvus-family-stamps.json'
 $selectionMisses = Join-Path $gitDir 'corvus-selection-misses.txt'
 $coverageMapFile = Join-Path $gitDir 'corvus-coverage-map.json'
 $mode = if ($Exhaustive) { 'exhaustive' } else { 'sampled' }
-$familyKeys = $null
+$familyKeys = $null; $built = $false
 $wholeSuite = $Full -and -not $Filter
 
 # Records the saved run's passes (a run whose recording step failed), for the tree it ran on only.
@@ -572,7 +572,10 @@ if ($wholeSuite -and (Get-CleanTree)) {
         $readers += @($classCoverage.Keys | Where-Object { $classCoverage[$_].family -in $readers } | ForEach-Object { "class:$_" })
     }
     else { $coveredBy = Read-CoverageMap $coverageMapFile }
-    $familyKeys = Get-FamilyKeys $treeLines @($classMap.Keys) $readers (Get-RunEnvironment) $coveredBy
+    # The tools found outside the settings come from the test assembly's own table, so it is built first.
+    & dotnet build $tests --nologo -v q | Out-Null
+    $built = $LASTEXITCODE -eq 0
+    $familyKeys = Get-FamilyKeys $treeLines @($classMap.Keys) $readers (Get-RunEnvironment -tools (Get-LocatedTools $tests)) $coveredBy
     if (-not $coveredBy) { Write-Host 'No coverage map from the last week (./test.ps1 -CoverageMap): shared code keys every family.' }
     if ($Reuse) {
         $stamps = if (Test-Path $familyStamps) { Get-Content $familyStamps -Raw | ConvertFrom-Json } else { $null }
@@ -596,6 +599,7 @@ if ($Full) {
 }
 
 $arguments = @('test', $tests, '--nologo')
+if ($built) { $arguments += '--no-build' }
 # Measurements, accuracy oracles and the largest inputs (Tier=Release) run at release strength only; a filter given
 # on the command line and coverage runs (the floors count them) keep them.
 $runFilter = if ($Full -and -not $Exhaustive -and -not $Coverage -and -not $PSBoundParameters.ContainsKey('Filter')) { if ($Filter) { "($Filter)&Tier!=Release" } else { 'Tier!=Release' } } else { $Filter }
