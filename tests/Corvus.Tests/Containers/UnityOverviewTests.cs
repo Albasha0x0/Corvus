@@ -285,6 +285,7 @@ public sealed class UnityOverviewRealTests(ITestOutputHelper output)
         var total = Stopwatch.StartNew();
         foreach (var title in titles)
         {
+            UnityOverview.BytesRead = 0;
             var watch = Stopwatch.StartNew();
             UnityOverview.Report r;
             try { r = UnityOverview.Inspect(title, Environment.GetEnvironmentVariable("CORVUS_DIE") != null, default); }
@@ -296,6 +297,8 @@ public sealed class UnityOverviewRealTests(ITestOutputHelper output)
                              (r.Backend.Kind == "il2cpp" ? $" | metadata v{r.Backend.MetadataVersion} {r.Backend.MetadataState} range {r.Engine.MetadataRange} {r.Engine.MetadataCheck}" : "") +
                              (r.Backend.Kind == "mono" ? $" | {r.Backend.MonoRuntime}; {r.Backend.DotnetProfile}; {r.Backend.ManagedAssemblies} DLLs {r.Backend.ManagedState}" : "") +
                              (r.Backend.UnreadableNameRatio is { } q ? $" | unreadable names {q:P1} of {r.Backend.NamesRead}" : ""));
+            // File heads, the string heap capped at 16 MiB and two JSON lists of at most 4 MiB: never a whole binary or data file.
+            Assert.InRange(UnityOverview.BytesRead, 1, 25L << 20);
             output.WriteLine($"    markers: {string.Join("; ", r.Markers.Select(m => $"{m.Category}:{m.Name}"))}");
             output.WriteLine($"    next: {string.Join(" -> ", r.NextSteps.Select(s => s.Action + (s.Arguments.TryGetValue("path", out var p) ? $"({p})" : "")))}");
             foreach (var note in r.Notes) output.WriteLine($"    note: {note}");

@@ -86,6 +86,10 @@ public static class UnityOverview
     private const uint MetadataMagic = 0xFAB11BAF;
     private const int MaxEntries = 10_000;
     private const int MaxStringHeap = 16 << 20;
+
+    /// <summary>Bytes this thread read from the title's files (heads, the bounded string heap, small JSON lists).</summary>
+    [ThreadStatic]
+    internal static long BytesRead;
     private const int MaxTypeNames = 50_000;
     private static readonly TimeSpan DieTimeout = TimeSpan.FromSeconds(20);
 
@@ -462,6 +466,7 @@ public static class UnityOverview
             using var f = File.OpenHandle(metadata, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
             heap = new byte[length];
             length = RandomAccess.Read(f, heap, offset);
+            BytesRead += length;
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException) { return (null, 0); }
         ct.ThrowIfCancellationRequested();
@@ -539,7 +544,9 @@ public static class UnityOverview
         try
         {
             if (new FileInfo(path).Length > 4 << 20) return null;
-            using var doc = JsonDocument.Parse(File.ReadAllBytes(path));
+            var json = File.ReadAllBytes(path);
+            BytesRead += json.Length;
+            using var doc = JsonDocument.Parse(json);
             return doc.RootElement.TryGetProperty("names", out var names) && names.ValueKind == JsonValueKind.Array ? names.GetArrayLength() : null;
         }
         catch (Exception ex) when (ex is JsonException or IOException or UnauthorizedAccessException) { return null; }
@@ -629,7 +636,9 @@ public static class UnityOverview
         try
         {
             if (new FileInfo(path).Length > 4 << 20) return [];
-            using var doc = JsonDocument.Parse(File.ReadAllBytes(path));
+            var json = File.ReadAllBytes(path);
+            BytesRead += json.Length;
+            using var doc = JsonDocument.Parse(json);
             return doc.RootElement.TryGetProperty("names", out var names) && names.ValueKind == JsonValueKind.Array
                 ? [.. names.EnumerateArray().Where(e => e.ValueKind == JsonValueKind.String).Select(e => Path.GetFileNameWithoutExtension(e.GetString()!))]
                 : [];
@@ -863,6 +872,7 @@ public static class UnityOverview
             using var f = File.OpenHandle(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
             var buffer = new byte[(int)Math.Min(count, RandomAccess.GetLength(f))];
             int read = RandomAccess.Read(f, buffer, 0);
+            BytesRead += read;
             return read == buffer.Length ? buffer : buffer[..read];
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { return []; }

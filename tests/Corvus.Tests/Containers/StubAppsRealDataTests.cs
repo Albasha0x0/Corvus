@@ -1,4 +1,7 @@
 using System.Diagnostics;
+using Corvus.Core;
+using Corvus.Native;
+using Corvus.Services;
 using ModelContextProtocol.Client;
 using ModelContextProtocol.Protocol;
 using Xunit.Abstractions;
@@ -50,6 +53,13 @@ public class StubAppsRealDataTests(ITestOutputHelper output)
             await Call("add_types_csharp", new() { ["assembly"] = assembly, ["code"] = "namespace Probe { public static class Added { public static int Answer() { return 42; } } }", ["dryRun"] = false });
             await Call("add_members_csharp", new() { ["type"] = type, ["assembly"] = assembly, ["code"] = "public static int ProbeMember() { return 7; }", ["dryRun"] = false });
             await Call("diff_edits", new() { ["assembly"] = assembly });
+
+            // The import check reads the assembly in short shared-lock sections and holds no lock between libraries.
+            using var workspace = new AssemblyWorkspace();
+            var loaded = workspace.Load(path);
+            int steps = 0;
+            new NativeImportVerifier(p => NativeImageLoader.Open(p)).Verify(loaded, default, null, workspace, (_, _, _) => { steps++; Assert.False(workspace.LockHeld); });
+            Assert.True(steps >= 2, $"{assembly}: {steps} progress steps");
         }
     }
 }

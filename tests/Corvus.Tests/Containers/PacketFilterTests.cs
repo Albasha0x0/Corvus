@@ -107,14 +107,20 @@ public sealed class PacketFilterSpeedTests(ITestOutputHelper output) : IDisposab
             for (long r = 0; r < rounds; r++) o.Write(bytes);
         }
         long length = new FileInfo(path).Length;
+        long allocated = GC.GetAllocatedBytesForCurrentThread();
         var clock = System.Diagnostics.Stopwatch.StartNew();
         var search = new UnpackService(_ws).Search(path,
             "(ip.addr == 8.8.8.8 and dns.qry.name contains \"example\") or tls.sni == api.example.com or http.host == \"api.example.com\"",
             "packet", 10, AnalysisLimits.Default, default);
         clock.Stop();
+        allocated = GC.GetAllocatedBytesForCurrentThread() - allocated;
         double rate = length / clock.Elapsed.TotalSeconds / (1 << 20);
         output.WriteLine($"{length:N0} bytes, {rounds * frames.Count:N0} frames in {clock.Elapsed.TotalSeconds:F2} s: {rate:F0} MB/s, {search.Total:N0} matches");
         Assert.Equal(rounds * 4, search.Total);
+        // One pass over reused buffers: every frame is read, and a copy of each frame would allocate the file's size.
+        output.WriteLine($"searched {search.Searched:N0}, allocated {allocated:N0} bytes");
+        Assert.Equal(rounds * frames.Count, search.Searched);
+        Assert.InRange(allocated, 0, length / 4);
         PerfBudget.AtLeast("containers/pcapng-filter-rate", rate, 200, "MB/s", output);
     }
 }
