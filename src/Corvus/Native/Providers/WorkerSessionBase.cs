@@ -493,16 +493,32 @@ internal abstract class WorkerSessionBase(NativeOpenOptions options) : IAsyncDis
         return value;
     }
 
+    /// <summary>Starts a worker after a transient start failure, at most this many times.</summary>
+    internal const int TransientStartRetries = 2;
+
+    /// <summary>Whether a start or open failure is a race with another engine process that a new worker passes.</summary>
+    protected virtual bool TransientStartFailure(ToolError error) => false;
+
     private async Task StartWorkerAndOpenAsync(CancellationToken cancellationToken)
     {
-        try
+        for (int attempt = 0; ; attempt++)
         {
-            await StartWorkerAndOpenCoreAsync(cancellationToken).ConfigureAwait(false);
-        }
-        catch
-        {
-            KillWorker("open failed");
-            throw;
+            try
+            {
+                await StartWorkerAndOpenCoreAsync(cancellationToken).ConfigureAwait(false);
+                return;
+            }
+            catch (ToolError e) when (attempt < TransientStartRetries && TransientStartFailure(e))
+            {
+                KillWorker("open failed");
+                // Jitter, so workers that raced once do not start in step again.
+                await Task.Delay(Random.Shared.Next(200, 1500), cancellationToken).ConfigureAwait(false);
+            }
+            catch
+            {
+                KillWorker("open failed");
+                throw;
+            }
         }
     }
 

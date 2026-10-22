@@ -28,6 +28,24 @@ public sealed class WorkerSessionBaseTests : IDisposable
     private static JsonObject Get(string key) => new() { ["key"] = key };
 
     [Fact]
+    public async Task A_transient_start_failure_starts_a_new_worker_a_bounded_number_of_times()
+    {
+        var input = _tmp.File("image.bin");
+        File.WriteAllBytes(input, [1, 2, 3]);
+        await using (var s = new TestSession(new AnalysisCache(_tmp.File("cache-a")), false, 3) { TransientFailures = WorkerSessionBase.TransientStartRetries })
+        {
+            await s.OpenAsync(input, null, default);
+            Assert.Equal(WorkerSessionBase.TransientStartRetries + 1, s.Starts);
+        }
+        await using (var s = new TestSession(new AnalysisCache(_tmp.File("cache-b")), false, 3) { TransientFailures = WorkerSessionBase.TransientStartRetries + 1 })
+        {
+            var e = await Assert.ThrowsAsync<ToolError>(() => s.OpenAsync(input, null, default));
+            Assert.Contains("transient race", e.Message);
+            Assert.Equal(WorkerSessionBase.TransientStartRetries + 1, s.Starts);
+        }
+    }
+
+    [Fact]
     public async Task Journaled_changes_are_replayed_after_a_crash()
     {
         await using var s = await Open();
@@ -156,6 +174,7 @@ public sealed class WorkerSessionBaseTests : IDisposable
         public bool HasDatabase;
         public bool Damaged;
         public bool FailStarts;
+        public int TransientFailures;
         public int SaveThreshold = int.MaxValue;
         public int Starts;
         public int Deleted;
@@ -176,11 +195,13 @@ public sealed class WorkerSessionBaseTests : IDisposable
         protected override void DeleteDatabase() { Deleted++; HasDatabase = false; }
         protected override JsonObject CloseArgs(bool save) => new();
         protected override void Forget() => Forgotten = true;
+        protected override bool TransientStartFailure(ToolError error) => error.Message.Contains("transient race", StringComparison.Ordinal);
 
         protected override async Task StartWorkerAndOpenCoreAsync(CancellationToken cancellationToken)
         {
             Starts++;
             if (FailStarts) throw new ToolError(ErrorCode.ProviderUnavailable, "engine did not start");
+            if (TransientFailures-- > 0) throw new ToolError(ErrorCode.ProviderUnavailable, "worker exited: transient race");
             Current = new FakeWorkerProcess(ready: true);
             var worker = Current.Connect(concurrent ? new WorkerConnectionOptions { Concurrent = true, CancelGrace = TimeSpan.FromSeconds(10) } : null);
             SetWorker(worker);

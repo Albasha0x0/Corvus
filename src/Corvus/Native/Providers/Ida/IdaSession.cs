@@ -221,6 +221,12 @@ internal sealed class IdaSession(IdaProvider provider, IdaInstallation ida, Pyth
         Options.Progress?.Report(new NativeProviderProgress("ready", clock.Elapsed));
     }
 
+    // Workaround: IDA 9.3 ends with code 2 on "Fatal registry error: The
+    // handle is invalid." when its registry mutex wait fails while other IDA
+    // processes start; a new worker opens normally.
+    protected override bool TransientStartFailure(ToolError error) =>
+        error.Code == ErrorCode.ProviderUnavailable && error.Message.Contains("Fatal registry error", StringComparison.Ordinal);
+
     /// <summary>After a reanalysis: whether the queue ran empty, so the database now holds a complete analysis.</summary>
     internal void Reanalyzed(bool complete)
     {
