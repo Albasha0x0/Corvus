@@ -215,12 +215,12 @@ function Get-SkippedOnBoth([string]$remoteTrx, [string]$hereTrx, [string]$lastTr
         ForEach-Object Class | Sort-Object -Unique)
 }
 
-# Per class, the fewest summed test seconds of any push or whole run in $historyFile (corvus-test-history.jsonl).
-# Empty when the file is absent.
+# Per class, the fewest summed seconds of passed tests in any push or whole run in $historyFile
+# (corvus-test-history.jsonl); a run that skipped the class adds nothing. Empty when the file is absent.
 function Get-FastestClassSeconds([string]$historyFile) {
     $sums = @{}
     if (-not (Test-Path $historyFile)) { return $sums }
-    $pattern = '^\{"kind":"test","run":"([^"]+)","mode":"(?:push|full)","name":"(?:[^"\\]|\\.)*","class":"([^"+]+)[^"]*","start":([-\d.eE]+),"end":([-\d.eE]+)'
+    $pattern = '^\{"kind":"test","run":"([^"]+)","mode":"(?:push|full)","name":"(?:[^"\\]|\\.)*","class":"([^"+]+)[^"]*","start":([-\d.eE]+),"end":([-\d.eE]+),"outcome":"Passed"'
     foreach ($line in [IO.File]::ReadLines($historyFile)) {
         if ($line -notmatch $pattern) { continue }
         $key = "$($Matches[2])`t$($Matches[1])"

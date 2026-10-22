@@ -162,6 +162,7 @@ public sealed class TestRemoteTests : IDisposable
             """{"kind":"test","run":"r1","mode":"push","name":"Corvus.Tests.LoadedTests.M0","class":"LoadedTests","start":10,"end":13,"outcome":"Passed","wait":0}""",
             """{"kind":"test","run":"r1","mode":"push","name":"Corvus.Tests.LoadedTests+Inner.M1","class":"LoadedTests+Inner","start":13,"end":16,"outcome":"Passed","wait":0}""",
             """{"kind":"test","run":"r2","mode":"push","name":"Corvus.Tests.LoadedTests.M0","class":"LoadedTests","start":0,"end":90,"outcome":"Passed","wait":0}""",
+            """{"kind":"test","run":"r4","mode":"full","name":"Corvus.Tests.LoadedTests.M0","class":"LoadedTests","start":0,"end":0.5,"outcome":"NotExecuted","wait":0}""",
             """{"kind":"test","run":"r3","mode":"quick","name":"Corvus.Tests.EarlyTests.M0","class":"EarlyTests","start":0,"end":1,"outcome":"Passed","wait":0}"""]);
         var lines = TestReuseTests.Run($$"""
             Import-Module {{Module}}
@@ -184,7 +185,8 @@ public sealed class TestRemoteTests : IDisposable
             """);
         if (lines is ["skip"]) return;
         // ToolSweepTests skipped a test there that ran here last time; LocalSkipTests skips here too; EarlyTests took 1 s
-        // there and 40 s here; LoadedTests took 5 s there, 400 s in the last run here and 6 s in the fastest push run.
+        // there and 40 s here; LoadedTests took 5 s there, 400 s in the last run here and 6 s in the fastest push run
+        // that passed it.
         Assert.Contains("fastest=LoadedTests=6", lines);
         Assert.Contains("loaded=EarlyTests,LoadedTests,ToolSweepTests", lines);
         Assert.Contains("here=EarlyTests,ToolSweepTests", lines);
