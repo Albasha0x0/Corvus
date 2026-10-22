@@ -398,6 +398,9 @@ public sealed partial class LiveSessionService(AssemblyWorkspace workspace, Nati
     /// <summary>The backend new sessions start on.</summary>
     public ILiveBackend Backend { get; set; } = new FridaBackend { InstallPinned = options?.LiveInstallFrida == true };
 
+    /// <summary>Tests: the 32-bit decoder this server's sessions use, in place of the process-wide CORVUS_CLR32.</summary>
+    internal string? DecoderPath { get; set; }
+
     public IReadOnlyList<LiveSession> Sessions => _sessions.Values.OrderBy(s => int.Parse(s.Id[5..], CultureInfo.InvariantCulture)).ToList();
 
     public LiveSession Get(string id) =>

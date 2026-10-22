@@ -171,9 +171,9 @@ public sealed class ManagedDumpTests
     {
         var (pe, _, _, _) = Image();
         var bytes = Dump(pe, arch: 0, module: @"Z:\app\coreclr.dll").Build();
-        async Task<DacState> Open()
+        async Task<DacState> Open(string? helper = null)
         {
-            using var decoder = await ClrDecoder.Open(MinidumpFile.FromBytes(bytes), _ => null, [], new DacRequest(), default);
+            using var decoder = await ClrDecoder.Open(MinidumpFile.FromBytes(bytes), _ => null, [], new DacRequest { Decoder = helper }, default);
             Assert.NotNull(decoder);
             Assert.False(decoder.Loaded);
             return decoder.Dac;
@@ -186,12 +186,9 @@ public sealed class ManagedDumpTests
         if (RuntimeInformation.ProcessArchitecture != Architecture.X64) return;
         Assert.NotNull(ClrHelperClient.Locate()); // built beside the server (and these tests)
         Assert.NotEqual("bitness_mismatch", (await Open()).Status);
-        using (new EnvironmentScope().Set(ClrHelperClient.PathVariable, Path.Combine(Path.GetTempPath(), "missing", ClrHelperClient.FileName)))
-        {
-            var missing = await Open();
-            Assert.Equal("bitness_mismatch", missing.Status);
-            Assert.Contains("not installed", missing.Detail);
-        }
+        var missing = await Open(Path.Combine(Path.GetTempPath(), "missing", ClrHelperClient.FileName));
+        Assert.Equal("bitness_mismatch", missing.Status);
+        Assert.Contains("not installed", missing.Detail);
     }
 
     /// <summary>A 64-bit tool's dump of a 32-bit process: the reason names the WoW64 dump, not a DAC that failed to load.</summary>

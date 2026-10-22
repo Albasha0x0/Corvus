@@ -132,7 +132,7 @@ public sealed class ClrDecoder : IDisposable
         {
             if (dumpArch != Architecture.X86 || hostArch != Architecture.X64)
                 return Fail("bitness_mismatch", $"a {dumpArch} process needs a {dumpArch} DAC, which this {hostArch} server cannot load; frames stay identified as managed");
-            helper = ClrHelperClient.Locate();
+            helper = ClrHelperClient.Locate(request.Decoder);
             if (helper == null)
                 return Fail("bitness_mismatch", $"a 32-bit process needs the 32-bit DAC, loaded by the 32-bit decoder ({ClrHelperClient.Folder}/{ClrHelperClient.FileName}), " +
                                                 "which is not installed beside this server; frames stay identified as managed");
@@ -241,7 +241,7 @@ public sealed class ClrDecoder : IDisposable
             string flavor = module.FileName.Equals("clr.dll", StringComparison.OrdinalIgnoreCase) ? ".NET Framework CLR" : "CoreCLR";
             if (reader.Architecture != RuntimeInformation.ProcessArchitecture)
             {
-                var helper = reader.Architecture == Architecture.X86 && RuntimeInformation.ProcessArchitecture == Architecture.X64 ? ClrHelperClient.Locate() : null;
+                var helper = reader.Architecture == Architecture.X86 && RuntimeInformation.ProcessArchitecture == Architecture.X64 ? ClrHelperClient.Locate(request.Decoder) : null;
                 if (helper == null)
                 {
                     target.Dispose();

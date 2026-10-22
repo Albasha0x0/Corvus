@@ -458,7 +458,7 @@ public sealed partial class LiveSessionService
             "arm64" => Architecture.Arm64, _ => RuntimeInformation.ProcessArchitecture,
         };
         bool decoded = arch == RuntimeInformation.ProcessArchitecture
-                       || (arch == Architecture.X86 && RuntimeInformation.ProcessArchitecture == Architecture.X64 && Native.Dump.Managed.ClrHelperClient.Locate() != null);
+                       || (arch == Architecture.X86 && RuntimeInformation.ProcessArchitecture == Architecture.X64 && Native.Dump.Managed.ClrHelperClient.Locate(DecoderPath) != null);
         if (!decoded) return await StartJitCoverageAsync(session, asm, points, $"a {session.Arch} process", ct).ConfigureAwait(false);
         if (await ClrAsync(session, ct).ConfigureAwait(false) is { Unavailable: { } reason } && !reason.StartsWith("load_failed", StringComparison.Ordinal))
             return await StartJitCoverageAsync(session, asm, points, reason, ct).ConfigureAwait(false);

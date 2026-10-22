@@ -1,6 +1,8 @@
 using System.Globalization;
 using System.Text.RegularExpressions;
 using Corvus.Native.Providers.Live;
+using Corvus.Services;
+using Microsoft.Extensions.DependencyInjection;
 using Xunit.Abstractions;
 
 namespace Corvus.Tests;
@@ -764,12 +766,12 @@ public sealed class LiveDotnetRealTests(ITestOutputHelper output) : LiveToolCall
         var (code, log) = Tools.Dotnet(_dir.File("silent"), "build", "-c", "Release", "-o", "out", "-nologo");
         var silent = _dir.File(Path.Combine("silent", "out", "silent.exe"));
         Assert.True(code == 0 && File.Exists(silent), log);
-        using var decoder = new EnvironmentScope().Set(Corvus.Native.Dump.Managed.ClrHelperClient.PathVariable, silent);
         var budget = Corvus.Native.Dump.Managed.ClrHelperClient.LiveCallTimeout;
         Corvus.Native.Dump.Managed.ClrHelperClient.LiveCallTimeout = TimeSpan.FromSeconds(2);
         try
         {
             await using var server = await Server();
+            server.Services.GetRequiredService<LiveSessionService>().DecoderPath = silent;
             await Spawn(server, exe, "live-1");
             var start = await Ok(server, "live_coverage", new() { ["session"] = "live-1", ["action"] = "start", ["match"] = "Calc.exe!" });
             var run = Regex.Match(start, @"^(cov-\d+) recording which of \d+ methods of Calc\.exe run in live-1, from the runtime's record");
@@ -806,8 +808,9 @@ public sealed class LiveDotnetRealTests(ITestOutputHelper output) : LiveToolCall
     public async Task Managed_coverage_of_a_32_bit_program_without_the_decoder()
     {
         var exe = Calc32();
-        using var missing = new EnvironmentScope().Set(Corvus.Native.Dump.Managed.ClrHelperClient.PathVariable, _dir.File(Path.Combine("missing", "decoder.exe")));
         await using var server = await Server();
+        // Regression (push run on b474b551): a process-wide CORVUS_CLR32 here hid the decoder from tests running beside it.
+        server.Services.GetRequiredService<LiveSessionService>().DecoderPath = _dir.File(Path.Combine("missing", "decoder.exe"));
         await Ok(server, "load_assembly", new() { ["path"] = exe });
         await Spawn(server, exe, "live-1");
         var start = await Ok(server, "live_coverage", new() { ["session"] = "live-1", ["action"] = "start", ["match"] = "Calc.exe!" });

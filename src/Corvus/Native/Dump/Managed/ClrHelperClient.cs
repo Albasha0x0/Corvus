@@ -37,10 +37,10 @@ internal sealed class ClrHelperClient : IClrBackend, ILiveClrReads
         _input = new StreamWriter(process.StandardInput, new UTF8Encoding(false)) { AutoFlush = true, NewLine = "\n" };
     }
 
-    /// <summary>The decoder's executable: <see cref="PathVariable"/>, else clr32/ beside this server; null when absent.</summary>
-    public static string? Locate()
+    /// <summary>The decoder's executable: <paramref name="path"/>, else <see cref="PathVariable"/>, else clr32/ beside this server; null when absent.</summary>
+    public static string? Locate(string? path = null)
     {
-        if (Environment.GetEnvironmentVariable(PathVariable) is { Length: > 0 } custom) return File.Exists(custom) ? Path.GetFullPath(custom) : null;
+        if ((path ?? Environment.GetEnvironmentVariable(PathVariable)) is { Length: > 0 } custom) return File.Exists(custom) ? Path.GetFullPath(custom) : null;
         var beside = Path.Combine(AppContext.BaseDirectory, Folder, FileName);
         return File.Exists(beside) ? beside : null;
     }

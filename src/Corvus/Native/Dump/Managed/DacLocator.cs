@@ -10,6 +10,9 @@ public sealed record DacRequest(string? Path = null, bool Download = false, stri
 {
     /// <summary>Tests: skip the local candidates, so the download path runs on a machine that has the runtime.</summary>
     internal bool DownloadOnly { get; init; }
+
+    /// <summary>Tests: the 32-bit decoder's path in place of the process-wide CORVUS_CLR32.</summary>
+    internal string? Decoder { get; init; }
 }
 
 /// <summary>A DAC file to try, and where it came from.</summary>
