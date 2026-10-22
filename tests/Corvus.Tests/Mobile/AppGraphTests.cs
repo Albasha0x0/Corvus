@@ -86,35 +86,57 @@ public sealed class AppGraphTests(Xunit.Abstractions.ITestOutputHelper output) :
         await McpProtocolTests.AssertMatchesOutputSchema(server.Client, "summarize_file", r);
     }
 
-    /// <summary>The packages under CORVUS_MOBILE_APPS (two levels deep): each graph within 5 s on a quiet machine (MachineLoad scales it), with the edge kinds their runtimes need.</summary>
+    /// <summary>The packages under CORVUS_MOBILE_APPS (two levels deep), as the graph tests read them.</summary>
+    private static List<string> MobilePackages() =>
+        Directory.EnumerateFiles(RealData.Get(RealData.MobileApps)!, "*.apk", new EnumerationOptions { RecurseSubdirectories = true, MaxRecursionDepth = 2 }).ToList();
+
+    /// <summary>The smallest package and the smallest Il2Cpp game under CORVUS_MOBILE_APPS: each graph has the edge kinds its runtimes need.</summary>
+    [Trait("Speed", "Slow")]
+    [RequiresRealDataFact(RealData.MobileApps)]
+    public void Real_packages_graph_with_the_edges_their_runtimes_need()
+    {
+        var apks = MobilePackages().OrderBy(a => new FileInfo(a).Length).ToList();
+        Assert.NotEmpty(apks);
+        var game = apks.FirstOrDefault(a => { using var zip = System.IO.Compression.ZipFile.OpenRead(a); return zip.Entries.Any(e => Core.Mobile.AndroidRuntime.IsIl2CppEntry(e.FullName)); });
+        var loader = new Il2CppRawLoader(_workspace);
+        foreach (var apk in new[] { apks[0], game }.OfType<string>().Distinct())
+            GraphOf(loader, apk);
+    }
+
+    /// <summary>Every package under CORVUS_MOBILE_APPS: each graph within 5 s on a quiet machine (MachineLoad scales it).</summary>
     [Trait("Speed", "Slow")]
     [Trait(PerfBudget.Trait, PerfBudget.Timing)]
+    [Trait("Tier", "Release")]
     [RequiresRealDataFact(RealData.MobileApps)]
     public void Real_packages_graph_within_five_seconds()
     {
-        var apks = Directory.EnumerateFiles(RealData.Get(RealData.MobileApps)!, "*.apk", new EnumerationOptions { RecurseSubdirectories = true, MaxRecursionDepth = 2 }).ToList();
+        var apks = MobilePackages();
         Assert.NotEmpty(apks);
         var loader = new Il2CppRawLoader(_workspace);
         foreach (var apk in apks.OrderByDescending(a => new FileInfo(a).Length))
-        {
-            // An Il2Cpp game is read once first, as load_assembly does; the graph joins its methods from the cache.
-            var files = Il2CppPackages.Extract(apk, null) is { } root && Il2CppGameFiles.Find(root) is { Binary.Length: > 0 } found ? found : null;
-            if (files != null) loader.Load(files, loadBinary: false, null, default);
-            var before = MachineLoad.Factor();
-            var paused = GC.GetTotalPauseDuration();
-            var watch = Stopwatch.StartNew();
-            var g = Graph(loader).Build(apk, 0, 10, default);
-            watch.Stop();
-            // The calibration before and after misses what only the work's span saw: the process's
-            // collection pauses (other tests allocate in it too) and the machine's memory load.
-            var span = $"collection pauses {(GC.GetTotalPauseDuration() - paused).TotalSeconds:0.00} s, memory load {GC.GetGCMemoryInfo().MemoryLoadBytes * 100 / Math.Max(1, GC.GetGCMemoryInfo().HighMemoryLoadThresholdBytes)} % of the high threshold";
-            var (_, load) = MachineLoad.Budget(TimeSpan.FromSeconds(5), before, MachineLoad.Factor());
-            output.WriteLine($"{Path.GetFileName(apk)} {new FileInfo(apk).Length >> 20} MB: {watch.Elapsed.TotalSeconds:0.00} s ({load}; {span}); layers {string.Join(", ", g.Layers.Select(l => $"{l.Layer} {l.Items}"))}; " +
-                             string.Join("; ", g.EdgeKinds.Select(k => $"{k.Kind} {k.Edges}/{k.Candidates} {k.Coverage}")));
-            PerfBudget.Time("mobile/app-graph", watch.Elapsed, TimeSpan.FromSeconds(5), output, $"{load}; {span}");
-            foreach (var k in g.EdgeKinds) Assert.True(k.Edges <= k.Candidates || k.Kind == "jni", $"{apk}: {k.Kind}");
-            // The graph joins the game's methods from the cache the load filled; it reads no metadata itself.
-            if (files != null) Assert.True(g.Layers.Single(l => l.Layer == "il2cpp").Items > 0, $"{apk}: the Il2Cpp layer was not joined from the cache");
-        }
+            GraphOf(loader, apk);
+    }
+
+    /// <summary>Builds the graph of <paramref name="apk"/>, reports its time and checks its edge kinds.</summary>
+    private void GraphOf(Il2CppRawLoader loader, string apk)
+    {
+        // An Il2Cpp game is read once first, as load_assembly does; the graph joins its methods from the cache.
+        var files = Il2CppPackages.Extract(apk, null) is { } root && Il2CppGameFiles.Find(root) is { Binary.Length: > 0 } found ? found : null;
+        if (files != null) loader.Load(files, loadBinary: false, null, default);
+        var before = MachineLoad.Factor();
+        var paused = GC.GetTotalPauseDuration();
+        var watch = Stopwatch.StartNew();
+        var g = Graph(loader).Build(apk, 0, 10, default);
+        watch.Stop();
+        // The calibration before and after misses what only the work's span saw: the process's
+        // collection pauses (other tests allocate in it too) and the machine's memory load.
+        var span = $"collection pauses {(GC.GetTotalPauseDuration() - paused).TotalSeconds:0.00} s, memory load {GC.GetGCMemoryInfo().MemoryLoadBytes * 100 / Math.Max(1, GC.GetGCMemoryInfo().HighMemoryLoadThresholdBytes)} % of the high threshold";
+        var (_, load) = MachineLoad.Budget(TimeSpan.FromSeconds(5), before, MachineLoad.Factor());
+        output.WriteLine($"{Path.GetFileName(apk)} {new FileInfo(apk).Length >> 20} MB: {watch.Elapsed.TotalSeconds:0.00} s ({load}; {span}); layers {string.Join(", ", g.Layers.Select(l => $"{l.Layer} {l.Items}"))}; " +
+                         string.Join("; ", g.EdgeKinds.Select(k => $"{k.Kind} {k.Edges}/{k.Candidates} {k.Coverage}")));
+        PerfBudget.Time("mobile/app-graph", watch.Elapsed, TimeSpan.FromSeconds(5), output, $"{load}; {span}");
+        foreach (var k in g.EdgeKinds) Assert.True(k.Edges <= k.Candidates || k.Kind == "jni", $"{apk}: {k.Kind}");
+        // The graph joins the game's methods from the cache the load filled; it reads no metadata itself.
+        if (files != null) Assert.True(g.Layers.Single(l => l.Layer == "il2cpp").Items > 0, $"{apk}: the Il2Cpp layer was not joined from the cache");
     }
 }

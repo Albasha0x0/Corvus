@@ -148,6 +148,7 @@ public partial class SimilarFunctionsRealTests(ITestOutputHelper output)
     /// <summary>Speed on a large image (100 MB and more): sketches once, then sub-second queries; duplicates and clusters image-wide.</summary>
     [RequiresRealDataFact(RealData.LargeNativeImage)]
     [Trait(PerfBudget.Trait, PerfBudget.Timing)]
+    [Trait("Tier", "Release")]
     public void Large_image_queries_stay_under_a_second()
     {
         var image = NativeImageLoader.Open(RealData.Path(RealData.LargeNativeImage));

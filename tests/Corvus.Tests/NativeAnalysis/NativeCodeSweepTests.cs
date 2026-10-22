@@ -39,6 +39,7 @@ public class NativeCodeSweepTests(ITestOutputHelper output)
     /// <summary>One large image (CORVUS_NATIVE_LARGE_IMAGE, e.g. a game executable or a browser DLL): time, memory, completeness.</summary>
     [RequiresRealDataFact("CORVUS_NATIVE_LARGE_IMAGE")]
     [Trait(PerfBudget.Trait, PerfBudget.Timing)]
+    [Trait("Tier", "Release")]
     public void Large_image()
     {
         var path = RealData.Path("CORVUS_NATIVE_LARGE_IMAGE");
