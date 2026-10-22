@@ -71,7 +71,7 @@ public sealed partial class MinidumpService
         string? Protection,
         [property: Description("image, mapped or private.")] string? Type,
         [property: Description("The module whose image holds it.")] string? Module,
-        [property: Description("Bytes of it the dump holds; null for a live process.")] ulong? Captured);
+        [property: Description("Bytes of it the dump holds; null for a live process or a missing region file.")] ulong? Captured);
 
     public sealed record DumpTotals(int Modules, int Threads, int UnloadedModules,
         [property: Description("Captured memory ranges.")] int MemoryRanges,
@@ -158,6 +158,7 @@ public sealed partial class MinidumpService
     {
         using var s = Open(path, imageDirectories);
         if (s.Core is { } core) return await SummarizeCore(s, core, dac, ct);
+        if (s.Regions is { } regions) return SummarizeRegions(s, regions);
         var d = s.Dump;
         var notes = new List<string>();
 
@@ -224,7 +225,7 @@ public sealed partial class MinidumpService
     {
         using var s = Open(path, imageDirectories);
         if (s.Core is { } core) return (s.Id, core.CoreModules.Skip(Math.Max(0, offset)).Take(Math.Clamp(limit, 1, MaxListLimit)).Select(m => CoreModuleRow(s, m)).ToList(), core.CoreModules.Count);
-        var d = s.Dump;
+        var d = s.Memory;
         return (s.Id, d.Modules.Skip(Math.Max(0, offset)).Take(Math.Clamp(limit, 1, MaxListLimit)).Select(m => ModuleRow(m, s.Directories, d.Arch, s.LoadedImages)).ToList(), d.Modules.Count);
     }
 
@@ -267,6 +268,9 @@ public sealed partial class MinidumpService
         offset = Math.Max(0, offset);
         limit = Math.Clamp(limit, 1, MaxListLimit);
         if (s.Core is { } core) return (s.Id, core.Segments.Skip(offset).Take(limit).Select(g => CoreMemoryRow(core, g)).ToList(), core.Segments.Count);
+        if (s.Regions is { } regions)
+            return (s.Id, regions.Regions.Skip(offset).Take(limit).Select(r => new MemoryRow(Hex(regions, r.Base), Hex(regions, r.End), $"0x{r.Size:X}", null,
+                r.Protect != 0 ? ProtectName(r.Protect) : null, null, regions.ModuleAt(r.Base)?.FileName, r.Missing ? null : r.Held)).ToList(), regions.Regions.Count);
         var d = s.Dump;
         if (d.MemoryRegions.Count > 0)
             return (s.Id, d.MemoryRegions.Skip(offset).Take(limit).Select(r => RegionRow(d, r, Captured(d.MemoryRanges, r.Base, r.Base + r.Size))).ToList(), d.MemoryRegions.Count);
@@ -571,6 +575,7 @@ public sealed partial class MinidumpService
     {
         using var s = Open(path, null);
         if (s.Core is { } core) return await CoreReadBytes(s, core, address, length, imageFallback, ct);
+        if (s.Regions is { } regions) return await RegionReadBytes(s, regions, address, length, imageFallback, ct);
         var d = s.Dump;
         ulong va = ParseAddress(d, address);
         length = Math.Clamp(length, 1, MaxReadLength);

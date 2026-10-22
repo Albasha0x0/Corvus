@@ -87,7 +87,12 @@ public sealed partial class MinidumpService(AssemblyWorkspace? workspace = null,
         public string Id { get; } = id;
         public IProcessMemory Memory { get; } = memory;
         /// <summary>The minidump of a dump session.</summary>
-        public MinidumpFile Dump => Memory as MinidumpFile ?? throw new InvalidOperationException("not a dump session");
+        public MinidumpFile Dump => Memory as MinidumpFile ?? throw (Memory is RegionSetFile
+            ? new ToolError(ErrorCode.Unsupported, "A region-set dump holds memory regions and modules only: its threads, exception and runtime state are unknown.",
+                "open_minidump view=summary, modules or memory, and read_dump_memory, read it")
+            : new InvalidOperationException("not a dump session"));
+        /// <summary>The manifest of a region-set dump session, else null.</summary>
+        public RegionSetFile? Regions => Memory as RegionSetFile;
         public IReadOnlyList<string> Directories { get; } = directories;
         /// <summary>Frames left whose IL offset may be mapped to a C# statement in this call.</summary>
         public int StatementBudget { get; set; } = MaxStatements;
@@ -178,7 +183,7 @@ public sealed partial class MinidumpService(AssemblyWorkspace? workspace = null,
                     _ids.IsEmpty ? $"No dump file at '{dump}'." : $"No dump file at '{dump}', and no open dump has that id (open: {string.Join(", ", _ids.Keys.Order())}).",
                     "pass the path of a .dmp file");
         }
-        IProcessMemory file = CoreFile.IsCore(path) ? CoreFile.Open(path) : MinidumpFile.Open(path);
+        IProcessMemory file = CoreFile.IsCore(path) ? CoreFile.Open(path) : RegionSetFile.IsManifest(path) ? RegionSetFile.Open(path) : MinidumpFile.Open(path);
         string id = Register(path);
         if (string.IsNullOrWhiteSpace(imageDirectories)) imageDirectories = _imageDirectories.GetValueOrDefault(path);
         var dirs = Directories(imageDirectories, path);
@@ -258,7 +263,7 @@ public sealed partial class MinidumpService(AssemblyWorkspace? workspace = null,
         {
             var image = DumpImages.FromMemory(dump, module, out ulong captured);
             string why = local.Exists ? $"{local.Path}: {local.Detail}" : local.Detail;
-            bool isDump = dump is MinidumpFile;
+            bool isDump = dump is MinidumpFile or RegionSetFile;
             result = image != null
                 ? new ModuleCode(image, isDump ? "dump_memory" : "process_memory", null,
                     $"rebuilt from {(isDump ? "dump" : "process")} memory ({captured * 100 / Math.Max(1u, module.Size)}% {(isDump ? "captured" : "readable")}); local file: {why}")

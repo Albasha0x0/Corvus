@@ -17,7 +17,7 @@ public sealed class MinidumpTools(MinidumpService dumps, LiveSessionService? ses
         "Program binary folders (';'-separated), kept for the dump, plus its own folder.";
 
     [McpServerTool(Name = "open_minidump", Title = "Open a crash dump", UseStructuredContent = true, OutputSchemaType = typeof(MinidumpService.DumpReport))]
-    [Description("Reads a Windows minidump (.dmp) or an ELF or Mach-O core; returns the dump id. view=summary: OS, process, exception " +
+    [Description("Reads a Windows minidump (.dmp), an ELF or Mach-O core, or a region-set manifest; returns the dump id. view=summary: OS, process, exception " +
                  "(thread, module!function, registers, C++ type), .NET state (managed exception and heap); modules (version, " +
                  "PDB, image match), threads, memory, unloaded: paged rows. .NET loads Microsoft's signature-checked DAC.")]
     public Task<string> OpenMinidump(

@@ -173,7 +173,7 @@
             "type": "string"
           },
           "captured": {
-            "description": "Bytes of it the dump holds; null for a live process.",
+            "description": "Bytes of it the dump holds; null for a live process or a missing region file.",
             "type": "integer"
           }
         },

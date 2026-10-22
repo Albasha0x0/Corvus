@@ -2680,7 +2680,7 @@ Crash dumps and crash text.
 
 **Open a crash dump** (read-only, idempotent, open-world, long-running)
 
-Reads a Windows minidump (.dmp) or an ELF or Mach-O core; returns the dump id. view=summary: OS, process, exception (thread, module!function, registers, C++ type), .NET state (managed exception and heap); modules (version, PDB, image match), threads, memory, unloaded: paged rows. .NET loads Microsoft's signature-checked DAC.
+Reads a Windows minidump (.dmp), an ELF or Mach-O core, or a region-set manifest; returns the dump id. view=summary: OS, process, exception (thread, module!function, registers, C++ type), .NET state (managed exception and heap); modules (version, PDB, image match), threads, memory, unloaded: paged rows. .NET loads Microsoft's signature-checked DAC.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|

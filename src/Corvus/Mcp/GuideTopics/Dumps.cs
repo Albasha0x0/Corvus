@@ -9,7 +9,10 @@ public static partial class Guide
         frames carry basis inferred), read_dump_memory. Linux / Android ELF cores open the same way: threads and registers, the signal,
         modules matched to local files by GNU build id, .eh_frame CFI unwinding with a frame-pointer fallback; a .NET core's heap and
         exception through the Windows-hosted DAC for Linux targets (pass the runtime's folder in imageDirectories for its version check).
-        macOS Mach-O cores too: modules matched by UUID, stacks through the frame records.
+        macOS Mach-O cores too: modules matched by UUID, stacks through the frame records. A region-set manifest (JSON
+        {"format": 1, "arch": "x64", "regions": [{"file", "base", "size", "protect"}], "modules": [{"name", "base", "size"}]},
+        region files beside it) opens as a dump of memory saved by any tool: summary, modules, memory and read_dump_memory at the
+        regions' addresses; its threads and exception are unknown, and a missing region file reads as unknown.
         Load the crashed binaries first so frames get your names, PDB and Il2Cpp names; pass imageDirectories when they are not at
         their recorded paths. .NET dumps: the runtime's DAC (found locally: dacPath, the same runtime installed here, symbol stores;
         downloadDac=true fetches it, never under CORVUS_OFFLINE=1; always signature-checked) decodes the managed exception and its
