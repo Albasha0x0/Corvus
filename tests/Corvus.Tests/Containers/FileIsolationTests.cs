@@ -14,15 +14,31 @@ public sealed class FileIsolationTests(ITestOutputHelper output) : IDisposable
 {
     private readonly TempDir _dir = new();
 
+    // The machine load when the pool was made; 1 on a quiet machine.
+    private double _load = 1;
+
     public void Dispose() => _dir.Dispose();
 
-    /// <summary>A pool whose workers also answer the fixture files.</summary>
-    private static WorkerPool Pool(ChildProcessStart? start = null, long memoryLimitBytes = 0) => new(new WorkerPoolOptions
+    /// <summary>
+    /// A pool whose workers also answer the fixture files. The worker start limit scales with the machine load, so a
+    /// loaded run waits as long for the same start as a quiet one does.
+    /// </summary>
+    private WorkerPool Pool(ChildProcessStart? start = null, long memoryLimitBytes = 0)
     {
-        Enabled = true,
-        MemoryLimitBytes = memoryLimitBytes,
-        Start = start ?? WorkerPool.OwnCommand() with { Environment = new Dictionary<string, string?> { [WorkerHost.FixtureOpsVariable] = "1" } },
-    });
+        _load = MachineLoad.Factor();
+        var options = new WorkerPoolOptions();
+        return new(options with
+        {
+            Enabled = true,
+            MemoryLimitBytes = memoryLimitBytes,
+            Start = start ?? WorkerPool.OwnCommand() with { Environment = new Dictionary<string, string?> { [WorkerHost.FixtureOpsVariable] = "1" } },
+            StartTimeout = options.StartTimeout * _load,
+        });
+    }
+
+    /// <summary>The text with the machine load and the worker start limit it gave, for a failure message.</summary>
+    private string Noted(string text) =>
+        _load == 1 ? text : $"{text}\n(machine load x{_load:0.00}, worker start limit {new WorkerPoolOptions().StartTimeout * _load})";
 
     private static async Task<ToolSession> Session(bool inProcess, params string[] args)
     {
@@ -36,10 +52,10 @@ public sealed class FileIsolationTests(ITestOutputHelper output) : IDisposable
 
     /// <summary>The whole result as the client sees it: every text block, then the structured content.</summary>
     /// <summary>Asserts that summarize_file over <paramref name="path"/> succeeds, naming the error when it does not.</summary>
-    private static async Task ReadsAsync(ToolSession session, string path)
+    private async Task ReadsAsync(ToolSession session, string path)
     {
         var r = await Call(session, "summarize_file", new() { ["path"] = path });
-        Assert.True(r.IsError != true, Whole(r));
+        Assert.True(r.IsError != true, Noted(Whole(r)));
     }
 
     private static string Whole(CallToolResult r) =>
@@ -156,7 +172,7 @@ public sealed class FileIsolationTests(ITestOutputHelper output) : IDisposable
         await using var session = await Session(false);
         var text = Whole(await Call(session, "summarize_file", new() { ["path"] = Fixture("big.txt", Corvus.Tools.FileOps.FixtureMarker + "allocate") }));
         // Assert.Contains cuts the text short; a worker that did not start is named only past that cut.
-        Assert.True(text.Contains("Error (limit_exceeded)"), text);
+        Assert.True(text.Contains("Error (limit_exceeded)"), Noted(text));
         Assert.Contains(WorkerPool.MemoryVariable, text);
         Assert.Contains("big.txt", text);
         await ReadsAsync(session, zip);
@@ -168,9 +184,10 @@ public sealed class FileIsolationTests(ITestOutputHelper output) : IDisposable
         var (zip, _, _, _) = Inputs();
         using var pool = Pool();
         using var shared = WorkerPool.UseShared(pool);
-        await using var session = await Session(false, "--timeout", "5");
+        // The next read starts a new worker within the same call deadline, so the deadline scales with the load too.
+        await using var session = await Session(false, "--timeout", Math.Ceiling(5 * _load).ToString(System.Globalization.CultureInfo.InvariantCulture));
         var text = Whole(await Call(session, "summarize_file", new() { ["path"] = Fixture("loop.txt", Corvus.Tools.FileOps.FixtureMarker + "loop") }));
-        Assert.Contains("Error (timeout", text);
+        Assert.True(text.Contains("Error (timeout"), Noted(text));
         await ReadsAsync(session, zip);
     }
 
