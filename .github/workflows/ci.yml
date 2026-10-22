@@ -114,12 +114,9 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { os: windows-latest, shard: 0, shards: 4 }
-          - { os: windows-latest, shard: 1, shards: 4 }
-          - { os: windows-latest, shard: 2, shards: 4 }
-          - { os: windows-latest, shard: 3, shards: 4 }
-          - { os: ubuntu-latest, shard: 0, shards: 2, cross: true }
-          - { os: ubuntu-latest, shard: 1, shards: 2, cross: true }
+          - { os: windows-latest, shard: 0, shards: 2 }
+          - { os: windows-latest, shard: 1, shards: 2 }
+          - { os: ubuntu-latest, shard: 0, shards: 1, cross: true }
     runs-on: ${{ matrix.os }}
     timeout-minutes: 90
     steps:

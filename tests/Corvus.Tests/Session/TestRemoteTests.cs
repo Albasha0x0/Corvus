@@ -11,11 +11,13 @@ public sealed class TestRemoteTests : IDisposable
 
     private static string Quote(string path) => "'" + path.Replace("'", "''") + "'";
 
-    /// <summary>A TRX file with one result per (class, outcome).</summary>
+    /// <summary>A TRX file with one result per (class, outcome), an outcome "Passed@40" lasting 40 s (else 1 s).</summary>
     internal static string Trx(params (string Class, string Outcome)[] results)
     {
+        static (string Outcome, int Seconds) Split(string o) => o.Split('@') is [var name, var s] ? (name, int.Parse(s)) : (o, 1);
         var tests = string.Join("\n", results.Select((r, i) => $"""<UnitTest id="{r.Class}-{i}"><TestMethod className="Corvus.Tests.{r.Class}" name="M{i}" /></UnitTest>"""));
-        var outcomes = string.Join("\n", results.Select((r, i) => $"""<UnitTestResult testId="{r.Class}-{i}" testName="M{i}" outcome="{r.Outcome}" />"""));
+        var outcomes = string.Join("\n", results.Select((r, i) =>
+            $"""<UnitTestResult testId="{r.Class}-{i}" testName="M{i}" outcome="{Split(r.Outcome).Outcome}" duration="{TimeSpan.FromSeconds(Split(r.Outcome).Seconds):c}" />"""));
         int failed = results.Count(r => r.Outcome == "Failed");
         return $"""
             <TestRun xmlns="http://microsoft.com/schemas/VisualStudio/TeamTest/2010">
@@ -74,11 +76,11 @@ public sealed class TestRemoteTests : IDisposable
     public void Remote_results_join_the_local_ones_and_classes_that_skipped_there_rerun_here()
     {
         var remote = _dir.File("remote.trx");
-        File.WriteAllText(remote, Trx(("FormatSweepTests", "Failed"), ("RoundTripTests", "Passed"), ("ToolSweepTests", "NotExecuted"), ("LocalSkipTests", "NotExecuted")));
+        File.WriteAllText(remote, Trx(("FormatSweepTests", "Failed"), ("RoundTripTests", "Passed"), ("ToolSweepTests", "NotExecuted"), ("LocalSkipTests", "NotExecuted"), ("EarlyTests", "Passed")));
         var local = _dir.File("full.trx");
         File.WriteAllText(local, Trx(("PlainTests", "Passed")));
         var before = _dir.File("last.trx");
-        File.WriteAllText(before, Trx(("ToolSweepTests", "Passed"), ("LocalSkipTests", "NotExecuted")));
+        File.WriteAllText(before, Trx(("ToolSweepTests", "Passed"), ("LocalSkipTests", "NotExecuted"), ("EarlyTests", "Passed@40")));
         var lines = TestReuseTests.Run($$"""
             Import-Module {{Module}}
             Import-Module {{Quote(Path.Combine(DocsTests.RepoRoot(), "test-reuse.psm1"))}}
@@ -94,8 +96,9 @@ public sealed class TestRemoteTests : IDisposable
             'status=' + (Get-RemoteStatus {{Quote(_dir.Path)}})
             """);
         if (lines is ["skip"]) return;
-        // ToolSweepTests skipped a test there that ran here last time; LocalSkipTests skips here too.
-        Assert.Contains("here=ToolSweepTests", lines);
+        // ToolSweepTests skipped a test there that ran here last time; LocalSkipTests skips here too; EarlyTests took 1 s
+        // there and 40 s here.
+        Assert.Contains("here=EarlyTests,ToolSweepTests", lines);
         Assert.Contains("failed=Corvus.Tests.FormatSweepTests.M0", lines);
         Assert.Contains("passed=Dotnet,DotnetEdits", lines);
         Assert.Contains("classes=FormatSweepTests,LocalSkipTests,PlainTests,RoundTripTests", lines);

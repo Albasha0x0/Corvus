@@ -8,6 +8,15 @@ $script:RemotePatterns = '*SweepTests', '*MatrixTests', 'PipelineRoundTripTests'
 $script:LocalFolders = 'Engines', 'Live'
 # Attributes that keep a class's file here: IDA and Ghidra facts, and real data that never leaves this machine.
 $script:LocalAttributes = 'IdaFact', 'GhidraFact', 'RequiresRealDataFact'
+# Classes whose inputs are this machine's own: every System32 import binding holds on a client edition only (a server
+# image lacks some DLLs), the Program Files sweep grows with what is installed (past 30 min on a runner), the crash
+# dump sweep reads this machine's dumps, and the comparisons over local data folders pass empty elsewhere.
+$script:LocalClasses = 'NativeLinkSweepTests', 'NativeToolSweepTests', 'MinidumpSweepTests', 'FirmwareComparisonTests', 'InstallerComparisonTests',
+    'DependencyListerComparisonTests'
+# A class that took under this share of its last local time, when that was at least the given seconds, proved less
+# there (a test that returns early without its inputs) and runs here.
+$script:ShortShare = 0.2
+$script:ShortFloorSeconds = 30
 # Where a run keeps each target's record and results, under the repository's .git.
 $script:RecordFolder = 'corvus-remote'
 # Set to 0 to run every class here.
@@ -25,8 +34,8 @@ $script:RunAppearSeconds = 120
 $script:RunFinishMinutes = 120
 $script:PollSeconds = 15
 
-# The classes of $testsDir a run sends: names matching the table, outside the local folders, in files that use none of
-# the local attributes; with -CrossPlatform, also no Windows-only fact. Sorted; empty when none match.
+# The classes of $testsDir a run sends: names matching the table but not the local classes, outside the local folders,
+# in files that use none of the local attributes; with -CrossPlatform, also no Windows-only fact. Sorted; empty when none match.
 function Get-RemoteClasses([string]$testsDir, [switch]$CrossPlatform) {
     $local = '\[(' + ($script:LocalAttributes -join '|') + $(if ($CrossPlatform) { '|WindowsFact' }) + ')\b'
     @(Get-ChildItem $testsDir -Directory | Where-Object { $_.Name -notin @('bin', 'obj') + $script:LocalFolders } | ForEach-Object {
@@ -34,7 +43,7 @@ function Get-RemoteClasses([string]$testsDir, [switch]$CrossPlatform) {
             $text = Get-Content $_.FullName -Raw
             if ($text -match $local) { return }
             [regex]::Matches($text, '(?m)^public (?:sealed |abstract |partial |static )*class (\w+)') | ForEach-Object { $_.Groups[1].Value } |
-                Where-Object { $name = $_; $script:RemotePatterns | Where-Object { $name -like $_ } }
+                Where-Object { $name = $_; $name -notin $script:LocalClasses -and ($script:RemotePatterns | Where-Object { $name -like $_ }) }
         }
     } | Sort-Object -Unique)
 }
@@ -59,27 +68,29 @@ function Get-ClassFilter([string[]]$classes, [bool]$releaseTier) {
     "($filter)&Tier!=Release"
 }
 
-# Per class of a TRX file: whether any of its tests was skipped (NotExecuted).
+# Per class of a TRX file: whether any of its tests was skipped (NotExecuted), and its summed test seconds.
 function Get-ClassOutcomes([string]$trxPath) {
     [xml]$trx = Get-Content $trxPath -Raw
     $ns = @{ t = 'http://microsoft.com/schemas/VisualStudio/TeamTest/2010' }
     $classOf = @{}
     foreach ($test in Select-Xml -Xml $trx -XPath '//t:UnitTest' -Namespace $ns) { $classOf[$test.Node.id] = ($test.Node.TestMethod.className -split '\.')[-1] -replace '\+.*$', '' }
-    $skipped = @{}
+    $skipped = @{}; $seconds = @{}
     foreach ($result in Select-Xml -Xml $trx -XPath '//t:UnitTestResult' -Namespace $ns) {
         $class = $classOf[$result.Node.testId]
         $skipped[$class] = [bool]$skipped[$class] -or $result.Node.outcome -eq 'NotExecuted'
+        $seconds[$class] = [double]$seconds[$class] + $(if ($result.Node.duration) { [TimeSpan]::Parse($result.Node.duration, [cultureinfo]::InvariantCulture).TotalSeconds } else { 0 })
     }
-    $skipped.Keys | ForEach-Object { [pscustomobject]@{ Class = $_; Skipped = $skipped[$_] } }
+    $skipped.Keys | ForEach-Object { [pscustomobject]@{ Class = $_; Skipped = $skipped[$_]; Seconds = $seconds[$_] } }
 }
 
-# Classes with a skipped test in $remoteTrx that ran every test in $localTrx (the last local whole run): the other
-# machine lacks something they need, so their results there prove less and they run here.
+# Classes whose results in $remoteTrx prove less than in $localTrx (the last local whole run): a test skipped there
+# that ran here, or far less time than here (a test that returns early without its inputs). They run here.
 function Get-SkippedOnHost([string]$remoteTrx, [string]$localTrx) {
-    $skipped = Get-ClassOutcomes $remoteTrx | Where-Object Skipped | ForEach-Object Class
-    if (-not $skipped) { return @() }
     $before = @{}; if (Test-Path $localTrx) { foreach ($c in Get-ClassOutcomes $localTrx) { $before[$c.Class] = $c } }
-    @($skipped | Where-Object { -not $before[$_] -or -not $before[$_].Skipped } | Sort-Object -Unique)
+    @(Get-ClassOutcomes $remoteTrx | Where-Object {
+        $here = $before[$_.Class]
+        ($_.Skipped -and -not ($here -and $here.Skipped)) -or ($here -and $here.Seconds -ge $script:ShortFloorSeconds -and $_.Seconds -lt $here.Seconds * $script:ShortShare)
+    } | ForEach-Object Class | Sort-Object -Unique)
 }
 
 # Writes to $target one TRX file holding the results of $sources (missing files are passed over), without the results
