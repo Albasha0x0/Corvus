@@ -61,6 +61,14 @@ public sealed class UnpackService(AssemblyWorkspace workspace)
     /// <param name="progress">Phase messages: reading, entries found, files written, assemblies loaded.</param>
     /// <param name="keyLog">A packet capture's TLS key log (SSLKEYLOGFILE format).</param>
     public UnpackReport Unpack(string path, string? outputDirectory, bool load, AnalysisLimits limits, CancellationToken ct, Action<string>? progress = null,
+        string? keyLog = null) =>
+        Finish(Extract(path, outputDirectory, limits, ct, progress, keyLog), load, progress);
+
+    /// <summary>A container's files written to disk and not loaded: in walk order, with the input's kind for the next call.</summary>
+    public sealed record Extraction(string Source, string Container, string Kind, string OutputDirectory, List<UnpackedFile> Files, List<string> Notes);
+
+    /// <summary>Writes a container's files (the reading half of <see cref="Unpack"/>); nothing is loaded.</summary>
+    public Extraction Extract(string path, string? outputDirectory, AnalysisLimits limits, CancellationToken ct, Action<string>? progress = null,
         string? keyLog = null)
     {
         string source, sha;
@@ -113,9 +121,18 @@ public sealed class UnpackService(AssemblyWorkspace workspace)
         if (AppNextToApphost(source, walked.Container, limits) is { } app)
             files.Insert(0, new UnpackedFile(app.Path, DotNet, app.Bytes.Length, Blob.Sha256(app.Bytes), ApphostAppOrigin, null,
                 AssemblyTraits.IsReadyToRun(app.Bytes), Inspect(app.Bytes)?.Merged) { Extracted = false });
+        return new Extraction(source, walked.Container, kind, root, files, notes);
+    }
+
+    /// <summary>The report of an extraction: its .NET assemblies loaded in walk order when <paramref name="load"/>, then the files listed in report order.</summary>
+    public UnpackReport Finish(Extraction extraction, bool load, Action<string>? progress = null)
+    {
+        var files = new List<UnpackedFile>(extraction.Files);
+        var notes = new List<string>(extraction.Notes);
         if (load) LoadAssemblies(files, notes, progress);
         files = [.. files.OrderBy(f => ListOrder(f.Origin, f.Path, f.Kind == DotNet))];
-        return new UnpackReport(source, walked.Container, root, files, notes) { Next = NextOf(source, walked.Container, kind, files) };
+        return new UnpackReport(extraction.Source, extraction.Container, extraction.OutputDirectory, files, notes)
+            { Next = NextOf(extraction.Source, extraction.Container, extraction.Kind, files) };
     }
 
     /// <summary>

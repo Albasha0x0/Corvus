@@ -14,7 +14,8 @@ namespace Corvus.Tools;
 
 [McpServerToolType]
 public sealed class WorkspaceTools(AssemblyWorkspace workspace, Il2CppService il2cpp, IndexingService indexing, UnpackService unpacker,
-    NativeLinkService? link = null, Il2CppRawLoader? il2cppRaw = null, NativeEngineService? engines = null, MinidumpService? dumps = null)
+    NativeLinkService? link = null, Il2CppRawLoader? il2cppRaw = null, NativeEngineService? engines = null, MinidumpService? dumps = null,
+    ServerOptions? options = null)
 {
     /// <summary>
     /// A list_assemblies row: a loaded assembly or native image, or with path an assembly or file inside the container;
@@ -311,13 +312,15 @@ public sealed class WorkspaceTools(AssemblyWorkspace workspace, Il2CppService il
         [Description(RowOffsetDescription)] int offset = 0,
         [Description("Rows per page (default 100).")] int limit = 100,
         [Description(ToolSupport.MaxTokensDescription)] int? maxTokens = null,
-        CancellationToken cancellationToken = default) => Task.Run(() =>
+        CancellationToken cancellationToken = default) => Task.Run(async () =>
     {
         offset = Math.Max(0, offset);
         limit = ClampLimit(limit, 1000);
         if (path != null)
         {
-            var c = unpacker.List(path, AnalysisLimits.Default, cancellationToken, filter, offset, limit);
+            var args = new FileWork.ListArgs(path, filter, offset, limit);
+            Func<UnpackService.ContainerListing> list = () => unpacker.List(path, AnalysisLimits.Default, cancellationToken, filter, offset, limit);
+            var c = await FileIsolation.RunAsync(options, FileWork.List, args, path, list, cancellationToken);
             // An archive's rows are its files; any other container's are the assemblies inside.
             var rows = c.Files is { } files
                 ? files.Select(f => new WorkspaceEntry("file", null, f.Path) { Size = f.Size, Detail = f.Detail }).ToList()

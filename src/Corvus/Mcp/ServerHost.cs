@@ -29,7 +29,67 @@ public static class ServerHost
             builder.Logging.AddSimpleConsole(o => { o.SingleLine = true; o.UseUtcTimestamp = true; o.TimestampFormat = "yyyy-MM-ddTHH:mm:ss.fffZ "; });
         builder.Logging.SetMinimumLevel(options.LogLevel);
 
-        builder.Services
+        AddServices(builder.Services, options);
+
+        var server = builder.Services
+            .AddMcpServer(o =>
+            {
+                o.ServerInfo = new Implementation
+                {
+                    Name = "corvus",
+                    Title = ServerIdentity.Product,
+                    Version = typeof(ServerOptions).Assembly.GetName().Version?.ToString(3) ?? "1.0.0",
+                };
+                o.ServerInstructions = instructions;
+            });
+        transport(server);
+        server
+            // Tools (annotations from Mcp/ToolEffects.cs), resources and prompts.
+            .WithCatalog()
+            .WithCompleteHandler((context, _) =>
+                ValueTask.FromResult(Completions.Complete(context.Services!.GetRequiredService<AssemblyWorkspace>(), context.Params!,
+                    context.Services!.GetRequiredService<MinidumpService>().OpenIds)))
+            .WithSubscribeToResourcesHandler((context, _) =>
+            {
+                context.Services!.GetRequiredService<ResourceSubscriptions>().Subscribe(context.Params!.Uri);
+                return ValueTask.FromResult(new EmptyResult());
+            })
+            .WithUnsubscribeFromResourcesHandler((context, _) =>
+            {
+                context.Services!.GetRequiredService<ResourceSubscriptions>().Unsubscribe(context.Params!.Uri);
+                return ValueTask.FromResult(new EmptyResult());
+            })
+            .WithRequestFilters(filters => filters.AddCallToolFilter(CallFilter.Wrap))
+            .WithMessageFilters(filters => filters.AddIncomingFilter(next => async (context, ct) =>
+                await context.Services!.GetRequiredService<ResourceSubscriptions>().ListenFilter(next)(context, ct)));
+
+        var host = builder.Build();
+        // The tools and the full tools/list are made while the rest starts; the transport's first request waits for them.
+        _ = Task.Run(() =>
+        {
+            // A failure here shows again, and is reported, where the transport makes the same objects.
+            try
+            {
+                if (host.Services.GetService<Microsoft.Extensions.Options.IOptions<McpServerOptions>>()?.Value is { ToolCollection: not null } mcp) ToolListCache.For(mcp, null);
+            }
+            catch (Exception) { }
+        });
+        // Resolve before preloading so preloaded assemblies are indexed and watched.
+        host.Services.GetRequiredService<IndexingService>();
+        host.Services.GetRequiredService<NativeCodeService>();
+        host.Services.GetRequiredService<PdbService>(); // reads matching local PDBs during index builds
+        host.Services.GetRequiredService<NativeEngineService>(); // with --prewarm, analyzes preloaded native images in the background
+        host.Services.GetRequiredService<EditJournal>(); // offers journals of earlier sessions for preloaded files
+        var subscriptions = host.Services.GetRequiredService<ResourceSubscriptions>();
+        host.Services.GetRequiredService<FileWatchService>().Changed += _ => subscriptions.Check();
+        Preload(host.Services.GetRequiredService<AssemblyWorkspace>(), host.Services.GetRequiredService<ILogger<AssemblyWorkspace>>(), options);
+        return host;
+    }
+
+    /// <summary>Registers the services the tools use; the server and a <c>corvus worker</c> share this list.</summary>
+    internal static IServiceCollection AddServices(IServiceCollection services, ServerOptions options)
+    {
+        services
             .AddSingleton(options)
             .AddSingleton<AssemblyWorkspace>()
             .AddSingleton<OutputPager>()
@@ -85,60 +145,7 @@ public static class ServerHost
             .AddSingleton<Services.Mobile.AndroidProjectExport>()
             .AddSingleton<Services.Mobile.JavaDecompilerService>()
             .AddSingleton<ResourceSubscriptions>();
-
-        var server = builder.Services
-            .AddMcpServer(o =>
-            {
-                o.ServerInfo = new Implementation
-                {
-                    Name = "corvus",
-                    Title = ServerIdentity.Product,
-                    Version = typeof(ServerOptions).Assembly.GetName().Version?.ToString(3) ?? "1.0.0",
-                };
-                o.ServerInstructions = instructions;
-            });
-        transport(server);
-        server
-            // Tools (annotations from Mcp/ToolEffects.cs), resources and prompts.
-            .WithCatalog()
-            .WithCompleteHandler((context, _) =>
-                ValueTask.FromResult(Completions.Complete(context.Services!.GetRequiredService<AssemblyWorkspace>(), context.Params!,
-                    context.Services!.GetRequiredService<MinidumpService>().OpenIds)))
-            .WithSubscribeToResourcesHandler((context, _) =>
-            {
-                context.Services!.GetRequiredService<ResourceSubscriptions>().Subscribe(context.Params!.Uri);
-                return ValueTask.FromResult(new EmptyResult());
-            })
-            .WithUnsubscribeFromResourcesHandler((context, _) =>
-            {
-                context.Services!.GetRequiredService<ResourceSubscriptions>().Unsubscribe(context.Params!.Uri);
-                return ValueTask.FromResult(new EmptyResult());
-            })
-            .WithRequestFilters(filters => filters.AddCallToolFilter(CallFilter.Wrap))
-            .WithMessageFilters(filters => filters.AddIncomingFilter(next => async (context, ct) =>
-                await context.Services!.GetRequiredService<ResourceSubscriptions>().ListenFilter(next)(context, ct)));
-
-        var host = builder.Build();
-        // The tools and the full tools/list are made while the rest starts; the transport's first request waits for them.
-        _ = Task.Run(() =>
-        {
-            // A failure here shows again, and is reported, where the transport makes the same objects.
-            try
-            {
-                if (host.Services.GetService<Microsoft.Extensions.Options.IOptions<McpServerOptions>>()?.Value is { ToolCollection: not null } mcp) ToolListCache.For(mcp, null);
-            }
-            catch (Exception) { }
-        });
-        // Resolve before preloading so preloaded assemblies are indexed and watched.
-        host.Services.GetRequiredService<IndexingService>();
-        host.Services.GetRequiredService<NativeCodeService>();
-        host.Services.GetRequiredService<PdbService>(); // reads matching local PDBs during index builds
-        host.Services.GetRequiredService<NativeEngineService>(); // with --prewarm, analyzes preloaded native images in the background
-        host.Services.GetRequiredService<EditJournal>(); // offers journals of earlier sessions for preloaded files
-        var subscriptions = host.Services.GetRequiredService<ResourceSubscriptions>();
-        host.Services.GetRequiredService<FileWatchService>().Changed += _ => subscriptions.Check();
-        Preload(host.Services.GetRequiredService<AssemblyWorkspace>(), host.Services.GetRequiredService<ILogger<AssemblyWorkspace>>(), options);
-        return host;
+        return services;
     }
 
     private static bool IsZip(string path)

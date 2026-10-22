@@ -11,7 +11,7 @@ namespace Corvus.Tools;
 
 [McpServerToolType]
 public sealed class InspectionTools(InspectionService inspection, AssemblyWorkspace? workspace = null, NativeCodeService? code = null, ResultStore? results = null,
-    Services.Mobile.AppGraph? graph = null)
+    Services.Mobile.AppGraph? graph = null, ServerOptions? serverOptions = null)
 {
     private const string AssemblyParam = "A loaded assembly; pass this or path.";
     private const string PathParam = "A .NET assembly file to analyze without loading; pass this or assembly.";
@@ -43,6 +43,14 @@ public sealed class InspectionTools(InspectionService inspection, AssemblyWorksp
             if (columns != null && table == null) throw new ToolError(ErrorCode.InvalidArgument, "columns selects columns of a table: pass table= with it.");
             var options = new FileViewOptions(name, table, columns, offset, limit) { Sbom = sbomPath != null };
             var native = NativeNamed(assembly, path);
+            FileSummaryRecord record;
+            // A file the workspace has not loaded is read where a crashing reader cannot end the server.
+            if (assembly == null && path != null && native == null)
+            {
+                var args = new FileWork.SummarizeArgs(path, name, table, columns, offset, limit, sbomPath, overwrite);
+                record = await FileIsolation.RunAsync(serverOptions, FileWork.Summarize, args, path, () => FileWork.SummarizeWith(inspection, graph, args, cancellationToken), cancellationToken);
+                return ToolOutput.Report(ContainerText.Summary(record), record);
+            }
             InspectionService.FileSummary summary;
             if (native == null || code == null) summary = await Task.Run(() => inspection.Summarize(assembly, path, cancellationToken, options), cancellationToken);
             else
@@ -52,8 +60,8 @@ public sealed class InspectionTools(InspectionService inspection, AssemblyWorksp
                 summary = await Task.Run(() => inspection.Summarize(null, native.FilePath, cancellationToken, options), cancellationToken);
                 summary = summary with { Triage = await Task.Run(() => NativeTriageBuilder.Build(index, cancellationToken), cancellationToken) };
             }
-            var record = ContainerText.Summary(summary, name);
-            if (sbomPath != null) record = record with { Notes = [.. record.Notes ?? [], WriteSbom(summary, sbomPath, overwrite)] };
+            record = ContainerText.Summary(summary, name);
+            if (sbomPath != null) record = record with { Notes = [.. record.Notes ?? [], FileWork.WriteSbom(summary, sbomPath, overwrite)] };
             if (name == "layers" && graph != null)
             {
                 var facts = await Task.Run(() => graph.Build(summary.File.Path, (int)Math.Min(offset, int.MaxValue), limit ?? Services.Mobile.AppGraph.DefaultLimit, cancellationToken), cancellationToken);
@@ -61,17 +69,6 @@ public sealed class InspectionTools(InspectionService inspection, AssemblyWorksp
             }
             return ToolOutput.Report(ContainerText.Summary(record), record);
         });
-
-    /// <summary>Writes the dependencies view to <paramref name="sbomPath"/> (an existing file is refused unless <paramref name="overwrite"/>) and returns the note naming it.</summary>
-    private static string WriteSbom(InspectionService.FileSummary summary, string sbomPath, bool overwrite)
-    {
-        if (summary.Views.GetValueOrDefault("dependencies")?.Detail is not Services.Analysis.Dependencies.DependencyFacts facts)
-            throw new ToolError(ErrorCode.NotFound, "found no component in the file, so no SBOM was written.", "pass path= with a .NET app, bundle or package, or a Go or Rust program");
-        var bytes = Services.Analysis.Dependencies.CycloneDx.Write(facts, summary.File.Path, summary.File.Sha256, ServerIdentity.InformationalVersion,
-            DateTimeOffset.UtcNow, Guid.NewGuid());
-        var full = SafeFile.WriteAllBytes(sbomPath, bytes, overwrite);
-        return $"CycloneDX {Services.Analysis.Dependencies.CycloneDx.SpecVersion} SBOM written to {full}: {facts.ComponentTotal} components, {facts.WithPurl} with a package URL.";
-    }
 
     /// <summary>The loaded native image an argument names (a managed assembly of that name wins), or null.</summary>
     private LoadedNative? NativeNamed(string? assembly, string? path)

@@ -165,7 +165,8 @@ public sealed class ToolError : McpException
         ErrorJson(CodeName(Code), Retryable, Format.EscapeMarkers(Message), Format.EscapeMarkers(NextFor(tool)), Partial, Details,
             TakesRetryAfter(Code) && RetryAfter is { } wait ? (long)wait.TotalMilliseconds : null, keep);
 
-    private static readonly System.Text.Json.JsonSerializerOptions JsonOptions = new(System.Text.Json.JsonSerializerDefaults.Web)
+    /// <summary>How partial and details are written into the error's JSON.</summary>
+    internal static readonly System.Text.Json.JsonSerializerOptions JsonOptions = new(System.Text.Json.JsonSerializerDefaults.Web)
     {
         DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.Never,
         Converters = { new System.Text.Json.Serialization.JsonStringEnumConverter() },
@@ -219,4 +220,13 @@ public sealed class ToolError : McpException
             return System.Text.Json.Nodes.JsonValue.Create($"(not serializable: {ex.GetType().Name})");
         }
     }
+}
+
+/// <summary>
+/// An exception a worker process caught and the server raises in its place: its type name and message, so an unclassified
+/// failure reads the same as when the work ran in the server.
+/// </summary>
+public sealed class ForwardedException(string typeName, string message) : Exception(message)
+{
+    public string TypeName { get; } = typeName;
 }

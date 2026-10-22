@@ -1,0 +1,219 @@
+using System.IO.Compression;
+using System.Text.Json;
+using ModelContextProtocol.Protocol;
+using Corvus.Core;
+using Corvus.Native.Providers;
+using Corvus.Native.Providers.Worker;
+using Corvus.Setup;
+using Xunit.Abstractions;
+
+namespace Corvus.Tests;
+
+/// <summary>The file tools in the "files" worker: the same results as in process, and named errors when the worker fails.</summary>
+public sealed class FileIsolationTests(ITestOutputHelper output) : IDisposable
+{
+    private readonly TempDir _dir = new();
+
+    public void Dispose() => _dir.Dispose();
+
+    /// <summary>A pool whose workers also answer the fixture files.</summary>
+    private static WorkerPool Pool(ChildProcessStart? start = null, long memoryLimitBytes = 0) => new(new WorkerPoolOptions
+    {
+        Enabled = true,
+        MemoryLimitBytes = memoryLimitBytes,
+        Start = start ?? WorkerPool.OwnCommand() with { Environment = new Dictionary<string, string?> { [WorkerHost.FixtureOpsVariable] = "1" } },
+    });
+
+    private static async Task<ToolSession> Session(bool inProcess, params string[] args)
+    {
+        var options = ServerOptions.Parse(["--no-index", "--no-watch", .. args]);
+        options.InProcessParsing = inProcess;
+        return await ToolSession.StartAsync(options, CancellationToken.None);
+    }
+
+    private static async Task<CallToolResult> Call(ToolSession session, string tool, Dictionary<string, object?> args) =>
+        await session.Client.CallToolAsync(tool, args);
+
+    /// <summary>The whole result as the client sees it: every text block, then the structured content.</summary>
+    private static string Whole(CallToolResult r) =>
+        string.Join("\n---\n", r.Content.OfType<TextContentBlock>().Select(b => b.Text)) + "\n===\n" + (r.StructuredContent is { } s ? s.GetRawText() : "");
+
+    private string Fixture(string name, string text)
+    {
+        var path = Path.Combine(_dir.Path, name);
+        File.WriteAllText(path, text);
+        return path;
+    }
+
+    private (string Zip, string Package, string Library, string Bytes) Inputs()
+    {
+        var library = Path.Combine(_dir.Path, "Lib.dll");
+        var dll = Roslyn.Release("Lib", """namespace Lib { public static class C { public static string U() => "https://example.com/api/items"; } }""");
+        File.WriteAllBytes(library, dll);
+        var zip = Path.Combine(_dir.Path, "three.zip");
+        using (var archive = ZipFile.Open(zip, ZipArchiveMode.Create))
+            for (int i = 0; i < 3; i++)
+                using (var writer = new StreamWriter(archive.CreateEntry($"docs/f{i}.txt").Open())) writer.Write($"text {i}");
+        var package = Path.Combine(_dir.Path, "Lib.1.0.0.nupkg");
+        using (var archive = ZipFile.Open(package, ZipArchiveMode.Create))
+        {
+            using (var stream = archive.CreateEntry("lib/net8.0/Lib.dll").Open()) stream.Write(dll);
+            using (var writer = new StreamWriter(archive.CreateEntry("Lib.nuspec").Open()))
+                writer.Write("<package><metadata><id>Lib</id><version>1.0.0</version></metadata></package>");
+        }
+        var bytes = Path.Combine(_dir.Path, "bytes.bin");
+        File.WriteAllBytes(bytes, [.. Enumerable.Range(0, 4096).Select(i => (byte)(i * 31 % 251))]);
+        return (zip, package, library, bytes);
+    }
+
+    [Fact]
+    public async Task Each_file_tool_answers_the_same_bytes_in_the_worker_as_in_process()
+    {
+        var (zip, package, library, bytes) = Inputs();
+        var calls = new List<(string Tool, Func<string, Dictionary<string, object?>> Args)>
+        {
+            ("summarize_file", _ => new() { ["path"] = zip }),
+            ("summarize_file", _ => new() { ["path"] = package }),
+            ("summarize_file", _ => new() { ["path"] = library }),
+            ("summarize_file", _ => new() { ["path"] = library, ["view"] = "managed" }),
+            ("summarize_file", _ => new() { ["path"] = bytes }),
+            ("summarize_file", _ => new() { ["path"] = Path.Combine(_dir.Path, "absent.bin") }),
+            ("list_assemblies", _ => new() { ["path"] = package }),
+            ("list_assemblies", _ => new() { ["path"] = zip }),
+            ("search_container", _ => new() { ["path"] = package, ["query"] = "C" }),
+            ("search_container", _ => new() { ["path"] = zip, ["query"] = "*", ["kind"] = "file", ["limit"] = 2 }),
+            ("search_container", _ => new() { ["path"] = zip, ["query"] = "x", ["kind"] = "no_such_kind" }),
+            ("unpack_container", mode => new() { ["path"] = package, ["outputDirectory"] = Path.Combine(_dir.Path, mode) }),
+            ("unpack_container", mode => new() { ["path"] = zip, ["outputDirectory"] = Path.Combine(_dir.Path, mode + "-zip"), ["extractOnly"] = true }),
+        };
+        async Task<List<string>> Run(bool inProcess)
+        {
+            var mode = inProcess ? "in-process" : "worker";
+            await using var session = await Session(inProcess);
+            var results = new List<string>();
+            foreach (var (tool, args) in calls)
+                results.Add(Whole(await Call(session, tool, args(mode))).Replace(Path.Combine(_dir.Path, mode), "<out>").Replace(JsonEncodedText.Encode(Path.Combine(_dir.Path, mode)).ToString(), "<out>"));
+            if (!inProcess)
+            {
+                // The worker path was taken: a reader failure there ends the worker, not the call's server.
+                var crash = await Call(session, "summarize_file", new() { ["path"] = Fixture("exit.txt", Corvus.Tools.FileOps.FixtureMarker + "exit") });
+                Assert.Contains("provider_unavailable", Whole(crash));
+            }
+            return results;
+        }
+        using var pool = Pool();
+        using var shared = WorkerPool.UseShared(pool);
+        var inProcess = await Run(true);
+        var worker = await Run(false);
+        for (int i = 0; i < calls.Count; i++)
+            Assert.True(inProcess[i] == worker[i], $"{calls[i].Tool} #{i}:\nin process:\n{inProcess[i]}\n\nworker:\n{worker[i]}");
+    }
+
+    [Theory]
+    [InlineData("exit")]
+    [InlineData("stack")]
+    public async Task A_reader_that_ends_the_worker_is_named_and_the_next_read_succeeds(string fault)
+    {
+        var (zip, _, _, _) = Inputs();
+        using var pool = Pool();
+        using var shared = WorkerPool.UseShared(pool);
+        await using var session = await Session(false);
+        var failed = await Call(session, "summarize_file", new() { ["path"] = Fixture("fault.txt", Corvus.Tools.FileOps.FixtureMarker + fault) });
+        Assert.True(failed.IsError == true);
+        var text = Whole(failed);
+        Assert.Contains("Error (provider_unavailable)", text);
+        Assert.Contains("fault.txt", text);
+        Assert.Contains("nothing from that read is kept", text);
+        Assert.NotEqual(true, (await Call(session, "summarize_file", new() { ["path"] = zip })).IsError);
+    }
+
+    [Fact]
+    public async Task A_reader_past_the_memory_limit_is_named_and_the_next_read_succeeds()
+    {
+        var (zip, _, _, _) = Inputs();
+        using var pool = Pool(memoryLimitBytes: WorkerPool.MinimumMemoryBytes);
+        using var shared = WorkerPool.UseShared(pool);
+        await using var session = await Session(false);
+        var text = Whole(await Call(session, "summarize_file", new() { ["path"] = Fixture("big.txt", Corvus.Tools.FileOps.FixtureMarker + "allocate") }));
+        Assert.Contains("Error (limit_exceeded)", text);
+        Assert.Contains(WorkerPool.MemoryVariable, text);
+        Assert.Contains("big.txt", text);
+        Assert.NotEqual(true, (await Call(session, "summarize_file", new() { ["path"] = zip })).IsError);
+    }
+
+    [Fact]
+    public async Task A_reader_past_the_call_deadline_ends_as_a_timeout_and_the_next_read_succeeds()
+    {
+        var (zip, _, _, _) = Inputs();
+        using var pool = Pool();
+        using var shared = WorkerPool.UseShared(pool);
+        await using var session = await Session(false, "--timeout", "5");
+        var text = Whole(await Call(session, "summarize_file", new() { ["path"] = Fixture("loop.txt", Corvus.Tools.FileOps.FixtureMarker + "loop") }));
+        Assert.Contains("Error (timeout", text);
+        Assert.NotEqual(true, (await Call(session, "summarize_file", new() { ["path"] = zip })).IsError);
+    }
+
+    [Fact]
+    public async Task A_worker_that_cannot_start_is_refused_with_the_in_process_setting_named()
+    {
+        var (zip, _, _, _) = Inputs();
+        using var pool = Pool(new ChildProcessStart(Path.Combine(_dir.Path, "no-such-program"), []));
+        using var shared = WorkerPool.UseShared(pool);
+        await using (var session = await Session(false))
+        {
+            var text = Whole(await Call(session, "summarize_file", new() { ["path"] = zip }));
+            Assert.Contains("Error (provider_unavailable", text);
+            Assert.Contains(ServerOptions.InProcessParsingVariable + "=1", text);
+        }
+        // With in-process parsing the same call needs no worker.
+        await using (var session = await Session(true))
+            Assert.NotEqual(true, (await Call(session, "summarize_file", new() { ["path"] = zip })).IsError);
+    }
+
+    [Fact]
+    public void The_in_process_setting_reads_its_option_and_variable()
+    {
+        Assert.True(ServerOptions.Parse([ServerOptions.InProcessParsingOption]).InProcessParsing);
+        Assert.True(ServerOptions.Switches.ContainsKey(ServerOptions.InProcessParsingOption));
+        var before = Environment.GetEnvironmentVariable(ServerOptions.InProcessParsingVariable);
+        try
+        {
+            Environment.SetEnvironmentVariable(ServerOptions.InProcessParsingVariable, "0");
+            Assert.False(ServerOptions.Parse([]).InProcessParsing);
+            Assert.True(ServerOptions.Parse([ServerOptions.InProcessParsingOption]).InProcessParsing);
+            Environment.SetEnvironmentVariable(ServerOptions.InProcessParsingVariable, "1");
+            Assert.True(ServerOptions.Parse([]).InProcessParsing);
+        }
+        finally { Environment.SetEnvironmentVariable(ServerOptions.InProcessParsingVariable, before); }
+    }
+
+    [Fact]
+    [Trait(PerfBudget.Trait, PerfBudget.Timing)]
+    public async Task A_warm_worker_adds_little_to_a_small_read()
+    {
+        var (zip, _, _, _) = Inputs();
+        const int Calls = 20;
+        async Task<(TimeSpan First, double Median)> Measure(bool inProcess)
+        {
+            await using var session = await Session(inProcess);
+            var clock = System.Diagnostics.Stopwatch.StartNew();
+            Assert.NotEqual(true, (await Call(session, "summarize_file", new() { ["path"] = zip })).IsError);
+            var first = clock.Elapsed;
+            var times = new List<double>();
+            for (int i = 0; i < Calls; i++)
+            {
+                clock.Restart();
+                Assert.NotEqual(true, (await Call(session, "summarize_file", new() { ["path"] = zip })).IsError);
+                times.Add(clock.Elapsed.TotalMilliseconds);
+            }
+            times.Sort();
+            return (first, times[Calls / 2]);
+        }
+        using var pool = Pool();
+        using var shared = WorkerPool.UseShared(pool);
+        var (_, inProcess) = await Measure(true);
+        var (start, worker) = await Measure(false);
+        PerfBudget.AtMost("files/worker-call-overhead", worker - inProcess, 20, "ms", output, $"worker {worker:0.0} ms, in process {inProcess:0.0} ms, median of {Calls}");
+        PerfBudget.Time("files/worker-start-and-first-read", start, TimeSpan.FromSeconds(2), output);
+    }
+}

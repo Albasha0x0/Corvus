@@ -16,6 +16,7 @@ namespace Corvus.Core;
 ///                         ida, ghidra or auto (the preferred engine installed); --ida-prewarm is --prewarm ida
 ///   --ida-scripting       allow ida_python (arbitrary Python in the IDA worker; CORVUS_IDA_SCRIPTING=1)
 ///   --ghidra-scripting    allow ghidra_script (arbitrary Java in the Ghidra worker; CORVUS_GHIDRA_SCRIPTING=1)
+///   --in-process-parsing  read files in the server process instead of a worker process (CORVUS_IN_PROCESS_PARSING=1)
 ///   --engine &lt;e&gt;         where native functions, xrefs and CFGs come from by default: auto (an engine's analysis when it is complete, else ours), ours, ida or ghidra
 ///   --index-cache &lt;dir|off&gt;  directory of saved native code indexes (default &lt;LocalAppData&gt;/Corvus/code-index), or off
 ///   --index-cache-mb &lt;n&gt;  size limit of the code index cache in MB (default 8192)
@@ -68,6 +69,15 @@ public sealed class ServerOptions
     public bool IdaScripting { get; set; }
 
     public const string IdaScriptingVariable = "CORVUS_IDA_SCRIPTING";
+
+    /// <summary>
+    /// The file tools (summarize, container listing, search and extraction, dump reads) parse in the server process instead
+    /// of a <c>corvus worker</c> process; on by default until isolation is the default.
+    /// </summary>
+    public bool InProcessParsing { get; set; } = true;
+
+    public const string InProcessParsingOption = "--in-process-parsing";
+    public const string InProcessParsingVariable = "CORVUS_IN_PROCESS_PARSING";
 
     /// <summary>Allow ghidra_script: arbitrary Java in the Ghidra worker, with the server's rights (default off).</summary>
     public bool GhidraScripting { get; set; }
@@ -135,6 +145,7 @@ public sealed class ServerOptions
         [LiveInstallFridaOption] = LiveInstallFridaVariable,
         ["--ida-scripting"] = IdaScriptingVariable,
         [GhidraScriptingOption] = GhidraScriptingVariable,
+        [InProcessParsingOption] = InProcessParsingVariable,
         [AllowDeviceChangesOption] = AllowDeviceChangesVariable,
         [AllowReplaceOriginalOption] = AllowReplaceOriginalVariable,
         [TraceArgsOption] = TraceArgsVariable,
@@ -216,6 +227,7 @@ public sealed class ServerOptions
                 case "--prewarm": prewarm = Next(); break;
                 case "--ida-scripting": o.IdaScripting = true; break;
                 case GhidraScriptingOption: o.GhidraScripting = true; break;
+                case InProcessParsingOption: o.InProcessParsing = true; break;
                 case AllowDeviceChangesOption: o.AllowDeviceChanges = true; break;
                 case AllowReplaceOriginalOption: o.AllowReplaceOriginal = true; break;
                 case AllowLiveOption: o.AllowLive = true; break;
@@ -261,6 +273,8 @@ public sealed class ServerOptions
                 : throw new ArgumentException($"--prewarm (or {PrewarmVariable}) must be ida, ghidra, auto or off, not '{prewarm.Trim()}'");
         if (Environment.GetEnvironmentVariable(IdaScriptingVariable)?.Trim() is "1" or "true" or "on") o.IdaScripting = true;
         if (Environment.GetEnvironmentVariable(GhidraScriptingVariable)?.Trim() is "1" or "true" or "on") o.GhidraScripting = true;
+        if (!args.Contains(InProcessParsingOption) && Environment.GetEnvironmentVariable(InProcessParsingVariable)?.Trim() is { Length: > 0 } parsing)
+            o.InProcessParsing = parsing is not ("0" or "false" or "off");
         if (Environment.GetEnvironmentVariable(AllowDeviceChangesVariable)?.Trim() is "1" or "true" or "on") o.AllowDeviceChanges = true;
         if (Environment.GetEnvironmentVariable(AllowReplaceOriginalVariable)?.Trim() is "1" or "true" or "on") o.AllowReplaceOriginal = true;
         if (Environment.GetEnvironmentVariable(AllowLiveVariable)?.Trim() is "1" or "true" or "on") o.AllowLive = true;

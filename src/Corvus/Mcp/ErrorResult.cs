@@ -51,7 +51,7 @@ internal static class ErrorResult
 
     /// <summary>An exception the tool did not classify: code "internal", not retryable.</summary>
     public static CallToolResult Internal(Exception ex, string? tool) =>
-        Of("internal", false, $"{ex.GetType().Name}: {ex.Message}", NextFor(ex), null, tool);
+        Of("internal", false, $"{(ex is ForwardedException f ? f.TypeName : ex.GetType().Name)}: {ex.Message}", NextFor(ex), null, tool);
 
     private static string NextFor(Exception ex) => ex switch
     {

@@ -9,7 +9,7 @@ using static Corvus.Tools.ToolSupport;
 namespace Corvus.Tools;
 
 [McpServerToolType]
-public sealed class UnpackTools(UnpackService unpacker)
+public sealed class UnpackTools(UnpackService unpacker, ServerOptions? options = null)
 {
     [McpServerTool(Name = "unpack_container", Title = "Extract container", UseStructuredContent = true, OutputSchemaType = typeof(UnpackPage))]
     [Description("Extract the .NET assemblies inside a container and load them: single-file bundles, Costura.Fody, .nupkg, Xamarin / MAUI .apk / .aab " +
@@ -27,8 +27,12 @@ public sealed class UnpackTools(UnpackService unpacker)
         CancellationToken cancellationToken = default) => OrderedProgress.Run(context, async progress =>
         {
             int step = 0;
-            var report = await Task.Run(() => unpacker.Unpack(path, outputDirectory, !extractOnly, AnalysisLimits.Default, cancellationToken,
-                message => progress.Report(new ProgressNotificationValue { Progress = ++step, Message = message }), keyLog), cancellationToken);
+            void Report(string message) => progress.Report(new ProgressNotificationValue { Progress = ++step, Message = message });
+            // The worker writes the files; loading them stays here, where the workspace is.
+            var args = new FileWork.ExtractArgs(path, outputDirectory, keyLog);
+            Func<UnpackService.Extraction> extract = () => unpacker.Extract(path, outputDirectory, AnalysisLimits.Default, cancellationToken, Report, keyLog);
+            var extraction = await FileIsolation.RunAsync(options, FileWork.Extract, args, path, extract, cancellationToken);
+            var report = await Task.Run(() => unpacker.Finish(extraction, !extractOnly, Report), cancellationToken);
             return ContainerText.Unpack(report, offset, ClampLimit(limit));
         });
 
@@ -47,7 +51,9 @@ public sealed class UnpackTools(UnpackService unpacker)
         [Description("kind=request: show header, cookie and query values.")] bool values = false,
         CancellationToken cancellationToken = default)
     {
-        var found = await Task.Run(() => unpacker.Search(path, query, kind, ClampLimit(limit), AnalysisLimits.Default, cancellationToken, offset, capture, values), cancellationToken);
+        var args = new FileWork.SearchArgs(path, query, kind, ClampLimit(limit), offset, capture, values);
+        Func<UnpackService.ContainerSearch> search = () => unpacker.Search(path, query, kind, ClampLimit(limit), AnalysisLimits.Default, cancellationToken, offset, capture, values);
+        var found = await FileIsolation.RunAsync(options, FileWork.Search, args, path, search, cancellationToken);
         return ContainerText.Search(found, ClampLimit(limit));
     }
 }

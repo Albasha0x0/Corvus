@@ -109,6 +109,12 @@ engines/probe-wait-cancelled	windows	5000	ms
 engines/reanalyze-no-wait	linux	2000	ms
 engines/reanalyze-no-wait	macos	2000	ms
 engines/reanalyze-no-wait	windows	2000	ms
+files/worker-call-overhead	linux	20	ms
+files/worker-call-overhead	macos	20	ms
+files/worker-call-overhead	windows	20	ms
+files/worker-start-and-first-read	linux	2000	ms
+files/worker-start-and-first-read	macos	2000	ms
+files/worker-start-and-first-read	windows	2000	ms
 live/close-during-exit/linux-x64	linux	15000	ms
 live/close-during-exit/osx-arm64	macos	15000	ms
 live/close-during-exit/win-arm64	windows	15000	ms
