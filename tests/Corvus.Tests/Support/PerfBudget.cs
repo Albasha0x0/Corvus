@@ -7,7 +7,8 @@ namespace Corvus.Tests;
 /// Performance measurements. Each writes one line to the test output, <c>perf: name value unit (budget op limit unit)</c>,
 /// which the perf run reads to compare medians with <c>Ratchets/perf-baseline.txt</c>; it fails the test only in the perf
 /// run (<see cref="Variable"/> = 1), so gating runs check the mechanism and report the time. Tests that measure carry
-/// <c>[Trait(PerfBudget.Trait, PerfBudget.Timing)]</c>, which the perf run selects.
+/// <c>[Trait(PerfBudget.Trait, PerfBudget.Timing)]</c>, which the perf run selects. In every run, the name's baseline for this
+/// OS must be no looser than the test's limit: the limit is the hard budget, the baseline only tightens below it.
 /// </summary>
 internal static class PerfBudget
 {
@@ -37,6 +38,23 @@ internal static class PerfBudget
         var line = string.Create(CultureInfo.InvariantCulture,
             $"perf: {name} {value:0.###} {unit} (budget {op} {limit:0.###} {unit}){(within ? "" : " over budget")}{(note is { Length: > 0 } ? "; " + note : "")}");
         output.WriteLine(line);
+        if (Baselines.Value.TryGetValue((name, Os), out var baseline))
+        {
+            Assert.True(baseline.Unit == unit, $"perf-baseline.txt: {name} {Os} is in {baseline.Unit}, the test measures {unit}");
+            Assert.True(op == "<=" ? baseline.Value <= limit : baseline.Value >= limit,
+                string.Create(CultureInfo.InvariantCulture, $"perf-baseline.txt: {name} {Os} baseline {baseline.Value} {unit} is looser than the budget {op} {limit} {unit}"));
+        }
         if (Enforced) Assert.True(within, line);
     }
+
+    private static string Os => OperatingSystem.IsWindows() ? "windows" : OperatingSystem.IsMacOS() ? "macos" : "linux";
+
+    /// <summary>Ratchets/perf-baseline.txt by name and OS; PerfBaselineTests checks its form and that every name has a line.</summary>
+    private static readonly Lazy<Dictionary<(string Name, string Os), (double Value, string Unit)>> Baselines = new(() =>
+        File.ReadLines(Path.Combine(DocsTests.RepoRoot(), "tests", "Corvus.Tests", "Ratchets", "perf-baseline.txt"))
+            .Where(l => l.Length > 0 && !l.StartsWith('#'))
+            .Select(l => l.Split('\t'))
+            .Where(f => f.Length == 4 && double.TryParse(f[2], NumberStyles.Float, CultureInfo.InvariantCulture, out _))
+            .GroupBy(f => (f[0], f[1]))
+            .ToDictionary(g => g.Key, g => (double.Parse(g.First()[2], CultureInfo.InvariantCulture), g.First()[3])));
 }

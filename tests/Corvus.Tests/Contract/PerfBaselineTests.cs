@@ -1,10 +1,11 @@
 using System.Globalization;
 using System.Text.RegularExpressions;
+using Xunit.Abstractions;
 
 namespace Corvus.Tests;
 
 /// <summary>Ratchets/perf-baseline.txt: well-formed lines, and a baseline for every measurement a test names.</summary>
-public partial class PerfBaselineTests
+public partial class PerfBaselineTests(ITestOutputHelper output)
 {
     public const string Name = "perf-baseline";
 
@@ -35,5 +36,16 @@ public partial class PerfBaselineTests
                     problems.Add($"{Path.GetRelativePath(root, file)}: no baseline for {name}{(m.Groups[2].Success ? "..." : "")}");
             }
         Assert.True(problems.Count == 0, $"Ratchets/{Name}.txt:\n{string.Join("\n", problems)}");
+    }
+
+    // The tests/baseline-contract lines hold 10 ms (a ceiling) and 10 MB/s (a floor) on every OS.
+    [Fact]
+    public void A_baseline_looser_than_its_budget_fails_in_every_run()
+    {
+        PerfBudget.AtMost("tests/baseline-contract", 1, 10, "ms", output);
+        PerfBudget.AtLeast("tests/baseline-contract-rate", 20, 10, "MB/s", output);
+        Assert.Contains("looser", Assert.ThrowsAny<Exception>(() => PerfBudget.AtMost("tests/baseline-contract", 1, 9, "ms", output)).Message);
+        Assert.Contains("looser", Assert.ThrowsAny<Exception>(() => PerfBudget.AtLeast("tests/baseline-contract-rate", 20, 11, "MB/s", output)).Message);
+        Assert.Contains("the test measures s", Assert.ThrowsAny<Exception>(() => PerfBudget.AtMost("tests/baseline-contract", 1, 10, "s", output)).Message);
     }
 }

@@ -207,6 +207,12 @@ session/load-session-first-progress	windows	5000	ms
 session/safe-file-lost-race	linux	1000	ms
 session/safe-file-lost-race	macos	1000	ms
 session/safe-file-lost-race	windows	1000	ms
+tests/baseline-contract	linux	10	ms
+tests/baseline-contract	macos	10	ms
+tests/baseline-contract	windows	10	ms
+tests/baseline-contract-rate	linux	10	MB/s
+tests/baseline-contract-rate	macos	10	MB/s
+tests/baseline-contract-rate	windows	10	MB/s
 web/hermes-read-and-index	linux	1000	ms
 web/hermes-read-and-index	macos	1000	ms
 web/hermes-read-and-index	windows	1000	ms
