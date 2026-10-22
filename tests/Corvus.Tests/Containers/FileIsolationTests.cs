@@ -155,7 +155,8 @@ public sealed class FileIsolationTests(ITestOutputHelper output) : IDisposable
         using var shared = WorkerPool.UseShared(pool);
         await using var session = await Session(false);
         var text = Whole(await Call(session, "summarize_file", new() { ["path"] = Fixture("big.txt", Corvus.Tools.FileOps.FixtureMarker + "allocate") }));
-        Assert.Contains("Error (limit_exceeded)", text);
+        // Assert.Contains cuts the text short; a worker that did not start is named only past that cut.
+        Assert.True(text.Contains("Error (limit_exceeded)"), text);
         Assert.Contains(WorkerPool.MemoryVariable, text);
         Assert.Contains("big.txt", text);
         await ReadsAsync(session, zip);
