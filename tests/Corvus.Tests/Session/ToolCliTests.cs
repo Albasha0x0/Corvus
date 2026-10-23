@@ -263,14 +263,20 @@ public class ToolCliTests
     {
         using var dir = new TempDir();
         var assembly = Path.Combine(AppContext.BaseDirectory, "corvus.dll");
+        var trace = Path.Combine(dir.Path, "trace.jsonl");
         var io = new CliIo(new StringWriter(), new StringWriter(), TextReader.Null);
         using var cancel = new CancellationTokenSource();
-        var run = ToolCli.RunAsync(["export_project", "--load", assembly, "assembly=corvus.dll", "outputDirectory=" + Path.Combine(dir.Path, "out")], io, cancel.Token);
+        var run = ToolCli.RunAsync(["export_project", "--load", assembly, "--trace", trace, "assembly=corvus.dll", "outputDirectory=" + Path.Combine(dir.Path, "out")],
+            io, cancel.Token);
         await Task.Delay(1500);
         Assert.False(run.IsCompleted, "the export finished before the cancel; pick a larger input");
-        var clock = System.Diagnostics.Stopwatch.StartNew();
+        var cancelled = DateTimeOffset.UtcNow;
         await cancel.CancelAsync();
         Assert.Equal(130, await run.WaitAsync(TimeSpan.FromMinutes(1)));
-        Assert.True(clock.Elapsed < TimeSpan.FromSeconds(3), $"stopped {clock.Elapsed} after the cancel");
+        // Timed by the server's trace line, written when the tool stopped: the session's shutdown after it is not the call's.
+        var line = JsonNode.Parse(Assert.Single(File.ReadAllLines(trace)))!;
+        Assert.Equal(("export_project", "cancelled"), ((string?)line["tool"], (string?)line["error"]));
+        var stopped = DateTimeOffset.Parse((string)line["ts"]!, System.Globalization.CultureInfo.InvariantCulture) - cancelled;
+        Assert.True(stopped < TimeSpan.FromSeconds(3), $"stopped {stopped} after the cancel");
     }
 }
