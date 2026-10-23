@@ -104,17 +104,19 @@ public abstract class ResultBoundsTests : IAsyncLifetime
             Assert.Equal("cancelled", await McpProtocolTests.TracedOutcome(Trace, "export_project", TimeSpan.FromMinutes(2)));
             int files = Files();
 
-            // A read and an edit (which needs the exclusive lock, so waits for the export to let go) both answer; the time is
-            // logged rather than asserted, as a machine busy with other tests can make the first calls slow.
+            // A read and an edit both answer while the cancelled export winds down, each within the sweep's per-call limit.
             var watch = Stopwatch.StartNew();
-            using var limit = new CancellationTokenSource(ContractSweep.CallLimit);
-            var read = await _client.CallToolAsync("get_type_info", new Dictionary<string, object?> { ["type"] = "Newtonsoft.Json.JsonConvert", ["section"] = "methods", ["limit"] = 500 }, cancellationToken: limit.Token);
+            using var readLimit = new CancellationTokenSource(ContractSweep.CallLimit);
+            var read = await _client.CallToolAsync("get_type_info", new Dictionary<string, object?> { ["type"] = "Newtonsoft.Json.JsonConvert", ["section"] = "methods", ["limit"] = 500 }, cancellationToken: readLimit.Token);
             Assert.Contains("SerializeObject", Text(read));
+            output.WriteLine($"read after the cancellation: {watch.ElapsedMilliseconds} ms");
+            watch.Restart();
+            using var editLimit = new CancellationTokenSource(ContractSweep.CallLimit);
             var edit = await _client.CallToolAsync("stub_method",
-                new Dictionary<string, object?> { ["method"] = "Newtonsoft.Json.JsonConvert::ToString(bool)", ["value"] = "\"x\"", ["dryRun"] = false }, cancellationToken: limit.Token);
+                new Dictionary<string, object?> { ["method"] = "Newtonsoft.Json.JsonConvert::ToString(bool)", ["value"] = "\"x\"", ["dryRun"] = false }, cancellationToken: editLimit.Token);
             Assert.True(edit.IsError != true, Text(edit));
             Assert.Equal(files, Files());
-            output.WriteLine($"read and edit after the cancellation: {watch.ElapsedMilliseconds} ms");
+            output.WriteLine($"edit after the read: {watch.ElapsedMilliseconds} ms");
         }
     }
 }

@@ -940,6 +940,9 @@ public abstract class McpProtocolTests : IAsyncLifetime
                 Send(new { jsonrpc = "2.0", id = 1, method = "initialize", @params = new { protocolVersion = "2025-06-18", capabilities = new { }, clientInfo = new { name = "test", version = "1" } } });
                 await Until(m => Is(m, 1), limited: false); // the start loads two assemblies: not what this test times
                 Send(new { jsonrpc = "2.0", method = "notifications/initialized" });
+                // Untimed warm-up: the test claims a responsive server after a cancel, not a fresh server's first-call time.
+                Send(new { jsonrpc = "2.0", id = 6, method = "tools/call", @params = new { name = "get_type_info", arguments = new { type = "Shop" } } });
+                await Until(m => Is(m, 6), limited: false);
                 // The call and its cancellation in one write: the server reads the cancellation right after starting the call,
                 // seconds before the export could end, however late this process gets to run.
                 Send(new { jsonrpc = "2.0", id = 2, method = "tools/call", @params = new { name = "export_project", arguments = new { assembly = "Newtonsoft.Json", outputDirectory = output }, _meta = new { progressToken = "export" } } },
