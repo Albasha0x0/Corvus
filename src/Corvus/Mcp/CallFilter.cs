@@ -33,6 +33,9 @@ internal static partial class CallFilter
     public static async ValueTask<CallToolResult> Run(CallToolRequestParams? request, JsonElement? inputSchema, IServiceProvider? services,
         Func<CancellationToken, ValueTask<CallToolResult>> next, CancellationToken cancellationToken, string? clientName = null)
     {
+        // The deadline is a promise to the client, so its clock starts at receipt, before any of the call's own work.
+        var time = services?.GetService<TimeProvider>() ?? TimeProvider.System;
+        long received = time.GetTimestamp();
         var tool = request?.Name;
         var log = CallLog.Begin(request, services);
         var options = services?.GetService<ServerOptions>();
@@ -41,7 +44,7 @@ internal static partial class CallFilter
         OutputCall output;
         try
         {
-            (result, output) = await Execute(request, inputSchema, services, next, cancellationToken, client);
+            (result, output) = await Execute(request, inputSchema, services, next, cancellationToken, client, time, received);
         }
         catch (OperationCanceledException)
         {
@@ -133,7 +136,7 @@ internal static partial class CallFilter
     }
 
     private static async ValueTask<(CallToolResult, OutputCall)> Execute(CallToolRequestParams? request, JsonElement? inputSchema, IServiceProvider? services,
-        Func<CancellationToken, ValueTask<CallToolResult>> next, CancellationToken cancellationToken, ClientLimits? client)
+        Func<CancellationToken, ValueTask<CallToolResult>> next, CancellationToken cancellationToken, ClientLimits? client, TimeProvider time, long received)
     {
         var tool = request?.Name;
         var serverOptions = services?.GetService<ServerOptions>();
@@ -144,9 +147,8 @@ internal static partial class CallFilter
         var leftovers = serverOptions != null ? LeftoverWork.For(serverOptions) : null;
         var joinKey = serverOptions != null ? CallJoin.Key(tool, effects.ReadOnly, request?.Arguments) : null;
         var joins = joinKey != null ? CallJoin.For(serverOptions!) : null;
-        var time = services?.GetService<TimeProvider>() ?? TimeProvider.System;
         // Stopped one grace period early, so even work that ignores its token is answered for by the deadline.
-        using var expiry = deadline is { } limit ? new CancellationTokenSource(Early(limit), time) : null;
+        using var expiry = deadline is { } limit ? new CancellationTokenSource(Remaining(Early(limit), time.GetElapsedTime(received)), time) : null;
         using var call = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, expiry?.Token ?? CancellationToken.None);
         // at the cap a call with a deadline waits for room until that deadline; session tools (server_status) and joins never wait
         if (leftovers != null && deadline != null && tool != null && Toolsets.FamilyOf(tool) != Toolsets.Session && joins?.IsRunning(joinKey!) != true
@@ -272,6 +274,9 @@ internal static partial class CallFilter
 
     /// <summary>When work is told to stop: grace and slack before <paramref name="deadline"/>, or halfway for a short one.</summary>
     internal static TimeSpan Early(TimeSpan deadline) => deadline - DeadlineGrace - AnswerSlack > deadline / 2 ? deadline - DeadlineGrace - AnswerSlack : deadline / 2;
+
+    /// <summary>What is left of <paramref name="limit"/> after <paramref name="spent"/>; zero once it is used up.</summary>
+    internal static TimeSpan Remaining(TimeSpan limit, TimeSpan spent) => spent < limit ? limit - spent : TimeSpan.Zero;
 
     /// <summary>How long stopped work is waited for before the call answers without it, so the answer lands before <paramref name="deadline"/>.</summary>
     private static TimeSpan Grace(TimeSpan deadline)

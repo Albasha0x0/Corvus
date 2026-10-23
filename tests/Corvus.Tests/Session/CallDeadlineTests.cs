@@ -57,6 +57,42 @@ public class CallDeadlineTests
     }
 
     [Fact]
+    public async Task Time_spent_before_the_call_runs_counts_against_its_deadline()
+    {
+        var spent = TimeSpan.FromMilliseconds(700);
+        var clock = new LateReceipt(spent);
+        using var services = Services(time: clock);
+        await Run(services, "decompile_member", _ => Task.FromResult(Done));
+        var deadline = CallFilter.Deadline("decompile_member", services.GetRequiredService<ServerOptions>())!.Value;
+        Assert.Equal(CallFilter.Early(deadline) - spent, clock.FirstTimer);
+    }
+
+    /// <summary>A clock that moves <paramref name="spent"/> right after the call reads its receipt time.</summary>
+    private sealed class LateReceipt(TimeSpan spent) : TimeProvider
+    {
+        private readonly Microsoft.Extensions.Time.Testing.FakeTimeProvider _time = new();
+        private bool _received;
+
+        public TimeSpan? FirstTimer { get; private set; }
+
+        public override long GetTimestamp()
+        {
+            long now = _time.GetTimestamp();
+            if (!_received) { _received = true; _time.Advance(spent); }
+            return now;
+        }
+
+        public override long TimestampFrequency => _time.TimestampFrequency;
+        public override DateTimeOffset GetUtcNow() => _time.GetUtcNow();
+
+        public override ITimer CreateTimer(TimerCallback callback, object? state, TimeSpan dueTime, TimeSpan period)
+        {
+            FirstTimer ??= dueTime;
+            return _time.CreateTimer(callback, state, dueTime, period);
+        }
+    }
+
+    [Fact]
     public async Task WorkLeftRunningPastTheDeadlineIsBoundedAndCounted()
     {
         var clock = new ArmedClock();
