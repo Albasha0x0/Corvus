@@ -179,7 +179,8 @@ public class CallDeadlineTests
     [Fact]
     public async Task ServerSideCancellationIsACancelledError()
     {
-        using var services = Services();
+        // The clock never moves, so the deadline cannot be what cancelled the call.
+        using var services = Services(time: new ArmedClock());
         var result = await Run(services, "get_type_info", _ => throw new OperationCanceledException());
         var json = McpProtocolTests.ErrorJson(result);
         Assert.Equal("cancelled", json.GetProperty("code").GetString());
