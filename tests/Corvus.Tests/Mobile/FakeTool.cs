@@ -36,9 +36,10 @@ internal sealed class FakeTool : IDisposable
     public string LogPath => _dir.File("log");
     public string Directory => _dir.Path;
 
-    public FakeTool()
+    /// <summary>A fake with no rules; without <paramref name="log"/> its calls are not recorded and <see cref="Calls"/> stays empty.</summary>
+    public FakeTool(bool log = true)
     {
-        _script["log"] = LogPath;
+        if (log) _script["log"] = LogPath;
         Save();
     }
 

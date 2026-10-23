@@ -105,7 +105,9 @@ internal static class FakeDevice
 
     private static readonly Lazy<FakeTool> SharedTool = new(() =>
     {
-        var fake = Configure(new FakeTool(), AndroidSamples.Apk());
+        // Unlogged: every test server's adb and java calls share this fake, and appending to one log, each with the
+        // file held alone, about doubled the time of 16 side-by-side calls (635 to 1,168 ms median); nothing reads it.
+        var fake = Configure(new FakeTool(log: false), AndroidSamples.Apk());
         LeakGuard.DeleteAtEnd(fake.Directory);
         return fake;
     });
