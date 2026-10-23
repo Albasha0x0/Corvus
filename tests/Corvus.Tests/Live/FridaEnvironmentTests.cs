@@ -153,12 +153,14 @@ public sealed class FridaEnvironmentRealTests(ITestOutputHelper output) : IDispo
     [FridaDownloadFact]
     public async Task The_private_environment_is_made_and_a_session_opens_on_it()
     {
+        var phases = new TestPhases(output);
         var env = new FridaEnvironment(_dir.File("frida-env"));
         var watch = Stopwatch.StartNew();
         var python = env.Create(PythonLocator.Find([], []), out var problem);
         // The problem names the failed step (venv or pip) and why.
         Assert.Null(problem);
         Assert.Equal(env.Python, python);
+        phases.Phase("environment made");
         var bytes = new DirectoryInfo(env.Folder).EnumerateFiles("*", SearchOption.AllDirectories).Sum(f => f.Length);
         output.WriteLine($"private environment: {watch.Elapsed.TotalSeconds:0.0} s, {bytes / 1048576.0:0.0} MB on disk");
 
@@ -167,12 +169,16 @@ public sealed class FridaEnvironmentRealTests(ITestOutputHelper output) : IDispo
         Assert.Null(backend.Unavailable());
         Assert.Equal(FridaEnvironment.Source, backend.Python!.Source);
         Assert.Equal(FridaVersions.Pinned, backend.FridaVersion);
+        phases.Phase("frida found");
 
         var exe = LiveFridaRealTests.Build(_dir, "orders", "int main(void) { return 3; }");
+        phases.Phase("program built");
         using var workspace = new AssemblyWorkspace();
         using var service = new LiveSessionService(workspace, new NativeCodeService(workspace, SharedCodeIndex.Options())) { Backend = backend };
         var session = await service.OpenAsync(spawn: true, exe, [], CancellationToken.None);
-        Assert.True(session.ProcessId > 0);
+        Assert.True(session.ProcessId > 0, phases.Summary());
+        phases.Phase("spawn");
         await service.CloseAsync(session, "test");
+        phases.Phase("close");
     }
 }

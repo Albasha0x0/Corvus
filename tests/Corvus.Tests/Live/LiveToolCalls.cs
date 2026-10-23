@@ -12,6 +12,9 @@ public abstract class LiveToolCalls(ITestOutputHelper output)
 {
     protected ITestOutputHelper Output { get; } = output;
 
+    /// <summary>The steps this test completed; the session tool calls record theirs.</summary>
+    protected TestPhases Phases { get; } = new(output);
+
     /// <summary>Calls <paramref name="tool"/>; with <paramref name="log"/> false only its time and size are written.</summary>
     private protected async Task<(string Text, bool IsError)> Call(InProcessServer server, string tool, Dictionary<string, object?> args, bool log = true)
     {
@@ -20,13 +23,14 @@ public abstract class LiveToolCalls(ITestOutputHelper output)
         var text = string.Concat(r.Content.OfType<TextContentBlock>().Select(b => b.Text));
         var call = $"{tool} {string.Join(" ", args.Select(a => $"{a.Key}={(a.Value is string[] l ? string.Join(",", l) : a.Value)}"))} ({sw.ElapsedMilliseconds} ms)";
         Output.WriteLine(log ? $"{call}:\n{text}" : $"{call}: {text.Length:N0} chars");
+        Phases.Record(tool, args, text, r.IsError == true);
         return (text, r.IsError == true);
     }
 
     private protected async Task<string> Ok(InProcessServer server, string tool, Dictionary<string, object?> args, bool log = true)
     {
         var (text, failed) = await Call(server, tool, args, log);
-        Assert.False(failed, text);
+        Assert.False(failed, $"{text}\n{Phases.Summary()}");
         return text;
     }
 
@@ -61,7 +65,7 @@ public abstract class LiveToolCalls(ITestOutputHelper output)
             if (status.Contains(", exited")) return status;
             await Task.Delay(100);
         }
-        Assert.Fail($"{session} did not exit within {seconds} s");
+        Assert.Fail($"{session} did not exit within {seconds} s; {Phases.Summary()}");
         return "";
     }
 

@@ -34,6 +34,7 @@ public sealed class LiveCoverageRealTests(ITestOutputHelper output) : IDisposabl
         """;
 
     private readonly TempDir _dir = new();
+    private readonly TestPhases _phases = new(output);
 
     public void Dispose() => _dir.Dispose();
 
@@ -43,7 +44,8 @@ public sealed class LiveCoverageRealTests(ITestOutputHelper output) : IDisposabl
         var r = await server.Client.CallToolAsync(tool, args);
         var text = string.Concat(r.Content.OfType<TextContentBlock>().Select(b => b.Text));
         output.WriteLine($"{tool} ({sw.ElapsedMilliseconds} ms): {text}");
-        Assert.False(r.IsError == true, text);
+        _phases.Record(tool, args, text, r.IsError == true);
+        Assert.False(r.IsError == true, $"{text}\n{_phases.Summary()}");
         return text;
     }
 
@@ -63,7 +65,7 @@ public sealed class LiveCoverageRealTests(ITestOutputHelper output) : IDisposabl
             if ((await Call(server, "live_session", new() { ["action"] = "status", ["session"] = session })).Contains(", exited")) return;
             await Task.Delay(100);
         }
-        Assert.Fail($"{session} did not exit within 60 s");
+        Assert.Fail($"{session} did not exit within 60 s; {_phases.Summary()}");
     }
 
     /// <summary>The whole format=dot report, its character pages joined.</summary>
