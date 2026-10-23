@@ -460,6 +460,12 @@
 - **Session memory reads:** `live_read` reads a stack or heap address that falls in an image's preferred range
   (ImageBase to ImageBase+SizeOfImage) where the program has it, instead of in the image ASLR loaded elsewhere; stop
   point addresses keep the image translation. Verified with 32-bit and 64-bit programs on Windows 11 x64. [c6bce07b](https://github.com/Albasha0x0/Corvus/commit/c6bce07b)
+- **Code coverage:** a coverage run's points are cleared in requests of up to 256 instead of one request each, so a
+  run over a whole image releases its program at exit sooner (a 2,959-function run: 53 s before, 11-14 s now, and
+  minutes under load before); a backend without batches clears each point alone as before. Verified with Frida
+  17.24.3 on Windows 11 x64. [15da2f05](https://github.com/Albasha0x0/Corvus/commit/15da2f05)
+- **Call deadlines:** a client's call deadline counts from when the request reaches the server, so setup before the
+  call runs (up to 0.3 s on a fresh server under load) no longer extends the answer past the client's wait. [46dd5e3b](https://github.com/Albasha0x0/Corvus/commit/46dd5e3b)
 
 ## 2.4.0
 
