@@ -1016,17 +1016,25 @@ public abstract class McpProtocolTests : IAsyncLifetime
 
         /// <summary>A client that closes the server's input (ends the session) gets a server that exits, cleanly and promptly.</summary>
         [Fact]
-        public void ServerExitsWhenItsInputCloses()
+        public async Task ServerExitsWhenItsInputCloses()
         {
             var psi = new System.Diagnostics.ProcessStartInfo("dotnet") { RedirectStandardInput = true, RedirectStandardOutput = true, RedirectStandardError = true };
             psi.ArgumentList.Add(ServerDll);
             psi.ArgumentList.Add("--load");
             psi.ArgumentList.Add(Env.FixturePath);
             using var process = System.Diagnostics.Process.Start(psi)!;
-            process.OutputDataReceived += (_, _) => { };
             process.ErrorDataReceived += (_, _) => { };
-            process.BeginOutputReadLine();
             process.BeginErrorReadLine();
+            // Close the input once the server has answered initialize, so the bound below measures the exit only; on a
+            // loaded machine the start and the load alone took over 30 s.
+            process.StandardInput.WriteLine("""{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"test","version":"1"}}}""");
+            process.StandardInput.Flush();
+            using var start = new CancellationTokenSource(TimeSpan.FromMinutes(3));
+            string? answer = null;
+            try { answer = await process.StandardOutput.ReadLineAsync(start.Token); }
+            catch (OperationCanceledException) { process.Kill(entireProcessTree: true); }
+            Assert.Contains("\"id\":1", answer ?? "");
+            _ = process.StandardOutput.ReadToEndAsync();
             process.StandardInput.Close();
             bool exited = process.WaitForExit(30_000);
             if (!exited) process.Kill(entireProcessTree: true);
