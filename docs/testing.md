@@ -177,8 +177,10 @@
   classes without a full result and those kept here.
 - **Nightly run.** `./nightly.ps1 -Register [-At 02:00]` adds a Windows scheduled task for the current user (opt-in;
   `-Unregister` removes it). Each night, once the machine has been idle for 10 minutes, it starts a full run of HEAD in
-  the background worktree (`-Strength`, whole by default, which holds the heavy lock), waits for it and any run queued
-  behind it, then runs `./test.ps1 -Perf`, unless another full run holds or waits for the heavy lock by then. The
+  the background worktree (`-Strength`, whole by default, which holds the heavy lock; a run going then takes it from
+  the queue, on the newest commit queued), waits for that run alone, not the push runs queued behind it, and logs its
+  result with the commit it tested and the commit asked for. It then runs `./test.ps1 -Perf` in a worktree of its own
+  (`corvus-perf-worktree`) on the tested commit, unless another full run holds or waits for the heavy lock by then. The
   night's run also compares 3 engine seeds with a cold analysis (`CORVUS_SEED_VALIDATE=3`, left out of the reuse
   keys so a push run's pass still counts). Each step goes to `.git/corvus-nightly.log`, the test output to
   `.git/corvus-nightly.log.run`, and `-Status` shows the last step.
@@ -222,7 +224,7 @@ read, or a "Read by" cell that differs from the classes and scripts that read it
 | `CORVUS_ANDROID_PACKAGE` | A real Android package (.apk, .aab or split set). | AndroidRealTests, DalvikDisassemblerTests, OutputBudgetTests |
 | `CORVUS_ARCHIVE_LISTER` | The 7-Zip command line the NSIS listings are compared with. | InstallerComparisonTests |
 | `CORVUS_ASSEMBLY_DIR` | A folder of real .NET assemblies. | CppBindingTests, RealAssemblyTests, SerialTimingTests |
-| `CORVUS_BACKGROUND_DIR` | The folder background runs keep their worktree in (default: the temp folder). | host-tier.ps1, test-reuse.psm1, test.ps1 |
+| `CORVUS_BACKGROUND_DIR` | The folder background runs and the nightly perf run keep their worktrees in (default: the temp folder). | host-tier.ps1, nightly.ps1, test-reuse.psm1, test.ps1 |
 | `CORVUS_BUNDLE_EXTRACTOR` | The WiX command line whose `burn extract` the WiX Burn listings are compared with. | InstallerComparisonTests |
 | `CORVUS_BUNDLE_PAIRS` | A folder of folders, each holding two builds of one JavaScript bundle as old.* and new.*. | JsBundleFilesTests, JsDiffTests |
 | `CORVUS_CALLPATH_TARGET` | A method to search call paths to (default: picked from the assemblies). | SerialTimingTests |

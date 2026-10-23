@@ -583,6 +583,94 @@ public class TestReuseTests
         }
     }
 
+    [Fact]
+    [Trait("Speed", "Slow")]
+    public void The_nightly_run_waits_for_its_own_run_only_and_logs_the_commit_that_run_tested()
+    {
+        // Regression: the 02:00 nightly of 2026-10-23 waited for every push run queued behind its own until 13:01, then
+        // logged a push run's result and ran the perf run in the checkout. Here a run going when the night asks starts
+        // the night's run on a newer commit, which records a failure and starts a 2 min push run queued behind it.
+        var repo = Path.Combine(Path.GetTempPath(), $"corvus-nightly-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(repo);
+        File.Copy(Path.Combine(DocsTests.RepoRoot(), "nightly.ps1"), Path.Combine(repo, "nightly.ps1"));
+        File.WriteAllText(Path.Combine(repo, "test.ps1"), """
+            param([switch]$Full, [switch]$Background, [switch]$Whole, [switch]$Exhaustive, [switch]$Perf, [switch]$Wait)
+            $gitDir = [IO.Path]::GetFullPath((git -C $PSScriptRoot rev-parse --git-common-dir).Trim(), $PSScriptRoot)
+            if ($Perf) { Set-Content (Join-Path $gitDir 'perf.txt') $PSScriptRoot; exit 0 }
+            # The old nightly's wait: while any run lives or is queued.
+            if ($Wait) {
+                while ((Test-Path "$gitDir/corvus-background.next") -or ((Get-Content "$gitDir/corvus-background.json" -Raw -ErrorAction SilentlyContinue | ConvertFrom-Json -ErrorAction SilentlyContinue).pid | Where-Object { Get-Process -Id $_ -ErrorAction SilentlyContinue })) { Start-Sleep -Seconds 1 }
+                exit 0
+            }
+            Set-Content (Join-Path $gitDir 'corvus-background.next') 'whole' -NoNewline
+            """);
+        var gitDir = Path.Combine(repo, ".git");
+        string Script(string name, string body)
+        {
+            var path = Path.Combine(repo, name);
+            File.WriteAllText(path, $$"""
+                function Start-Run([string]$script, [string]$commit) {
+                    $p = Start-Process (Get-Process -Id $PID).Path -ArgumentList '-NoProfile', '-File', $script -PassThru -WindowStyle Hidden
+                    Set-Content '{{gitDir}}/corvus-background.json' (@{ pid = $p.Id; started = $p.StartTime.ToUniversalTime().Ticks; commit = $commit } | ConvertTo-Json)
+                }
+                {{body}}
+                """);
+            return path;
+        }
+        var push = Script("push.ps1", "Start-Sleep -Seconds 120");
+        var night = Script("night.ps1", $$"""
+            Start-Sleep -Seconds 4
+            $short = (git -C '{{repo}}' rev-parse --short=8 newer).Trim()
+            Add-Content '{{gitDir}}/corvus-test-history.jsonl' ('{"kind":"run","mode":"full","commit":"' + $short + '","at":"' + (Get-Date -Format 'yyyy-MM-dd HH:mm') + '","code":1}')
+            Set-Content '{{gitDir}}/corvus-background.next' 'routine' -NoNewline
+            Remove-Item '{{gitDir}}/corvus-background.json'
+            Remove-Item '{{gitDir}}/corvus-background.next'
+            Start-Run '{{push}}' (git -C '{{repo}}' rev-parse newer).Trim()
+            """);
+        var going = Script("going.ps1", $$"""
+            Start-Sleep -Seconds 4
+            Remove-Item '{{gitDir}}/corvus-background.json'
+            Remove-Item '{{gitDir}}/corvus-background.next' -ErrorAction SilentlyContinue
+            Start-Run '{{night}}' (git -C '{{repo}}' rev-parse newer).Trim()
+            """);
+        try
+        {
+            var lines = Run($$"""
+                Set-Location '{{repo}}'
+                git init -q; git add test.ps1 nightly.ps1
+                git -c user.name=t -c user.email=t@t commit -q -m one
+                git -c user.name=t -c user.email=t@t commit -q --allow-empty -m two; git tag newer; git reset -q --hard HEAD~1
+                $env:CORVUS_BACKGROUND_DIR = '{{Path.Combine(repo, "bg")}}'; $env:CORVUS_HEAVY_LOCK = $null
+                New-Item -ItemType Directory -Force $env:CORVUS_BACKGROUND_DIR | Out-Null
+                . '{{Script("start.ps1", "")}}'
+                Start-Run '{{going}}' (git rev-parse HEAD).Trim()
+                Start-Sleep -Milliseconds 500
+                & ./nightly.ps1 | Out-Null
+                $record = Get-Content .git/corvus-background.json -Raw | ConvertFrom-Json
+                $left = Get-Process -Id $record.pid -ErrorAction SilentlyContinue
+                'push=' + [bool]$left
+                if ($left) { Stop-Process -Id $record.pid }
+                'log=' + ((Get-Content .git/corvus-nightly.log) -join '|')
+                'asked=' + (git rev-parse --short HEAD).Trim() + ',' + (git rev-parse --short=8 newer).Trim()
+                'perf=' + (Split-Path -Leaf (Get-Content .git/perf.txt))
+                $perf = Join-Path $env:CORVUS_BACKGROUND_DIR 'corvus-perf-worktree'
+                if (Test-Path $perf) { git worktree remove --force $perf }
+                """);
+            if (lines is ["skip"]) return;
+            Assert.Contains("push=True", lines);
+            var asked = lines.Single(l => l.StartsWith("asked=", StringComparison.Ordinal))[6..].Split(',');
+            var log = lines.Single(l => l.StartsWith("log=", StringComparison.Ordinal));
+            Assert.Matches($@"\|\S+ \S+ full run: {asked[1]} FAILED \(exit 1\) at \S+ \S+ \(asked on {asked[0]} at \S+ \S+\)\|", log);
+            Assert.Contains("perf run: no regression confirmed", log);
+            Assert.Contains("perf=corvus-perf-worktree", lines);
+        }
+        finally
+        {
+            foreach (var f in Directory.EnumerateFiles(repo, "*", SearchOption.AllDirectories)) File.SetAttributes(f, FileAttributes.Normal);
+            Directory.Delete(repo, true);
+        }
+    }
+
     internal static string[] Run(string script)
     {
         ProcessStartInfo start = new("pwsh") { RedirectStandardOutput = true, RedirectStandardError = true };

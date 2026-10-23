@@ -1,6 +1,6 @@
 # The nightly run of this machine: a full run of HEAD in the background worktree once the machine is idle (it holds
-# the heavy lock), then the perf run, which is skipped when another full run holds or waits for the heavy lock by
-# then. Opt-in: -Register adds a Windows scheduled task that runs this script daily; nothing registers it otherwise. Each step is logged to .git/corvus-nightly.log, the
+# the heavy lock), then the perf run in a worktree of its own, which is skipped when another full run holds or waits
+# for the heavy lock by then. Opt-in: -Register adds a Windows scheduled task that runs this script daily; nothing registers it otherwise. Each step is logged to .git/corvus-nightly.log, the
 # test output to .git/corvus-nightly.log.run.
 # Usage:  ./nightly.ps1                         # one nightly run now (what the task runs)
 #         ./nightly.ps1 -Register [-At 02:00]   # registers the task for the current user (-Strength routine|exhaustive|whole)
@@ -49,6 +49,7 @@ function Write-Nightly([string]$message) {
 }
 
 $commit = (git -C $root rev-parse --short HEAD).Trim()
+$askedAt = Get-Date
 Write-Nightly "start: $Strength full run of $commit"
 # The night's run analyses 3 engine seeds cold again; push runs leave the check off.
 $env:CORVUS_SEED_VALIDATE = '3'
@@ -56,16 +57,64 @@ $flags = @{ Full = $true; Background = $true }
 if ($Strength -eq 'whole') { $flags.Whole = $true } elseif ($Strength -eq 'exhaustive') { $flags.Exhaustive = $true }
 & (Join-Path $root 'test.ps1') @flags *> $runLog
 
-# The run and any run queued behind it end before the perf run.
-& (Join-Path $root 'test.ps1') -Wait *>> $runLog
-Write-Nightly "full run: $(Get-Content (Join-Path $gitDir 'corvus-background.result') -Raw -ErrorAction SilentlyContinue)"
+# The night's run is the first background run started since it asked: one going then takes the request from the
+# queue when it ends, on the newest commit queued. Push runs queued behind it are not waited for. A run's process
+# starts the queued run after removing both files, so the wait also lasts while that process lives.
+$running = Join-Path $gitDir 'corvus-background.json'
+$queued = Join-Path $gitDir 'corvus-background.next'
+$asked = $askedAt.ToUniversalTime().Ticks
+$own = $null; $dispatcher = $null
+function Get-RunProcess($record) {
+    if ($record) { Get-Process -Id $record.pid -ErrorAction SilentlyContinue | Where-Object { $_.StartTime.ToUniversalTime().Ticks -eq $record.started } }
+}
+while ($true) {
+    if ($own) {
+        if (-not (Get-RunProcess $own)) { break }
+    }
+    else {
+        $record = Get-Content $running -Raw -ErrorAction SilentlyContinue | ConvertFrom-Json -ErrorAction SilentlyContinue
+        $alive = Get-RunProcess $record
+        if ($record -and $record.started -ge $asked) { $own = $record; continue }
+        if ($alive) { $dispatcher = $alive }
+        elseif (-not (Test-Path $queued) -and -not ($dispatcher -and -not $dispatcher.HasExited)) { break }
+    }
+    Start-Sleep -Seconds 5
+}
+# The run's own record in the test history: corvus-background.result names the latest run, which may be a push run.
+$ran = if ($own) {
+    $since = $askedAt.ToString('yyyy-MM-dd HH:mm')
+    Get-Content (Join-Path $gitDir 'corvus-test-history.jsonl') -ErrorAction SilentlyContinue | Where-Object { $_.Contains('"kind":"run"') } |
+        ForEach-Object { $_ | ConvertFrom-Json } | Where-Object { $_.commit -and $own.commit.StartsWith($_.commit) -and $_.at -ge $since } | Select-Object -Last 1
+}
+$outcome = if ($ran) { "$($ran.commit) $(if ($ran.code -eq 0) { 'passed' } else { "FAILED (exit $($ran.code))" }) at $($ran.at)" }
+    elseif ($own) { "$($own.commit.Substring(0, 8)) ended without a record in the test history" } else { 'no run started' }
+Write-Nightly "full run: $outcome (asked on $commit at $($askedAt.ToString('yyyy-MM-dd HH:mm')))"
 
 # The lock script's status names a holder "heavy: <name>" and a waiter "heavy waiting: <name>"; full runs are corvus-full-<pid>.
 if ($env:CORVUS_HEAVY_LOCK -and (& $env:CORVUS_HEAVY_LOCK status | Where-Object { $_ -match '^heavy( waiting)?: corvus-full-' })) {
     Write-Nightly 'perf run skipped: another full run holds or waits for the heavy lock'
     exit 0
 }
-& (Join-Path $root 'test.ps1') -Perf *>> $runLog
+# The perf run builds in a worktree of its own on the commit the full run tested, so the checkout and the push runs'
+# worktree stay free. Checking out the next night's commit there keeps bin/obj; a broken worktree is made again.
+$tested = if ($own) { $own.commit } else { (git -C $root rev-parse HEAD).Trim() }
+$bgRoot = if ($env:CORVUS_BACKGROUND_DIR) { $env:CORVUS_BACKGROUND_DIR } else { [IO.Path]::GetTempPath() }
+$dir = Join-Path $bgRoot 'corvus-perf-worktree'
+$reused = $false
+if (Test-Path (Join-Path $dir '.git')) {
+    git -C $dir checkout --quiet --detach --force $tested 2>$null
+    if ($LASTEXITCODE -eq 0) { git -C $dir clean -fdq 2>$null; $reused = $LASTEXITCODE -eq 0 }
+}
+if (-not $reused) {
+    if (Test-Path $dir) { git -C $root worktree remove --force $dir 2>$null; Remove-Item -Recurse -Force $dir -ErrorAction SilentlyContinue }
+    git -C $root worktree prune
+    git -C $root worktree add --detach $dir $tested 2>$null | Out-Null
+}
+if ("$(git -C $dir rev-parse HEAD 2>$null)".Trim() -ne $tested) {
+    Write-Nightly "perf run not run: $dir is not a worktree of $($tested.Substring(0, 8))"
+    exit 1
+}
+& (Join-Path $dir 'test.ps1') -Perf *>> $runLog
 $code = $LASTEXITCODE
 Write-Nightly "perf run: $(if ($code -eq 0) { 'no regression confirmed' } else { "FAILED (exit $code)" })"
 exit $code
