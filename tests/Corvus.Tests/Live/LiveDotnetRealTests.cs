@@ -406,7 +406,10 @@ public sealed class LiveDotnetRealTests(ITestOutputHelper output) : LiveToolCall
 
         var pid = await Spawn(server, exe, "live-2", input, "1", "20000", "0");
         await Ok(server, "live_break", new() { ["session"] = "live-2", ["action"] = "set", ["at"] = "Readers::ReadLoop" });
-        Assert.Contains("stopped at s1", await Ok(server, "live_break", new() { ["session"] = "live-2", ["action"] = "continue", ["wait"] = true, ["waitSeconds"] = 60 }));
+        var first = await Ok(server, "live_break", new() { ["session"] = "live-2", ["action"] = "continue", ["wait"] = true, ["waitSeconds"] = 60 });
+        // A missed stop on the method entered once lists the session's events, which order s1's bind among the loads.
+        if (!first.Contains("stopped at s1", StringComparison.Ordinal))
+            Assert.Fail($"{first}\nevents:\n{await Events(server, "live-2", log: false)}");
         Assert.Contains("the program ended before a stop", await Ok(server, "live_break", new() { ["session"] = "live-2", ["action"] = "continue", ["wait"] = true, ["waitSeconds"] = 60 }));
         Assert.DoesNotContain("also set at", await Events(server, "live-2", kind: "module"));
         Ended(pid);
