@@ -22,17 +22,7 @@ var script = Environment.GetEnvironmentVariable("ADB_FAKE_SCRIPT") is { Length: 
     ? JsonNode.Parse(File.ReadAllText(path))!.AsObject()
     : new JsonObject();
 var log = script["log"]?.GetValue<string>();
-// Calls started side by side (server_status probes every tool at once) share the log: each appends with the file
-// held alone, waiting while another call holds it.
-if (log != null)
-    for (var waited = System.Diagnostics.Stopwatch.StartNew(); ; Thread.Sleep(10))
-        try
-        {
-            using var f = new FileStream(log, FileMode.Append, FileAccess.Write, FileShare.None);
-            f.Write(Encoding.UTF8.GetBytes(JsonSerializer.Serialize(args) + "\n"));
-            break;
-        }
-        catch (IOException) when (waited.Elapsed < TimeSpan.FromSeconds(10)) { }
+Log(log, JsonSerializer.Serialize(args));
 // A barrier ("barriers": { "<joined arguments>": { "touch": file, "waitFor": file, "seconds": n } }) shows two calls
 // overlap: each marks its start, then waits up to n s (default 20) for the other's mark.
 if (script["barriers"]?[string.Join(' ', args)] is JsonObject barrier)
@@ -103,6 +93,18 @@ static int Vineflower(string[] args)
     return 0;
 }
 
+// Each call writes an entry of its own to the log folder, so calls started side by side (server_status probes every
+// tool at once) never wait on one file; a shared file failed a call when its holder was descheduled past the wait.
+// The name is a system-wide monotonic timestamp, so entries sort in call order; the rename makes each appear whole.
+static void Log(string? log, string line)
+{
+    if (log == null) return;
+    Directory.CreateDirectory(log);
+    var entry = Path.Combine(log, $"{System.Diagnostics.Stopwatch.GetTimestamp():D20}-{Environment.ProcessId}-{Guid.NewGuid():N}");
+    File.WriteAllText(entry + ".tmp", line);
+    File.Move(entry + ".tmp", entry + ".json");
+}
+
 static int Jadx(JsonObject script, string? log)
 {
     var answers = script["mcp"]?.AsObject() ?? [];
@@ -127,7 +129,7 @@ static int Jadx(JsonObject script, string? log)
         {
             var name = request["params"]!["name"]!.GetValue<string>();
             var arguments = request["params"]!["arguments"]?.AsObject() ?? [];
-            if (log != null) File.AppendAllText(log, JsonSerializer.Serialize(new { tool = name, arguments }) + "\n");
+            Log(log, JsonSerializer.Serialize(new { tool = name, arguments }));
             if (name == "load_apk" && script["crashOnLoad"]?.GetValue<bool>() == true) Environment.Exit(3);
             // A canned answer is text, or an object of answers by class_name ("*" for the rest; "!" before a text marks an error).
             var key = arguments["class_name"]?.GetValue<string>() ?? "";

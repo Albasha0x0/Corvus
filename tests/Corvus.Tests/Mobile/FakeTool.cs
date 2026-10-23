@@ -32,7 +32,8 @@ internal sealed class FakeTool : IDisposable
     private readonly JsonObject _script = new() { ["rules"] = new JsonArray() };
 
     public string ScriptPath => _dir.File("script.json");
-    public string LogPath => _dir.File("log.jsonl");
+    /// <summary>The folder each call writes its arguments to, one file per call.</summary>
+    public string LogPath => _dir.File("log");
     public string Directory => _dir.Path;
 
     public FakeTool()
@@ -71,8 +72,8 @@ internal sealed class FakeTool : IDisposable
     private void Save() => File.WriteAllText(ScriptPath, _script.ToJsonString());
 
     /// <summary>Each invocation's arguments, in order (JADX tool calls are logged as objects).</summary>
-    public List<JsonNode> Calls => File.Exists(LogPath)
-        ? File.ReadAllLines(LogPath).Where(l => l.Length > 0).Select(l => JsonNode.Parse(l)!).ToList()
+    public List<JsonNode> Calls => System.IO.Directory.Exists(LogPath)
+        ? System.IO.Directory.GetFiles(LogPath, "*.json").Order(StringComparer.Ordinal).Select(f => JsonNode.Parse(File.ReadAllText(f))!).ToList()
         : [];
 
     public List<string[]> ArgumentLists => Calls.OfType<JsonArray>().Select(a => a.Select(x => (string)x!).ToArray()).ToList();
