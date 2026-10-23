@@ -818,14 +818,18 @@ $offload = if ($wholeSuite -and -not $Coverage) { Import-Module (Join-Path $root
 $offloadHandle = $null; $sent = @(); $offloadRecord = $null; $offloadClock = $null
 if ($offload) {
     $candidates = @(Get-RemoteClasses $tests -TestHost:($offload.Kind -eq 'ssh') -hostVariables $offload.Variables); $mixed = @(Get-MixedClasses $tests)
+    # The engine classes are dealt by engine permits: the host runs the small machine's count, this machine its own.
+    $permitSource = Join-Path $tests 'Support/MachinePermits.cs'
+    $hostEngines = Get-EnginePermits $permitSource 0
+    $hostPart = $hostEngines / ($hostEngines + (Get-EnginePermits $permitSource (Get-CimInstance Win32_ComputerSystem).TotalPhysicalMemory))
     # A test host with IDA takes about half the IDA classes whole, so the IDA chain runs on both machines.
-    $idaThere = if ($offload.Kind -eq 'ssh') { @(Get-IdaHostClasses $tests (Get-FastestClassSeconds $timeHistory) $offload.Variables) } else { @() }
+    $idaThere = if ($offload.Kind -eq 'ssh') { @(Get-IdaHostClasses $tests (Get-FastestClassSeconds $timeHistory) $offload.Variables $hostPart) } else { @() }
     if ($idaThere) {
         $candidates = @($candidates + $idaThere | Sort-Object -Unique); $mixed = @($mixed | Where-Object { $_ -notin $idaThere })
         Write-Host "IDA classes split: $($idaThere.Count) run on $($offload.Name), the rest here."
     }
     # And keeps about half the Ghidra classes here, where the Ghidra permits are otherwise idle.
-    $ghidraHere = if ($offload.Kind -eq 'ssh') { @(Get-GhidraLocalClasses $tests (Get-FastestClassSeconds $timeHistory)) } else { @() }
+    $ghidraHere = if ($offload.Kind -eq 'ssh') { @(Get-GhidraLocalClasses $tests (Get-FastestClassSeconds $timeHistory) $hostPart) } else { @() }
     if ($ghidraHere) {
         $candidates = @($candidates | Where-Object { $_ -notin $ghidraHere })
         Write-Host "Ghidra classes split: $($ghidraHere.Count) run here, the rest on $($offload.Name)."

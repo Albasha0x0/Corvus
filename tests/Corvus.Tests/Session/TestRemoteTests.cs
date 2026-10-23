@@ -186,6 +186,26 @@ public sealed class TestRemoteTests : IDisposable
 
     [Fact]
     [Trait("Speed", "Slow")]
+    public void A_host_with_two_of_five_engine_permits_takes_two_fifths_of_the_engine_time()
+    {
+        var tests = Path.Combine(_dir.Path, "share-tests");
+        Directory.CreateDirectory(Path.Combine(tests, "Engines"));
+        foreach (var name in new[] { "GhidraATests", "GhidraBTests", "GhidraCTests", "GhidraDTests" })
+            File.WriteAllText(Path.Combine(tests, "Engines", name + ".cs"), $"public class {name} {{ [GhidraFact] public void M() {{ }} }}");
+        var lines = TestReuseTests.Run($$"""
+            Import-Module {{Module}}
+            $seconds = @{ GhidraATests = 100; GhidraBTests = 60; GhidraCTests = 50; GhidraDTests = 40 }
+            'half=' + ((Get-GhidraLocalClasses {{Quote(tests)}} $seconds) -join ',')
+            'part=' + ((Get-GhidraLocalClasses {{Quote(tests)}} $seconds 0.4) -join ',')
+            """);
+        if (lines is ["skip"]) return;
+        // Half: 100 and 40 there, 60 and 50 here. Two fifths: 100 of the 250 s there, the rest here.
+        Assert.Contains("half=GhidraBTests,GhidraCTests", lines);
+        Assert.Contains("part=GhidraBTests,GhidraCTests,GhidraDTests", lines);
+    }
+
+    [Fact]
+    [Trait("Speed", "Slow")]
     public void Offload_shards_take_the_classes_by_the_seconds_recorded_on_their_platform_and_the_record_keeps_the_median()
     {
         var a = Path.Combine(_dir.Path, "a.trx");

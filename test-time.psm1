@@ -558,6 +558,17 @@ function Get-PermitCounts([string]$sourcePath) {
     return $counts
 }
 
+# The engine permits a test takes per engine on a machine with $memoryBytes, as Support/MachinePermits.cs counts them
+# (Counts, plus LargeMachineExtra from its LargeMemory on). Reads the IDA count; both engines have the same.
+function Get-EnginePermits([string]$sourcePath, [long]$memoryBytes) {
+    $source = Get-Content $sourcePath -Raw
+    $base = [int][regex]::Match($source, '(?s)\bCounts = new Dictionary.*?\["engine-ida"\]\s*=\s*(\d+)').Groups[1].Value
+    $extra = [int][regex]::Match($source, '(?s)\bLargeMachineExtra = new Dictionary.*?\["engine-ida"\]\s*=\s*(\d+)').Groups[1].Value
+    $large = [regex]::Match($source, 'LargeMemory = (\d+)L << 30;')
+    if (-not $base -or -not $large.Success) { throw "no engine permit counts in $sourcePath" }
+    $base + $(if ($memoryBytes -ge ([long]$large.Groups[1].Value -shl 30)) { $extra } else { 0 })
+}
+
 # Takes every permit of every resource in $folder (the slot files MachinePermits opens), waiting until their holders
 # end, and returns the open slots for Exit-AllPermits.
 function Enter-AllPermits([hashtable]$counts, [string]$folder = (Join-Path ([IO.Path]::GetTempPath()) 'corvus-test-data/permits')) {
@@ -614,4 +625,4 @@ function Update-PerfVerdicts([string]$path, [string[]]$over, [string]$commit) {
     @($over | Where-Object { $_ -in $before })
 }
 
-Export-ModuleMember -Function Get-PermitCounts, Enter-AllPermits, Exit-AllPermits, Get-PerfOverBudget, Update-PerfVerdicts, Read-TestTimes, Get-MachineLoad, Start-MachineLoad, Read-ProcessTimes, Get-OtherLoad, Invoke-LoadSampler, Start-LoadSampler, Get-PerfContention, Invoke-IoSampler, Start-IoSampler, Get-IoStalls, Add-TestHistory, Read-TestHistory, Get-CriticalPath, Get-Concurrency, Save-TestTimes, Get-TimeSummary
+Export-ModuleMember -Function Get-PermitCounts, Get-EnginePermits, Enter-AllPermits, Exit-AllPermits, Get-PerfOverBudget, Update-PerfVerdicts, Read-TestTimes, Get-MachineLoad, Start-MachineLoad, Read-ProcessTimes, Get-OtherLoad, Invoke-LoadSampler, Start-LoadSampler, Get-PerfContention, Invoke-IoSampler, Start-IoSampler, Get-IoStalls, Add-TestHistory, Read-TestHistory, Get-CriticalPath, Get-Concurrency, Save-TestTimes, Get-TimeSummary

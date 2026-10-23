@@ -302,28 +302,29 @@ function Get-RemoteClasses([string]$testsDir, [string]$Group = '', [switch]$Cros
 # The IDA classes of $testsDir a test host whose $hostVariables name an IDA install takes: of the classes with IDA
 # facts it may run (alone or with Ghidra facts), those dealt to it when each, longest first by $seconds (class name to
 # recorded seconds; an unrecorded class counts 1 s), goes to the machine with less so far. They run whole there.
-# Sorted; empty when the host has no IDA.
-function Get-IdaHostClasses([string]$testsDir, [hashtable]$seconds = @{}, [string[]]$hostVariables = @()) {
+# Sorted; empty when the host has no IDA. $hostPart is the host's fraction of the time, as Get-HostShare takes it.
+function Get-IdaHostClasses([string]$testsDir, [hashtable]$seconds = @{}, [string[]]$hostVariables = @(), [double]$hostPart = 0.5) {
     if ($script:IdaVariable -notin $hostVariables) { return @() }
-    Get-HostShare @(Get-RemoteEntries $testsDir | Where-Object { $_.Group -eq $script:IdaGroup -or $_.Mixed } | ForEach-Object Class | Sort-Object -Unique) $seconds
+    Get-HostShare @(Get-RemoteEntries $testsDir | Where-Object { $_.Group -eq $script:IdaGroup -or $_.Mixed } | ForEach-Object Class | Sort-Object -Unique) $seconds $hostPart
 }
 
 # The Ghidra classes of $testsDir that stay here when a test host takes the rest: of the classes with Ghidra facts
 # alone (a mixed class's Ghidra tests go there already), those not dealt to the host as Get-HostShare deals them, so
 # the Ghidra chain runs on both machines. Sorted.
-function Get-GhidraLocalClasses([string]$testsDir, [hashtable]$seconds = @{}) {
+function Get-GhidraLocalClasses([string]$testsDir, [hashtable]$seconds = @{}, [double]$hostPart = 0.5) {
     $classes = @(Get-RemoteEntries $testsDir | Where-Object { $_.Group -eq 'ghidra' -and -not $_.Mixed } | ForEach-Object Class | Sort-Object -Unique)
-    $there = @(Get-HostShare $classes $seconds)
+    $there = @(Get-HostShare $classes $seconds $hostPart)
     @($classes | Where-Object { $_ -notin $there })
 }
 
 # The host's share of $classes: each, longest first by $seconds (class name to recorded seconds; an unrecorded class
-# counts 1 s), goes to the machine with less so far, the host first. Sorted.
-function Get-HostShare([string[]]$classes, [hashtable]$seconds) {
+# counts 1 s), goes to the machine with less so far for its part, the host first; $hostPart (0 to 1) is the host's
+# part of the time. Sorted.
+function Get-HostShare([string[]]$classes, [hashtable]$seconds, [double]$hostPart = 0.5) {
     $weight = @{}; foreach ($class in $classes) { $weight[$class] = if ($seconds.ContainsKey($class) -and $seconds[$class] -gt 0) { [double]$seconds[$class] } else { 1.0 } }
     $here = 0.0; $there = 0.0
     @(foreach ($class in $classes | Sort-Object @{ Expression = { $weight[$_] }; Descending = $true }, @{ Expression = { $_ } }) {
-        if ($there -le $here) { $there += $weight[$class]; $class } else { $here += $weight[$class] }
+        if ($there * (1 - $hostPart) -le $here * $hostPart) { $there += $weight[$class]; $class } else { $here += $weight[$class] }
     }) | Sort-Object
 }
 

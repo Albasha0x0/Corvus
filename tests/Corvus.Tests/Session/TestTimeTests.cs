@@ -146,6 +146,7 @@ public class TestTimeTests
                 'calls=' + $script:calls
                 'first=' + ((Update-PerfVerdicts '{{verdicts}}' $over 'abc') -join ',')
                 'second=' + ((Update-PerfVerdicts '{{verdicts}}' @('Slow') 'def') -join ',')
+                'engines=' + (Get-EnginePermits '{{source}}' (16GB)) + ',' + (Get-EnginePermits '{{source}}' (80GB))
                 $counts = Get-PermitCounts '{{source}}'
                 'counts=' + (($counts.Keys | Sort-Object | ForEach-Object { "$_=$($counts[$_])" }) -join ',')
                 $held = Enter-AllPermits @{ x = 2 } '{{dir}}'
@@ -161,6 +162,8 @@ public class TestTimeTests
             Assert.Equal(string.Join(',', MachinePermits.Counts.OrderBy(c => c.Key, StringComparer.Ordinal)
                 .Select(c => $"{c.Key}={c.Value + MachinePermits.LargeMachineExtra.GetValueOrDefault(c.Key)}")), Line(lines, "counts"));
             Assert.Equal("no", Line(lines, "open"));
+            var ida = MachinePermits.Counts["engine-ida"];
+            Assert.Equal($"{ida},{ida + MachinePermits.LargeMachineExtra["engine-ida"]}", Line(lines, "engines"));
         }
         finally { Directory.Delete(dir, true); }
     }
