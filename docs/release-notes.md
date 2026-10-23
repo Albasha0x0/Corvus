@@ -9,6 +9,9 @@
 - **Native imports:** a forwarder in a kernel-mode image that names the kernel without an extension
   (`hal.dll`: `ntoskrnl.KeStallExecutionProcessor`) binds to `ntoskrnl.exe` instead of reading as `forwarder_broken`;
   user-mode forwarders still name DLLs only. [a2a29687](https://github.com/Albasha0x0/Corvus/commit/a2a29687)
+- **Native code:** an address in a block placed before its function's entry reads `name-0xB` in `inspect_instruction`,
+  call sites, call target sites, native link rows and traces, as stop stacks already showed it, instead of
+  `name+0xFFFFFFF5`. [b6468771](https://github.com/Albasha0x0/Corvus/commit/b6468771)
 
 ## 2.5.0
 
