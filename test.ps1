@@ -548,9 +548,15 @@ $coverageMapFile = Join-Path $gitDir 'corvus-coverage-map.json'
 $mode = if ($Exhaustive) { 'exhaustive' } else { 'sampled' }
 $familyKeys = $null; $built = $false
 $wholeSuite = $Full -and -not $Filter
-# A push run leaves the host tier's families to the tier's nightly run on the test host, but for their smoke tests.
+# A push run leaves the host tier's families to the tier's nightly run on the test host, but for their smoke tests and
+# the families that failed there, which it runs whole until a tier run passes them again.
 $tierSkip = @()
-if ($Reuse -and $wholeSuite -and -not $Coverage) { Import-Module (Join-Path $root 'test-remote.psm1') -Force; $tierSkip = @(Get-TierClasses $tests) }
+if ($Reuse -and $wholeSuite -and -not $Coverage) {
+    Import-Module (Join-Path $root 'test-remote.psm1') -Force
+    $tierReturned = @(Get-TierReturned $gitDir)
+    $tierSkip = @(Get-TierClasses $tests $tierReturned)
+    if ($tierReturned) { Write-Host "Host tier families that failed on the test host run here: $($tierReturned -join ', ')." }
+}
 
 # Records the saved run's passes (a run whose recording step failed), for the tree it ran on only.
 if ($Stamp) {
@@ -692,7 +698,7 @@ if ($HostTier) {
     $tierHost = "$env:CORVUS_TEST_REMOTE".Trim()
     $commit = (git -C $root rev-parse HEAD).Trim()
     $record = [ordered]@{ target = $tierHost; commit = $commit.Substring(0, 8); at = (Get-Date -Format 'yyyy-MM-dd HH:mm'); state = 'not run'; classes = 0; seconds = $null
-        recorded = @(); failed = @(); unproven = @(); kept = @(); note = $null }
+        recorded = @(); failed = @(); returned = @(Get-TierReturned $gitDir); unproven = @(); kept = @(); note = $null }
     $why = if (-not ($familyKeys -and $built)) { 'it needs a clean tree that builds' } elseif (-not $tierHost) { 'CORVUS_TEST_REMOTE names no test host' } elseif (-not (Test-RemoteHost $tierHost)) { "$tierHost gave no answer" } else { $null }
     if ($why) { $record.note = $why; Save-TierRecord $gitDir $record; Write-Host "The host tier did not run: $why." -ForegroundColor Red; exit 2 }
     $split = Get-TierHostClasses $tests @(Get-TierClasses $tests) @(Get-HostVariables $tierHost)
@@ -714,6 +720,8 @@ if ($HostTier) {
             $proved = Get-TierPasses $got $split.Sent $classMap $lastWholeTrx (Get-FastestClassSeconds $timeHistory)
             Save-FamilyPasses $familyStamps $proved.Passed $familyKeys $mode $record.commit
             $record.recorded = $proved.Passed; $record.failed = $proved.Failed; $record.unproven = $proved.Unproven
+            # A returned family without a full result there has not passed again and stays returned.
+            $record.returned = @(@(Get-TierFamiliesOf $tests @($got.Failed | ForEach-Object Class)) + @($record.returned | Where-Object { $_ -in @(Get-TierFamiliesOf $tests $proved.Unproven) }) | Sort-Object -Unique)
             $record.state = if ($proved.Failed) { 'failed' } elseif ($proved.Unproven -or $got.Note -ne 'exit 0') { 'partial' } else { 'passed' }
         }
     }

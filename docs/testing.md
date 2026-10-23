@@ -165,7 +165,8 @@
   whose classes all went there and passed with a full result: no test skipped there that ran in the last whole run
   here (`.git/corvus-last-whole.trx`, kept by every run without `-Reuse`), and no class far shorter there. A class whose inputs are this machine's own, whose file
   has live real data, or whose real-data or engine variables the host does not set stays unsent and is named; its
-  family records no pass from this run. The task has no idle condition, since it costs this machine only the build,
+  family records no pass from this run. A family with a class that failed there returns to push runs, which run it
+  whole again (`-Status` names it) until a later tier run passes it with a full result. The task has no idle condition, since it costs this machine only the build,
   and a night the machine was off runs when it is on again; a recorded pass stays valid until its family's inputs
   change. The run goes to `.git/corvus-host-tier.log` (the test output to `.git/corvus-host-tier.log.run`), the host's
   results to `.git/corvus-host-tier.trx`, and `-Status` shows the last run: what it recorded, what failed there, the

@@ -192,6 +192,20 @@ function Get-TierClasses([string]$testsDir, [string[]]$returned = @()) {
     }) | Sort-Object -Unique)
 }
 
+# The host tier's families (test folders under $testsDir) holding any of $classes. Sorted.
+function Get-TierFamiliesOf([string]$testsDir, [string[]]$classes) {
+    if (-not $classes) { return @() }
+    @(Get-TierFamilies | Where-Object { $family = $_; @(Get-TierClasses $testsDir @(Get-TierFamilies | Where-Object { $_ -ne $family }) | Where-Object { $_ -in $classes }) })
+}
+
+# The host tier's families its last run on the test host returned to push runs (<gitDir>/corvus-host-tier.json): those
+# with a class that failed there, until a later tier run passes them. Sorted; empty when the tier has not run.
+function Get-TierReturned([string]$gitDir) {
+    $file = Join-Path $gitDir $script:TierFile
+    if (-not (Test-Path $file)) { return @() }
+    @((Get-Content $file -Raw | ConvertFrom-Json).returned | Where-Object { $_ } | Sort-Object -Unique)
+}
+
 # A dotnet test filter that runs $filter (everything when empty) without $classes but with their smoke tests (trait
 # Smoke=push); $filter itself when $classes is empty.
 function Get-TierFilter([string]$filter, [string[]]$classes) {
@@ -251,8 +265,8 @@ function Save-TierRecord([string]$gitDir, [System.Collections.IDictionary]$recor
 }
 
 # The host tier's last run as one line: "<state> on <commit> at <time> on <target> (<n> classes, <s> s); ...", naming
-# the families it recorded, those that failed, the classes without a full result and those kept unsent; $null when it
-# has not run.
+# the families it recorded, those that failed, those returned to push runs, the classes without a full result and those
+# kept unsent; $null when it has not run.
 function Get-TierStatus([string]$gitDir) {
     $file = Join-Path $gitDir $script:TierFile
     if (-not (Test-Path $file)) { return $null }
@@ -262,6 +276,7 @@ function Get-TierStatus([string]$gitDir) {
     if ($r.waited) { $parts += "waited $($r.waited) s for another run there" }
     if ($r.recorded) { $parts += "recorded: $($r.recorded -join ', ')" }
     if ($r.failed) { $parts += "failed there: $($r.failed -join ', ')" }
+    if ($r.returned) { $parts += "returned to push runs: $($r.returned -join ', ')" }
     if ($r.unproven) { $parts += "no full result there: $($r.unproven -join ', ')" }
     if ($r.kept) { $parts += "kept here: $($r.kept -join '; ')" }
     if ($r.note) { $parts += $r.note }
@@ -919,4 +934,4 @@ function Receive-GitHubRun($state, [string]$folder, [string]$group = '') {
     $result
 }
 
-Export-ModuleMember -Function Invoke-Transport, Test-RemoteHost, Get-RemoteRunScript, Invoke-RemoteRun, Receive-RemoteRun, New-RemoteSnapshot, Invoke-RemoteFilter, Invoke-Gh, Wait-GitHubRun, Receive-GitHubRun, Get-GitHubTarget, Receive-GitHubLive, Get-RemoteClasses, Get-IdaHostClasses, Get-HeldClasses, Get-HostVariables, Get-RealDataVariables, Get-RemoteShard, Get-LocalFilter, Get-ClassFilter, Get-ClassOutcomes, Get-TestOutcomes, Get-SkippedOnHost, Get-FastestClassSeconds, Get-SkippedOnBoth, Get-RerunClasses, Get-MixedClasses, Get-FailedThereNote, Join-TrxFiles, Get-TargetFileName, Save-RemoteRecord, Get-RemoteStatus, Get-TierFamilies, Get-TierClasses, Get-TierFilter, Get-TierHostClasses, Get-TierPasses, Save-TierRecord, Get-TierStatus, Get-DeferredClasses, Get-UndeferredFamilies, Save-DeferredClasses, Get-DeferredStatus, Get-OffloadTarget, Start-Offload, Receive-Offload
+Export-ModuleMember -Function Invoke-Transport, Test-RemoteHost, Get-RemoteRunScript, Invoke-RemoteRun, Receive-RemoteRun, New-RemoteSnapshot, Invoke-RemoteFilter, Invoke-Gh, Wait-GitHubRun, Receive-GitHubRun, Get-GitHubTarget, Receive-GitHubLive, Get-RemoteClasses, Get-IdaHostClasses, Get-HeldClasses, Get-HostVariables, Get-RealDataVariables, Get-RemoteShard, Get-LocalFilter, Get-ClassFilter, Get-ClassOutcomes, Get-TestOutcomes, Get-SkippedOnHost, Get-FastestClassSeconds, Get-SkippedOnBoth, Get-RerunClasses, Get-MixedClasses, Get-FailedThereNote, Join-TrxFiles, Get-TargetFileName, Save-RemoteRecord, Get-RemoteStatus, Get-TierFamilies, Get-TierClasses, Get-TierFilter, Get-TierFamiliesOf, Get-TierReturned, Get-TierHostClasses, Get-TierPasses, Save-TierRecord, Get-TierStatus, Get-DeferredClasses, Get-UndeferredFamilies, Save-DeferredClasses, Get-DeferredStatus, Get-OffloadTarget, Start-Offload, Receive-Offload

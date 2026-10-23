@@ -712,6 +712,42 @@ public sealed class TestRemoteTests : IDisposable
     }
 
     [Fact]
+    public void A_tier_family_that_failed_on_the_test_host_returns_to_push_runs_until_the_record_drops_it()
+    {
+        var tests = Path.Combine(_dir.Path, "tests");
+        void Source(string folder, string text)
+        {
+            Directory.CreateDirectory(Path.Combine(tests, folder));
+            File.WriteAllText(Path.Combine(tests, folder, "T.cs"), text);
+        }
+        Source("Web", "public sealed class WasmTests { }");
+        Source("Dumps", "public class MinidumpTests { }\npublic class CoreDumpTests { }");
+        Source("Live", "public class LiveTargetTests { }");
+        var git = _dir.Path;
+        var lines = TestReuseTests.Run($$"""
+            Import-Module {{Module}}
+            'of=' + ((Get-TierFamiliesOf {{Quote(tests)}} @('CoreDumpTests', 'LiveTargetTests')) -join ',')
+            'none=' + ((Get-TierReturned {{Quote(git)}}) -join ',')
+            Save-TierRecord {{Quote(git)}} ([ordered]@{ target = 'tester@host2'; commit = 'abc12345'; at = 'now'; state = 'failed'; classes = 3; seconds = 9
+                recorded = @('Web'); failed = @('Dumps'); returned = @('Dumps'); unproven = @(); kept = @(); note = 'exit 1' })
+            $returned = @(Get-TierReturned {{Quote(git)}})
+            'returned=' + ($returned -join ',')
+            'push=' + ((Get-TierClasses {{Quote(tests)}} $returned) -join ',')
+            'status=' + (Get-TierStatus {{Quote(git)}})
+            Save-TierRecord {{Quote(git)}} ([ordered]@{ target = 'tester@host2'; commit = 'def12345'; at = 'now'; state = 'passed'; classes = 3; seconds = 9
+                recorded = @('Dumps', 'Web'); failed = @(); returned = @(); unproven = @(); kept = @(); note = 'exit 0' })
+            'again=' + ((Get-TierReturned {{Quote(git)}}) -join ',')
+            """);
+        if (lines is ["skip"]) return;
+        Assert.Contains("of=Dumps", lines);
+        Assert.Contains("none=", lines);
+        Assert.Contains("returned=Dumps", lines);
+        Assert.Contains("push=WasmTests", lines);
+        Assert.Contains("status=failed on abc12345 at now on tester@host2 (3 classes, 9 s); recorded: Web; failed there: Dumps; returned to push runs: Dumps; exit 1", lines);
+        Assert.Contains("again=", lines);
+    }
+
+    [Fact]
     public void The_host_tier_records_only_families_whose_classes_all_passed_there_with_a_full_result()
     {
         var remote = _dir.File("tier.trx");
