@@ -34,9 +34,7 @@ public static partial class ToolOutput
                     && inputs.Count < MaxInputs && Input(value, workspace) is { } input && !inputs.Any(i => (string?)i!["sha256"] == (string?)input["sha256"]))
                     inputs.Add(input);
         }
-        // under the lock: a call nested in another (read_result format=verify) still counts as inside a call
-        if (workspace != null) workspace.Read(() => { Collect(); return 0; });
-        else Collect();
+        Collect();
         var p = new JsonObject
         {
             ["input"] = inputs,
@@ -118,19 +116,14 @@ public static partial class ToolOutput
 
     private static JsonObject? Find(string value, AssemblyWorkspace? workspace)
     {
-        if (workspace != null)
-        {
-            foreach (var a in workspace.Assemblies)
-                if (Names(value, a.Id, a.AssemblyName, a.FilePath))
-                {
-                    var o = new JsonObject { ["id"] = a.Id, ["sha256"] = a.OriginalSha256 };
-                    if (a.Module.Mvid is { } mvid) o["mvid"] = mvid.ToString();
-                    return o;
-                }
-            foreach (var n in workspace.Natives)
-                if (Names(value, n.Id, null, n.FilePath))
-                    return new JsonObject { ["id"] = n.Id, ["sha256"] = n.OriginalSha256 };
-        }
+        // The published entries, not the lock: this runs after the call, outside its cancellation scope.
+        foreach (var t in workspace?.Published.Entries ?? [])
+            if (Names(value, t.Id, t.AssemblyName, t.FilePath))
+            {
+                var o = new JsonObject { ["id"] = t.Id, ["sha256"] = t.Sha256 };
+                if (t.Mvid is { } mvid) o["mvid"] = mvid.ToString();
+                return o;
+            }
         if (!Path.IsPathFullyQualified(value) || new FileInfo(value) is not { Exists: true } info) return null;
         var hash = FileHashes.GetOrAdd((info.FullName, info.Length, info.LastWriteTimeUtc.Ticks), key =>
         {

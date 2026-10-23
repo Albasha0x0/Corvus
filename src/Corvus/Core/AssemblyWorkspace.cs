@@ -216,10 +216,14 @@ public sealed class AssemblyWorkspace : IDisposable
             finally
             {
                 Generation++;
-                lock (_referenceModules) _referenceModules.Clear();
-                lock (_externalDecompilerRefs) _externalDecompilerRefs.Clear();
-                Released();
-                _lock.ExitWriteLock();
+                try { Locked(Publish); }
+                finally
+                {
+                    lock (_referenceModules) _referenceModules.Clear();
+                    lock (_externalDecompilerRefs) _externalDecompilerRefs.Clear();
+                    Released();
+                    _lock.ExitWriteLock();
+                }
             }
         }
         finally { Leave(); }
@@ -306,6 +310,26 @@ public sealed class AssemblyWorkspace : IDisposable
 
     /// <summary>Snapshot of loaded native images; consistent only inside Read/Write.</summary>
     public IReadOnlyList<LoadedNative> Natives => _natives.ToArray();
+
+    /// <summary>A loaded target as the last exclusive section left it: id, assembly name (null for a native image), path, SHA-256, MVID.</summary>
+    public sealed record TargetEntry(string Id, string? AssemblyName, string FilePath, string Sha256, Guid? Mvid);
+
+    /// <summary>The loaded targets and their objects as the last exclusive section left them.</summary>
+    public sealed record PublishedTargets(IReadOnlyList<TargetEntry> Entries, IReadOnlyList<LoadedAssembly> Assemblies, IReadOnlyList<LoadedNative> Natives);
+
+    /// <summary>
+    /// The loaded targets (assemblies, then native images) as of the end of the last exclusive section, read without the
+    /// lock, so a finished call's bookkeeping never waits for another call's exclusive hold.
+    /// </summary>
+    public PublishedTargets Published => _published;
+
+    private volatile PublishedTargets _published = new([], [], []);
+
+    /// <summary>Publishes the loaded targets; runs at the end of each exclusive section, still under the lock.</summary>
+    private PublishedTargets Publish() => _published = new(
+        [.. _assemblies.Select(a => new TargetEntry(a.Id, a.AssemblyName, a.FilePath, a.OriginalSha256, a.Module.Mvid)),
+         .. _natives.Select(n => new TargetEntry(n.Id, null, n.FilePath, n.OriginalSha256, null))],
+        [.. _assemblies], [.. _natives]);
 
     public IReadOnlyList<string> SearchDirectories => _searchDirectories.ToArray();
 
@@ -1195,6 +1219,7 @@ public sealed class AssemblyWorkspace : IDisposable
             a.Dispose();
         _assemblies.Clear();
         _natives.Clear();
+        _published = new([], [], []);
         _lock.Dispose();
     }
 }

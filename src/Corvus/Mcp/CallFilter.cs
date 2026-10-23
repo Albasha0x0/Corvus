@@ -48,12 +48,13 @@ internal static partial class CallFilter
             log.Cancelled();
             throw;
         }
+        // The bookkeeping below keeps the client's cancellation: Execute's scope, deadline included, has ended.
+        using var waits = AssemblyWorkspace.CancelWaitsWith(cancellationToken, tool);
         services?.GetService<ResourceSubscriptions>()?.Check();
         if (tool != null && !ToolEffects.Of(tool).ReadOnly) services?.GetService<Services.EditJournal>()?.Sync();
         // the whole content, before the budget cuts it; read_result's own pages are not findings
         if (tool is not (null or "read_result") && result.IsError != true && services?.GetService<RecentCalls>() is { } recent)
-            recent.Add(CallLog.Origin(tool, request?.Arguments) with { Inputs = services.GetService<AssemblyWorkspace>() is { } ws
-                ? ws.Read(() => ToolOutput.Inputs(request?.Arguments, ws)) : [] }, result);
+            recent.Add(CallLog.Origin(tool, request?.Arguments) with { Inputs = ToolOutput.Inputs(request?.Arguments, services.GetService<AssemblyWorkspace>()) }, result);
         if (options != null && services!.GetService<ResultStore>() is { } store)
             result = ResponseBudget.Enforce(result, tool, output.Tokens > 0 ? output.Tokens : Budget(tool, null, client), store, request);
         string? answerSha256 = null;

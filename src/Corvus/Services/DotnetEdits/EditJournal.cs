@@ -76,6 +76,7 @@ public sealed class EditJournal
     {
         try
         {
+            if (!Pending()) return;
             _workspace.Read(() =>
             {
                 using (AssemblyWorkspace.Lock(_gate)) SyncLocked();
@@ -83,6 +84,30 @@ public sealed class EditJournal
             });
         }
         catch (OperationCanceledException) { } // the call was cancelled while waiting: the next change journals it
+    }
+
+    /// <summary>
+    /// Whether a sync would write or remove a journal, read from the published targets without the workspace lock: a call
+    /// that changed nothing does not wait for another call's exclusive hold, and that call syncs once it ends.
+    /// </summary>
+    private bool Pending()
+    {
+        var published = _workspace.Published;
+        using (AssemblyWorkspace.Lock(_gate))
+        {
+            foreach (var asm in published.Assemblies)
+            {
+                var state = _states.GetValue(asm, _ => new State());
+                if ((asm.IsDirty && asm.Version != state.Saved ? asm.Version : -1) != state.Journaled) return true;
+            }
+            foreach (var native in published.Natives)
+            {
+                var state = _states.GetValue(native, _ => new State());
+                if ((native.HasPatches && native.Patches.Version != state.Saved ? native.Patches.Version : -1) != state.Journaled) return true;
+            }
+            var live = published.Assemblies.Cast<object>().Concat(published.Natives).ToHashSet();
+            return _files.Values.Any(target => !live.Contains(target));
+        }
     }
 
     private void SyncLocked()

@@ -2,6 +2,8 @@ using Microsoft.Extensions.DependencyInjection;
 using ModelContextProtocol.Protocol;
 using Corvus.Core;
 using Corvus.Mcp;
+using Corvus.Native.Annotations;
+using Corvus.Services;
 
 namespace Corvus.Tests;
 
@@ -172,5 +174,42 @@ public class CallDeadlineTests
         release.SetResult();
         Assert.NotEqual(true, (await reader).IsError);
         Assert.Empty(workspace.LockUsers());
+    }
+
+    [Fact]
+    public async Task A_finished_call_answers_while_another_call_holds_the_workspace_lock()
+    {
+        using var dir = new TempDir();
+        var copy = dir.File("Fixture.dll");
+        File.Copy(Env.FixturePath, copy);
+        using var env = new Env(copy);
+        var ws = env.Workspace;
+        var journal = new EditJournal(ws, new AnnotationStore(dir.File("annotations")), env.History);
+        using var services = new ServiceCollection().AddSingleton(new ServerOptions { TimeoutSeconds = 3600 }).AddSingleton<ResultStore>()
+            .AddSingleton(TimeProvider.System).AddSingleton(ws).AddSingleton<RecentCalls>().AddSingleton(journal).BuildServiceProvider();
+        env.Edit(() => env.Edits.StubMethod(env.One("Secret::Validate"), "true"));
+        journal.Sync();
+        using var holding = new ManualResetEventSlim();
+        using var release = new ManualResetEventSlim();
+        // Another call keeps the exclusive lock until released (up to 2 minutes).
+        var holder = Task.Run(() => ws.Write(() => { holding.Set(); release.Wait(TimeSpan.FromMinutes(2)); return 0; }));
+        holding.Wait();
+        Task<CallToolResult> Call(string tool, Func<CancellationToken, ValueTask<CallToolResult>> work) =>
+            CallFilter.Run(new CallToolRequestParams { Name = tool, Arguments = new Dictionary<string, System.Text.Json.JsonElement>
+                { ["path"] = System.Text.Json.JsonSerializer.SerializeToElement(copy) } }, null, services, work, default).AsTask();
+        // An argument error and a success of edit tools: neither changed anything, so neither waits for the holder.
+        var error = await Call("add_members_csharp", _ => throw new ToolError(ErrorCode.InvalidArgument, "missing required parameter 'type'."))
+            .WaitAsync(TimeSpan.FromMinutes(1));
+        var success = await Call("rename_symbol", _ => new ValueTask<CallToolResult>(Done)).WaitAsync(TimeSpan.FromMinutes(1));
+        Assert.False(holder.IsCompleted);
+        Assert.Equal("invalid_argument", McpProtocolTests.ErrorJson(error).GetProperty("code").GetString());
+        Assert.NotEqual(true, success.IsError);
+        // The input is still named as the loaded target, from the targets published before the hold.
+        foreach (var result in new[] { error, success })
+            Assert.Equal(env.Fixture.Id, (string?)result.Meta![ToolOutput.ProvenanceKey]!["input"]![0]!["id"]);
+        release.Set();
+        await holder.WaitAsync(TimeSpan.FromMinutes(1));
+        var file = Assert.Single(Directory.GetFiles(journal.Root, "*" + EditJournal.EditsSuffix));
+        Assert.Single(EditHistoryService.ReadScript(file).Edits);
     }
 }
