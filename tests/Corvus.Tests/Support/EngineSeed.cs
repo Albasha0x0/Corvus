@@ -95,7 +95,20 @@ internal static class EngineSeed
         using var engines = new NativeEngineService(new IdaProviderOptions { CacheRoot = cacheRoot }, code, workspace, options);
         workspace.LoadAny(input);
         var opened = await engines.Session(workspace.Read(() => workspace.Natives[0]), engine, null, default);
+        await CompleteAsync(opened);
         return Fingerprint(await opened.ListFunctionsAsync());
+    }
+
+    /// <summary>
+    /// Runs the analysis an open's budget cut short until its queue is empty, in at most three 30-minute rounds; returns
+    /// whether the session's analysis is complete.
+    /// </summary>
+    public static async Task<bool> CompleteAsync(INativeDecompilerSession session)
+    {
+        // A loaded machine can stop an open's analysis at its budget; the rest is the same queue run again.
+        for (int round = 0; round < 3 && !session.AnalysisComplete && EngineControl.Of(session) is { } control; round++)
+            await control.ReanalyzeAsync([], null, null, 1800);
+        return session.AnalysisComplete;
     }
 
     /// <summary>The function count and a hash of the sorted function starts and names.</summary>

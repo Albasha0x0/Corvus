@@ -105,10 +105,12 @@ public sealed class NativeIdaFormatsTests(ITestOutputHelper output) : IDisposabl
         var watch = System.Diagnostics.Stopwatch.StartNew();
         var session = await engines.Session(native, "ida", null, default);
         Assert.Equal(native.Image.ImageBase, session.ImageBase);
+        var partial = !session.AnalysisComplete;
+        Assert.True(await EngineSeed.CompleteAsync(session), "IDA's analysis is still partial after three reanalysis rounds");
         var starts = (await session.ListFunctionsAsync()).Select(f => f.StartRva).ToHashSet();
         var methods = model.Methods.Select(m => m.Address).Distinct().ToList();
         int found = methods.Count(starts.Contains);
-        output.WriteLine($"{Path.GetFileName(package)} libil2cpp.so ({native.Image.Arch}): IDA {starts.Count} functions in {watch.Elapsed.TotalSeconds:0} s, base 0x{session.ImageBase:X}; " +
+        output.WriteLine($"{Path.GetFileName(package)} libil2cpp.so ({native.Image.Arch}): IDA {starts.Count} functions in {watch.Elapsed.TotalSeconds:0} s{(partial ? " (open's analysis partial, completed by reanalysis)" : "")}, base 0x{session.ImageBase:X}; " +
                          $"{found} of {methods.Count} Il2Cpp method starts are IDA functions");
         Assert.True(found >= methods.Count * 0.85); // IDA alone misses starts reached only through method-pointer tables (92.5% on a Unity 2022 build)
     }
