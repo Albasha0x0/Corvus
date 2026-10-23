@@ -78,6 +78,9 @@ internal sealed class NativeToolHarness : IDisposable
         Exception? unexpected = null;
         // the server's budget for this tool, so list pages are cut as a client receives them
         Core.OutputCall.Begin(new Core.OutputCall(tool, Mcp.CallFilter.FitTokens(Mcp.CallFilter.Budget(tool, null, null)), null));
+        // A call still running when it is cancelled has the stacks it runs or waits in taken, so its failure names them.
+        using var answered = new CancellationTokenSource();
+        var late = Task.Delay(bound, answered.Token).ContinueWith(_ => Stacks(), TaskContinuationOptions.OnlyOnRanToCompletion);
         // A call that ignores its cancellation is abandoned after a grace period and reported as a hang.
         try { text = await call(cts.Token).WaitAsync(bound + TimeSpan.FromSeconds(30)); }
         catch (ToolError e) { error = e.Code; errorText = e.Render(tool); }
@@ -85,8 +88,22 @@ internal sealed class NativeToolHarness : IDisposable
         catch (TimeoutException) { unexpected = new TimeoutException($"still running {sw.Elapsed.TotalSeconds:0} s after it was cancelled (hang)"); }
         catch (Exception e) { unexpected = e; }
         sw.Stop();
+        answered.Cancel();
+        if (unexpected is TimeoutException && await late.ContinueWith(t => t.IsCompletedSuccessfully ? t.Result : null) is { } stacks)
+            unexpected = new TimeoutException($"{unexpected.Message}; at the cancel, {stacks}", unexpected);
         lock (Calls) Calls.Add(new Call(file, tool, args, sw.Elapsed, text?.Length ?? 0, error, errorText, unexpected, mustSucceed && !Lenient));
         return text;
+    }
+
+    private static int _snapshotting;
+
+    // One snapshot at a time: calls cancelled together share the stacks of the first, and the process is not suspended
+    // once per call.
+    private static string Stacks()
+    {
+        if (Interlocked.CompareExchange(ref _snapshotting, 1, 0) != 0) return "stacks taken by another call cancelled at the same time";
+        try { return ThreadPoolSnapshot.ProductStacks(); }
+        finally { Volatile.Write(ref _snapshotting, 0); }
     }
 
     /// <summary>
@@ -272,5 +289,30 @@ internal sealed class NativeToolHarness : IDisposable
     {
         Workspace.Dispose();
         Engines.Dispose();
+    }
+}
+
+public class NativeToolHarnessTests
+{
+    [Fact]
+    public async Task A_call_still_running_at_its_cancel_names_the_stacks_it_waits_in()
+    {
+        using var harness = new NativeToolHarness(backgroundIndexing: false);
+        using var held = new ManualResetEventSlim();
+        using var release = new ManualResetEventSlim();
+        // Another thread holds the workspace's exclusive lock for 3 s; the call's wait for the shared lock takes no token.
+        var holder = Task.Run(() => harness.Workspace.Write(() => { held.Set(); return release.Wait(TimeSpan.FromSeconds(3)); }));
+        held.Wait();
+        await harness.Run("image", "read", "", ct => Task.Run(() =>
+        {
+            harness.Workspace.Read(() => 0, CancellationToken.None);
+            ct.ThrowIfCancellationRequested();
+            return "";
+        }), limit: TimeSpan.FromSeconds(1));
+        await holder;
+        var call = Assert.Single(harness.Calls);
+        Assert.IsType<TimeoutException>(call.Unexpected);
+        Assert.Contains("at the cancel, thread pool:", call.Unexpected.Message);
+        if (OperatingSystem.IsWindows()) Assert.Contains("Corvus.Core.AssemblyWorkspace.Enter", call.Unexpected.Message);
     }
 }

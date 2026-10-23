@@ -41,4 +41,32 @@ internal static class ThreadPoolSnapshot
             return text + ", busy threads unknown (" + e.GetType().Name + ")";
         }
     }
+
+    /// <summary>
+    /// The pool counts and the stack of every thread with a Corvus frame, waiting or running: up to
+    /// <paramref name="frames"/> frames each, the innermost first, so a blocked call shows what it waits on. Never throws.
+    /// </summary>
+    public static string ProductStacks(int frames = 16)
+    {
+        var text = $"thread pool: {ThreadPool.ThreadCount} threads, {ThreadPool.PendingWorkItemCount} pending";
+        if (!OperatingSystem.IsWindows()) return text + ", stacks unknown (read on Windows only)";
+        try
+        {
+            using var target = DataTarget.CreateSnapshotAndAttach(Environment.ProcessId);
+            using var runtime = target.ClrVersions[0].CreateRuntime();
+            var stacks = new List<string>();
+            foreach (var thread in runtime.Threads.Where(t => t.IsAlive))
+            {
+                var all = thread.EnumerateStackTrace().Take(200).Select(f => f.Method?.Signature).OfType<string>().ToList();
+                if (!all.Any(f => f.StartsWith("Corvus.", StringComparison.Ordinal) && !f.StartsWith("Corvus.Tests.", StringComparison.Ordinal))) continue;
+                stacks.Add($"thread {thread.ManagedThreadId}:\n    " + string.Join("\n    ", all.Take(frames)));
+            }
+            // An async wait holds no thread: a call with no stack here is waiting on a task.
+            return stacks.Count == 0 ? text + ", no thread runs product code" : text + $", {stacks.Count} threads in product code:\n" + string.Join("\n", stacks);
+        }
+        catch (Exception e)
+        {
+            return text + ", stacks unknown (" + e.GetType().Name + ")";
+        }
+    }
 }
