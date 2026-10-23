@@ -70,7 +70,7 @@ public sealed class EditTools(AssemblyWorkspace workspace, EditService edits, Ed
         [Description(AssemblyFilterDescription)] string? assembly = null,
         [Description("true previews the IL to be written; false applies.")] bool dryRun = true,
         RequestContext<CallToolRequestParams> context = null!,
-        CancellationToken cancellationToken = default) => WithProgress(context, () => Edit(workspace, dryRun, () =>
+        CancellationToken cancellationToken = default) => WithProgress(context, () => CompiledEdit(workspace, edits, dryRun, () =>
     {
         var sym = SymbolResolver.ResolveOne(workspace, assembly, method, SymbolKind.Method);
         return Outcome(sym.Assembly, dryRun, () =>
@@ -89,7 +89,7 @@ public sealed class EditTools(AssemblyWorkspace workspace, EditService edits, Ed
         [Description(AssemblyFilterDescription)] string? assembly = null,
         [Description(DryRunDefaultTrueDescription)] bool dryRun = true,
         RequestContext<CallToolRequestParams> context = null!,
-        CancellationToken cancellationToken = default) => WithProgress(context, () => Edit(workspace, dryRun, () =>
+        CancellationToken cancellationToken = default) => WithProgress(context, () => CompiledEdit(workspace, edits, dryRun, () =>
     {
         var sym = SymbolResolver.ResolveOne(workspace, assembly, type, SymbolKind.Type);
         return Outcome(sym.Assembly, dryRun, () => edits.AddMembersCSharp(sym, code, dryRun, cancellationToken), Touched("member", sym.Label));
@@ -102,7 +102,7 @@ public sealed class EditTools(AssemblyWorkspace workspace, EditService edits, Ed
         [Description("C# source declaring the new types.")] string code,
         [Description(DryRunDefaultTrueDescription)] bool dryRun = true,
         RequestContext<CallToolRequestParams> context = null!,
-        CancellationToken cancellationToken = default) => WithProgress(context, () => Edit(workspace, dryRun, () =>
+        CancellationToken cancellationToken = default) => WithProgress(context, () => CompiledEdit(workspace, edits, dryRun, () =>
     {
         var asm = workspace.Get(assembly);
         return Outcome(asm, dryRun, () => edits.AddTypesCSharp(asm, code, dryRun, cancellationToken), Touched("type", asm.Id));

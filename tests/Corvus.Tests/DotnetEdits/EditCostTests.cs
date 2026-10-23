@@ -1,5 +1,6 @@
 using Corvus.Core;
 using Corvus.Services;
+using Corvus.Tools;
 
 namespace Corvus.Tests;
 
@@ -30,6 +31,47 @@ public sealed class EditCostTests : IDisposable
         Assert.Equal(3, _patcher.Compiles); // declarations, then bodies as helpers
         Assert.Contains("return code.Length > 3;", _env.Decompile("Secret::Validate"));
         Assert.Contains("x * 2", _env.Decompile("Account::Twice"));
+    }
+
+    [Fact]
+    public async Task An_applied_csharp_edit_compiles_while_another_call_holds_the_shared_lock()
+    {
+        var ws = _env.Workspace;
+        using var holding = new ManualResetEventSlim();
+        using var release = new ManualResetEventSlim();
+        // Another call keeps the shared lock until released (up to 2 minutes).
+        var reader = Task.Run(() => ws.Read(() => { holding.Set(); release.Wait(TimeSpan.FromMinutes(2)); return 0; }));
+        holding.Wait();
+        var edit = ToolSupport.CompiledEdit(ws, _edits, dryRun: false,
+            () => _edits.AddMembersCSharp(_env.One("Account", SymbolKind.Type), "public int Twice(int x) { return x * 2; }", false, default), default);
+        // Declarations, then bodies as helpers: two compiles.
+        await Task.Run(async () => { while (_patcher.Compiles < 2) await Task.Delay(5); }).WaitAsync(TimeSpan.FromMinutes(1));
+        Assert.False(edit.IsCompleted);
+        release.Set();
+        await reader.WaitAsync(TimeSpan.FromMinutes(1));
+        await edit.WaitAsync(TimeSpan.FromMinutes(1));
+        // The merge under the exclusive lock reuses the prepared compiles.
+        Assert.Equal(2, _patcher.Compiles);
+        Assert.Single(_env.Fixture.Edits);
+        Assert.Contains("x * 2", _env.Decompile("Account::Twice"));
+    }
+
+    [Fact]
+    public async Task A_csharp_edit_that_does_not_compile_answers_without_the_exclusive_lock()
+    {
+        var ws = _env.Workspace;
+        using var holding = new ManualResetEventSlim();
+        using var release = new ManualResetEventSlim();
+        var reader = Task.Run(() => ws.Read(() => { holding.Set(); release.Wait(TimeSpan.FromMinutes(2)); return 0; }));
+        holding.Wait();
+        var edit = ToolSupport.CompiledEdit(ws, _edits, dryRun: false,
+            () => _edits.PatchMethodCSharp(_env.One("Secret::Validate"), "return undefinedName;", false, default), default);
+        var error = await Assert.ThrowsAsync<ToolError>(() => edit.WaitAsync(TimeSpan.FromMinutes(1)));
+        Assert.Contains("undefinedName", error.Message);
+        Assert.False(reader.IsCompleted);
+        Assert.Empty(_env.Fixture.Edits);
+        release.Set();
+        await reader.WaitAsync(TimeSpan.FromMinutes(1));
     }
 
     [Trait("Speed", "Slow")]

@@ -40,6 +40,29 @@ internal static class ToolSupport
     public static Task<string> Edit(AssemblyWorkspace ws, bool dryRun, Func<string> work, CancellationToken ct) =>
         dryRun ? Read(ws, work, ct) : Write(ws, work, ct);
 
+    /// <summary>
+    /// An edit that compiles C#. Applied, it is first compiled against a scratch copy under the shared lock, so the
+    /// exclusive section that merges it reuses that work instead of holding every other call out through the compile;
+    /// an error in the code answers without the exclusive lock. A dry run takes the shared lock only.
+    /// </summary>
+    public static Task<string> CompiledEdit(AssemblyWorkspace ws, Corvus.Services.EditService edits, bool dryRun, Func<string> work, CancellationToken ct) =>
+        dryRun ? Read(ws, work, ct) : Task.Run(() =>
+        {
+            using var reuse = edits.ReuseCompiles();
+            int generation = ws.Read(() =>
+            {
+                edits.Prepare(work);
+                return ws.Generation;
+            });
+            return ws.Write(() =>
+            {
+                if (ws.Generation == generation) return work();
+                // Another exclusive section ran in between, so the prepared work may describe another module.
+                using var fresh = edits.ReuseCompiles();
+                return work();
+            });
+        }, ct);
+
     public static void Report(IProgress<ProgressNotificationValue>? progress, int done, int total, string message) =>
         progress?.Report(new ProgressNotificationValue { Progress = done, Total = total, Message = message });
 

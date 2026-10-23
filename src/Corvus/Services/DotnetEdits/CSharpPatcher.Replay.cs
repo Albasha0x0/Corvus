@@ -19,10 +19,14 @@ public sealed partial class CSharpPatcher
 
     private static readonly AsyncLocal<ReplayCache?> Replay = new();
 
-    /// <summary>Until disposed, operations on this thread reuse each other's compile work (see <see cref="ReplayCache"/>).</summary>
-    public IDisposable ReuseCompiles()
+    /// <summary>
+    /// Until disposed, operations on this thread reuse each other's compile work (see <see cref="ReplayCache"/>). With
+    /// <paramref name="join"/>, a scope already open on this thread is kept and the returned scope does nothing.
+    /// </summary>
+    public IDisposable ReuseCompiles(bool join = false)
     {
         var previous = Replay.Value;
+        if (join && previous != null) return new Scope(() => { });
         Replay.Value = new ReplayCache();
         return new Scope(() => Replay.Value = previous);
     }

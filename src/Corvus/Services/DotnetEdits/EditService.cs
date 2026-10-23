@@ -321,6 +321,27 @@ public sealed partial class EditService(AssemblyWorkspace workspace, IlAssembler
     }
 
     /// <summary>
+    /// Runs <paramref name="edit"/>, an applying C# edit, only as far as its merge into a scratch copy, so the compile work
+    /// is left in the open <see cref="ReuseCompiles"/> scope and nothing changes; errors in the code are thrown as the
+    /// edit throws them. Runs under the shared lock.
+    /// </summary>
+    public void Prepare(Func<string> edit)
+    {
+        Preparing.Value = true;
+        try { edit(); }
+        catch (PreparedSignal) { }
+        finally { Preparing.Value = false; }
+    }
+
+    /// <summary>Opens a scope in which a prepared edit and its merge share compile work; see <see cref="CSharpPatcher.ReuseCompiles"/>.</summary>
+    public IDisposable ReuseCompiles() => csharp.ReuseCompiles();
+
+    private static readonly AsyncLocal<bool> Preparing = new();
+
+    /// <summary>Ends a prepared edit after its scratch merge, before anything is recorded.</summary>
+    private sealed class PreparedSignal : Exception;
+
+    /// <summary>
     /// Runs a C# merge on a scratch copy of the module first (validation; enough for a dry run), then on the real
     /// module. If the real merge fails half-way, the assembly is rebuilt from its recorded edits so nothing half-applied remains.
     /// </summary>
@@ -341,13 +362,15 @@ public sealed partial class EditService(AssemblyWorkspace workspace, IlAssembler
             }
         }
         CSharpPatcher.Outcome preview;
-        using var reuse = csharp.ReuseCompiles();
+        // Joined: a merge prepared under the shared lock (Prepare) left its compile work in the scope.
+        using var reuse = csharp.ReuseCompiles(join: true);
         CallProgress.Report(1, 3, $"compiling against {asm.Id} (decompiled context, references)");
         using (var scratch = ModuleDefMD.Load(asm.GetImageBytes(), workspace.DnlibContext))
         {
             scratch.EnableTypeDefFindCache = true;
             preview = merge(scratch);
         }
+        if (Preparing.Value) throw new PreparedSignal();
         if (dryRun) return preview;
         CallProgress.Report(2, 3, $"applying to {asm.Id}");
         try
