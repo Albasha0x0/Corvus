@@ -86,13 +86,16 @@ internal sealed class NativeToolHarness : IDisposable
         // Lock waits end at the cancel and name their holder, as the server makes them for every call.
         using var waits = AssemblyWorkspace.CancelWaitsWith(cts.Token, tool);
         // A call still running when it is cancelled has the stacks it runs or waits in taken, so its failure names them.
+        // They are taken from the cancel itself, not a timer of their own, so a wait the snapshot releases already sees
+        // its token cancelled.
         using var answered = new CancellationTokenSource();
-        var late = Task.Delay(bound, answered.Token).ContinueWith(_ =>
+        var late = Task.Delay(Timeout.Infinite, cts.Token).ContinueWith(_ =>
         {
+            if (answered.IsCancellationRequested) return null;
             var stacks = Stacks();
             Interlocked.Increment(ref _stacksTaken);
             return stacks;
-        }, TaskContinuationOptions.OnlyOnRanToCompletion);
+        }, TaskContinuationOptions.OnlyOnCanceled);
         // A call that ignores its cancellation is abandoned after a grace period and reported as a hang.
         try { text = await call(cts.Token).WaitAsync(bound + TimeSpan.FromSeconds(30)); }
         catch (ToolError e) { error = e.Code; errorText = e.Render(tool); }
