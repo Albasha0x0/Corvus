@@ -863,9 +863,11 @@ public sealed class LiveSessionExitTests : LiveSessionTestBase
             using var service = new LiveSessionService(_workspace, new NativeCodeService(_workspace, SharedCodeIndex.Options())) { Backend = backend };
             await new LiveSessionTools(new ServerOptions { AllowLive = true, AllowLiveAttach = true }, service).LiveSession("attach", program: "99994242");
             var session = service.Get("live-1");
-            // Both closes are released together, so both can pass the closed check.
+            // Both closes are released together, so both can pass the closed check. Each waits on a thread of its
+            // own: on a busy pool, a pool thread blocked at the barrier waits seconds for the other to start.
             using var together = new Barrier(2);
-            var closes = Enumerable.Range(0, 2).Select(_ => Task.Run(() => { together.SignalAndWait(); return service.CloseAsync(session, "request"); })).ToArray();
+            var closes = Enumerable.Range(0, 2).Select(_ => Task.Factory.StartNew(() => { together.SignalAndWait(); return service.CloseAsync(session, "request"); },
+                CancellationToken.None, TaskCreationOptions.LongRunning, TaskScheduler.Default).Unwrap()).ToArray();
             await Task.WhenAll(closes).WaitAsync(TimeSpan.FromSeconds(10));
             Assert.Single(session.Page(0, "exit", null, 10).Events, e => e.Text.StartsWith("session closed", StringComparison.Ordinal));
         }
