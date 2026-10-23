@@ -699,6 +699,7 @@ if ($HostTier) {
         $got = Receive-Offload $handle $results
         $record.seconds = [math]::Round($clock.Elapsed.TotalSeconds, 1)
         $record.note = $got.Note
+        if ($got.Waited) { $record.waited = $got.Waited }
         if ($got.Started) {
             if ($got.Trx) { Copy-Item $got.Trx (Join-Path $gitDir 'corvus-host-tier.trx') -Force }
             $proved = Get-TierPasses $got $split.Sent $classMap $lastTrx (Get-FastestClassSeconds $timeHistory)
@@ -828,6 +829,7 @@ try {
             $here = @(Get-RerunClasses $got $sent $lastTrx $mixed $trx $fastest)
             $offloadRecord.state = if ($got.Failed) { "failed on $($offload.Name)" } else { 'passed' }
             if ($got.Note -notmatch '^run \d+$') { $notes += $got.Note }
+            if ($got.Waited) { $notes += "waited $($got.Waited) s for another run there" }
             if ($got.Trx) {
                 Copy-Item $got.Trx (Join-Path $gitDir "corvus-remote/$(Get-TargetFileName $offload.Name).trx") -Force
                 # A target may run more classes than this run needed (it does not reuse passes); only the sent ones count.

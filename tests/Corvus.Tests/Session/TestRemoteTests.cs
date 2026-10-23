@@ -347,6 +347,42 @@ public sealed class TestRemoteTests : IDisposable
     }
 
     [Fact]
+    [Trait("Speed", "Slow")]
+    public void A_run_that_waits_for_another_on_the_host_says_so_and_its_result_names_the_wait()
+    {
+        // The test holds the host's lock for 3 s while the run script starts in a home without a clone, so the script
+        // waits, then ends at once naming the missing commit.
+        var home = Path.Combine(_dir.Path, "home");
+        Directory.CreateDirectory(home);
+        var script = _dir.File("run.ps1");
+        var output = _dir.File("out.txt");
+        var lines = TestReuseTests.Run($$"""
+            Import-Module {{Module}}
+            Set-Content {{Quote(script)}} (Get-RemoteRunScript 'abc123' 'FullyQualifiedName~X' 'wait1' -Bundle)
+            $lock = [Threading.Mutex]::new($false, 'Global\corvus-test-host')
+            try { [void]$lock.WaitOne() } catch [Threading.AbandonedMutexException] { }
+            $env:USERPROFILE = {{Quote(home)}}; $env:HOME = {{Quote(home)}}
+            $run = Start-Process (Get-Process -Id $PID).Path -ArgumentList '-NoProfile', '-File', {{Quote(script)}} -RedirectStandardOutput {{Quote(output)}} -PassThru -WindowStyle Hidden
+            Start-Sleep -Seconds 3
+            $lock.ReleaseMutex()
+            'ended=' + $run.WaitForExit(60000)
+            $out = @(Get-Content {{Quote(output)}})
+            'waiting=' + ($out -contains 'corvus-remote: waiting for another run on the host')
+            'waited=' + [bool]($out | Where-Object { $_ -match '^corvus-remote-waited [1-9]\d*$' })
+            $got = Receive-RemoteRun @{ Kind = 'ssh'; Host = 'tester@host2'; Output = $out } {{Quote(Path.Combine(_dir.Path, "back"))}}
+            'got=' + $got.Started + ',' + $got.Note + ',' + ($got.Waited -ge 1)
+            Save-TierRecord {{Quote(_dir.Path)}} ([ordered]@{ target = 'tester@host2'; commit = 'abc12345'; at = 'now'; state = 'not run'; classes = 1; seconds = 4; waited = 3; note = $got.Note })
+            'status=' + (Get-TierStatus {{Quote(_dir.Path)}})
+            """);
+        if (lines is ["skip"]) return;
+        Assert.Contains("ended=True", lines);
+        Assert.Contains("waiting=True", lines);
+        Assert.Contains("waited=True", lines);
+        Assert.Contains("got=False,the commit did not reach the host,True", lines);
+        Assert.Contains("status=not run on abc12345 at now on tester@host2 (1 classes, 4 s); waited 3 s for another run there; the commit did not reach the host", lines);
+    }
+
+    [Fact]
     public void A_commit_origin_lacks_goes_to_the_host_as_a_bundle_and_the_record_names_it()
     {
         // A push run starts before its push lands (the run on a5dbd1db waited 120 s for origin, then ran all here).

@@ -259,6 +259,7 @@ function Get-TierStatus([string]$gitDir) {
     $r = Get-Content $file -Raw | ConvertFrom-Json
     $parts = @("$($r.state) on $($r.commit) at $($r.at) on $($r.target) ($($r.classes) classes$(if ($null -ne $r.seconds) { ", $($r.seconds) s" }))")
     if ($r.transport -eq 'bundle') { $parts += 'the commit went as a bundle, origin lacked it' }
+    if ($r.waited) { $parts += "waited $($r.waited) s for another run there" }
     if ($r.recorded) { $parts += "recorded: $($r.recorded -join ', ')" }
     if ($r.failed) { $parts += "failed there: $($r.failed -join ', ')" }
     if ($r.unproven) { $parts += "no full result there: $($r.unproven -join ', ')" }
@@ -687,7 +688,8 @@ function Get-HostVariables([string]$remoteHost) {
 
 # The script a test host runs: wait for $commit on origin (or take it from the bundle sent beside the script), check it
 # out in the host's worktree, build once and run $filter $repeat times there at below-normal priority, one script at a
-# time. Its output names the start ("corvus-remote: started"), each run ("corvus-remote-run <n> <exit code>") and the
+# time. Its output names a wait for another script ("corvus-remote: waiting for another run on the host", then
+# "corvus-remote-waited <seconds>"), the start ("corvus-remote: started"), each run ("corvus-remote-run <n> <exit code>") and the
 # end ("corvus-remote-exit <worst exit code>"); a script that never starts a run names why. Results go to
 # results/<id>/run-<n>.trx under the host folder.
 function Get-RemoteRunScript([string]$commit, [string]$filter, [string]$id, [int]$repeat = 1, [switch]$Bundle) {
@@ -698,9 +700,18 @@ function Get-RemoteRunScript([string]$commit, [string]$filter, [string]$id, [int
 `$base = Join-Path `$HOME '$script:HostFolder'
 `$clone = Join-Path `$base 'repo'; `$tree = Join-Path `$base 'run'; `$out = Join-Path `$base 'results/$id'
 `$bundle = Join-Path `$base '$id.bundle'
-# One script at a time: push runs and lanes' loops share the worktree and the machine.
+# One script at a time: push runs and lanes' loops share the worktree and the machine. A script that waits says so
+# at once and names its wait once it runs, so a filter run queued behind a long run is not silent.
 `$lock = [Threading.Mutex]::new(`$false, 'Global\corvus-test-host')
-try { [void]`$lock.WaitOne() } catch [Threading.AbandonedMutexException] { }
+`$queued = [Diagnostics.Stopwatch]::StartNew()
+try {
+    if (-not `$lock.WaitOne(0)) {
+        'corvus-remote: waiting for another run on the host'
+        [void]`$lock.WaitOne()
+        "corvus-remote-waited `$([math]::Round(`$queued.Elapsed.TotalSeconds))"
+    }
+}
+catch [Threading.AbandonedMutexException] { }
 try {
     Get-ChildItem (Join-Path `$base 'results') -Directory -ErrorAction SilentlyContinue | Where-Object LastWriteTime -lt (Get-Date).AddDays(-1) | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
     `$deadline = (Get-Date).AddSeconds($(if ($Bundle) { 0 } else { $script:FetchWaitSeconds }))
@@ -815,11 +826,14 @@ function Invoke-RemoteFilter([string]$repo, [string]$remoteHost, [string]$filter
     if ($failed -or $missing -gt 0) { 1 } else { 0 }
 }
 
-# Brings a test host's results back into $folder: @{ Started; Trx; Failed; Note } as Receive-GitHubRun returns it.
-# Started false means no test started there (ssh failed, or the commit never arrived), and Note says why.
+# Brings a test host's results back into $folder: @{ Started; Trx; Failed; Note; Waited } as Receive-GitHubRun returns
+# it, Waited being the seconds the script waited for another run there (0 when it did not). Started false means no
+# test started there (ssh failed, or the commit never arrived), and Note says why.
 function Receive-RemoteRun($state, [string]$folder) {
-    $result = [pscustomobject]@{ Started = $false; Trx = $null; Failed = @(); Note = $null }
+    $result = [pscustomobject]@{ Started = $false; Trx = $null; Failed = @(); Note = $null; Waited = 0 }
     $output = @($state.Output)
+    $waited = $output | Where-Object { $_ -match '^corvus-remote-waited (\d+)$' } | Select-Object -Last 1
+    if ($waited) { $result.Waited = [int]($waited -replace '^corvus-remote-waited ', '') }
     if ($output -notcontains 'corvus-remote: started') {
         $why = $output | Where-Object { $_ -like 'corvus-remote: *' } | Select-Object -Last 1
         $result.Note = if ($why) { $why -replace '^corvus-remote: ', '' } else { "ssh $($state.Host) failed$(if ($output) { ": $($output[-1])" })" }
