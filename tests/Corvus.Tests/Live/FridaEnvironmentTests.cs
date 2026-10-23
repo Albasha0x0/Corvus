@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Net.Sockets;
+using System.Runtime.InteropServices;
 using Corvus.Core;
 using Corvus.Native.Providers;
 using Corvus.Native.Providers.Live;
@@ -18,14 +19,19 @@ public sealed class FridaEnvironmentTests : IDisposable
 
     private static readonly PythonInterpreter Base = new("/py/base", new Version(3, 12), 64, "PATH");
 
-    /// <summary>A runner where venv creates the interpreter file and pip exits with <paramref name="pipExit"/>.</summary>
-    private FridaEnvironment Scripted(int pipExit = 0, bool offline = false, string platform = "windows-x64") => new(_dir.File("env"))
+    /// <summary>
+    /// A runner where venv creates the interpreter file, pip exits with <paramref name="pipExit"/>, and the base pip
+    /// reports <paramref name="basePip"/> (null: no pip).
+    /// </summary>
+    private FridaEnvironment Scripted(int pipExit = 0, bool offline = false, string platform = "windows-x64", string? basePip = null) => new(_dir.File("env"))
     {
         Offline = offline,
         Platform = platform,
         Run = (exe, args, _) =>
         {
             _runs.Add((exe, [.. args]));
+            if (args.Contains("--version"))
+                return basePip == null ? new(1, "", "No module named pip", false, null) : new(0, $"pip {basePip} from /py/lib/pip (python 3.12)", "", false, null);
             if (args.Contains("venv"))
             {
                 var python = OperatingSystem.IsWindows() ? Path.Combine(args[^1], "Scripts", "python.exe") : Path.Combine(args[^1], "bin", "python3");
@@ -76,18 +82,41 @@ public sealed class FridaEnvironmentTests : IDisposable
         Assert.False(failed.Complete);
         _runs.Clear();
 
+        // Without a base pip the venv gets its own (ensurepip), which installs.
         var env = Scripted();
         Assert.Equal(env.Python, env.Create(Base, out problem));
         Assert.Null(problem);
-        Assert.Equal([Base.Executable, env.Python], _runs.Select(r => r.Exe));
-        Assert.Equal(["-I", "-m", "venv", env.Folder], _runs[0].Args);
-        Assert.Contains("--require-hashes", _runs[1].Args);
-        Assert.Contains(":all:", _runs[1].Args);
-        Assert.Equal(FridaVersions.Requirements("windows-x64"), File.ReadAllText(_runs[1].Args[^1]));
+        Assert.Equal([Base.Executable, Base.Executable, env.Python], _runs.Select(r => r.Exe));
+        Assert.Equal(["-I", "-m", "venv", env.Folder], _runs[1].Args);
+        Assert.Contains("--require-hashes", _runs[2].Args);
+        Assert.Contains(":all:", _runs[2].Args);
+        Assert.Equal(FridaVersions.Requirements("windows-x64"), File.ReadAllText(_runs[2].Args[^1]));
         Assert.True(env.Complete);
         _runs.Clear();
         Assert.Equal(env.Python, env.Create(Base, out _));
         Assert.Empty(_runs);
+    }
+
+    [Fact]
+    public void A_base_pip_that_takes_python_installs_into_a_venv_made_without_pip()
+    {
+        var env = Scripted(basePip: "22.3.1");
+        Assert.Equal(env.Python, env.Create(Base, out var problem));
+        Assert.Null(problem);
+        Assert.Equal([Base.Executable, Base.Executable, Base.Executable], _runs.Select(r => r.Exe));
+        Assert.Equal(["-I", "-m", "venv", "--without-pip", env.Folder], _runs[1].Args);
+        Assert.Equal(["-I", "-m", "pip", "--python", env.Python, "install"], _runs[2].Args[..6]);
+        Assert.Contains("--require-hashes", _runs[2].Args);
+        Assert.True(env.Complete);
+    }
+
+    [Fact]
+    public void A_base_pip_older_than_22_3_leaves_the_install_to_the_venv_pip()
+    {
+        var env = Scripted(basePip: "22.2");
+        Assert.Equal(env.Python, env.Create(Base, out _));
+        Assert.Equal(["-I", "-m", "venv", env.Folder], _runs[1].Args);
+        Assert.Equal(env.Python, _runs[2].Exe);
     }
 
     private static PythonInterpreter Py(string source) => new("/py/" + source, new Version(3, 12), 64, source);
@@ -123,8 +152,7 @@ public sealed class FridaDownloadFactAttribute : FactAttribute
     private static readonly Lazy<string?> Missing = new(() =>
     {
         if (Environment.GetEnvironmentVariable("CORVUS_ALL_TESTS") != "1") return "Downloads Frida (set CORVUS_ALL_TESTS=1).";
-        if (!OperatingSystem.IsWindows()) return "Windows only (the fixture is built with MSVC).";
-        if (!VisualStudio.HasVcVars) return "No Visual Studio C++ toolset.";
+        if (FridaEnvironmentRealTests.Host.Missing is { } missing) return missing;
         if (PythonLocator.Find([], []) == null) return "No 64-bit Python 3.";
         try
         {
@@ -148,6 +176,12 @@ public sealed class FridaEnvironmentRealTests(ITestOutputHelper output) : IDispo
 {
     private readonly TempDir _dir = new();
 
+    /// <summary>The target of this machine's own operating system and architecture, which builds the fixture.</summary>
+    internal static LiveTarget Host { get; } =
+        OperatingSystem.IsMacOS() ? LiveTarget.MacArm64
+        : RuntimeInformation.OSArchitecture == Architecture.Arm64 ? (OperatingSystem.IsWindows() ? LiveTarget.WinArm64 : LiveTarget.LinuxArm64)
+        : OperatingSystem.IsWindows() ? LiveTarget.WinX64 : LiveTarget.LinuxX64;
+
     public void Dispose() => _dir.Dispose();
 
     [FridaDownloadFact]
@@ -157,8 +191,8 @@ public sealed class FridaEnvironmentRealTests(ITestOutputHelper output) : IDispo
         var env = new FridaEnvironment(_dir.File("frida-env"));
         var watch = Stopwatch.StartNew();
         var python = env.Create(PythonLocator.Find([], []), out var problem);
-        // The problem names the failed step (venv or pip) and why.
-        Assert.Null(problem);
+        // The problem names the failed step (venv or pip) and why, in full.
+        Assert.True(problem == null, problem);
         Assert.Equal(env.Python, python);
         phases.Phase("environment made");
         var bytes = new DirectoryInfo(env.Folder).EnumerateFiles("*", SearchOption.AllDirectories).Sum(f => f.Length);
@@ -171,7 +205,7 @@ public sealed class FridaEnvironmentRealTests(ITestOutputHelper output) : IDispo
         Assert.Equal(FridaVersions.Pinned, backend.FridaVersion);
         phases.Phase("frida found");
 
-        var exe = LiveFridaRealTests.Build(_dir, "orders", "int main(void) { return 3; }");
+        var exe = Host.Build(_dir, "orders", "int main(void) { return 3; }");
         phases.Phase("program built");
         using var workspace = new AssemblyWorkspace();
         using var service = new LiveSessionService(workspace, new NativeCodeService(workspace, SharedCodeIndex.Options())) { Backend = backend };

@@ -10,7 +10,7 @@ public sealed class FridaEnvironment(string folder)
 {
     public const string Source = "private environment";
     private const string CompleteMarker = "corvus-complete";
-    private static readonly TimeSpan VenvTimeout = TimeSpan.FromMinutes(2), PipTimeout = TimeSpan.FromMinutes(10);
+    private static readonly TimeSpan VenvTimeout = TimeSpan.FromMinutes(2), PipTimeout = TimeSpan.FromMinutes(10), PipProbeTimeout = TimeSpan.FromSeconds(30);
     private static readonly object Gate = new();
 
     public static FridaEnvironment Default => new(DataFolder.Combine("frida", "python-" + FridaVersions.Pinned));
@@ -51,10 +51,17 @@ public sealed class FridaEnvironment(string folder)
                 // an unfinished environment (no marker) is made again from scratch
                 if (Directory.Exists(Folder)) Directory.Delete(Folder, recursive: true);
                 Directory.CreateDirectory(Folder);
-                if (Step(basePython.Executable, ["-I", "-m", "venv", Folder], VenvTimeout, "python -m venv", out problem)) return null;
+                // Copying pip into the venv (ensurepip, about 1,000 files) took
+                // over the 2 min bound on a loaded machine, so a base pip that
+                // can install into another interpreter (--python) does the
+                // install, and the venv starts without pip.
+                bool basePip = PipTargetsOtherPython(basePython.Executable);
+                if (Step(basePython.Executable, basePip ? ["-I", "-m", "venv", "--without-pip", Folder] : ["-I", "-m", "venv", Folder], VenvTimeout, "python -m venv", out problem))
+                    return null;
                 var list = Path.Combine(Folder, "requirements.txt");
                 File.WriteAllText(list, requirements);
-                if (Step(Python, ["-I", "-m", "pip", "install", "--disable-pip-version-check", "--no-input", "--only-binary", ":all:", "--require-hashes", "-r", list],
+                string[] install = ["install", "--disable-pip-version-check", "--no-input", "--only-binary", ":all:", "--require-hashes", "-r", list];
+                if (Step(basePip ? basePython.Executable : Python, basePip ? ["-I", "-m", "pip", "--python", Python, .. install] : ["-I", "-m", "pip", .. install],
                         PipTimeout, "pip install", out problem)) return null;
                 File.WriteAllText(Path.Combine(Folder, CompleteMarker), FridaVersions.Pinned + "\n");
                 return Python;
@@ -71,12 +78,21 @@ public sealed class FridaEnvironment(string folder)
     private FileStream Hold()
     {
         Directory.CreateDirectory(Path.GetDirectoryName(Folder)!);
-        var deadline = DateTime.UtcNow + PipTimeout + VenvTimeout;
+        var deadline = DateTime.UtcNow + PipProbeTimeout + PipTimeout + VenvTimeout;
         while (true)
         {
             try { return new FileStream(Folder + ".lock", FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None); }
             catch (IOException) when (DateTime.UtcNow < deadline) { Thread.Sleep(1000); }
         }
+    }
+
+    /// <summary>Whether <paramref name="python"/> has pip 22.3 or later, which takes --python; false when pip is missing or older.</summary>
+    private bool PipTargetsOtherPython(string python)
+    {
+        var run = Run(python, ["-I", "-m", "pip", "--version"], PipProbeTimeout);
+        var m = System.Text.RegularExpressions.Regex.Match(run.ExitCode == 0 ? run.Stdout : "", @"^pip (\d+)\.(\d+)");
+        return m.Success && new Version(int.Parse(m.Groups[1].Value, System.Globalization.CultureInfo.InvariantCulture),
+            int.Parse(m.Groups[2].Value, System.Globalization.CultureInfo.InvariantCulture)) >= new Version(22, 3);
     }
 
     /// <summary>Runs one step; true (with <paramref name="problem"/>) when it failed.</summary>
