@@ -1,6 +1,6 @@
 {
   "name": "corvus",
-  "version": "2.5.0",
+  "version": "2.5.1",
   "description": "Reverse engineering of .NET assemblies and native binaries: decompile, search, compare builds, patch and save. Registers the Corvus MCP server (this release's CorvusRE .NET tool, run by dotnet tool exec; needs the .NET 10 SDK) and its skill.",
   "author": {
     "name": "Albasha0x0",
@@ -14,7 +14,7 @@
   "mcpServers": {
     "corvus": {
       "command": "dotnet",
-      "args": ["tool", "exec", "CorvusRE@2.5.0", "--yes", "--", "--client", "claude-code"]
+      "args": ["tool", "exec", "CorvusRE@2.5.1", "--yes", "--", "--client", "claude-code"]
     }
   }
 }
