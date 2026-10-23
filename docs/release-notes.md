@@ -503,6 +503,14 @@
   decompilation runs past its batch's budget on a loaded machine: that decompilation now gets a full request limit, so
   a batch can take one request limit (2 min by default) longer, and the check's overall deadline still bounds it.
   Verified with IDA Pro 9.3 and Ghidra 12.1.4 on Windows 11 x64. [a4f6aa25](https://github.com/Albasha0x0/Corvus/commit/a4f6aa25)
+- **Worker starts:** a pooled worker's start, the files worker's among them, is stopped only after it uses less than 1%
+  of a core for 30 s, within three times that (90 s by default), instead of after 30 s of wall time, so a cold start on
+  a busy machine finishes and a Yara scan or container search no longer fails with a start timeout; where CPU time
+  cannot be read a start stops after 30 s as before. [aa7a35cd](https://github.com/Albasha0x0/Corvus/commit/aa7a35cd)
+- **Python searches:** each candidate interpreter's probe (for the IDA and Frida workers, doctor and setup) is stopped
+  only after it spends 15 s under 0.1% of a core, within 45 s overall, instead of after 15 s of wall time, so a loaded
+  machine no longer reads IDA as unavailable or finds no Python 3; the candidate log names the limit that stopped a
+  probe. [f0035bbb](https://github.com/Albasha0x0/Corvus/commit/f0035bbb)
 
 ## 2.4.0
 
