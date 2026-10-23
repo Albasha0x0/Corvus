@@ -54,8 +54,9 @@ public sealed class ScriptReaderTests(ITestOutputHelper output)
         var text = File.ReadAllText(Fixture(language, name));
         Assert.DoesNotContain("corvus marker", text, StringComparison.OrdinalIgnoreCase);
         var r = ScriptReader.Read(text, language);
-        Assert.Contains("corvus marker", r.Plain, StringComparison.OrdinalIgnoreCase);
-        Assert.True(r.Complete);
+        var notes = $"complete={r.Complete}; recovered: {string.Join(", ", r.Recovered)}; notes: {string.Join(" | ", r.Notes)}";
+        Assert.True(r.Plain.Contains("corvus marker", StringComparison.OrdinalIgnoreCase), notes);
+        Assert.True(r.Complete, notes);
     }
 
     [Fact]
