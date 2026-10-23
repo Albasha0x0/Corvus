@@ -203,7 +203,9 @@ the attach to what its token allows. The session's agent loads from a folder tha
 tokens and AppContainers, so a GPU process (a restricted token) attaches. A child whose sandbox still refuses the agent
 fails with `access_denied`, which names the sandbox read from its token (a restricted token, an AppContainer, low or
 untrusted integrity). Start such a program with its sandbox off (Chromium's `--no-sandbox`, or `--disable-gpu-sandbox`
-for the GPU process alone) to attach to every child.
+for the GPU process alone) to attach to every child. Under a network logon, such as a server reached over ssh, a
+restricted-token child does not load the agent and is refused the same way (what denies the load is not known); under
+an interactive logon it attaches.
 
 A watch records each call's arguments and return value without stopping the program. They are decoded from, in order:
 the known-API table (parameter names, ANSI and wide strings, flags and enumerations by name: `dwDesiredAccess=GENERIC_READ`),
