@@ -271,8 +271,12 @@ public class NativeProviderTests(ITestOutputHelper output)
     [Fact]
     public void A_childs_CPU_time_grows_while_it_computes()
     {
-        // Half a second of CPU time, then a wait on stdin so the tree is still running when it is read.
-        using var child = ChildProcess.Start(new ChildProcessStart(FakeTool.Executable, ["spin", "500"]));
+        // Half a second of CPU time, then a wait on stdin so the tree is still running when it is read. The fake tool logs
+        // each call to the script ADB_FAKE_SCRIPT names, which another class may have set process-wide, so it is unset.
+        using var child = ChildProcess.Start(new ChildProcessStart(FakeTool.Executable, ["spin", "500"])
+        {
+            Environment = new Dictionary<string, string?> { [FakeTool.ScriptVariable] = null },
+        });
         using var reader = new StreamReader(child.StandardOutput);
         Assert.Equal("done", reader.ReadLine()?.Trim());
         var cpu = child.TreeCpuTime();
