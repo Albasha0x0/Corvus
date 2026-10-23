@@ -457,6 +457,9 @@
 - **IDA starts:** an open's start (loading idalib) is stopped after 60 s without progress from the worker, within the
   open's own limit, instead of after 60 s in all; the error names the quiet limit. Verified with IDA 9.3 on
   Windows 11 x64; the stop under a slow start was not reproduced on demand. [c72de6da](https://github.com/Albasha0x0/Corvus/commit/c72de6da)
+- **Session memory reads:** `live_read` reads a stack or heap address that falls in an image's preferred range
+  (ImageBase to ImageBase+SizeOfImage) where the program has it, instead of in the image ASLR loaded elsewhere; stop
+  point addresses keep the image translation. Verified with 32-bit and 64-bit programs on Windows 11 x64. [c6bce07b](https://github.com/Albasha0x0/Corvus/commit/c6bce07b)
 
 ## 2.4.0
 
