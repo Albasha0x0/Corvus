@@ -824,14 +824,40 @@ public abstract class McpProtocolTests : IAsyncLifetime
             Assert.Equal("corvus://assemblies", update?["uri"]?.GetValue<string>());
             Assert.Equal("listen-1", update?["_meta"]?["io.modelcontextprotocol/subscriptionId"]?.GetValue<string>());
 
+            // A second stream stays open: its update for a change shows that the change's updates were sent.
+            using var barrierEnd = new CancellationTokenSource();
+            var barrier = new JsonRpcRequest { Id = new RequestId("listen-2"), Method = listen.Method, Params = listen.Params!.DeepClone() };
+            var barrierStream = client.SendRequestAsync(barrier, barrierEnd.Token).ContinueWith(_ => { }, TaskScheduler.Default);
+            await Until(() => Volatile.Read(ref acks) > 1);
+            Assert.Equal(2, acks);
+
             // Sent by hand: the SDK client's own cancellation of the request may not send it (its registration is disposed first).
             await client.SendNotificationAsync(NotificationMethods.CancelledNotification, new CancelledNotificationParams { RequestId = listen.Id });
             await listenEnd.CancelAsync();
             await stream;
-            await Task.Delay(200);
-            await client.CallToolAsync("unload_assembly", new Dictionary<string, object?> { ["assembly"] = "native.dll" });
-            await Task.Delay(300);
-            Assert.True(updated.Count == 1, string.Join("\n", updated.Select(u => u?.ToJsonString())));
+            // The server handles each message on its own, so a change made after the cancellation was sent may still go on
+            // the stream until the server has handled it. The stream counts as closed once two changes in a row, each seen
+            // on the second stream, add nothing to it.
+            var loaded = true;
+            var quiet = 0;
+            for (var waited = System.Diagnostics.Stopwatch.StartNew(); quiet < 2 && waited.Elapsed < TimeSpan.FromSeconds(30);)
+            {
+                var (before, seen) = (Count("listen-1"), Count("listen-2"));
+                await client.CallToolAsync(loaded ? "unload_assembly" : "load_assembly",
+                    new Dictionary<string, object?> { [loaded ? "assembly" : "path"] = loaded ? "native.dll" : NativeSample(_dir) });
+                loaded = !loaded;
+                await Until(() => Count("listen-2") > seen);
+                Assert.True(Count("listen-2") > seen, "no update on the open stream");
+                await Task.Delay(300);
+                quiet = Count("listen-1") == before ? quiet + 1 : 0;
+            }
+            Assert.True(quiet == 2, string.Join("\n", updated.Select(u => u?.ToJsonString())));
+
+            await client.SendNotificationAsync(NotificationMethods.CancelledNotification, new CancelledNotificationParams { RequestId = barrier.Id });
+            await barrierEnd.CancelAsync();
+            await barrierStream;
+
+            int Count(string id) => updated.Count(u => u?["_meta"]?["io.modelcontextprotocol/subscriptionId"]?.GetValue<string>() == id);
         }
     }
 
