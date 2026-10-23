@@ -56,6 +56,7 @@ public sealed class TestRemoteTests : IDisposable
         Source("Mobile", "public class OddTests { [RequiresRealDataFact(Pick())] public void M() { } }", "O.cs");
         Source("Web", "public class CaptureTests { [RequiresRealDataFact(\"CORVUS_TSHARK\")] public void M() { } }", "C.cs");
         Source("Mobile", "public class IdaDataTests { [RequiresRealDataFact(\"CORVUS_X\")] [IdaFact] public void M() { } }", "I.cs");
+        Source("NativeAnalysis", "public class IdaImageTests { [IdaFact(RealData.Apps)] public void M() { } }", "V.cs");
         var lines = TestReuseTests.Run($$"""
             Import-Module {{Module}}
             'classes=' + ((Get-RemoteClasses {{Quote(tests)}}) -join ',')
@@ -70,6 +71,7 @@ public sealed class TestRemoteTests : IDisposable
             'held=' + ((Get-HeldClasses {{Quote(tests)}} CORVUS_APPS) -join ';')
             'variables=' + ((Get-RealDataVariables {{Quote(tests)}}) -join ',') + ';' + ((Get-RealDataVariables {{Quote(tests)}} -Tools) -join ',')
             'mixed=' + ((Get-MixedClasses {{Quote(tests)}}) -join ',')
+            'idahost=' + ((Get-IdaHostClasses {{Quote(tests)}} @{ IdaImageTests = 1000 } CORVUS_IDA_DIR) -contains 'IdaImageTests') + ',' + ((Get-IdaHostClasses {{Quote(tests)}} @{ IdaSweepTests = 1000 } CORVUS_IDA_DIR) -contains 'IdaSweepTests')
             'shard0=' + ((Get-RemoteShard $sweep 0 2) -join ',')
             'shard1=' + ((Get-RemoteShard $sweep 1 2) -join ',')
             'routine=' + (Get-LocalFilter 'Tier!=Release' @('FormatSweepTests', 'PipelineRoundTripTests'))
@@ -97,6 +99,9 @@ public sealed class TestRemoteTests : IDisposable
         Assert.Contains("testhost=ContractSweepFullTests,DeadlineTests,EngineMixTests,FormatSweepTests,GhidraReadTests,GhidraSideTests,LiveMatrixTests,PeSweepTests,PipelineRoundTripTests", lines);
         Assert.Contains("ghidra=EngineMixTests,GhidraReadTests,GhidraSideTests", lines);
         Assert.Contains("mixed=EngineMixTests", lines);
+        // An IDA fact given real-data variables keeps its class here, where the data is: dealt first by its weight, it
+        // would go to the host.
+        Assert.Contains("idahost=False,True", lines);
         Assert.Contains("live=LiveMatrixTests", lines);
         Assert.Contains("shard0=ContractSweepFullTests,PeSweepTests", lines);
         Assert.Contains("shard1=FormatSweepTests,PipelineRoundTripTests", lines);

@@ -209,9 +209,24 @@ public static class RealData
     /// <summary>A folder of Linux or Android ELF core files (with the program's libraries beside them).</summary>
     public const string ElfCores = "CORVUS_ELF_CORES";
 
+    /// <summary>A native C++ image whose virtual calls are resolved and checked against IDA on a sample.</summary>
+    public const string VirtualCallImage = "CORVUS_VCALL_IMAGE";
+
     public static string? Get(string variable) => Environment.GetEnvironmentVariable(variable) is { Length: > 0 } v ? v : null;
 
     public static string Path(string variable) => Get(variable) ?? throw new InvalidOperationException($"{variable} is not set");
+
+    /// <summary>Why a test needing <paramref name="variables"/> skips (the first unset one, or one naming a missing path), or null.</summary>
+    public static string? SkipReason(IEnumerable<string> variables)
+    {
+        foreach (var v in variables)
+        {
+            var value = Get(v);
+            if (value == null) return $"Set {v} to run this real-data test.";
+            if (!System.IO.Path.Exists(value)) return $"{v} points to a missing path: {value}";
+        }
+        return null;
+    }
 
     /// <summary>Assemblies that are not the framework or the engine: the application's own code.</summary>
     public static bool IsAppAssembly(LoadedAssembly a) =>
@@ -224,12 +239,7 @@ public sealed class RequiresRealDataFactAttribute : FactAttribute
 {
     public RequiresRealDataFactAttribute(params string[] variables)
     {
-        foreach (var v in variables)
-        {
-            var value = RealData.Get(v);
-            if (value == null) { Skip = $"Set {v} to run this real-data test."; return; }
-            if (!System.IO.Path.Exists(value)) { Skip = $"{v} points to a missing path: {value}"; return; }
-        }
+        Skip = RealData.SkipReason(variables);
     }
 }
 

@@ -894,8 +894,9 @@ internal static class WorkerKill
 }
 
 /// <summary>
-/// Runs only when an IDA install with idalib and a usable 64-bit Python are present: the install is found at discovery,
-/// the Python probe runs when a test runs (once per run).
+/// Runs only when an IDA install with idalib and a usable 64-bit Python are present, and every real-data variable given
+/// names an existing path (see <see cref="RealData"/>): the install and the data are checked at discovery, the Python
+/// probe runs when a test runs (once per run).
 /// </summary>
 [TraitDiscoverer(EngineTraitDiscoverer.TypeName, EngineTraitDiscoverer.AssemblyName)]
 [Xunit.Sdk.XunitTestCaseDiscoverer(RunTimeSkips.FactDiscoverer, RunTimeSkips.Assembly)]
@@ -909,9 +910,10 @@ public sealed class IdaFactAttribute : FactAttribute, ITraitAttribute, IRunTimeS
         return a.IsAvailable ? null : $"IDA provider unavailable: {a.Reason}";
     });
 
-    public IdaFactAttribute()
+    public IdaFactAttribute(params string[] realData)
     {
         if (Environment.GetEnvironmentVariable("CORVUS_TEST_ENGINE") == "ghidra") Skip = "IDA tests are left out of the second-Ghidra pass.";
+        else if (RealData.SkipReason(realData) is { } data) Skip = data;
         else if (IdaInstallation.Locate(null, out var reason, out _) == null) Skip = reason;
     }
 

@@ -422,11 +422,10 @@ public class VirtualCallTests(ITestOutputHelper output)
     /// site counts, and the agreement with IDA on a sample.
     /// </summary>
     [Trait("Speed", "Slow")]
-    [IdaFact]
+    [IdaFact(RealData.VirtualCallImage)]
     public async Task Real_image_virtual_edges_and_agreement_with_IDA()
     {
-        var path = Environment.GetEnvironmentVariable("CORVUS_VCALL_IMAGE");
-        if (string.IsNullOrEmpty(path) || !File.Exists(path)) { output.WriteLine("CORVUS_VCALL_IMAGE not set"); return; }
+        var path = RealData.Path(RealData.VirtualCallImage);
         using var dir = new TempDir();
         EngineSeed.Copy(dir.File("cache"), path, "ida");
         var (_, tools, engines) = Rig(dir);

@@ -34,6 +34,8 @@ $script:LocalAttributes = 'LiveRealDataFact'
 # variable the file's facts name (test-remote-setup.ps1 -Data copies them), and stay here otherwise. Real data never
 # goes to GitHub.
 $script:DataAttribute = 'RequiresRealDataFact'
+# An IDA fact given real-data variables reads real data too.
+$script:IdaDataFact = '\[IdaFact\(\s*[^)\s]'
 # Real-data variables that name a program the tests run (reference decompilers, disassemblers, validators, a capture
 # reader, the pipeline tool) rather than inputs: -Data leaves them out, and a class that needs one goes only to a host
 # whose own install sets it.
@@ -153,7 +155,7 @@ function Get-RemoteEntries([string]$testsDir, [switch]$CrossPlatform) {
             $text = Get-Content $_.FullName -Raw
             if ($text -match $local) { return }
             $ida = $text -match '\[IdaFact\b'; $ghidra = $text -match '\[GhidraFact\b'
-            if ($text -match ('\[' + $script:DataAttribute + '\b')) {
+            if ($text -match ('\[' + $script:DataAttribute + '\b') -or $text -match $script:IdaDataFact) {
                 if ($ida) { return }
                 $variables = @(Get-DataVariables $text $constants)
                 [regex]::Matches($text, '(?m)^public (?:sealed |abstract |partial |static )*class (\w+Tests)\b') | ForEach-Object { $_.Groups[1].Value } |
