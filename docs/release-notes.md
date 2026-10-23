@@ -470,6 +470,16 @@
   and triple the time limits (12 s, 4.5 s for the overview and package review, 2.25 s per script block), so a reading
   on a busy machine is no longer cut short at the 2.4.0 limits; a note names the limit that stops a reading, time or
   JavaScript steps, and marks it partial. [a10c24d6](https://github.com/Albasha0x0/Corvus/commit/a10c24d6)
+- **Ghidra starts:** a Ghidra worker's start is stopped only after its processes use less than 1% of a core for 2 min,
+  within the open's 20 min limit, instead of after 2 min of wall time whatever it was doing, so a JVM start starved of
+  CPU on a busy machine finishes; the error names the limit that stopped it, and where CPU time cannot be read a start
+  stops after 2 min as before. Verified with Ghidra 12.1.4 on Windows 11 x64. [8a378f59](https://github.com/Albasha0x0/Corvus/commit/8a378f59)
+- **server_status tool checks:** the checks of JADX, Java and adb for the tool availability list run side by side
+  within what is left of the status deadline, instead of one after another with 5 s each, which added up to more than
+  20 s under load. [cf70a298](https://github.com/Albasha0x0/Corvus/commit/cf70a298)
+- **Worker request limits:** a silent worker request stopped by its quiet limit is named as such; it could be reported
+  as stopped by its overall limit (once in 3,200 requests under load), so a worker that went silent read like one that
+  ran out of time. [5678530f](https://github.com/Albasha0x0/Corvus/commit/5678530f)
 
 ## 2.4.0
 
