@@ -6,12 +6,11 @@ using Corvus.Mcp;
 namespace Corvus.Tests;
 
 /// <summary>The call deadline: tools not marked long-running end with a timeout error after DeadlineFactor x --timeout.</summary>
-// Deadlines are timed, so the class runs alone (parallel classes starve small CI runners).
-[Collection(nameof(SerialTimingTests))]
 public class CallDeadlineTests
 {
-    private static ServiceProvider Services(int timeoutSeconds = 1) =>
-        new ServiceCollection().AddSingleton(new ServerOptions { TimeoutSeconds = timeoutSeconds }).AddSingleton<ResultStore>().BuildServiceProvider();
+    private static ServiceProvider Services(int timeoutSeconds = 1, TimeProvider? time = null) =>
+        new ServiceCollection().AddSingleton(new ServerOptions { TimeoutSeconds = timeoutSeconds }).AddSingleton<ResultStore>()
+            .AddSingleton(time ?? TimeProvider.System).BuildServiceProvider();
 
     private static ValueTask<CallToolResult> Run(ServiceProvider services, string tool, Func<CancellationToken, Task<CallToolResult>> work, CancellationToken client = default) =>
         CallFilter.Run(new CallToolRequestParams { Name = tool }, null, services, ct => new ValueTask<CallToolResult>(work(ct)), client);
@@ -29,20 +28,26 @@ public class CallDeadlineTests
     [Fact]
     public async Task CallsPastTheDeadlineEndWithATimeout()
     {
-        using var services = Services();
+        var clock = new ArmedClock();
+        using var services = Services(time: clock);
         var release = new TaskCompletionSource();
         var cooperative = Run(services, "decompile_member", async ct => { await Task.Delay(Timeout.Infinite, ct); return Done; }).AsTask();
         var ignoring = Run(services, "search_strings", async _ => { await release.Task; return Done; }).AsTask();
-        var quick = Run(services, "get_type_info", async ct => { await Task.Delay(10, ct); return Done; }).AsTask();
+        var quick = Run(services, "get_type_info", _ => Task.FromResult(Done)).AsTask();
 
         Assert.Equal("done", ((TextContentBlock)(await quick).Content[0]).Text);
+        var deadline = CallFilter.Deadline("decompile_member", services.GetRequiredService<ServerOptions>())!.Value;
+        // Only the stop fires here, so the grace period cannot end before the cooperative work has stopped.
+        var early = CallFilter.Early(deadline);
+        Assert.Equal(early, await clock.RunUntilAsync(cooperative, within: early));
         var timedOut = McpProtocolTests.ErrorJson(await cooperative);
         Assert.Equal("timeout", timedOut.GetProperty("code").GetString());
         Assert.True(timedOut.GetProperty("retryable").GetBoolean());
         Assert.False(timedOut.GetProperty("details").GetProperty("stillRunning").GetBoolean());
         Assert.False(timedOut.GetProperty("details").TryGetProperty("retryAfterMs", out _));
-        // The work never ends until released below: an answer at all is the deadline's (the minute only guards against a hang).
-        var abandoned = McpProtocolTests.ErrorJson(await ignoring.WaitAsync(TimeSpan.FromMinutes(1)));
+        // The work never ends until released below: an answer at all is the deadline's.
+        Assert.True(await clock.RunUntilAsync(ignoring) <= deadline);
+        var abandoned = McpProtocolTests.ErrorJson(await ignoring);
         Assert.Equal("timeout", abandoned.GetProperty("code").GetString());
         Assert.True(abandoned.GetProperty("details").GetProperty("stillRunning").GetBoolean());
         Assert.Equal((long)LeftoverWork.RetryAfter.TotalMilliseconds, abandoned.GetProperty("details").GetProperty("retryAfterMs").GetInt64());
@@ -50,20 +55,24 @@ public class CallDeadlineTests
     }
 
     [Fact]
-    [Trait("Speed", "Slow")]
     public async Task WorkLeftRunningPastTheDeadlineIsBoundedAndCounted()
     {
-        using var services = Services();
+        var clock = new ArmedClock();
+        using var services = Services(time: clock);
         var leftovers = LeftoverWork.For(services.GetRequiredService<ServerOptions>());
         leftovers.Max = 1;
         var release = new TaskCompletionSource();
-        var abandoned = McpProtocolTests.ErrorJson(await Run(services, "search_strings", async _ => { await release.Task; return Done; }).AsTask().WaitAsync(TimeSpan.FromMinutes(1)));
+        var first = Run(services, "search_strings", async _ => { await release.Task; return Done; }).AsTask();
+        await clock.RunUntilAsync(first);
+        var abandoned = McpProtocolTests.ErrorJson(await first);
         Assert.True(abandoned.GetProperty("details").GetProperty("stillRunning").GetBoolean());
         Assert.Equal(1, leftovers.Running);
 
         // at the cap a call waits until its deadline, then is refused as busy with a retry hint
         var started = false;
-        var refused = McpProtocolTests.ErrorJson(await Run(services, "get_type_info", _ => { started = true; return Task.FromResult(Done); }));
+        var refusing = Run(services, "get_type_info", _ => { started = true; return Task.FromResult(Done); }).AsTask();
+        await clock.RunUntilAsync(refusing);
+        var refused = McpProtocolTests.ErrorJson(await refusing);
         Assert.False(started);
         Assert.Equal("provider_unavailable", refused.GetProperty("code").GetString());
         Assert.True(refused.GetProperty("retryable").GetBoolean());
@@ -71,9 +80,9 @@ public class CallDeadlineTests
         Assert.Equal(1, refused.GetProperty("details").GetProperty("leftoverCalls").GetInt32());
         Assert.NotEqual(true, (await Run(services, "server_status", _ => Task.FromResult(Done))).IsError);
 
-        // a waiting call starts as soon as the leftover finishes
+        // a waiting call starts as soon as the leftover finishes; the clock stands still, so its deadline cannot end it
         var waiting = Run(services, "get_type_info", _ => Task.FromResult(Done)).AsTask();
-        await Task.Delay(100);
+        await clock.ArmedAsync();
         Assert.False(waiting.IsCompleted);
         release.SetResult();
         Assert.NotEqual(true, (await waiting.WaitAsync(TimeSpan.FromMinutes(1))).IsError);
@@ -84,16 +93,19 @@ public class CallDeadlineTests
     [Fact]
     public async Task WorkLeftRunningAfterAClientCancelIsCounted()
     {
-        using var services = Services(timeoutSeconds: 3600);
+        var clock = new ArmedClock();
+        using var services = Services(timeoutSeconds: 3600, time: clock);
         var leftovers = LeftoverWork.For(services.GetRequiredService<ServerOptions>());
         var release = new TaskCompletionSource();
         using var cts = new CancellationTokenSource();
         var call = Run(services, "search_strings", async _ => { await release.Task; return Done; }, cts.Token).AsTask();
         await cts.CancelAsync();
-        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => call.WaitAsync(TimeSpan.FromMinutes(1)));
+        // Only the grace period after the cancel fires, not the hour-long deadline.
+        await clock.RunUntilAsync(call, within: CallFilter.DeadlineGrace);
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => call);
         Assert.Equal(1, leftovers.Running);
         release.SetResult();
-        for (var clock = System.Diagnostics.Stopwatch.StartNew(); leftovers.Running > 0 && clock.Elapsed < TimeSpan.FromMinutes(1);) await Task.Delay(10);
+        for (var watch = System.Diagnostics.Stopwatch.StartNew(); leftovers.Running > 0 && watch.Elapsed < TimeSpan.FromMinutes(1);) await Task.Delay(10);
         Assert.Equal(0, leftovers.Running);
         Assert.Equal(1, leftovers.Total);
     }
@@ -131,7 +143,8 @@ public class CallDeadlineTests
     [Fact]
     public async Task AWriterBehindALongReaderAnswersByItsDeadline_NamingTheHolder()
     {
-        using var services = Services();
+        var clock = new ArmedClock();
+        using var services = Services(time: clock);
         using var workspace = new AssemblyWorkspace();
         var release = new TaskCompletionSource();
         using var reading = new ManualResetEventSlim();
@@ -143,11 +156,15 @@ public class CallDeadlineTests
             return Done;
         }), CancellationToken.None)).AsTask();
         reading.Wait();
-        var watch = System.Diagnostics.Stopwatch.StartNew();
-        var writer = await Run(services, "rename_symbol", ct => Task.Run(() => workspace.Write(() => Done), ct)).AsTask().WaitAsync(TimeSpan.FromMinutes(1));
+        var writing = Run(services, "rename_symbol", ct => Task.Run(() => workspace.Write(() => Done), ct)).AsTask();
         var deadline = CallFilter.Deadline("rename_symbol", services.GetRequiredService<ServerOptions>())!.Value;
-        Assert.True(watch.Elapsed < deadline + TimeSpan.FromSeconds(2), $"answered after {watch.Elapsed}");
-        var json = McpProtocolTests.ErrorJson(writer);
+        // The stop must find the writer queued on the lock: a stop before its work starts names no holder.
+        await Task.Run(async () => { while (!workspace.LockUsers().Any(u => u is { Write: true, Waiting: true })) await Task.Delay(5); })
+            .WaitAsync(TimeSpan.FromMinutes(1));
+        // Only the stop fires: the writer sees it between lock waits, so the grace period cannot end first.
+        var elapsed = await clock.RunUntilAsync(writing, within: CallFilter.Early(deadline));
+        Assert.True(elapsed <= deadline, $"answered after {elapsed}");
+        var json = McpProtocolTests.ErrorJson(await writing);
         Assert.Equal("timeout", json.GetProperty("code").GetString());
         Assert.StartsWith("export_project (shared, running ", json.GetProperty("details").GetProperty("blockedBy").GetString());
         Assert.Contains("held by export_project", json.GetProperty("message").GetString());
