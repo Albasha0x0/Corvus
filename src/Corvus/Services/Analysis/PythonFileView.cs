@@ -113,7 +113,7 @@ internal sealed class PythonFileView : IFileSummaryView
     private static (string?, long?, string?) Decompile(FileInput file, long offset, List<string> notes, CancellationToken ct)
     {
         var tool = ExternalTools.PythonDecompiler;
-        if (Environment.GetEnvironmentVariable(tool.Variable) is not { Length: > 0 }) return (null, null, null);
+        if (ExternalTools.ReadVariable(tool.Variable) is not { Length: > 0 }) return (null, null, null);
         var probe = ExternalTools.Probe(tool);
         if (!probe.Usable)
         {

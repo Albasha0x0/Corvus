@@ -39,11 +39,17 @@ public static partial class ExternalTools
 
     private static readonly string Exe = OperatingSystem.IsWindows() ? ".exe" : "";
 
+    /// <summary>
+    /// Reads a variable that locates a tool (its own, PATH, JAVA_HOME, the Android SDK's); null when unset. The process
+    /// environment unless the host replaces it, as the tests do to keep one test's settings from another's lookups.
+    /// </summary>
+    internal static Func<string, string?> ReadVariable { get; set; } = Environment.GetEnvironmentVariable;
+
     public static readonly ExternalTool Java = new("java", "Java (JDK 17+)", "CORVUS_JAVA", ExternalToolKind.Executable, ["java" + Exe], ["-version"], 17,
         "decompile_java", false,
         Ops(("jar", ["-Xss16m", "-jar", "{jar}"])))
     {
-        KnownDirectories = () => Environment.GetEnvironmentVariable("JAVA_HOME") is { Length: > 0 } home ? [(System.IO.Path.Combine(home, "bin"), "JAVA_HOME")] : [],
+        KnownDirectories = () => ReadVariable("JAVA_HOME") is { Length: > 0 } home ? [(System.IO.Path.Combine(home, "bin"), "JAVA_HOME")] : [],
         KnownDirectoriesFirst = true,
     };
 
@@ -164,7 +170,7 @@ public static partial class ExternalTools
     private static IEnumerable<(string, string)> AndroidSdkDirectories()
     {
         foreach (var variable in new[] { "ANDROID_HOME", "ANDROID_SDK_ROOT" })
-            if (Environment.GetEnvironmentVariable(variable) is { Length: > 0 } sdk) yield return (System.IO.Path.Combine(sdk, "platform-tools"), variable);
+            if (ReadVariable(variable) is { Length: > 0 } sdk) yield return (System.IO.Path.Combine(sdk, "platform-tools"), variable);
         var local = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
         var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
         if (OperatingSystem.IsWindows() && local.Length > 0) yield return (System.IO.Path.Combine(local, "Android", "Sdk", "platform-tools"), "default SDK location");
@@ -175,7 +181,7 @@ public static partial class ExternalTools
     /// <summary>The tool's file: the variable (a file, or a folder holding one of <see cref="ExternalTool.Files"/>), known folders, then PATH.</summary>
     public static (string Path, string Source)? Locate(ExternalTool tool)
     {
-        if (Environment.GetEnvironmentVariable(tool.Variable) is { Length: > 0 } configured)
+        if (ReadVariable(tool.Variable) is { Length: > 0 } configured)
         {
             configured = configured.Trim().Trim('"');
             if (File.Exists(configured)) return (System.IO.Path.GetFullPath(configured), tool.Variable);
@@ -183,7 +189,7 @@ public static partial class ExternalTools
             return null; // a variable that names nothing usable is not silently replaced by another copy
         }
         var path = tool.Kind == ExternalToolKind.Executable
-            ? (Environment.GetEnvironmentVariable("PATH") ?? "").Split(System.IO.Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries).Select(d => (d.Trim('"'), "PATH"))
+            ? (ReadVariable("PATH") ?? "").Split(System.IO.Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries).Select(d => (d.Trim('"'), "PATH"))
             : [];
         var known = tool.KnownDirectories();
         foreach (var (dir, source) in tool.KnownDirectoriesFirst ? known.Concat(path) : path.Concat(known))
@@ -224,7 +230,7 @@ public static partial class ExternalTools
         var located = Locate(tool);
         if (located is not { } at)
         {
-            var configured = Environment.GetEnvironmentVariable(tool.Variable);
+            var configured = ReadVariable(tool.Variable);
             var why = configured is { Length: > 0 }
                 ? $"{tool.Variable} is set to '{configured.Trim()}', which is not {(tool.Kind == ExternalToolKind.Jar ? "a jar or a folder with one" : "the program or a folder with it")}"
                 : "not found";

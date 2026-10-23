@@ -104,14 +104,36 @@ public sealed class ExternalToolEnvironmentCollection
     public const string Name = "external tool environment";
 }
 
-/// <summary>Sets environment variables for one test and restores them.</summary>
+/// <summary>
+/// Sets environment variables for one test and restores them. The external tool lookups of that test's flow see its
+/// values; those of every other flow see the values the run started with, so a test running beside it never runs its
+/// fakes.
+/// </summary>
 internal sealed class EnvironmentScope : IDisposable
 {
+    private static readonly StringComparer Names = OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal;
+
+    /// <summary>The process environment as the run started, before any test set a variable.</summary>
+    internal static readonly IReadOnlyDictionary<string, string> AtStart = System.Environment.GetEnvironmentVariables()
+        .Cast<System.Collections.DictionaryEntry>().ToDictionary(e => (string)e.Key, e => (string)e.Value!, Names);
+
+    private static readonly AsyncLocal<Dictionary<string, string?>?> InFlow = new();
+
     private readonly Dictionary<string, string?> _saved = [];
+    private readonly Dictionary<string, string?>? _flowBefore = InFlow.Value;
+
+    [System.Runtime.CompilerServices.ModuleInitializer]
+    internal static void PinToolLookups() => Corvus.Native.Providers.ExternalTools.ReadVariable = Read;
+
+    /// <summary>A variable as this flow's scopes set it, else as the run started; null when unset.</summary>
+    internal static string? Read(string name) =>
+        InFlow.Value is { } set && set.TryGetValue(name, out var value) ? value : AtStart.GetValueOrDefault(name);
 
     public EnvironmentScope Set(string name, string? value)
     {
         if (!_saved.ContainsKey(name)) _saved[name] = System.Environment.GetEnvironmentVariable(name);
+        // Copied on write: a flow started before this call keeps the values it started with.
+        InFlow.Value = new Dictionary<string, string?>(InFlow.Value ?? [], Names) { [name] = value };
         System.Environment.SetEnvironmentVariable(name, value);
         return this;
     }
@@ -119,5 +141,6 @@ internal sealed class EnvironmentScope : IDisposable
     public void Dispose()
     {
         foreach (var (k, v) in _saved) System.Environment.SetEnvironmentVariable(k, v);
+        InFlow.Value = _flowBefore;
     }
 }

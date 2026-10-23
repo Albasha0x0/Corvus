@@ -232,6 +232,24 @@ public class ExternalToolsTests : IDisposable
     }
 
     [Fact]
+    public async Task A_tool_lookup_outside_a_tests_flow_sees_the_values_the_run_started_with()
+    {
+        using var fake = new FakeTool();
+        var adb = fake.CopyAs("adb");
+        // A flow started before the scope stands for a test running beside this one.
+        var go = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var beside = Task.Run(async () =>
+        {
+            await go.Task;
+            return ExternalTools.Locate(ExternalTools.Adb);
+        });
+        using var env = new EnvironmentScope().Set("CORVUS_ADB", adb);
+        go.SetResult();
+        Assert.Equal((adb, "CORVUS_ADB"), ExternalTools.Locate(ExternalTools.Adb));
+        Assert.NotEqual(adb, (await beside)?.Path);
+    }
+
+    [Fact]
     public void A_test_server_gets_the_external_tool_variables_the_run_started_with()
     {
         var atStart = FakeDevice.ServerEnvironment["CORVUS_TSHARK"];

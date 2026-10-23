@@ -678,12 +678,12 @@ public static class UnityOverview
     internal static string? FindDie()
     {
         var name = OperatingSystem.IsWindows() ? "diec.exe" : "diec";
-        if (Environment.GetEnvironmentVariable("CORVUS_DIE") is { Length: > 0 } configured)
+        if (ExternalTools.ReadVariable("CORVUS_DIE") is { Length: > 0 } configured)
         {
             if (File.Exists(configured)) return Path.GetFullPath(configured);
             if (Directory.Exists(configured) && File.Exists(Path.Combine(configured, name))) return Path.GetFullPath(Path.Combine(configured, name));
         }
-        foreach (var dir in (Environment.GetEnvironmentVariable("PATH") ?? "").Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries))
+        foreach (var dir in (ExternalTools.ReadVariable("PATH") ?? "").Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries))
         {
             try { if (File.Exists(Path.Combine(dir.Trim('"'), name))) return Path.Combine(dir.Trim('"'), name); }
             catch (ArgumentException) { }
