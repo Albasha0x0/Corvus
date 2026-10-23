@@ -251,8 +251,9 @@
   file's hashes, the limits used and a status per section (complete, partial with the limit reached, not_applicable,
   unavailable, error, timeout). `--time-limit` (default 120 s) ends the run with exit code 124 and the document still
   written, and `--rules <file|folder>` adds YARA rule matches (`--limit yaraMatches=N`, default 500). [3ce1d488](https://github.com/Albasha0x0/Corvus/commit/3ce1d488) [ce4908b9](https://github.com/Albasha0x0/Corvus/commit/ce4908b9)
-- **server_status:** the first call checks the engines and the external programs side by side, so it waits for the
-  slowest check rather than their sum. [b40bcf0a](https://github.com/Albasha0x0/Corvus/commit/b40bcf0a)
+- **server_status:** the first call checks the engines and the external programs side by side, and reads its status
+  sections beside them, so it waits for the slowest check rather than their sum: under load 9.1-14.2 s before,
+  3.0-3.7 s now (1.4-3.8 s and 1.0-1.7 s on a quiet machine). [b40bcf0a](https://github.com/Albasha0x0/Corvus/commit/b40bcf0a) [396d164c](https://github.com/Albasha0x0/Corvus/commit/396d164c)
 - **Repository tests:** `./test.ps1 -Perf` runs the timing tests alone, `./nightly.ps1 -Register` runs a whole run and
   the perf run each night, push runs send the heavy test classes (Ghidra and live groups included) to GitHub-hosted
   runners or to a second machine over ssh (`CORVUS_TEST_REMOTE`) and join their results, keeping IDA, real-data and
@@ -525,6 +526,9 @@
   Windows the stop handler looks up symbols in the agent's folder only, so stops add no symbol file lookups to the
   program's activity.
   [24c47f48](https://github.com/Albasha0x0/Corvus/commit/24c47f48) [811104d1](https://github.com/Albasha0x0/Corvus/commit/811104d1) [88351ba8](https://github.com/Albasha0x0/Corvus/commit/88351ba8) [9ad90796](https://github.com/Albasha0x0/Corvus/commit/9ad90796) [91b92c54](https://github.com/Albasha0x0/Corvus/commit/91b92c54) [82e7f346](https://github.com/Albasha0x0/Corvus/commit/82e7f346) [680bfe02](https://github.com/Albasha0x0/Corvus/commit/680bfe02) [bbb845e9](https://github.com/Albasha0x0/Corvus/commit/bbb845e9) [dfb00783](https://github.com/Albasha0x0/Corvus/commit/dfb00783) [82557323](https://github.com/Albasha0x0/Corvus/commit/82557323) [f2afc731](https://github.com/Albasha0x0/Corvus/commit/f2afc731) [e46ae343](https://github.com/Albasha0x0/Corvus/commit/e46ae343) [1d551ef5](https://github.com/Albasha0x0/Corvus/commit/1d551ef5)
+- **Managed names at a stop:** a session's .NET runtime that could not be read is tried again 5 s after the last try
+  as well as when the program loads a module, so a stop whose thread is held no longer keeps its managed frames
+  unnamed; the first failed read is named once in the session's events. [a21afade](https://github.com/Albasha0x0/Corvus/commit/a21afade)
 
 ## 2.4.0
 
