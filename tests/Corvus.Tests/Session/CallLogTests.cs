@@ -109,9 +109,11 @@ public class CallLogTests
     public void A_text_of_a_million_letters_is_masked_within_seconds()
     {
         // Each URL scheme candidate scanned to the end of the run before: about 4 s for 400,000 letters, quadratic.
-        var watch = System.Diagnostics.Stopwatch.StartNew();
+        // Thread CPU time, so a busy machine that deschedules the test does not count.
+        var cpu = ThreadCpuClock.Now();
         Assert.Equal(1_000_000, Redaction.Text(new string('F', 1_000_000)).Length);
-        Assert.True(watch.Elapsed < TimeSpan.FromSeconds(5), $"{watch.Elapsed.TotalSeconds:0.0} s");
+        var took = ThreadCpuClock.Now() - cpu;
+        Assert.True(took < TimeSpan.FromSeconds(5), $"{took.TotalSeconds:0.0} s of CPU");
         Assert.Equal(new string('a', 40) + "://user:[redacted]@host", Redaction.Text(new string('a', 40) + "://user:pa55@host"));
     }
 
