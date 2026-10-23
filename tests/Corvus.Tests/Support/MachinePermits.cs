@@ -24,11 +24,25 @@ public sealed class PermitAttribute(string resource) : Attribute
 /// </summary>
 public static class MachinePermits
 {
-    /// <summary>Permits per resource.</summary>
+    /// <summary>Permits per resource on any machine.</summary>
     public static readonly IReadOnlyDictionary<string, int> Counts = new Dictionary<string, int>
     {
         ["engine-ida"] = 2, ["engine-ghidra"] = 2, ["live"] = 2, ["reference-tool"] = 4,
     };
+
+    /// <summary>The permits a machine with <see cref="LargeMemory"/> or more adds to <see cref="Counts"/>.</summary>
+    public static readonly IReadOnlyDictionary<string, int> LargeMachineExtra = new Dictionary<string, int>
+    {
+        ["engine-ida"] = 1, ["engine-ghidra"] = 1,
+    };
+
+    // A third engine of each kind keeps more than 20 GB free in a push run on an 80 GB machine; 16 GB hosts stay at two.
+    private const long LargeMemory = 64L << 30;
+
+    /// <summary>The permits per resource on this machine: <see cref="Counts"/>, plus <see cref="LargeMachineExtra"/> on a large one.</summary>
+    public static IReadOnlyDictionary<string, int> Here { get; } = GC.GetGCMemoryInfo().TotalAvailableMemoryBytes >= LargeMemory
+        ? Counts.ToDictionary(c => c.Key, c => c.Value + LargeMachineExtra.GetValueOrDefault(c.Key))
+        : Counts;
 
     private static readonly TimeSpan Poll = TimeSpan.FromMilliseconds(200);
 
@@ -81,7 +95,7 @@ public static class MachinePermits
         // The perf run holds every permit itself (test.ps1 -Perf), so its own tests take none.
         Environment.GetEnvironmentVariable("CORVUS_PERMITS_HELD") == "1"
             ? Task.FromResult((new PermitHandle(), TimeSpan.Zero))
-            : TakeAsync(resources, Folder, Counts, cancellation, WaitLimit, Heartbeat);
+            : TakeAsync(resources, Folder, Here, cancellation, WaitLimit, Heartbeat);
 
     // Tests measure the limit on their own clock, learn from polled when the waiter has checked the records, and
     // may replace the holder lookup or its bound (infinite: wait for its answer).

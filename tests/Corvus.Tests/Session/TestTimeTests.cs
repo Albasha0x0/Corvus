@@ -158,7 +158,8 @@ public class TestTimeTests
             Assert.Equal("3", Line(lines, "calls"));
             Assert.Equal("", Line(lines, "first"));
             Assert.Equal("Slow", Line(lines, "second"));
-            Assert.Equal(string.Join(',', MachinePermits.Counts.OrderBy(c => c.Key, StringComparer.Ordinal).Select(c => $"{c.Key}={c.Value}")), Line(lines, "counts"));
+            Assert.Equal(string.Join(',', MachinePermits.Counts.OrderBy(c => c.Key, StringComparer.Ordinal)
+                .Select(c => $"{c.Key}={c.Value + MachinePermits.LargeMachineExtra.GetValueOrDefault(c.Key)}")), Line(lines, "counts"));
             Assert.Equal("no", Line(lines, "open"));
         }
         finally { Directory.Delete(dir, true); }

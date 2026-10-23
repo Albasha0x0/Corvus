@@ -545,11 +545,15 @@ function Get-TimeSummary([string]$historyPath) {
     }
 }
 
-# The permit counts of Support/MachinePermits.cs, as @{ resource = count }: the table the tests take permits by.
+# The permit counts of Support/MachinePermits.cs, as @{ resource = count }: the most the tests take on any machine
+# (Counts plus LargeMachineExtra), so a holder of all of them holds every slot a test can open.
 function Get-PermitCounts([string]$sourcePath) {
-    $table = [regex]::Match((Get-Content $sourcePath -Raw), '(?s)Counts = new Dictionary<string, int>\s*\{(.*?)\};').Groups[1].Value
+    $source = Get-Content $sourcePath -Raw
     $counts = @{}
-    foreach ($m in [regex]::Matches($table, '\["([a-z-]+)"\]\s*=\s*(\d+)')) { $counts[$m.Groups[1].Value] = [int]$m.Groups[2].Value }
+    foreach ($name in 'Counts', 'LargeMachineExtra') {
+        $table = [regex]::Match($source, "(?s)\b$name = new Dictionary<string, int>\s*\{(.*?)\};").Groups[1].Value
+        foreach ($m in [regex]::Matches($table, '\["([a-z-]+)"\]\s*=\s*(\d+)')) { $counts[$m.Groups[1].Value] = [int]$counts[$m.Groups[1].Value] + [int]$m.Groups[2].Value }
+    }
     if (-not $counts.Count) { throw "no permit counts in $sourcePath" }
     return $counts
 }
