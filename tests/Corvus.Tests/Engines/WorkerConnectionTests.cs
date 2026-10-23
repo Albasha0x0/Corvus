@@ -18,6 +18,10 @@ public class WorkerConnectionTests
     /// The error of the first of at most 5 tries whose request reached the worker's input before its time limit ran out;
     /// the last try's error when none did.
     /// </summary>
+    /// <summary>Waits until <paramref name="condition"/> holds; fails after a minute.</summary>
+    private static Task Until(Func<bool> condition) =>
+        Task.Run(async () => { while (!condition()) await Task.Delay(5); }).WaitAsync(TimeSpan.FromMinutes(1));
+
     private static async Task<ToolError> TimedOutAfterTheWrite(Func<Task<ToolError>> attempt)
     {
         for (int i = 1; ; i++)
@@ -146,12 +150,16 @@ public class WorkerConnectionTests
     [Fact]
     public async Task A_timeout_names_the_workers_log_line_and_progress_reports_for_the_request()
     {
+        var clock = new ArmedClock();
         using var worker = new FakeWorkerProcess();
-        using var c = worker.Connect(Concurrent with { CancelGrace = TimeSpan.FromMilliseconds(200) });
+        using var c = worker.Connect(Concurrent with { CancelGrace = TimeSpan.FromMilliseconds(200), Time = clock });
         var logged = c.RequestAsync("stubborn", null, TimeSpan.FromSeconds(3), default);
         var unlogged = c.RequestAsync("stubborn", null, TimeSpan.FromSeconds(3), default);
         worker.Log(WorkerProtocol.RequestLogPrefix + "1 stubborn: started");
         worker.Emit(new JsonObject { ["event"] = "progress", ["id"] = 1L, ["stage"] = "" });
+        // The time limit fires only once the connection has read both lines.
+        await Until(() => c.LogLineOf(1) != null && c.Running.FirstOrDefault(r => r.Id == 1)?.ProgressEvents == 1);
+        await clock.RunUntilAsync(Task.WhenAll(logged, unlogged));
         var e = await Assert.ThrowsAsync<ToolError>(() => logged);
         Assert.Contains("Progress events: 1. Worker log: corvus request 1 stubborn: started.", e.Message);
         e = await Assert.ThrowsAsync<ToolError>(() => unlogged);
@@ -161,23 +169,31 @@ public class WorkerConnectionTests
     [Fact]
     public async Task A_request_reporting_progress_outlasts_its_quiet_limit_and_a_silent_one_is_stopped()
     {
+        var clock = new ArmedClock();
         using (var worker = new FakeWorkerProcess())
-        using (var c = worker.Connect(null))
+        using (var c = worker.Connect(new WorkerConnectionOptions { Time = clock }))
         {
             var held = c.RequestAsync("hold", new JsonObject { ["tag"] = "late" }, NoLimit, default, quiet: TimeSpan.FromSeconds(1));
             // Progress every 200 ms for 3 s: three times the quiet limit in all, never 1 s apart.
-            for (var clock = System.Diagnostics.Stopwatch.StartNew(); clock.Elapsed < TimeSpan.FromSeconds(3); await Task.Delay(200))
+            for (int i = 1; i <= 15; i++)
             {
                 Assert.False(held.IsCompleted);
                 worker.Emit(new JsonObject { ["event"] = "progress", ["id"] = 1L, ["stage"] = "load" });
+                await Until(() => c.Running.FirstOrDefault()?.ProgressEvents == i);
+                clock.Advance(TimeSpan.FromMilliseconds(200));
             }
+            Assert.False(held.IsCompleted);
             worker.Release();
             Assert.Equal("late", (await held).GetProperty("tag").GetString());
         }
+        clock = new ArmedClock();
         using (var worker = new FakeWorkerProcess())
-        using (var c = worker.Connect(null))
+        using (var c = worker.Connect(new WorkerConnectionOptions { Time = clock }))
         {
-            var e = await Assert.ThrowsAsync<ToolError>(() => c.RequestAsync("hold", null, NoLimit, default, quiet: TimeSpan.FromMilliseconds(500)));
+            var silent = c.RequestAsync("hold", null, NoLimit, default, quiet: TimeSpan.FromMilliseconds(500));
+            // The quiet limit only: the ten-minute time limit must not fire.
+            Assert.Equal(TimeSpan.FromMilliseconds(500), await clock.RunUntilAsync(silent, within: TimeSpan.FromMilliseconds(500)));
+            var e = await Assert.ThrowsAsync<ToolError>(() => silent);
             Assert.Equal(ErrorCode.Timeout, e.Code);
             Assert.Contains("reported no progress on 'hold' for", e.Message);
         }
