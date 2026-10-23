@@ -79,8 +79,7 @@ public sealed class LiveSessionOptionsRealTests(ITestOutputHelper output) : Live
             }
 
             await Ok(server, "live_session", new() { ["action"] = "close", ["session"] = "live-2" });
-            Thread.Sleep(500);
-            Assert.False(program.HasExited, "close ended a program the session attached to");
+            if (program.WaitForExit(500)) Assert.Fail($"close ended a program the session attached to: exit code 0x{program.ExitCode:X8}");
         }
         finally
         {
