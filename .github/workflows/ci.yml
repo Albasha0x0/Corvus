@@ -124,7 +124,8 @@ jobs:
           - { group: live, os: windows-latest, shard: 1, shards: 2 }
           - { group: live, os: ubuntu-latest, shard: 0, shards: 1, cross: true }
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 90
+    # Above test.ps1's 30 min hang limit plus build and setup, so a hung test ends with its dump.
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v7
 
