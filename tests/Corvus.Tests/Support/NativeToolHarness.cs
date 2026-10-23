@@ -78,6 +78,8 @@ internal sealed class NativeToolHarness : IDisposable
         Exception? unexpected = null;
         // the server's budget for this tool, so list pages are cut as a client receives them
         Core.OutputCall.Begin(new Core.OutputCall(tool, Mcp.CallFilter.FitTokens(Mcp.CallFilter.Budget(tool, null, null)), null));
+        // Lock waits end at the cancel and name their holder, as the server makes them for every call.
+        using var waits = AssemblyWorkspace.CancelWaitsWith(cts.Token, tool);
         // A call still running when it is cancelled has the stacks it runs or waits in taken, so its failure names them.
         using var answered = new CancellationTokenSource();
         var late = Task.Delay(bound, answered.Token).ContinueWith(_ => Stacks(), TaskContinuationOptions.OnlyOnRanToCompletion);
@@ -89,6 +91,8 @@ internal sealed class NativeToolHarness : IDisposable
         catch (Exception e) { unexpected = e; }
         sw.Stop();
         answered.Cancel();
+        if (unexpected is TimeoutException && waits.BlockedBy is { } holders)
+            unexpected = new TimeoutException($"{unexpected.Message}; blocked by {holders}", unexpected);
         if (unexpected is TimeoutException && await late.ContinueWith(t => t.IsCompletedSuccessfully ? t.Result : null) is { } stacks)
             unexpected = new TimeoutException($"{unexpected.Message}; at the cancel, {stacks}", unexpected);
         lock (Calls) Calls.Add(new Call(file, tool, args, sw.Elapsed, text?.Length ?? 0, error, errorText, unexpected, mustSucceed && !Lenient));
@@ -314,5 +318,22 @@ public class NativeToolHarnessTests
         Assert.IsType<TimeoutException>(call.Unexpected);
         Assert.Contains("at the cancel, thread pool:", call.Unexpected.Message);
         if (OperatingSystem.IsWindows()) Assert.Contains("Corvus.Core.AssemblyWorkspace.Enter", call.Unexpected.Message);
+    }
+
+    [Fact]
+    public async Task A_call_waiting_for_the_workspace_lock_stops_at_its_cancel_and_names_the_holder()
+    {
+        using var harness = new NativeToolHarness(backgroundIndexing: false);
+        using var held = new ManualResetEventSlim();
+        using var release = new ManualResetEventSlim();
+        var holder = Task.Run(() => harness.Workspace.Write(() => { held.Set(); return release.Wait(TimeSpan.FromSeconds(60)); }));
+        held.Wait();
+        await harness.Run("image", "read", "", _ => Task.Run(() => harness.Workspace.Read(() => "")), limit: TimeSpan.FromSeconds(1));
+        release.Set();
+        await holder;
+        var call = Assert.Single(harness.Calls);
+        Assert.True(call.Elapsed < TimeSpan.FromSeconds(30), $"the wait ended after {call.Elapsed}");
+        Assert.IsType<TimeoutException>(call.Unexpected);
+        Assert.Contains("blocked by ", call.Unexpected.Message);
     }
 }
