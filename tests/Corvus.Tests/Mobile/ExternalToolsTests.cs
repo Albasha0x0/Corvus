@@ -200,12 +200,15 @@ public class ExternalToolsTests : IDisposable
     public void A_status_probes_the_external_tools_side_by_side()
     {
         using var fake = new FakeTool();
-        // Each version check waits for the other to start: probed one after another, the first gives up after 20 s.
+        // Each version check waits for the other to start: probed one after another, the first gives up and reads unknown.
+        // Launches take Process.Start's lock one at a time, behind those of every other test running, so on a loaded
+        // runner the second started over 20 s after the first (CI run 39872882747); the wait stays under the class's
+        // version check limit.
         fake.On("--version", stdout: "TShark (Wireshark) 4.6.9 (v4.6.9-0)\n");
         fake.Set("barriers", new System.Text.Json.Nodes.JsonObject
         {
-            ["version"] = new System.Text.Json.Nodes.JsonObject { ["touch"] = Path.Combine(fake.Directory, "adb.started"), ["waitFor"] = Path.Combine(fake.Directory, "tshark.started") },
-            ["--version"] = new System.Text.Json.Nodes.JsonObject { ["touch"] = Path.Combine(fake.Directory, "tshark.started"), ["waitFor"] = Path.Combine(fake.Directory, "adb.started") },
+            ["version"] = new System.Text.Json.Nodes.JsonObject { ["touch"] = Path.Combine(fake.Directory, "adb.started"), ["waitFor"] = Path.Combine(fake.Directory, "tshark.started"), ["seconds"] = 100 },
+            ["--version"] = new System.Text.Json.Nodes.JsonObject { ["touch"] = Path.Combine(fake.Directory, "tshark.started"), ["waitFor"] = Path.Combine(fake.Directory, "adb.started"), ["seconds"] = 100 },
         });
         using var env = new EnvironmentScope().Set("CORVUS_ADB", fake.CopyAs("adb")).Set("CORVUS_TSHARK", fake.CopyAs("tshark"))
             .Set(FakeTool.ScriptVariable, fake.ScriptPath);

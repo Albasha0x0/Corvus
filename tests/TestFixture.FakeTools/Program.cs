@@ -33,14 +33,15 @@ if (log != null)
             break;
         }
         catch (IOException) when (waited.Elapsed < TimeSpan.FromSeconds(10)) { }
-// A barrier ("barriers": { "<joined arguments>": { "touch": file, "waitFor": file } }) shows two calls overlap: each marks
-// its start, then waits up to 20 s for the other's mark.
+// A barrier ("barriers": { "<joined arguments>": { "touch": file, "waitFor": file, "seconds": n } }) shows two calls
+// overlap: each marks its start, then waits up to n s (default 20) for the other's mark.
 if (script["barriers"]?[string.Join(' ', args)] is JsonObject barrier)
 {
     File.WriteAllText(barrier["touch"]!.GetValue<string>(), "");
     var other = barrier["waitFor"]!.GetValue<string>();
+    var limit = TimeSpan.FromSeconds(barrier["seconds"]?.GetValue<int>() ?? 20);
     for (var waited = System.Diagnostics.Stopwatch.StartNew(); !File.Exists(other); Thread.Sleep(20))
-        if (waited.Elapsed > TimeSpan.FromSeconds(20))
+        if (waited.Elapsed > limit)
         {
             Console.Error.WriteLine("fake tool: the other call did not start");
             return 1;
