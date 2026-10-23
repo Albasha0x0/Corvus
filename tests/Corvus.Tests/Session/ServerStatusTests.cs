@@ -154,6 +154,8 @@ public class ServerStatusToolVariableTests
         foreach (var (name, value) in variables) scope.Set(name, value);
 
         var (code, output, error) = await ToolCliTests.Run("server_status", "--json", "--no-index", "--max-output", "20000");
+        // A version check the status stopped waiting for still runs a copy from the folder: each ends before it is deleted.
+        foreach (var tool in tools) Corvus.Native.Providers.ExternalTools.Probe(tool);
         Assert.True(code == 0, error);
         var capabilities = JsonNode.Parse(output)!["structured"]!["capabilities"]!.AsArray();
         foreach (var tool in tools)
