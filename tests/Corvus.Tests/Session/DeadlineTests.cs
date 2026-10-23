@@ -1,4 +1,3 @@
-using System.Diagnostics;
 using System.Text.Json;
 using Microsoft.Extensions.DependencyInjection;
 using ModelContextProtocol.Protocol;
@@ -8,17 +7,10 @@ using Corvus.Mcp;
 namespace Corvus.Tests;
 
 /// <summary>The effective deadline (STANDARDS S9.1) and joined identical calls.</summary>
-// Deadlines are timed, so the class runs alone (parallel classes starve small CI runners).
-[Collection(nameof(SerialTimingTests))]
 public sealed class DeadlineTests
 {
-    // The pool as the class found it: a late answer then names work an earlier class left running.
-    private static readonly Lazy<string> PoolAtStart = new(ThreadPoolSnapshot.Describe);
-
-    private static string Late(TimeSpan elapsed) => $"answered after {elapsed}; at the class start, {PoolAtStart.Value}; now, {ThreadPoolSnapshot.Describe()}";
-
-    private static ServiceProvider Services(ServerOptions options) =>
-        new ServiceCollection().AddSingleton(options).AddSingleton<ResultStore>().BuildServiceProvider();
+    private static ServiceProvider Services(ServerOptions options, TimeProvider? time = null) =>
+        new ServiceCollection().AddSingleton(options).AddSingleton<ResultStore>().AddSingleton(time ?? TimeProvider.System).BuildServiceProvider();
 
     private static readonly CallToolResult Done = new() { Content = [new TextContentBlock { Text = "done" }] };
 
@@ -47,21 +39,20 @@ public sealed class DeadlineTests
     /// <summary>A long-running tool that ignores its token, with a client that waits <paramref name="clientSeconds"/>.</summary>
     private static async Task<(TimeSpan Elapsed, JsonElement Error)> SlowCallUnder(int clientSeconds, string tool)
     {
-        using var services = Services(new ServerOptions { ClientTimeoutSeconds = clientSeconds });
+        var clock = new ArmedClock();
+        using var services = Services(new ServerOptions { ClientTimeoutSeconds = clientSeconds }, clock);
         var release = new TaskCompletionSource();
-        var clock = Stopwatch.StartNew();
-        var result = await Run(services, tool, async _ => { await release.Task; return Done; }).AsTask().WaitAsync(TimeSpan.FromMinutes(1));
-        var elapsed = clock.Elapsed;
+        var call = Run(services, tool, async _ => { await release.Task; return Done; }).AsTask();
+        var elapsed = await clock.RunUntilAsync(call);
         release.SetResult();
-        return (elapsed, McpProtocolTests.ErrorJson(result));
+        return (elapsed, McpProtocolTests.ErrorJson(await call));
     }
 
     [Fact]
     public async Task AShortClientDeadline_IsAnsweredWithAMarginLeft()
     {
-        _ = PoolAtStart.Value;
         var (elapsed, error) = await SlowCallUnder(6, "export_project");
-        Assert.True(elapsed <= TimeSpan.FromSeconds(2), Late(elapsed));
+        Assert.True(elapsed <= TimeSpan.FromSeconds(2), $"answered after {elapsed}");
         Assert.Equal("timeout", error.GetProperty("code").GetString());
         Assert.True(error.GetProperty("details").GetProperty("stillRunning").GetBoolean());
         Assert.False(error.GetProperty("details").GetProperty("partial").GetBoolean());
@@ -70,12 +61,10 @@ public sealed class DeadlineTests
     }
 
     [Fact]
-    [Trait("Speed", "Slow")]
     public async Task AFakeTenSecondClient_GetsItsAnswerFiveSecondsEarly()
     {
-        _ = PoolAtStart.Value;
         var (elapsed, error) = await SlowCallUnder(10, "export_project");
-        Assert.True(elapsed <= TimeSpan.FromSeconds(5.2), Late(elapsed));
+        Assert.True(elapsed <= TimeSpan.FromSeconds(5.2), $"answered after {elapsed}");
         Assert.True(elapsed >= TimeSpan.FromSeconds(3), $"answered after {elapsed}");
         Assert.True(error.GetProperty("details").GetProperty("stillRunning").GetBoolean());
     }
@@ -86,9 +75,10 @@ public sealed class DeadlineTests
         using var services = Services(new ServerOptions { TimeoutSeconds = 3600 });
         int runs = 0;
         var release = new TaskCompletionSource();
+        var twoRunning = new TaskCompletionSource();
         async Task<CallToolResult> Work(CancellationToken _)
         {
-            Interlocked.Increment(ref runs);
+            if (Interlocked.Increment(ref runs) == 2) twoRunning.TrySetResult();
             await release.Task;
             return new CallToolResult { Content = [new TextContentBlock { Text = "shared" }] };
         }
@@ -96,10 +86,10 @@ public sealed class DeadlineTests
         var first = Run(services, "search_strings", Work, Args("""{"pattern":"a","limit":5}""")).AsTask();
         var second = Run(services, "search_strings", Work, Args("""{ "limit": 5, "pattern": "a" }""")).AsTask();
         var other = Run(services, "search_strings", Work, Args("""{"pattern":"b","limit":5}""")).AsTask();
-        await Task.Delay(100);
-        Assert.Equal(2, runs);
+        await twoRunning.Task.WaitAsync(TimeSpan.FromMinutes(1));
         release.SetResult();
         var results = await Task.WhenAll(first, second, other);
+        Assert.Equal(2, runs);
         Assert.All(results, r => Assert.Equal("shared", ((TextContentBlock)r.Content[0]).Text));
         Assert.NotSame(results[0], results[1]);
         Assert.NotSame(results[0].Content[0], results[1].Content[0]);
@@ -117,20 +107,26 @@ public sealed class DeadlineTests
         using var services = Services(new ServerOptions { TimeoutSeconds = 3600 });
         int runs = 0;
         var release = new TaskCompletionSource();
-        async Task<CallToolResult> Work(CancellationToken _) { Interlocked.Increment(ref runs); await release.Task; return Done; }
+        var twoRunning = new TaskCompletionSource();
+        async Task<CallToolResult> Work(CancellationToken _)
+        {
+            if (Interlocked.Increment(ref runs) == 2) twoRunning.TrySetResult();
+            await release.Task;
+            return Done;
+        }
         var a = Run(services, "rename_symbol", Work, Args("""{"symbol":"a"}""")).AsTask();
         var b = Run(services, "rename_symbol", Work, Args("""{"symbol":"a"}""")).AsTask();
-        await Task.Delay(100);
-        Assert.Equal(2, runs);
+        await twoRunning.Task.WaitAsync(TimeSpan.FromMinutes(1));
         release.SetResult();
         await Task.WhenAll(a, b);
+        Assert.Equal(2, runs);
     }
 
     [Fact]
     public async Task ACallLeftAtTheClientDeadline_IsPickedUpByTheSameCallAgain()
     {
-        _ = PoolAtStart.Value;
-        using var services = Services(new ServerOptions { TimeoutSeconds = 3600, ClientTimeoutSeconds = 6 });
+        var clock = new ArmedClock();
+        using var services = Services(new ServerOptions { TimeoutSeconds = 3600, ClientTimeoutSeconds = 6 }, clock);
         int runs = 0;
         var release = new TaskCompletionSource();
         async Task<CallToolResult> Work(CancellationToken _)
@@ -140,17 +136,19 @@ public sealed class DeadlineTests
             return new CallToolResult { Content = [new TextContentBlock { Text = "finished" }] };
         }
         var arguments = Args("""{"pattern":"slow"}""");
-        var left = McpProtocolTests.ErrorJson(await Run(services, "search_strings", Work, arguments).AsTask().WaitAsync(TimeSpan.FromMinutes(1)));
+        var first = Run(services, "search_strings", Work, arguments).AsTask();
+        // Within the client's deadline: the shared run's own stop, an hour out, must not end it.
+        await clock.RunUntilAsync(first, within: TimeSpan.FromSeconds(6));
+        var left = McpProtocolTests.ErrorJson(await first);
         Assert.True(left.GetProperty("details").GetProperty("stillRunning").GetBoolean());
         Assert.Contains("same arguments", left.GetProperty("next").GetString());
         var leftovers = LeftoverWork.For(services.GetRequiredService<ServerOptions>());
         Assert.Equal(1, leftovers.Running);
 
-        var clock = Stopwatch.StartNew();
+        // The clock stands still from here: the call can only end by picking up the finished run.
         var again = Run(services, "search_strings", Work, arguments).AsTask();
         release.SetResult();
-        var text = ((TextContentBlock)(await again.WaitAsync(TimeSpan.FromMinutes(1))).Content[0]).Text;
-        Assert.True(text == "finished", $"{text}; {Late(clock.Elapsed)}");
+        Assert.Equal("finished", ((TextContentBlock)(await again.WaitAsync(TimeSpan.FromMinutes(1))).Content[0]).Text);
         Assert.Equal(1, runs);
         Assert.Equal(1, leftovers.Total);
     }
@@ -158,7 +156,8 @@ public sealed class DeadlineTests
     [Fact]
     public async Task AJoinedRunStops_OnlyWhenEveryCallerCancelled()
     {
-        using var services = Services(new ServerOptions { TimeoutSeconds = 3600 });
+        var clock = new ArmedClock();
+        using var services = Services(new ServerOptions { TimeoutSeconds = 3600 }, clock);
         var stopped = new TaskCompletionSource();
         async Task<CallToolResult> Work(CancellationToken ct)
         {
@@ -173,10 +172,13 @@ public sealed class DeadlineTests
         var a = Run(services, "search_strings", Work, arguments, one.Token).AsTask();
         var b = Run(services, "search_strings", Work, arguments, two.Token).AsTask();
         await one.CancelAsync();
-        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => a.WaitAsync(TimeSpan.FromMinutes(1)));
+        // Only the grace after the cancel fires; the server deadline an hour out never does.
+        await clock.RunUntilAsync(a, within: TimeSpan.FromMinutes(1));
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => a);
         Assert.False(stopped.Task.IsCompleted);
         await two.CancelAsync();
         await stopped.Task.WaitAsync(TimeSpan.FromMinutes(1));
-        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => b.WaitAsync(TimeSpan.FromMinutes(1)));
+        await clock.RunUntilAsync(b, within: TimeSpan.FromMinutes(1));
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => b);
     }
 }

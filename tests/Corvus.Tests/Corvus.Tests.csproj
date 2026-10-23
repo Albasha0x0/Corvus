@@ -33,6 +33,7 @@
     <PackageReference Include="CycloneDX.Core" Version="12.1.2" />
     <!-- ELF / Mach-O oracle for the native format readers. -->
     <PackageReference Include="LibObjectFile" Version="2.3.1" />
+    <PackageReference Include="Microsoft.Extensions.TimeProvider.Testing" Version="10.10.0" />
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />
     <!-- as the server references it: aliased, so its global PEFile namespace stays out of these sources -->
     <PackageReference Include="Microsoft.Diagnostics.Tracing.TraceEvent" Version="3.2.8" ExcludeAssets="build;buildTransitive" Aliases="TraceEventPackage" />
