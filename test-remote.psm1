@@ -72,6 +72,8 @@ $script:HostFolder = 'corvus-test-host'
 # Seconds a short ssh or scp call (the probe, a query, a cleanup) may take in all: the ssh options bound the connect
 # and a dead connection, not a session that hangs after login. A TRX copy gets four times as long.
 $script:ShortCallSeconds = 30
+# Seconds a timed-out call's process tree may take to exit once it is ended.
+$script:KillWaitSeconds = 10
 # Seconds the host waits for the commit to reach origin; a push run starts before its push lands.
 $script:FetchWaitSeconds = 120
 
@@ -515,7 +517,9 @@ function Invoke-Transport([string]$variable, [string]$program, [string[]]$argume
         $out = $process.StandardOutput.ReadToEndAsync()
         $null = $process.StandardError.ReadToEndAsync()
         if (-not $process.WaitForExit($timeoutSeconds * 1000)) {
+            # Kill only starts the termination: wait for the exit, so no caller sees the call's process still alive.
             try { $process.Kill($true) } catch { }
+            $null = $process.WaitForExit($script:KillWaitSeconds * 1000)
             $global:LASTEXITCODE = -1
             return
         }

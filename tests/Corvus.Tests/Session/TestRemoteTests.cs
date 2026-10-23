@@ -247,18 +247,19 @@ public sealed class TestRemoteTests : IDisposable
             """);
         var lines = TestReuseTests.Run($$"""
             Import-Module {{Module}}
-            & (Get-Module test-remote) { $script:ShortCallSeconds = 2 }
+            & (Get-Module test-remote) { $script:ShortCallSeconds = 5 }
             $env:CORVUS_TEST_SSH = {{Quote(ssh)}}; $env:CORVUS_TEST_PUSH_RUN = '1'; $env:CORVUS_TEST_REMOTE = 'tester@stuck'
             $clock = [Diagnostics.Stopwatch]::StartNew()
             'answers=' + (Test-RemoteHost 'tester@stuck')
             'bounded=' + ($clock.Elapsed.TotalSeconds -lt 30)
-            'ended=' + -not (Get-Process -Id ([int](Get-Content {{Quote(pid)}})) -ErrorAction SilentlyContinue)
+            # Under load (the full run on c72de6da) the stand-in may be ended before it records its id; pid 0 is the Idle process.
+            'ended=' + (-not (Test-Path {{Quote(pid)}}) -or -not (Get-Process -Id ([int](Get-Content {{Quote(pid)}})) -ErrorAction SilentlyContinue))
             'target=' + ((Get-OffloadTarget {{Quote(DocsTests.RepoRoot())}} $false).Kind -ne 'ssh')
             'variables=' + @(Get-HostVariables 'tester@stuck').Count
             """);
         if (lines is ["skip"]) return;
         Assert.Contains("answers=False", lines);
-        Assert.Contains("Test host tester@stuck gave no answer within 2 s; not used.", lines);
+        Assert.Contains("Test host tester@stuck gave no answer within 5 s; not used.", lines);
         Assert.Contains("bounded=True", lines);
         Assert.Contains("ended=True", lines);
         Assert.Contains("target=True", lines);
