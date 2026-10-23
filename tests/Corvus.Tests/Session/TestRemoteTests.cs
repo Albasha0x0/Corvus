@@ -538,4 +538,28 @@ public sealed class TestRemoteTests : IDisposable
         Assert.Contains(lines, l => l.StartsWith("status=abc1234 at ") && l.EndsWith(": DeadlineTests, ImagesRealTests"));
         Assert.Contains("cleared=True", lines);
     }
+
+    [Fact]
+    public void The_host_tier_names_the_test_classes_of_its_families_without_returned_ones()
+    {
+        var tests = Path.Combine(_dir.Path, "tests");
+        void Source(string folder, string text)
+        {
+            Directory.CreateDirectory(Path.Combine(tests, folder));
+            File.WriteAllText(Path.Combine(tests, folder, "T.cs"), text);
+        }
+        Source("Web", "public sealed class WasmTests { }\npublic static class WasmFixture { }");
+        Source("Dumps", "public class MinidumpTests { public sealed class Nested { } }");
+        Source("Live", "public class LiveTargetTests { }");
+        var lines = TestReuseTests.Run($$"""
+            Import-Module {{Module}}
+            'all=' + ((Get-TierClasses {{Quote(tests)}}) -join ',')
+            'returned=' + ((Get-TierClasses {{Quote(tests)}} @('Dumps')) -join ',')
+            'families=' + ((Get-TierFamilies @('Dumps', 'Web')) -join ',')
+            """);
+        if (lines is ["skip"]) return;
+        Assert.Contains("all=MinidumpTests,WasmTests", lines);
+        Assert.Contains("returned=WasmTests", lines);
+        Assert.Contains("families=Accuracy,Builds,Containers,DotnetEdits,Il2Cpp,Mobile,NativeAot,NativeEdits,NativeFormats,Support", lines);
+    }
 }

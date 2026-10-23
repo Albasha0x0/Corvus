@@ -17,6 +17,11 @@ $script:IdaVariable = 'CORVUS_IDA_DIR'
 # Classes for a test host only: the Program Files sweep reads the machine it runs on (past 30 min on a runner), and the
 # timed and working-set classes need a machine no other run loads.
 $script:HostClasses = 'NativeToolSweepTests', 'DevRelayRealServerTests', 'DeadlineTests', 'StreamedSummaryMemoryTests'
+# The host tier: stable families (test folders) that leave push runs here but for their smoke tests (trait
+# Smoke=push) and run whole on the test host in whole runs.
+$script:TierFamilies = 'Accuracy', 'Builds', 'Containers', 'DotnetEdits', 'Dumps', 'Il2Cpp', 'Mobile', 'NativeAot', 'NativeEdits',
+    'NativeFormats', 'Support', 'Web'
+$script:SmokeTrait = 'Smoke=push'
 # Folders whose classes go only as the ghidra group (by their Ghidra facts).
 $script:EngineFolders = 'Engines'
 # Attributes that keep a class's file here: the live real-data facts.
@@ -158,6 +163,23 @@ function Get-RemoteEntries([string]$testsDir, [switch]$CrossPlatform) {
             }
         }
     }
+}
+
+# The host tier's families, without those in $returned (families a failure on the host sent back to push runs). Sorted.
+function Get-TierFamilies([string[]]$returned = @()) {
+    @($script:TierFamilies | Where-Object { $_ -notin $returned } | Sort-Object)
+}
+
+# The test classes (named *Tests) of the host tier's family folders under $testsDir, without the families in $returned.
+# Sorted; a family folder that does not exist adds none.
+function Get-TierClasses([string]$testsDir, [string[]]$returned = @()) {
+    @($(foreach ($family in Get-TierFamilies $returned) {
+        $folder = Join-Path $testsDir $family
+        if (-not (Test-Path $folder)) { continue }
+        Get-ChildItem $folder -Recurse -Filter *.cs | ForEach-Object {
+            [regex]::Matches((Get-Content $_.FullName -Raw), '(?m)^public (?:sealed |abstract |partial |static )*class (\w+Tests)\b') | ForEach-Object { $_.Groups[1].Value }
+        }
+    }) | Sort-Object -Unique)
 }
 
 # The classes of $testsDir a run sends, of one group or (empty) of every group but the host and IDA groups
@@ -786,4 +808,4 @@ function Receive-GitHubRun($state, [string]$folder, [string]$group = '') {
     $result
 }
 
-Export-ModuleMember -Function Invoke-Transport, Test-RemoteHost, Get-RemoteRunScript, Invoke-RemoteRun, Receive-RemoteRun, New-RemoteSnapshot, Invoke-RemoteFilter, Invoke-Gh, Wait-GitHubRun, Receive-GitHubRun, Get-GitHubTarget, Receive-GitHubLive, Get-RemoteClasses, Get-IdaHostClasses, Get-HeldClasses, Get-HostVariables, Get-RealDataVariables, Get-RemoteShard, Get-LocalFilter, Get-ClassFilter, Get-ClassOutcomes, Get-TestOutcomes, Get-SkippedOnHost, Get-FastestClassSeconds, Get-SkippedOnBoth, Get-RerunClasses, Get-MixedClasses, Get-FailedThereNote, Join-TrxFiles, Get-TargetFileName, Save-RemoteRecord, Get-RemoteStatus, Get-DeferredClasses, Get-UndeferredFamilies, Save-DeferredClasses, Get-DeferredStatus, Get-OffloadTarget, Start-Offload, Receive-Offload
+Export-ModuleMember -Function Invoke-Transport, Test-RemoteHost, Get-RemoteRunScript, Invoke-RemoteRun, Receive-RemoteRun, New-RemoteSnapshot, Invoke-RemoteFilter, Invoke-Gh, Wait-GitHubRun, Receive-GitHubRun, Get-GitHubTarget, Receive-GitHubLive, Get-RemoteClasses, Get-IdaHostClasses, Get-HeldClasses, Get-HostVariables, Get-RealDataVariables, Get-RemoteShard, Get-LocalFilter, Get-ClassFilter, Get-ClassOutcomes, Get-TestOutcomes, Get-SkippedOnHost, Get-FastestClassSeconds, Get-SkippedOnBoth, Get-RerunClasses, Get-MixedClasses, Get-FailedThereNote, Join-TrxFiles, Get-TargetFileName, Save-RemoteRecord, Get-RemoteStatus, Get-TierFamilies, Get-TierClasses, Get-DeferredClasses, Get-UndeferredFamilies, Save-DeferredClasses, Get-DeferredStatus, Get-OffloadTarget, Start-Offload, Receive-Offload

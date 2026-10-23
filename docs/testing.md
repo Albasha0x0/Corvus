@@ -150,6 +150,9 @@
   value is past it. The run fails only on a test over budget or a regressed measurement that was also so in the perf
   run before (`.git/corvus-perf-verdicts.json`), so a single slow run is reported but does not fail the run; `-Status`
   shows the last verdict. The baselines start at the budgets and change only by a commit that tightens them.
+- **Host tier.** The host tier in `test-remote.psm1` names the stable families (test folders) whose tests change
+  least: Accuracy, Builds, Containers, DotnetEdits, Dumps, Il2Cpp, Mobile, NativeAot, NativeEdits, NativeFormats,
+  Support and Web.
 - **Nightly run.** `./nightly.ps1 -Register [-At 02:00]` adds a Windows scheduled task for the current user (opt-in;
   `-Unregister` removes it). Each night, once the machine has been idle for 10 minutes, it starts a full run of HEAD in
   the background worktree (`-Strength`, whole by default, which holds the heavy lock), waits for it and any run queued
