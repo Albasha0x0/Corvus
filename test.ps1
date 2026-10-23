@@ -8,7 +8,7 @@
 #         ./test.ps1 -Affected            # quick set plus the slow tests of the families changed since origin/main (before a push)
 #         ./test.ps1 -Filter <expr>       # any dotnet test filter, quick or full
 #         ./test.ps1 -Full -Reuse         # only the families whose inputs changed since their last full pass (test-reuse.psm1)
-#         ./test.ps1 -Full -Background    # after a push: -Reuse on the committed HEAD in a worktree of its own; returns at once
+#         ./test.ps1 -Full -Background    # after a push: -Reuse on the committed HEAD (-Commit: that commit) in a worktree of its own; returns at once
 #                                         #   (-Exhaustive: release strength, the passes a patch release takes;
 #                                         #   -Whole: exhaustive without reuse, the pass a minor release gates on)
 #         ./test.ps1 -SecondGhidra        # the Engines tests with CORVUS_SECOND_GHIDRA_DIR, unless they passed on these inputs
@@ -50,6 +50,7 @@ param(
     [string]$Shard = '0/1',
     [switch]$CrossPlatform,
     [switch]$HostTier,
+    [string]$Commit,
     [switch]$Wait
 )
 
@@ -308,8 +309,8 @@ if ($Mutation) {
 
 # A full run on the committed HEAD in a worktree of its own, so building and testing here continue meanwhile. The worktree
 # is kept for the next run; its stamp counts for -IfChanged and release.ps1 (same tree). A request while a run is
-# going is queued: when the run ends, one run starts on the newest commit, at the strongest strength asked meanwhile,
-# so runs always finish and pushes in between share one run.
+# going is queued: when the run ends, one run starts on the newest commit queued, at the strongest strength asked
+# meanwhile, so runs always finish and pushes in between share one run.
 $running = Join-Path $gitDir 'corvus-background.json'
 $lastPassed = Join-Path $gitDir 'corvus-background.passed'
 $queued = Join-Path $gitDir 'corvus-background.next'
@@ -331,17 +332,20 @@ if ($Wait) {
 }
 
 if ($Background) {
-    $commit = (git -C $root rev-parse HEAD).Trim()
-    if (git -C $root status --porcelain) { Write-Host 'Uncommitted changes are not part of the background run (it tests HEAD).' }
+    # The pre-push hook names the pushed commit: HEAD of this checkout may hold commits nobody pushed. ($commit is
+    # $Commit: PowerShell names ignore case.)
+    $named = $Commit
+    $commit = (git -C $root rev-parse "$(if ($named) { $named } else { 'HEAD' })^{commit}" 2>$null)
+    if ($LASTEXITCODE -ne 0) { Write-Host "No commit '$named' here." -ForegroundColor Red; exit 2 }
+    $commit = "$commit".Trim()
+    if (-not $named -and (git -C $root status --porcelain)) { Write-Host 'Uncommitted changes are not part of the background run (it tests HEAD).' }
     $strength = if ($Whole) { 'whole' } elseif ($Exhaustive) { 'exhaustive' } else { 'routine' }
     $previous = if (Test-Path $running) { Get-Content $running -Raw | ConvertFrom-Json } else { $null }
     $process = if ($previous) { Get-Process -Id $previous.pid -ErrorAction SilentlyContinue | Where-Object { $_.StartTime.ToUniversalTime().Ticks -eq $previous.started } } else { $null }
     if ($process) {
-        $order = 'routine', 'exhaustive', 'whole'
-        $asked = if (Test-Path $queued) { (Get-Content $queued -Raw).Trim() } else { 'routine' }
-        if ($order.IndexOf($strength) -gt $order.IndexOf($asked)) { $asked = $strength }
-        Set-Content -Path $queued -Value $asked -NoNewline
-        Write-Host "A run on $($previous.commit.Substring(0, 8)) is going; queued: a run on the newest commit ($asked) when it ends (./test.ps1 -Status)."
+        Import-Module (Join-Path $root 'test-reuse.psm1') -Force
+        $asked = Save-QueuedRun $queued $strength $commit
+        Write-Host "A run on $($previous.commit.Substring(0, 8)) is going; queued: a run on $($commit.Substring(0, 8)) ($asked) when it ends (./test.ps1 -Status)."
         exit 0
     }
     # CORVUS_BACKGROUND_DIR: where the worktrees go, e.g. a folder the antivirus does not scan (script fixtures)
@@ -396,9 +400,11 @@ if ('$strength' -eq 'whole' -and (-not (Test-Path `$map) -or (Get-Item `$map).La
 if ((Get-Content '$running' -Raw -ErrorAction SilentlyContinue | ConvertFrom-Json).pid -eq `$PID) { Remove-Item '$running' }
 Set-Location '$root'
 if (Test-Path '$queued') {
-    `$next = (Get-Content '$queued' -Raw).Trim(); Remove-Item '$queued'
+    Import-Module '$root/test-reuse.psm1'
+    `$next = Read-QueuedRun '$queued'; Remove-Item '$queued'
     `$strength = @{ Full = `$true; Background = `$true }
-    if (`$next -eq 'whole') { `$strength.Whole = `$true } elseif (`$next -eq 'exhaustive') { `$strength.Exhaustive = `$true }
+    if (`$next.Strength -eq 'whole') { `$strength.Whole = `$true } elseif (`$next.Strength -eq 'exhaustive') { `$strength.Exhaustive = `$true }
+    if (`$next.Commit) { `$strength.Commit = `$next.Commit }
     & '$root/test.ps1' @strength
 }
 "@

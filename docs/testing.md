@@ -11,7 +11,8 @@
 - **Full set** (`CORVUS_ALL_TESTS=1 dotnet test`, or `dotnet test -p:CORVUS_ALL_TESTS=1`): adds real-library builds, whole-server
   runs over stdio, sweeps, fuzzing and the large runtime packs. A push needs the commit gate above; the full set then runs off
   the critical path: the pre-push hook (`.githooks/pre-push`, enabled per clone with `git config core.hooksPath
-  .githooks`) starts `./test.ps1 -Full -Background` on the commit pushed to main, in a worktree of its own (`-Status`
+  .githooks`) starts `./test.ps1 -Full -Background -Commit <sha>` on the commit pushed to main (a push of another branch
+  starts none; a push while a run is going queues the newest pushed commit), in a worktree of its own (`-Status`
   shows the result; the worktree goes under `CORVUS_BACKGROUND_DIR`, else the temp folder, so it can sit where the
   antivirus does not quarantine the script fixtures; it is kept between runs, so each run checks out its commit there and
   builds incrementally), and a failure is fixed in the next commit. Every 10 s of the run, a sampler records how late

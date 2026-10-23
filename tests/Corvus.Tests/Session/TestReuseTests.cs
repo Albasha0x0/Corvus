@@ -502,6 +502,69 @@ public class TestReuseTests
     }
 
     /// <summary>The output lines of a pwsh script that must exit 0, or ["skip"] where there is no pwsh.</summary>
+    [Fact]
+    public void A_queued_background_run_keeps_the_strongest_strength_and_the_newest_commit()
+    {
+        var queue = Path.Combine(Path.GetTempPath(), $"corvus-queue-{Guid.NewGuid():N}");
+        try
+        {
+            var lines = Run($$"""
+                Import-Module '{{Path.Combine(DocsTests.RepoRoot(), "test-reuse.psm1").Replace("'", "''")}}'
+                $q = '{{queue}}'
+                $n = Read-QueuedRun $q; 'none=' + $n.Strength + ',' + $n.Commit
+                'first=' + (Save-QueuedRun $q 'routine' 'c1')
+                'stronger=' + (Save-QueuedRun $q 'exhaustive' 'c2')
+                'later=' + (Save-QueuedRun $q 'routine' 'c3')
+                $n = Read-QueuedRun $q; 'queued=' + $n.Strength + ',' + $n.Commit
+                Set-Content $q 'whole' -NoNewline
+                $n = Read-QueuedRun $q; 'old=' + $n.Strength + ',' + $n.Commit
+                """);
+            if (lines is ["skip"]) return;
+            Assert.Contains("none=routine,", lines);
+            Assert.Contains("first=routine", lines);
+            Assert.Contains("stronger=exhaustive", lines);
+            Assert.Contains("later=exhaustive", lines);
+            // The run on cf70a298 (an unpushed HEAD) started from a queue that named no commit.
+            Assert.Contains("queued=exhaustive,c3", lines);
+            Assert.Contains("old=whole,", lines);
+        }
+        finally { File.Delete(queue); }
+    }
+
+    [Fact]
+    [Trait("Speed", "Slow")]
+    public void The_pre_push_hook_starts_a_run_only_for_main_and_names_the_pushed_commit()
+    {
+        var repo = Path.Combine(Path.GetTempPath(), $"corvus-hook-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(Path.Combine(repo, ".githooks"));
+        File.Copy(Path.Combine(DocsTests.RepoRoot(), ".githooks", "pre-push"), Path.Combine(repo, ".githooks", "pre-push"));
+        // The stand-in test.ps1 records its arguments.
+        File.WriteAllText(Path.Combine(repo, "test.ps1"), "Add-Content (Join-Path $PSScriptRoot 'calls.txt') ($args -join ' ')");
+        try
+        {
+            var lines = Run($$"""
+                Set-Location '{{repo}}'
+                git init -q
+                $sh = (Get-Command sh -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1).Source
+                if (-not $sh) { $sh = Join-Path (git --exec-path) '../../../bin/sh.exe' }
+                $zero = '0' * 40; $pushed = 'a' * 40; $other = 'b' * 40
+                "refs/heads/work $other refs/heads/work $zero" | & $sh .githooks/pre-push origin url
+                'branch=' + (Test-Path calls.txt)
+                "refs/heads/main $pushed refs/heads/main $other" | & $sh .githooks/pre-push origin url
+                "(delete) $zero refs/heads/main $other" | & $sh .githooks/pre-push origin url
+                'calls=' + ((Get-Content calls.txt) -join '|')
+                """);
+            if (lines is ["skip"]) return;
+            Assert.Contains("branch=False", lines);
+            Assert.Contains($"calls=-Full -Background -Commit {new string('a', 40)}", lines);
+        }
+        finally
+        {
+            foreach (var f in Directory.EnumerateFiles(repo, "*", SearchOption.AllDirectories)) File.SetAttributes(f, FileAttributes.Normal);
+            Directory.Delete(repo, true);
+        }
+    }
+
     internal static string[] Run(string script)
     {
         ProcessStartInfo start = new("pwsh") { RedirectStandardOutput = true, RedirectStandardError = true };
