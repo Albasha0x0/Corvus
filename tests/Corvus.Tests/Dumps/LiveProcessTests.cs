@@ -213,7 +213,8 @@ public sealed class LiveProcessTests(ITestOutputHelper output)
 
 /// <summary>
 /// Every process of this session inspected with stacks: each call either succeeds with every handle closed or fails
-/// with a typed error (access denied, exited); prints the runner numbers (processes, frames, named frames, time).
+/// with a typed error (access denied, exited, the time limit); prints the runner numbers (processes, frames, named
+/// frames, time).
 /// </summary>
 [Trait("Speed", "Slow")]
 public sealed class LiveProcessSweepTests(ITestOutputHelper output)
@@ -256,7 +257,8 @@ public sealed class LiveProcessSweepTests(ITestOutputHelper output)
                 var key = ToolError.CodeName(e.Code);
                 errors[key] = errors.GetValueOrDefault(key) + 1;
                 output.WriteLine($"{name} ({pid}): {key}: {e.Message}");
-                Assert.True(e.Code is ErrorCode.AccessDenied or ErrorCode.NotFound, $"{name} ({pid}): {e.Code} {e.Message}");
+                // A loaded runner can take a process past the limit; Run's finally closes its handles then too.
+                Assert.True(e.Code is ErrorCode.AccessDenied or ErrorCode.NotFound or ErrorCode.Timeout, $"{name} ({pid}): {e.Code} {e.Message}");
             }
         }
         output.WriteLine($"{targets.Count} processes in session {session}: {ok} inspected, errors: {string.Join(", ", errors.Select(kv => $"{kv.Key} {kv.Value}"))}; " +
