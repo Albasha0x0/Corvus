@@ -689,6 +689,12 @@ $offload = if ($wholeSuite -and -not $Coverage) { Import-Module (Join-Path $root
 $offloadHandle = $null; $sent = @(); $offloadRecord = $null; $offloadClock = $null
 if ($offload) {
     $candidates = @(Get-RemoteClasses $tests -TestHost:($offload.Kind -eq 'ssh') -hostVariables $offload.Variables); $mixed = @(Get-MixedClasses $tests)
+    # A test host with IDA takes about half the IDA classes whole, so the IDA chain runs on both machines.
+    $idaThere = if ($offload.Kind -eq 'ssh') { @(Get-IdaHostClasses $tests (Get-FastestClassSeconds $timeHistory) $offload.Variables) } else { @() }
+    if ($idaThere) {
+        $candidates = @($candidates + $idaThere | Sort-Object -Unique); $mixed = @($mixed | Where-Object { $_ -notin $idaThere })
+        Write-Host "IDA classes split: $($idaThere.Count) run on $($offload.Name), the rest here."
+    }
     $held = if ($offload.Kind -eq 'ssh' -and -not $Filter) { @(Get-HeldClasses $tests $offload.Variables) } else { @() }
     if ($held) { Write-Host "Kept here, their real-data variables not set on $($offload.Name): $($held -join '; ')." }
     $sent = if ($Filter) { @([regex]::Matches($Filter, 'FullyQualifiedName~\.(\w+)') | ForEach-Object { $_.Groups[1].Value } | Where-Object { $_ -in $candidates }) } else { $candidates }

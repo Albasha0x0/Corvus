@@ -111,6 +111,34 @@ public sealed class TestRemoteTests : IDisposable
 
     [Fact]
     [Trait("Speed", "Slow")]
+    public void A_test_host_with_ida_takes_about_half_the_ida_classes_by_recorded_time()
+    {
+        var tests = Path.Combine(_dir.Path, "tests");
+        void Source(string folder, string text, string file)
+        {
+            Directory.CreateDirectory(Path.Combine(tests, folder));
+            File.WriteAllText(Path.Combine(tests, folder, file), text);
+        }
+        Source("Engines", "public class IdaLongTests { [IdaFact] public void M() { } }", "A.cs");
+        Source("Engines", "public class EngineMixTests { [IdaFact] public void A() { } [GhidraFact] public void B() { } }", "B.cs");
+        Source("Engines", "public class IdaMidTests { [IdaFact] public void M() { } }", "C.cs");
+        Source("Engines", "public class IdaNewTests { [IdaFact] public void M() { } }", "D.cs");
+        Source("Mobile", "public class IdaDataTests { [RequiresRealDataFact(\"CORVUS_X\")] [IdaFact] public void M() { } }", "E.cs");
+        var lines = TestReuseTests.Run($$"""
+            Import-Module {{Module}}
+            $seconds = @{ IdaLongTests = 100; EngineMixTests = 60; IdaMidTests = 50; IdaDataTests = 500 }
+            'there=' + ((Get-IdaHostClasses {{Quote(tests)}} $seconds @('CORVUS_IDA_DIR', 'CORVUS_X')) -join ',')
+            'noida=' + ((Get-IdaHostClasses {{Quote(tests)}} $seconds @('CORVUS_X')) -join ',')
+            'github=' + ((Get-RemoteClasses {{Quote(tests)}}) -join ',')
+            """);
+        // Longest first, each to the machine with less so far: 100 there, 60 and 50 here, the unrecorded 1 s there.
+        Assert.Contains("there=IdaLongTests,IdaNewTests", lines);
+        Assert.Contains("noida=", lines);
+        Assert.Contains("github=EngineMixTests", lines);
+    }
+
+    [Fact]
+    [Trait("Speed", "Slow")]
     public void A_class_using_both_engines_joins_per_test_and_reruns_only_for_a_test_skipped_on_both_sides()
     {
         // Here M0 is an IDA test and M2 a plain one; there M0 skips, M1 is a Ghidra test, and M3 fails only there.

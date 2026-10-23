@@ -10,6 +10,10 @@ $script:RemotePatterns = '*SweepTests', '*MatrixTests', 'PipelineRoundTripTests'
 # host group goes to a test host only and stays here when the run offloads to GitHub.
 $script:Groups = 'sweep', 'ghidra', 'live', 'host'
 $script:HostGroup = 'host'
+# Classes with IDA facts: about half of them, by recorded time, go to a test host whose user variables name an IDA
+# install (this variable), so the engine-ida permit chain runs on both machines at once; GitHub has no IDA.
+$script:IdaGroup = 'ida'
+$script:IdaVariable = 'CORVUS_IDA_DIR'
 # Classes for a test host only: the Program Files sweep reads the machine it runs on (past 30 min on a runner), and the
 # timed and working-set classes need a machine no other run loads.
 $script:HostClasses = 'NativeToolSweepTests', 'DevRelayRealServerTests', 'DeadlineTests', 'StreamedSummaryMemoryTests'
@@ -119,9 +123,9 @@ function Get-ClassEngines([string]$text) {
 
 # The offloaded classes of $testsDir as @{ Class; Group; Mixed; Variables }: host, the host classes and those in files
 # with real-data facts (Variables, the variables those facts name); live, the classes of the Live folder; ghidra, the
-# classes with a Ghidra fact a routine run includes (Mixed when the class has IDA facts too); sweep, names matching the
-# table outside the engine folder. Classes with IDA facts alone, files with real data and IDA facts, live real data,
-# and the local classes stay here; with -CrossPlatform, files with a Windows-only fact too. Only classes named *Tests count (fixtures and test bases
+# classes with a Ghidra fact a routine run includes (Mixed when the class has IDA facts too); ida, the classes with IDA
+# facts alone; sweep, names matching the table outside the engine folder. Files with real data and IDA facts, live real
+# data, and the local classes stay here; with -CrossPlatform, files with a Windows-only fact too. Only classes named *Tests count (fixtures and test bases
 # hold no test of their own; an abstract *Tests class holds nested ones).
 function Get-RemoteEntries([string]$testsDir, [switch]$CrossPlatform) {
     $local = '\[(' + ($script:LocalAttributes -join '|') + $(if ($CrossPlatform) { '|WindowsFact' }) + ')\b'
@@ -144,7 +148,10 @@ function Get-RemoteEntries([string]$testsDir, [switch]$CrossPlatform) {
             }
             foreach ($class in Get-ClassEngines $text) {
                 $name = $class.Class
-                if ($class.Ida -and -not $class.Ghidra) { continue }
+                if ($class.Ida -and -not $class.Ghidra) {
+                    if ($name -notin $script:LocalClasses) { [pscustomobject]@{ Class = $name; Group = $script:IdaGroup; Mixed = $false; Variables = @() } }
+                    continue
+                }
                 $of = if ($folder -eq 'Live') { 'live' } elseif ($class.Ghidra) { 'ghidra' } elseif ($folder -notin $script:EngineFolders) { 'sweep' } else { continue }
                 if (-not ($name -in $script:HostClasses -or ($name -notin $script:LocalClasses -and ($of -ne 'sweep' -or ($script:RemotePatterns | Where-Object { $name -like $_ }))))) { continue }
                 [pscustomobject]@{ Class = $name; Group = $(if ($name -in $script:HostClasses) { $script:HostGroup } else { $of }); Mixed = $class.Ida; Variables = @() }
@@ -153,14 +160,32 @@ function Get-RemoteEntries([string]$testsDir, [switch]$CrossPlatform) {
     }
 }
 
-# The classes of $testsDir a run sends, of one group or (empty) of every group but the host group (Get-RemoteEntries).
-# -TestHost adds the host group's classes whose real-data variables are all in $hostVariables. Sorted; throws for an
-# unknown group.
+# The classes of $testsDir a run sends, of one group or (empty) of every group but the host and IDA groups
+# (Get-RemoteEntries). -TestHost adds the host group's classes whose real-data variables are all in $hostVariables.
+# Sorted; throws for an unknown group.
 function Get-RemoteClasses([string]$testsDir, [string]$Group = '', [switch]$CrossPlatform, [switch]$TestHost, [string[]]$hostVariables = @()) {
     if ($Group -and $Group -notin $script:Groups) { throw "Unknown offload group '$Group' (one of $($script:Groups -join ', '))." }
     @(Get-RemoteEntries $testsDir -CrossPlatform:$CrossPlatform |
-        Where-Object { if ($Group) { $_.Group -eq $Group } else { $_.Group -ne $script:HostGroup -or ($TestHost -and -not @($_.Variables | Where-Object { $_ -notin $hostVariables })) } } |
+        Where-Object {
+            if ($Group) { $_.Group -eq $Group }
+            elseif ($_.Group -eq $script:IdaGroup) { $false }
+            else { $_.Group -ne $script:HostGroup -or ($TestHost -and -not @($_.Variables | Where-Object { $_ -notin $hostVariables })) }
+        } |
         ForEach-Object Class | Sort-Object -Unique)
+}
+
+# The IDA classes of $testsDir a test host whose $hostVariables name an IDA install takes: of the classes with IDA
+# facts it may run (alone or with Ghidra facts), those dealt to it when each, longest first by $seconds (class name to
+# recorded seconds; an unrecorded class counts 1 s), goes to the machine with less so far. They run whole there.
+# Sorted; empty when the host has no IDA.
+function Get-IdaHostClasses([string]$testsDir, [hashtable]$seconds = @{}, [string[]]$hostVariables = @()) {
+    if ($script:IdaVariable -notin $hostVariables) { return @() }
+    $classes = @(Get-RemoteEntries $testsDir | Where-Object { $_.Group -eq $script:IdaGroup -or $_.Mixed } | ForEach-Object Class | Sort-Object -Unique)
+    $weight = @{}; foreach ($class in $classes) { $weight[$class] = if ($seconds.ContainsKey($class) -and $seconds[$class] -gt 0) { [double]$seconds[$class] } else { 1.0 } }
+    $here = 0.0; $there = 0.0
+    @(foreach ($class in $classes | Sort-Object @{ Expression = { $weight[$_] }; Descending = $true }, @{ Expression = { $_ } }) {
+        if ($there -le $here) { $there += $weight[$class]; $class } else { $here += $weight[$class] }
+    }) | Sort-Object
 }
 
 # The real-data variables the host group's classes of $testsDir need that name inputs, or with -Tools those that name
@@ -761,4 +786,4 @@ function Receive-GitHubRun($state, [string]$folder, [string]$group = '') {
     $result
 }
 
-Export-ModuleMember -Function Invoke-Transport, Test-RemoteHost, Get-RemoteRunScript, Invoke-RemoteRun, Receive-RemoteRun, New-RemoteSnapshot, Invoke-RemoteFilter, Invoke-Gh, Wait-GitHubRun, Receive-GitHubRun, Get-GitHubTarget, Receive-GitHubLive, Get-RemoteClasses, Get-HeldClasses, Get-HostVariables, Get-RealDataVariables, Get-RemoteShard, Get-LocalFilter, Get-ClassFilter, Get-ClassOutcomes, Get-TestOutcomes, Get-SkippedOnHost, Get-FastestClassSeconds, Get-SkippedOnBoth, Get-RerunClasses, Get-MixedClasses, Get-FailedThereNote, Join-TrxFiles, Get-TargetFileName, Save-RemoteRecord, Get-RemoteStatus, Get-DeferredClasses, Get-UndeferredFamilies, Save-DeferredClasses, Get-DeferredStatus, Get-OffloadTarget, Start-Offload, Receive-Offload
+Export-ModuleMember -Function Invoke-Transport, Test-RemoteHost, Get-RemoteRunScript, Invoke-RemoteRun, Receive-RemoteRun, New-RemoteSnapshot, Invoke-RemoteFilter, Invoke-Gh, Wait-GitHubRun, Receive-GitHubRun, Get-GitHubTarget, Receive-GitHubLive, Get-RemoteClasses, Get-IdaHostClasses, Get-HeldClasses, Get-HostVariables, Get-RealDataVariables, Get-RemoteShard, Get-LocalFilter, Get-ClassFilter, Get-ClassOutcomes, Get-TestOutcomes, Get-SkippedOnHost, Get-FastestClassSeconds, Get-SkippedOnBoth, Get-RerunClasses, Get-MixedClasses, Get-FailedThereNote, Join-TrxFiles, Get-TargetFileName, Save-RemoteRecord, Get-RemoteStatus, Get-DeferredClasses, Get-UndeferredFamilies, Save-DeferredClasses, Get-DeferredStatus, Get-OffloadTarget, Start-Offload, Receive-Offload

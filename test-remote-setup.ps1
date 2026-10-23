@@ -8,6 +8,7 @@
 # build tools install machine-wide). Engine and live permits are the host's own (its temporary folder).
 # Usage:  ./test-remote-setup.ps1 -Target user@host [-Check]
 #         ./test-remote-setup.ps1 -Target user@host -Data [-Check]  # the real data, under ~/corvus-data there
+#         ./test-remote-setup.ps1 -Target user@host -IdaDirectory <folder on the host>  # an IDA Pro 9+ install there
 # On the host (run by the above):  powershell -File corvus-test-host\test-remote-setup.ps1 -OnHost -Repository <url> [-Check]
 #Requires -Version 5.1
 param(
@@ -20,7 +21,9 @@ param(
     # Only the pinned tools, the clone and Frida, without touching the user or machine environment (the tests).
     [switch]$ToolsOnly,
     # Copy the folders and files the real-data variables name to the host instead, and set the variables there.
-    [switch]$Data
+    [switch]$Data,
+    # The host's IDA Pro 9+ folder, for CORVUS_IDA_DIR there; IDA is licensed per machine, so setup never installs it.
+    [string]$IdaDirectory
 )
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
@@ -114,7 +117,9 @@ if (-not $OnHost) {
     if ($LASTEXITCODE -ne 0) { throw "ssh $Target failed (exit $LASTEXITCODE): is OpenSSH Server running there, with this machine's key authorized?" }
     $null = Invoke-Transport 'CORVUS_TEST_SCP' 'scp' ($sshOptions + @($hostFiles | ForEach-Object { Join-Path $PSScriptRoot $_ }) + @("${Target}:corvus-test-host/"))
     if ($LASTEXITCODE -ne 0) { throw "Copying the setup files to $Target failed (exit $LASTEXITCODE)." }
-    Invoke-Transport 'CORVUS_TEST_SSH' 'ssh' ($sshOptions + @($Target, "powershell -NoProfile -ExecutionPolicy Bypass -File corvus-test-host\test-remote-setup.ps1 -OnHost -Repository $Repository$(if ($Check) { ' -Check' })"))
+    # The host's default shell splits at spaces and keeps single quotes, so the folder goes in double quotes.
+    $idaArgument = if ($IdaDirectory) { ' -IdaDirectory "' + $IdaDirectory + '"' } else { '' }
+    Invoke-Transport 'CORVUS_TEST_SSH' 'ssh' ($sshOptions + @($Target, "powershell -NoProfile -ExecutionPolicy Bypass -File corvus-test-host\test-remote-setup.ps1 -OnHost -Repository $Repository$(if ($Check) { ' -Check' })$idaArgument"))
     $code = $LASTEXITCODE
     if ($code -eq 0) { Write-Host "To send whole-suite runs there from this machine: setx CORVUS_TEST_REMOTE $Target" }
     exit $code
@@ -276,6 +281,19 @@ if (-not $Check -and $admin) {
     if (($machine -split ';') -notcontains $x64) { [Environment]::SetEnvironmentVariable('PATH', "$x64;$machine", 'Machine') }
     if (($env:PATH -split ';') -notcontains $x64) { $env:PATH = "$x64;$env:PATH" }
 }
+
+Step 'IDA'
+# The folder given, else the one CORVUS_IDA_DIR or IDA's own ida-config.json names; a host without IDA leaves the IDA
+# classes to the machine that has it.
+$ida = if ($IdaDirectory) { $IdaDirectory } else { [Environment]::GetEnvironmentVariable('CORVUS_IDA_DIR', 'User') }
+if (-not $ida) {
+    $config = Join-Path $env:APPDATA 'Hex-Rays\IDA Pro\ida-config.json'
+    if (Test-Path $config) { $ida = (Get-Content $config -Raw | ConvertFrom-Json).Paths.'ida-install-dir' }
+}
+if (-not $ida) { Write-Host '  none: the IDA classes stay on the machine that has IDA' }
+elseif (-not ((Test-Path (Join-Path $ida 'idalib.dll')) -and (Test-Path (Join-Path $ida 'idalib\python\idapro\__init__.py')))) { Need "idalib in $ida (IDA Pro 9 or newer)" }
+elseif ($Check) { Write-Host "  $ida" }
+else { Set-UserVariable 'CORVUS_IDA_DIR' $ida; Write-Host "  CORVUS_IDA_DIR = $ida" }
 
 Step 'Visual C++ build tools'
 $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
