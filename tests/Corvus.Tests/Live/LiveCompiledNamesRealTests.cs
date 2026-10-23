@@ -55,6 +55,16 @@ public sealed class LiveCompiledNamesRealTests(ITestOutputHelper output) : LiveT
             await Ok(server, "live_session", new() { ["action"] = "close", ["session"] = "live-1" });
         }
         Ended(pid);
+        // The player's crash handler, a process of its own, can hold the log a while after the game ends.
+        for (var clock = System.Diagnostics.Stopwatch.StartNew(); clock.Elapsed < TimeSpan.FromMinutes(1); await Task.Delay(200))
+        {
+            try
+            {
+                using (new FileStream(_dir.File("player.log"), FileMode.Open, FileAccess.Read, FileShare.None)) break;
+            }
+            catch (FileNotFoundException) { break; }
+            catch (IOException) { }
+        }
     }
 
     [LiveRealDataFact("win-x64", NativeAotSampleTests.Variable)]
