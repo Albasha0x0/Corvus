@@ -287,6 +287,8 @@ public sealed class IdaProvider(IdaProviderOptions? options = null) : INativeDec
 
     internal static string? Remediation(ErrorCode code, string message)
     {
+        if (message.Contains("is not licensed on this machine", StringComparison.Ordinal))
+            return "This machine's IDA license does not include that decompiler: decompile it with engine=ghidra or read it with disassemble.";
         if (message.Contains("licen", StringComparison.OrdinalIgnoreCase))
             return "Start IDA once interactively to accept the license terms, and check that the license is valid on this machine.";
         if (message.Contains(EngineMemoryLimit.Variable, StringComparison.Ordinal))

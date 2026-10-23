@@ -195,6 +195,16 @@ public class NativeProviderTests(ITestOutputHelper output)
         Assert.Contains("engine=ghidra", Corvus.Native.Providers.Ida.IdaProvider.Remediation(ErrorCode.Failed, "decompilation failed: function frame is wrong"));
 
     [Fact]
+    public void A_decompiler_the_IDA_license_lacks_names_Ghidra_rather_than_the_license_terms()
+    {
+        // The worker's message for Hex-Rays MERR_LICENSE, as the test host's IDA 9.3 gave it for a RISC-V file.
+        var next = Corvus.Native.Providers.Ida.IdaProvider.Remediation(ErrorCode.Unsupported,
+            "the Hex-Rays decompiler for riscv (32-bit) is not licensed on this machine (license not available (HEXRV))");
+        Assert.Contains("engine=ghidra", next);
+        Assert.DoesNotContain("license terms", next);
+    }
+
+    [Fact]
     public void IDA_before_9_is_refused_by_the_version_its_worker_reports()
     {
         using var provider = new Corvus.Native.Providers.Ida.IdaProvider();

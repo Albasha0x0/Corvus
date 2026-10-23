@@ -524,6 +524,14 @@ def too_big(m, hf, f):
                        % f.size())
 
 
+def known_failure(m, hf, f):
+    # A decompiler the license lacks is unsupported here, not a fault in the function: the caller can pick Ghidra
+    if hf.code == getattr(m.ida_hexrays, "MERR_LICENSE", None):
+        return WorkerError("unsupported", "the Hex-Rays decompiler for %s (%d-bit) is not licensed on this machine (%s)"
+                           % (m.ida_ida.inf_get_procname(), 64 if m.ida_ida.inf_is_64bit() else 32, hf.desc()))
+    return too_big(m, hf, f)
+
+
 def op_decompile(args):
     m = need_open()
     ea = ea_of(args)
@@ -535,9 +543,9 @@ def op_decompile(args):
     try:
         cf = m.ida_hexrays.decompile(f.start_ea, hf, m.ida_hexrays.DECOMP_NO_WAIT)
     except m.ida_hexrays.DecompilationFailure as e:
-        raise too_big(m, hf, f) or WorkerError("failed", "decompilation failed at 0x%X: %s" % (rva_of(hf.errea) or 0, str(e).strip() or hf.desc()))
+        raise known_failure(m, hf, f) or WorkerError("failed", "decompilation failed at 0x%X: %s" % (rva_of(hf.errea) or 0, str(e).strip() or hf.desc()))
     if cf is None:
-        raise too_big(m, hf, f) or WorkerError("failed", "decompilation failed: %s" % hf.desc())
+        raise known_failure(m, hf, f) or WorkerError("failed", "decompilation failed: %s" % hf.desc())
     text_lines = []
     addresses = []
     for n, sl in enumerate(cf.get_pseudocode()):
@@ -3316,9 +3324,9 @@ def op_value_slice(args):
     try:
         cf = hr.decompile(f.start_ea, failure, hr.DECOMP_NO_WAIT)
     except hr.DecompilationFailure as e:
-        raise too_big(m, failure, f) or WorkerError("failed", "decompilation failed: %s" % (str(e).strip() or failure.desc()))
+        raise known_failure(m, failure, f) or WorkerError("failed", "decompilation failed: %s" % (str(e).strip() or failure.desc()))
     if cf is None:
-        raise too_big(m, failure, f) or WorkerError("failed", "decompilation failed: %s" % failure.desc())
+        raise known_failure(m, failure, f) or WorkerError("failed", "decompilation failed: %s" % failure.desc())
     s = _Slicer(m, cf, args.get("max_nodes") or 256)
     seed, ea, index = args.get("seed"), ea_of(args), int(args.get("index", -1))
     forward = args.get("direction") == "forward"
