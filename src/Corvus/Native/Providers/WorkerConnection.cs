@@ -24,6 +24,11 @@ public sealed record WorkerConnectionOptions
     public Func<IReadOnlyList<int>, string?>? StallReport { get; init; }
     /// <summary>The setting a memory-limit hit names in its error.</summary>
     public string MemoryLimitVariable { get; init; } = EngineMemoryLimit.Variable;
+    /// <summary>
+    /// Times the start wait, request time limits, the quiet limit and the cancel grace; waits for the process to exit
+    /// keep the system clock.
+    /// </summary>
+    public TimeProvider Time { get; init; } = TimeProvider.System;
 }
 
 /// <summary>A request the worker is running: its op, when it was sent, and the last progress the worker reported for it.</summary>
@@ -31,7 +36,7 @@ public sealed record WorkerRequestState(long Id, string Op, DateTime StartedUtc,
 {
     /// <summary>Progress events the worker sent for this request; none means the worker never reported running it.</summary>
     public int ProgressEvents { get; init; }
-    /// <summary>When the request was sent or last reported progress, in <see cref="Environment.TickCount64"/> milliseconds.</summary>
+    /// <summary>When the request was sent or last reported progress, as a timestamp of the connection's clock.</summary>
     public long LastProgressTicks { get; init; }
 }
 
@@ -65,8 +70,8 @@ public sealed class WorkerConnection : IDisposable
     private readonly BlockingCollection<(byte[] Line, TaskCompletionSource Written)> _writes = [];
     private long _nextId;
     private int _waiting;
-    // Environment.TickCount64 of the last stdout line: a live worker reports progress every 2 s.
-    private long _lastLineTicks = Environment.TickCount64;
+    // Timestamp of the last stdout line: a live worker reports progress every 2 s.
+    private long _lastLineTicks;
     private string? _killReason;
     private int _disposed;
 
@@ -79,6 +84,7 @@ public sealed class WorkerConnection : IDisposable
         _name = name;
         _remediation = remediation;
         _options = options;
+        _lastLineTicks = options.Time.GetTimestamp();
         new Thread(ReadStdout) { IsBackground = true, Name = name + " stdout" }.Start();
         new Thread(ReadStderr) { IsBackground = true, Name = name + " stderr" }.Start();
         new Thread(WriteStdin) { IsBackground = true, Name = name + " stdin" }.Start();
@@ -135,6 +141,12 @@ public sealed class WorkerConnection : IDisposable
         get { lock (_sync) return _running.Values.OrderBy(r => r.Id).ToList(); }
     }
 
+    /// <summary>Tests: the worker's log line read for request <paramref name="id"/>, or null when none was read.</summary>
+    internal string? LogLineOf(long id)
+    {
+        lock (_sync) return _requestLog.GetValueOrDefault(id);
+    }
+
     /// <summary>Requests waiting for a serial connection to finish the running one.</summary>
     public int Waiting => Volatile.Read(ref _waiting);
 
@@ -148,7 +160,7 @@ public sealed class WorkerConnection : IDisposable
     /// <summary>Waits for the worker's "ready" event.</summary>
     public async Task<JsonElement> WaitReadyAsync(TimeSpan timeout, CancellationToken cancellationToken)
     {
-        var done = await Task.WhenAny(_ready.Task, _closed.Task, Task.Delay(timeout, cancellationToken)).ConfigureAwait(false);
+        var done = await Task.WhenAny(_ready.Task, _closed.Task, Task.Delay(timeout, _options.Time, cancellationToken)).ConfigureAwait(false);
         if (done == _ready.Task) return _ready.Task.Result;
         if (done == _closed.Task) throw await DiedAsync("start").ConfigureAwait(false);
         var stall = cancellationToken.IsCancellationRequested ? null : Stall();
@@ -173,7 +185,7 @@ public sealed class WorkerConnection : IDisposable
             log = _requestLog.GetValueOrDefault(id);
             logs = _logsRequests;
         }
-        var quiet = TimeSpan.FromMilliseconds(Environment.TickCount64 - Volatile.Read(ref _lastLineTicks));
+        var quiet = _options.Time.GetElapsedTime(Volatile.Read(ref _lastLineTicks));
         return (write.IsCompletedSuccessfully ? "" : " The request had not been written to the worker.")
             + $" Progress events: {r?.ProgressEvents ?? 0}."
             + (r?.Stage != null ? $" Last stage: {r.Stage}." : "")
@@ -235,12 +247,12 @@ public sealed class WorkerConnection : IDisposable
             lock (_sync)
             {
                 _pending[id] = tcs;
-                _running[id] = new WorkerRequestState(id, op, DateTime.UtcNow, null) { LastProgressTicks = Environment.TickCount64 };
+                _running[id] = new WorkerRequestState(id, op, DateTime.UtcNow, null) { LastProgressTicks = _options.Time.GetTimestamp() };
             }
             var write = Send(WorkerProtocol.EncodeRequest(id, op, args, timeout));
 
-            using var timer = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-            timer.CancelAfter(timeout);
+            using var expiry = new CancellationTokenSource(timeout, _options.Time);
+            using var timer = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, expiry.Token);
             var wentQuiet = quiet is { } q ? QuietAsync(id, q, timer) : Task.FromResult(false);
             var stop = Task.Delay(Timeout.Infinite, timer.Token);
             try
@@ -304,13 +316,13 @@ public sealed class WorkerConnection : IDisposable
                     if (!_running.TryGetValue(id, out var r)) return false;
                     last = r.LastProgressTicks;
                 }
-                var left = last + (long)quiet.TotalMilliseconds - Environment.TickCount64;
-                if (left <= 0)
+                var left = quiet - _options.Time.GetElapsedTime(last);
+                if (left <= TimeSpan.Zero)
                 {
                     timer.Cancel();
                     return true;
                 }
-                await Task.Delay(TimeSpan.FromMilliseconds(left), token).ConfigureAwait(false);
+                await Task.Delay(left, _options.Time, token).ConfigureAwait(false);
             }
         }
         catch (Exception ex) when (ex is OperationCanceledException or ObjectDisposedException) { return false; }
@@ -354,7 +366,7 @@ public sealed class WorkerConnection : IDisposable
     {
         if (_options.CancelGrace is not { } grace || !IsAlive) return false;
         // A request still stuck in the pipe, or whose write failed, cannot be stopped by the worker.
-        await Task.WhenAny(write, Task.Delay(grace)).ConfigureAwait(false);
+        await Task.WhenAny(write, Task.Delay(grace, _options.Time)).ConfigureAwait(false);
         if (!write.IsCompletedSuccessfully) return false;
         try
         {
@@ -362,7 +374,7 @@ public sealed class WorkerConnection : IDisposable
                 .ConfigureAwait(false);
         }
         catch (Exception ex) when (ex is IOException or ObjectDisposedException) { return false; }
-        await Task.WhenAny(response, _closed.Task, Task.Delay(grace)).ConfigureAwait(false);
+        await Task.WhenAny(response, _closed.Task, Task.Delay(grace, _options.Time)).ConfigureAwait(false);
         return response.IsCompleted && IsAlive;
     }
 
@@ -429,7 +441,7 @@ public sealed class WorkerConnection : IDisposable
             using var reader = new StreamReader(_process.StandardOutput, new UTF8Encoding(false), false, 4096, leaveOpen: true);
             while (reader.ReadLine() is { } line)
             {
-                Volatile.Write(ref _lastLineTicks, Environment.TickCount64);
+                Volatile.Write(ref _lastLineTicks, _options.Time.GetTimestamp());
                 switch (WorkerProtocol.Parse(line))
                 {
                     case WorkerMessage.Response r:
@@ -514,7 +526,7 @@ public sealed class WorkerConnection : IDisposable
         {
             var key = id ?? (_running.Count == 1 ? _running.Keys.First() : -1);
             if (_running.TryGetValue(key, out var r))
-                _running[key] = r with { Stage = string.IsNullOrEmpty(stage) ? r.Stage : stage, ProgressEvents = r.ProgressEvents + 1, LastProgressTicks = Environment.TickCount64 };
+                _running[key] = r with { Stage = string.IsNullOrEmpty(stage) ? r.Stage : stage, ProgressEvents = r.ProgressEvents + 1, LastProgressTicks = _options.Time.GetTimestamp() };
         }
     }
 }
