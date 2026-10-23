@@ -198,6 +198,9 @@ native/similar-query-slowest-large-image	windows	1000	ms
 native/survey-file	linux	120000	ms
 native/survey-file	macos	120000	ms
 native/survey-file	windows	120000	ms
+native/tool-fuzz-slowest-call	linux	30000	ms
+native/tool-fuzz-slowest-call	macos	30000	ms
+native/tool-fuzz-slowest-call	windows	30000	ms
 session/cancelled-lock-waits	linux	5000	ms
 session/cancelled-lock-waits	macos	5000	ms
 session/cancelled-lock-waits	windows	5000	ms

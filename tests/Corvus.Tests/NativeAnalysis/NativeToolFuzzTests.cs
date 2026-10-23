@@ -18,7 +18,14 @@ namespace Corvus.Tests;
 [Trait("Speed", "Slow")]
 public class NativeToolFuzzTests(ITestOutputHelper output)
 {
+    // The latency claim, enforced by the perf run on an idle machine; elsewhere parallel fuzzers starve calls for CPU.
+    private static readonly TimeSpan CallBudget = TimeSpan.FromSeconds(30);
+
+    // A call still running after this has hung, however loaded the machine is.
+    private static readonly TimeSpan HangGuard = TimeSpan.FromMinutes(2);
+
     [Fact]
+    [Trait(PerfBudget.Trait, PerfBudget.Timing)]
     public async Task MutatedImagesThroughEveryTool()
     {
         int iterations = int.TryParse(Environment.GetEnvironmentVariable("CORVUS_NATIVE_TOOL_FUZZ_ITERATIONS"), out var n) ? n : 2500;
@@ -29,13 +36,15 @@ public class NativeToolFuzzTests(ITestOutputHelper output)
         using var dir = new TempDir();
         var failures = new ConcurrentBag<string>();
         var slowest = new ConcurrentBag<(TimeSpan Elapsed, string What)>();
+        var overBudget = new ConcurrentBag<(TimeSpan Elapsed, string What)>();
+        var slowestCalls = new ConcurrentBag<TimeSpan>();
         long calls = 0, typed = 0, notLoaded = 0;
         int next = -1;
         var clock = Stopwatch.StartNew();
         int workers = Math.Clamp(Environment.ProcessorCount - 2, 2, 16);
         await Task.WhenAll(Enumerable.Range(0, workers).Select(w => Task.Run(async () =>
         {
-            using var harness = new NativeToolHarness(backgroundIndexing: w % 2 == 0) { Lenient = true, CallLimit = TimeSpan.FromSeconds(30) };
+            using var harness = new NativeToolHarness(backgroundIndexing: w % 2 == 0) { Lenient = true, CallLimit = HangGuard };
             int i;
             while ((i = Interlocked.Increment(ref next)) < iterations)
             {
@@ -46,11 +55,13 @@ public class NativeToolFuzzTests(ITestOutputHelper output)
                 File.WriteAllBytes(path, bytes);
                 int before = harness.Calls.Count;
                 var sw = Stopwatch.StartNew();
-                await harness.Exercise(path, indexLimit: TimeSpan.FromSeconds(30));
+                await harness.Exercise(path, indexLimit: HangGuard);
                 // An image the workspace kept after a failed unload would leak into the next iteration.
                 foreach (var left in harness.Workspace.Read(() => harness.Workspace.Natives)) harness.Workspace.UnloadNative(left);
                 slowest.Add((sw.Elapsed, $"iteration {i} ({seeds[which].Name}; {what})"));
                 var mine = harness.Calls.Skip(before).ToList();
+                if (mine.Count > 0) slowestCalls.Add(mine.Max(c => c.Elapsed));
+                foreach (var c in mine.Where(c => c.Elapsed > CallBudget)) overBudget.Add((c.Elapsed, $"iteration {i} ({seeds[which].Name}; {what}): {c.Tool} {c.Args}"));
                 Interlocked.Add(ref calls, mine.Count);
                 Interlocked.Add(ref typed, mine.Count(c => c.Error != null));
                 if (mine.Count == 1) Interlocked.Increment(ref notLoaded);
@@ -64,8 +75,10 @@ public class NativeToolFuzzTests(ITestOutputHelper output)
                          $"{typed} typed errors, {notLoaded} images rejected at load");
         foreach (var x in slowest.OrderByDescending(x => x.Elapsed).Take(5)) output.WriteLine($"slow: {x.Elapsed.TotalSeconds:0.0} s {x.What}");
         foreach (var (name, _) in seeds) output.WriteLine("seed: " + name);
+        foreach (var x in overBudget.OrderByDescending(x => x.Elapsed).Take(10)) output.WriteLine($"over {CallBudget.TotalSeconds:0} s: {x.Elapsed.TotalSeconds:0.0} s {x.What}");
         foreach (var f in failures.Take(30)) output.WriteLine("FAIL " + f);
         Assert.True(failures.IsEmpty, $"{failures.Count} failures; first: {failures.FirstOrDefault()}");
+        PerfBudget.Time("native/tool-fuzz-slowest-call", slowestCalls.DefaultIfEmpty().Max(), CallBudget, output, $"{overBudget.Count} calls over budget");
     }
 
     /// <summary>The synthetic kitchen-sink images and small real images: x64 and x86 code, C++ with RTTI, a driver, resources only.</summary>
