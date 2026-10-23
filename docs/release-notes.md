@@ -487,6 +487,22 @@
 - **Device calls:** a device tool runs adb as soon as it finds it, without first waiting for an `adb version` check, so
   the first device calls of a server no longer wait on that extra program run under load; a missing adb is still named
   with the reason. [5fe21a55](https://github.com/Albasha0x0/Corvus/commit/5fe21a55)
+- **Call answers:** a finished call answers without taking the workspace lock again: provenance and recent-call inputs
+  read the last published set of loaded targets, and a call that changed nothing skips the edit journal sync, so a long
+  exclusive holder (a cold C# compile) no longer holds back other answers past their deadline. [42a3440e](https://github.com/Albasha0x0/Corvus/commit/42a3440e)
+- **.NET decompiles:** decompiles no longer open the assembly's XML doc file, which Corvus never shows: it cost 10-15% of
+  a large type's first decompile, and a doc file another process held open turned a whole-type decompile into
+  member-by-member output. A workaround for icsharpcode/ILSpy#4275, verified with ICSharpCode.Decompiler 11.1.0.9782. [22ec63c5](https://github.com/Albasha0x0/Corvus/commit/22ec63c5)
+- **Process launches (Windows):** a child's launch holds the process creation lock only while its pipe ends are
+  inheritable and starts its exit thread after releasing it, so concurrent launches no longer queue behind each other
+  (lock held 34 ms at the median and 199 ms at p90 before, 3.9 ms and 29.6 ms now, under load). [6ba784e3](https://github.com/Albasha0x0/Corvus/commit/6ba784e3)
+- **simplify_methods time limits:** the 5 s per-method limit and the 30 s limit per type initializer run count the
+  thread's CPU time instead of wall time, so a loaded machine folds the same methods as a quiet one; a method also stops
+  at 3 times its limit of wall time, and wall time is used where the CPU time cannot be read. [aadaf6d6](https://github.com/Albasha0x0/Corvus/commit/aadaf6d6)
+- **Virtual call checks:** a virtual call cross-check against IDA or Ghidra no longer stops the engine when one
+  decompilation runs past its batch's budget on a loaded machine: that decompilation now gets a full request limit, so
+  a batch can take one request limit (2 min by default) longer, and the check's overall deadline still bounds it.
+  Verified with IDA Pro 9.3 and Ghidra 12.1.4 on Windows 11 x64. [a4f6aa25](https://github.com/Albasha0x0/Corvus/commit/a4f6aa25)
 
 ## 2.4.0
 
