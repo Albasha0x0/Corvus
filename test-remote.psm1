@@ -39,6 +39,8 @@ $script:ShortShare = 0.2
 $script:ShortFloorSeconds = 30
 # Where a run keeps each target's record and results, under the repository's .git.
 $script:RecordFolder = 'corvus-remote'
+# The host group's classes the last push run left to the nightly run, under the repository's .git.
+$script:DeferredFile = 'corvus-host-deferred.txt'
 # Set to 0 to run every class here.
 $script:OffloadVariable = 'CORVUS_TEST_OFFLOAD'
 # Set by the background push run: its commit is on its way to origin, so its CI run is coming.
@@ -367,6 +369,33 @@ function Get-TrxTests([xml]$trx, $ns) {
 
 # The file name a target's record and results take in the record folder.
 function Get-TargetFileName([string]$name) { $name -replace '[^\w.-]', '_' }
+
+# Of $classes, the ones in the host group $hostGroup that a push run leaves to the nightly whole run, which runs every
+# class: all but those in $failed, which run here so that a failure on the test host is checked on this machine too.
+# Sorted.
+function Get-DeferredClasses([string[]]$classes, [string[]]$hostGroup, [string[]]$failed = @()) {
+    @($classes | Where-Object { $_ -in $hostGroup -and $_ -notin $failed } | Sort-Object -Unique)
+}
+
+# Of the families in $passed, those whose classes in $classMap include none of $deferred: a family whose class did not
+# run records no pass. Sorted.
+function Get-UndeferredFamilies([string[]]$passed, [hashtable]$classMap, [string[]]$deferred = @()) {
+    @($passed | Where-Object { $family = $_; -not @($classMap[$family] | Where-Object { $_ -in $deferred }) } | Sort-Object)
+}
+
+# Saves the classes a push run left to the nightly run, as "<commit> at <time>: <classes>" in
+# <gitDir>/corvus-host-deferred.txt for -Status; no class removes the file.
+function Save-DeferredClasses([string]$gitDir, [string]$commit, [string[]]$classes) {
+    $file = Join-Path $gitDir $script:DeferredFile
+    if (-not $classes) { Remove-Item $file -ErrorAction SilentlyContinue; return }
+    Set-Content -Path $file -Value "$commit at $(Get-Date -Format 'yyyy-MM-dd HH:mm'): $($classes -join ', ')" -NoNewline
+}
+
+# The line Save-DeferredClasses wrote, or $null when the last push run left nothing.
+function Get-DeferredStatus([string]$gitDir) {
+    $file = Join-Path $gitDir $script:DeferredFile
+    if (Test-Path $file) { (Get-Content $file -Raw).Trim() } else { $null }
+}
 
 # Saves the record -Status shows for a target: <gitDir>/corvus-remote/<name>.json.
 function Save-RemoteRecord([string]$gitDir, [System.Collections.IDictionary]$record) {
@@ -728,4 +757,4 @@ function Receive-GitHubRun($state, [string]$folder, [string]$group = '') {
     $result
 }
 
-Export-ModuleMember -Function Invoke-Transport, Test-RemoteHost, Get-RemoteRunScript, Invoke-RemoteRun, Receive-RemoteRun, New-RemoteSnapshot, Invoke-RemoteFilter, Invoke-Gh, Wait-GitHubRun, Receive-GitHubRun, Get-GitHubTarget, Receive-GitHubLive, Get-RemoteClasses, Get-HeldClasses, Get-HostVariables, Get-RealDataVariables, Get-RemoteShard, Get-LocalFilter, Get-ClassFilter, Get-ClassOutcomes, Get-TestOutcomes, Get-SkippedOnHost, Get-FastestClassSeconds, Get-SkippedOnBoth, Get-RerunClasses, Get-MixedClasses, Get-FailedThereNote, Join-TrxFiles, Get-TargetFileName, Save-RemoteRecord, Get-RemoteStatus, Get-OffloadTarget, Start-Offload, Receive-Offload
+Export-ModuleMember -Function Invoke-Transport, Test-RemoteHost, Get-RemoteRunScript, Invoke-RemoteRun, Receive-RemoteRun, New-RemoteSnapshot, Invoke-RemoteFilter, Invoke-Gh, Wait-GitHubRun, Receive-GitHubRun, Get-GitHubTarget, Receive-GitHubLive, Get-RemoteClasses, Get-HeldClasses, Get-HostVariables, Get-RealDataVariables, Get-RemoteShard, Get-LocalFilter, Get-ClassFilter, Get-ClassOutcomes, Get-TestOutcomes, Get-SkippedOnHost, Get-FastestClassSeconds, Get-SkippedOnBoth, Get-RerunClasses, Get-MixedClasses, Get-FailedThereNote, Join-TrxFiles, Get-TargetFileName, Save-RemoteRecord, Get-RemoteStatus, Get-DeferredClasses, Get-UndeferredFamilies, Save-DeferredClasses, Get-DeferredStatus, Get-OffloadTarget, Start-Offload, Receive-Offload

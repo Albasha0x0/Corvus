@@ -103,7 +103,9 @@
   followed, into `~/corvus-data` with the variables set to the copies; a copy whose size and name still match is kept,
   and a copy that would leave under 10 GB free is refused; `-Check` names what is missing). Variables that name a
   program the tests run (the tool table in `test-remote.psm1`) are not copied. A class whose variable the host lacks,
-  data or program, stays here, and the run names it. Run a filter repeatedly on the host:
+  data or program, stays here, and the run names it. A push run leaves the host group's classes that no test host
+  takes, and those a host left without a failure, to the nightly whole run: it records no family pass for their
+  families, and `-Status` names them. A class that failed on the host still runs again here. Run a filter repeatedly on the host:
   `./test.ps1 -Remote -Filter <filter> -Repeat <n>` sends the working tree as it is (uncommitted changes included, as a
   git bundle; nothing is pushed), builds it there once and runs the filter `n` times, printing each run's exit code and
   copying the TRX files of failed runs to `TestResults/remote`.

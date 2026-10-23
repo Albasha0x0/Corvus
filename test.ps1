@@ -138,6 +138,7 @@ if ($Status) {
     if (Test-Path $misses) { Write-Host "Last selection miss: $(Get-Content $misses -Tail 1)" }
     Import-Module (Join-Path $root 'test-remote.psm1') -Force
     Get-RemoteStatus $gitDir | ForEach-Object { Write-Host "Offload $_" }
+    if (Get-DeferredStatus $gitDir) { Write-Host "Host-only classes left for the nightly run: $(Get-DeferredStatus $gitDir)" }
     $nightly = Join-Path $gitDir 'corvus-nightly.log'
     if (Test-Path $nightly) { Write-Host "Nightly ($nightly): $(Get-Content $nightly -Tail 1)" }
     $verdicts = Join-Path $gitDir 'corvus-perf-verdicts.json'
@@ -532,9 +533,11 @@ if ($Stamp) {
     $tree = Get-CleanTree
     if ($tree -ne $run.tree) { Write-Host "The saved run was on tree $($run.tree); this tree is $(if ($tree) { $tree } else { 'not clean' }). Run the suite again." -ForegroundColor Red; exit 2 }
     Import-Module (Join-Path $root 'test-reuse.psm1') -Force
+    Import-Module (Join-Path $root 'test-remote.psm1') -Force
     # the classes the run keyed on their own, by their 'class:<name>' keys
     $own = @{}; foreach ($name in $run.keys.Keys | Where-Object { $_ -like 'class:*' }) { $own[$name.Substring(6)] = $true }
-    $passed = Get-PassedFamilies $lastTrx (Split-ClassMap (Get-ClassMap $tests) $own) $run.code
+    $classes = Split-ClassMap (Get-ClassMap $tests) $own
+    $passed = @(Get-UndeferredFamilies @(Get-PassedFamilies $lastTrx $classes $run.code) $classes @($run.deferred))
     Save-FamilyPasses $familyStamps $passed $run.keys $run.mode $run.commit
     Write-Host "Recorded $($run.mode) passes for $($passed.Count) families from the run of $($run.at)."
     if ($run.code -ne 0) { Write-Host "The saved run failed (exit $($run.code)): the tree is not stamped." -ForegroundColor Red; exit 1 }
@@ -687,6 +690,17 @@ if ($offload) {
     else { $offloadRecord.state = 'idle'; $offloadRecord.note = 'no class to send' }
     Save-RemoteRecord $gitDir $offloadRecord
 }
+# A push run leaves the host group's classes to the nightly whole run unless a test host takes them: the timed and
+# working-set classes need a machine no other run loads, and the real-data classes are the longest of a run here.
+$deferred = @(); $hostGroup = @()
+if ($wholeSuite -and -not $Coverage) {
+    Import-Module (Join-Path $root 'test-remote.psm1') -Force
+    if ($Reuse) {
+        $hostGroup = @(Get-RemoteClasses $tests -Group host)
+        $deferred = @(Get-DeferredClasses @($hostGroup | Where-Object { $_ -notin $sent }) $hostGroup)
+        if ($deferred) { $runFilter = Get-LocalFilter $runFilter $deferred; Write-Host "Left for the nightly run: $($deferred.Count) host-only classes." }
+    }
+}
 if ($runFilter) { $arguments += @('--filter', $runFilter) }
 $results = Join-Path ([IO.Path]::GetTempPath()) "corvus-trx-$PID"
 $arguments += @('--logger', 'trx;LogFileName=full.trx', '--results-directory', $results)
@@ -755,6 +769,15 @@ try {
                 else { $notes += "GitHub live jobs proved none of $($liveHere -join ', ') ($($live.Note))" }
             }
         }
+        # A host class the host left without a failure waits for the nightly run too; a failure there still reruns here.
+        if ($Reuse) {
+            $left = @(Get-DeferredClasses $here $hostGroup @($got.Failed | ForEach-Object Class))
+            if ($left) {
+                $deferred = @($deferred + $left | Sort-Object -Unique)
+                $here = @($here | Where-Object { $_ -notin $left })
+                $notes += "left for the nightly run: $($left -join ', ')"
+            }
+        }
         $hereTrx = Join-Path $results 'here/here.trx'
         if ($here) {
             Write-Host "Running here what $($offload.Name) did not prove: $($here.Count) classes."
@@ -772,6 +795,7 @@ try {
         Save-RemoteRecord $gitDir $offloadRecord
         Write-Host "Offload $($offload.Name): $($offloadRecord.state)$(if ($offloadRecord.note) { "; $($offloadRecord.note)" })."
     }
+    if ($wholeSuite -and -not $Coverage) { Save-DeferredClasses $gitDir (git -C $root rev-parse --short HEAD).Trim() $deferred }
     # Instrumented runs are slower throughout and are not timed.
     if (-not $Coverage) { Save-RunTimes $trx $runMode $code $timing }
     $recordFailed = $false
@@ -779,10 +803,10 @@ try {
         $commit = (git -C $root rev-parse --short HEAD).Trim()
         # saved before recording, so a recording step that fails costs no rerun (-Stamp)
         Copy-Item $trx $lastTrx -Force
-        $run = [ordered]@{ tree = $tree; mode = $mode; reused = [bool]$Filter; code = $code; keys = $familyKeys; commit = $commit; at = (Get-Date -Format 'yyyy-MM-dd HH:mm') }
+        $run = [ordered]@{ tree = $tree; mode = $mode; reused = [bool]$Filter; code = $code; keys = $familyKeys; commit = $commit; at = (Get-Date -Format 'yyyy-MM-dd HH:mm'); deferred = $deferred }
         Set-Content -Path $lastRun -Value ($run | ConvertTo-Json -Depth 3) -NoNewline
         try {
-            $passed = Get-PassedFamilies $trx $classMap $code
+            $passed = @(Get-UndeferredFamilies @(Get-PassedFamilies $trx $classMap $code) $classMap $deferred)
             # A run that reused nothing checks the selection: a failure under a recorded pass's key is a miss.
             if (-not $Filter) {
                 $before = if (Test-Path $familyStamps) { Get-Content $familyStamps -Raw | ConvertFrom-Json } else { $null }

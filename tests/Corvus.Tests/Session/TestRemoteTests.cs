@@ -482,4 +482,31 @@ public sealed class TestRemoteTests : IDisposable
         Assert.Contains("done=LiveAlphaTests,LiveGammaTests|LiveBetaTests,LiveEpsilonTests,LiveOtherTests|offload (live windows-latest 0/2), offload (live ubuntu-latest 0/1) ended failure in run 42", lines);
         Assert.Contains("running=|run 42 did not finish in 0 min", lines);
     }
+
+    [Fact]
+    public void A_push_run_leaves_host_classes_to_the_nightly_run_and_records_no_pass_for_their_families()
+    {
+        var git = _dir.Path;
+        var lines = TestReuseTests.Run($$"""
+            Import-Module {{Module}}
+            $hostGroup = 'DeadlineTests', 'ImagesRealTests', 'MemoryTests'
+            'unsent=' + ((Get-DeferredClasses @('MemoryTests', 'ImagesRealTests') $hostGroup) -join ',')
+            'left=' + ((Get-DeferredClasses @('DeadlineTests', 'MemoryTests', 'SweepTests') $hostGroup @('MemoryTests')) -join ',')
+            $map = @{ Session = @('DeadlineTests', 'NotesTests'); Images = @('ImagesRealTests'); Dotnet = @('DotnetTests') }
+            'passed=' + ((Get-UndeferredFamilies @('Dotnet', 'Images', 'Session') $map @('ImagesRealTests')) -join ',')
+            'none=' + ((Get-UndeferredFamilies @('Dotnet', 'Images') $map @()) -join ',')
+            Save-DeferredClasses {{Quote(git)}} 'abc1234' @('DeadlineTests', 'ImagesRealTests')
+            'status=' + (Get-DeferredStatus {{Quote(git)}})
+            Save-DeferredClasses {{Quote(git)}} 'abc1235' @()
+            'cleared=' + [string]::IsNullOrEmpty((Get-DeferredStatus {{Quote(git)}}))
+            """);
+        if (lines is ["skip"]) return;
+        Assert.Contains("unsent=ImagesRealTests,MemoryTests", lines);
+        // A class that failed on the test host reruns here; a class outside the host group is not deferred.
+        Assert.Contains("left=DeadlineTests", lines);
+        Assert.Contains("passed=Dotnet,Session", lines);
+        Assert.Contains("none=Dotnet,Images", lines);
+        Assert.Contains(lines, l => l.StartsWith("status=abc1234 at ") && l.EndsWith(": DeadlineTests, ImagesRealTests"));
+        Assert.Contains("cleared=True", lines);
+    }
 }
