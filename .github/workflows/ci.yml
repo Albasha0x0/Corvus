@@ -28,12 +28,57 @@ env:
   NUGET_PACKAGES: ${{ github.workspace }}/.nuget/packages
 
 jobs:
+  # Whether the commit changes only docs (docs/**, *.md) since the newest passing run of its branch whose commit is an
+  # ancestor of it, not since its parent, so a docs push after a failed code push still tests the code. Any doubt (no
+  # such run, an API error, 300 or more files, a pull request or a live run) answers no and every job runs.
+  classify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      actions: read
+      contents: read
+    outputs:
+      docs-only: ${{ steps.diff.outputs.docs-only }}
+    steps:
+      - name: Changed files since the newest passing ancestor
+        id: diff
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT: ${{ github.event_name }}
+          LIVE: ${{ inputs.live }}
+          REPO: ${{ github.repository }}
+          BRANCH: ${{ github.ref_name }}
+          SHA: ${{ github.sha }}
+        run: |
+          answer() { echo "docs-only=$1" >> "$GITHUB_OUTPUT"; echo "$2"; exit 0; }
+          [ "$EVENT" = pull_request ] && answer false 'A pull request runs every job.'
+          [ "$LIVE" = true ] && answer false 'A live run runs every job.'
+          passed=$(gh api "repos/$REPO/actions/workflows/ci.yml/runs?branch=$BRANCH&status=success&per_page=50" \
+            --jq '.workflow_runs[] | select(.event == "push" or .event == "workflow_dispatch") | .head_sha') \
+            || answer false 'The passing runs could not be listed: every job runs.'
+          for base in $passed; do
+            compare=$(gh api "repos/$REPO/compare/$base...$SHA" --jq '.status, (.files | length), .files[].filename') || continue
+            [ "$(sed -n 1p <<< "$compare")" = ahead ] || continue
+            count=$(sed -n 2p <<< "$compare")
+            [ "$count" -ge 300 ] && answer false "$count files changed since ${base:0:8}: every job runs."
+            files=$(tail -n +3 <<< "$compare")
+            if grep -qvE '^docs/|\.md$' <<< "$files"; then
+              answer false "Code changed since ${base:0:8}, the newest passing ancestor: every job runs."
+            fi
+            answer true "Only docs changed since ${base:0:8}, the newest passing ancestor: the Linux test job runs alone."
+          done
+          answer false 'No passing ancestor among the last 50 passing runs: every job runs.'
+
   test:
     name: test (${{ matrix.os }})
+    needs: classify
+    # A failed classify leaves the output empty, and every job runs.
+    if: ${{ !cancelled() }}
     strategy:
       fail-fast: false
       matrix:
-        os: [windows-latest, ubuntu-latest, macos-latest]
+        os: ${{ fromJSON(needs.classify.outputs.docs-only == 'true' && '["ubuntu-latest"]' || '["windows-latest", "ubuntu-latest", "macos-latest"]') }}
     runs-on: ${{ matrix.os }}
     timeout-minutes: 45
     steps:
@@ -109,7 +154,8 @@ jobs:
   # joins these results; Linux runs the cross-platform ones as a check. A manual run checks a branch.
   offload:
     name: offload (${{ matrix.group }} ${{ matrix.os }} ${{ matrix.shard }}/${{ matrix.shards }})
-    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+    needs: classify
+    if: ${{ !cancelled() && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && needs.classify.outputs.docs-only != 'true' }}
     strategy:
       fail-fast: false
       matrix:
@@ -194,6 +240,8 @@ jobs:
   # The one-line installers, end to end on a fresh machine: package, install, register, check, reinstall, uninstall.
   install:
     name: install script (${{ matrix.os }})
+    needs: classify
+    if: ${{ !cancelled() && needs.classify.outputs.docs-only != 'true' }}
     strategy:
       fail-fast: false
       matrix:
