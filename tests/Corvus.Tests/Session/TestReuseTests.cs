@@ -274,6 +274,7 @@ public class TestReuseTests
         {
             var lines = Run($$"""
                 Import-Module '{{module.Replace("'", "''")}}'
+                {{NoInheritedSettings}}
                 $env:CORVUS_HEAVY_LOCK = $null
                 'unset=' + (Enter-HeavyLock 'run')
                 $before = Get-RunEnvironment
@@ -359,6 +360,7 @@ public class TestReuseTests
         {
             var lines = Run($$"""
                 Import-Module '{{module.Replace("'", "''")}}'
+                {{NoInheritedSettings}}
                 $env:CORVUS_ZZ_TOOL = '{{tool}}'
                 $env:CORVUS_ZZ_FOLDER = '{{dir}}'
                 $before = Get-RunEnvironment
@@ -670,6 +672,10 @@ public class TestReuseTests
             Directory.Delete(repo, true);
         }
     }
+
+    // The push run on 133c09a9 saw the environment change between two reads: the child inherits the settings other
+    // tests set in this process, and those tests delete the folders they name meanwhile.
+    private const string NoInheritedSettings = "Get-ChildItem env:CORVUS_* | Remove-Item";
 
     internal static string[] Run(string script)
     {
