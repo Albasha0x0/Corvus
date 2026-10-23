@@ -275,7 +275,7 @@ public static partial class ContractSweep
     /// Runs the cases tool by tool (calls of one tool in parallel), restoring the workspace between tools; or, when
     /// <paramref name="byTool"/> is false, in two parallel batches (faster; the contract holds whatever the workspace state
     /// is): first the read-only tools and those with a dry run, then the others, which mostly take the exclusive lock and
-    /// would hold up the first batch.
+    /// would hold up the first batch; the <see cref="DeviceTools"/> run last, on their own.
     /// </summary>
     /// <remarks>
     /// With <paramref name="observe"/> (by tool only), the files under that directory and the fixtures' edits are compared
@@ -290,7 +290,9 @@ public static partial class ContractSweep
             .Select(t => t.Name).ToHashSet();
         var all = new List<Result>();
         await WarmAsync(client, cases);
-        foreach (var group in cases.GroupBy(c => byTool ? c.Tool : shared.Contains(c.Tool) ? "shared" : "exclusive").OrderBy(g => g.Key != "shared"))
+        var batches = new[] { "shared", "exclusive", "device" };
+        foreach (var group in cases.GroupBy(c => byTool ? c.Tool : DeviceTools.Contains(c.Tool) ? "device" : shared.Contains(c.Tool) ? "shared" : "exclusive")
+                     .OrderBy(g => Array.IndexOf(batches, g.Key)))
         {
             bool watch = observe != null && byTool && readOnly.Contains(group.Key);
             var before = watch ? await StateAsync(client, observe!) : null;
@@ -310,6 +312,16 @@ public static partial class ContractSweep
         }
         return all;
     }
+
+    /// <summary>
+    /// Tools that start adb for each call, twice (devices -l, then the command): the fake adb is a .NET program, and with
+    /// 60 below-normal CPU burners beside the parallel batch each start took 4-11 s, so a call reached <see cref="CallLimit"/>.
+    /// </summary>
+    private static readonly HashSet<string> DeviceTools =
+    [
+        "get_android_device_info", "get_android_package_info", "install_android_package", "list_android_devices", "list_android_packages",
+        "pull_android_file", "pull_android_package", "read_android_log", "uninstall_android_package",
+    ];
 
     /// <summary>
     /// Tools whose first call in a server pays a cold start: JIT of a large library (the decompiler, the PDB type reader,
