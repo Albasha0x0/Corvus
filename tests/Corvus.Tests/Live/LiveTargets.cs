@@ -367,7 +367,7 @@ internal static class LivePrograms
     /// <summary>
     /// inrange start end (Windows, an image of over 2 MiB, x86 preferred base 0x30000000): commits a page in the first free
     /// 64 KiB block between the addresses, writes 7 there and passes it to Hold; when every block is in use it prints the
-    /// range and exits 3.
+    /// range, its image base and the regions that hold the range, and exits 3.
     /// </summary>
     public const string InImageRange = Platform + """
         #include <stdint.h>
@@ -386,7 +386,13 @@ internal static class LivePrograms
                 p = (int*)VirtualAlloc((void*)at, 4096, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
             if (!p)
             {
-                printf("no free 64 KiB block from 0x%llx to 0x%llx\n", (unsigned long long)start, (unsigned long long)end);
+                printf("no free 64 KiB block from 0x%llx to 0x%llx; image at 0x%llx\n", (unsigned long long)start, (unsigned long long)end,
+                    (unsigned long long)(uintptr_t)GetModuleHandleA(NULL));
+                // What holds the range: each region with its allocation base, state and type.
+                MEMORY_BASIC_INFORMATION m;
+                for (uintptr_t at = start; at < end && VirtualQuery((void*)at, &m, sizeof m); at = (uintptr_t)m.BaseAddress + m.RegionSize)
+                    printf("  0x%llx+0x%llx base 0x%llx state 0x%lx type 0x%lx\n", (unsigned long long)(uintptr_t)m.BaseAddress,
+                        (unsigned long long)m.RegionSize, (unsigned long long)(uintptr_t)m.AllocationBase, m.State, m.Type);
                 fflush(stdout);
                 return 3;
             }
