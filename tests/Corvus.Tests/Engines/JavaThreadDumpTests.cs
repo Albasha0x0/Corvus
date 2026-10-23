@@ -38,7 +38,8 @@ public sealed class JavaThreadDumpTests
         return last;
     }
 
-    private static bool Answered(string report, string dump) => !report.StartsWith(WorkerConnection.StateUnknown, StringComparison.Ordinal);
+    // A JVM still starting refuses jcmd and is read with jhsdb instead, which reports no heap, so wait for jcmd's answer.
+    private static bool Answered(string report, string dump) => report.StartsWith("heap: ", StringComparison.Ordinal);
 
     [Fact]
     public void A_running_jvm_reports_its_heap_and_saves_its_thread_dump()
