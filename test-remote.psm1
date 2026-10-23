@@ -744,7 +744,17 @@ try {
     New-Item -ItemType Directory -Force `$out | Out-Null
     `$log = Join-Path `$out 'console.log'
     & dotnet build (Join-Path `$tree 'tests/Corvus.Tests') --nologo -c Release *> `$log
-    if (`$LASTEXITCODE -ne 0) { 'corvus-remote: the build failed (see results/$id/console.log)'; exit 0 }
+    if (`$LASTEXITCODE -ne 0) {
+        # Another program on the host can remove a tracked file after checkout; the line names such files, not only
+        # the failed build.
+        `$gone = @(git -C `$tree ls-files --deleted)
+        if (`$gone) {
+            `$names = (`$gone | Select-Object -First 3) -join ', '
+            "corvus-remote: the build failed: `$(`$gone.Count) tracked file`$(if (`$gone.Count -ne 1) { 's' }) removed on the host after checkout (`$names`$(if (`$gone.Count -gt 3) { ', ...' })); see results/$id/console.log"
+        }
+        else { 'corvus-remote: the build failed (see results/$id/console.log)' }
+        exit 0
+    }
     'corvus-remote: started'
     `$env:CORVUS_ALL_TESTS = '1'
     `$worst = 0

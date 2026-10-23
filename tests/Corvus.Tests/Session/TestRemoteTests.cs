@@ -383,6 +383,43 @@ public sealed class TestRemoteTests : IDisposable
     }
 
     [Fact]
+    [Trait("Speed", "Slow")]
+    public void A_build_that_fails_on_a_file_removed_after_checkout_names_the_file()
+    {
+        // The host's clone is a one-commit repository; a stand-in dotnet first on PATH removes a tracked file from the
+        // checked-out tree and fails, as a build does once another program on the host removed a fixture.
+        var home = Path.Combine(_dir.Path, "home");
+        var clone = Path.Combine(home, "corvus-test-host", "repo");
+        Directory.CreateDirectory(Path.Combine(clone, "fixtures"));
+        File.WriteAllText(Path.Combine(clone, "fixtures", "sample.ps1"), "'sample'");
+        File.WriteAllText(Path.Combine(clone, "kept.txt"), "kept");
+        var bin = Path.Combine(_dir.Path, "bin");
+        Directory.CreateDirectory(bin);
+        File.WriteAllText(Path.Combine(bin, "dotnet.cmd"), $"@del \"{Path.Combine(home, "corvus-test-host", "run", "fixtures", "sample.ps1")}\"\r\n@exit /b 1\r\n");
+        var script = _dir.File("run.ps1");
+        var output = _dir.File("out.txt");
+        var lines = TestReuseTests.Run($$"""
+            if (-not $IsWindows) { 'skip'; return }
+            Import-Module {{Module}}
+            $repo = {{Quote(clone)}}
+            git -C $repo init --quiet; git -C $repo add -A
+            git -C $repo -c user.name=t -c user.email=t@t commit --quiet -m one
+            $commit = (git -C $repo rev-parse HEAD).Trim()
+            Set-Content {{Quote(script)}} (Get-RemoteRunScript $commit 'FullyQualifiedName~X' 'gone1' -Bundle)
+            $env:USERPROFILE = {{Quote(home)}}; $env:HOME = {{Quote(home)}}; $env:PATH = {{Quote(bin)}} + ';' + $env:PATH
+            $run = Start-Process (Get-Process -Id $PID).Path -ArgumentList '-NoProfile', '-File', {{Quote(script)}} -RedirectStandardOutput {{Quote(output)}} -PassThru -WindowStyle Hidden
+            'ended=' + $run.WaitForExit(60000)
+            $got = Receive-RemoteRun @{ Kind = 'ssh'; Host = 'tester@host2'; Output = @(Get-Content {{Quote(output)}}) } {{Quote(Path.Combine(_dir.Path, "back"))}}
+            'got=' + $got.Started + ',' + $got.Note
+            # Git writes its objects read-only, which the folder's delete cannot remove.
+            Get-ChildItem {{Quote(home)}} -Recurse -File -Force | ForEach-Object { $_.IsReadOnly = $false }
+            """);
+        if (lines is ["skip"]) return;
+        Assert.Contains("ended=True", lines);
+        Assert.Contains("got=False,the build failed: 1 tracked file removed on the host after checkout (fixtures/sample.ps1); see results/gone1/console.log", lines);
+    }
+
+    [Fact]
     public void A_commit_origin_lacks_goes_to_the_host_as_a_bundle_and_the_record_names_it()
     {
         // A push run starts before its push lands (the run on a5dbd1db waited 120 s for origin, then ran all here).
