@@ -350,8 +350,8 @@ public sealed class TestRemoteTests : IDisposable
     [Trait("Speed", "Slow")]
     public void A_run_that_waits_for_another_on_the_host_says_so_and_its_result_names_the_wait()
     {
-        // The test holds the host's lock for 3 s while the run script starts in a home without a clone, so the script
-        // waits, then ends at once naming the missing commit.
+        // The test holds the host's lock until the run script, started in a home without a clone, says it waits, and 1.5 s
+        // more; the script then ends at once naming the missing commit.
         var home = Path.Combine(_dir.Path, "home");
         Directory.CreateDirectory(home);
         var script = _dir.File("run.ps1");
@@ -363,7 +363,9 @@ public sealed class TestRemoteTests : IDisposable
             try { [void]$lock.WaitOne() } catch [Threading.AbandonedMutexException] { }
             $env:USERPROFILE = {{Quote(home)}}; $env:HOME = {{Quote(home)}}
             $run = Start-Process (Get-Process -Id $PID).Path -ArgumentList '-NoProfile', '-File', {{Quote(script)}} -RedirectStandardOutput {{Quote(output)}} -PassThru -WindowStyle Hidden
-            Start-Sleep -Seconds 3
+            $said = [Diagnostics.Stopwatch]::StartNew()
+            while (-not $run.HasExited -and $said.Elapsed.TotalSeconds -lt 60 -and -not ((Get-Content {{Quote(output)}} -ErrorAction SilentlyContinue) -contains 'corvus-remote: waiting for another run on the host')) { Start-Sleep -Milliseconds 100 }
+            Start-Sleep -Milliseconds 1500
             $lock.ReleaseMutex()
             'ended=' + $run.WaitForExit(60000)
             $out = @(Get-Content {{Quote(output)}})
