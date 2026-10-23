@@ -228,17 +228,17 @@ internal sealed class ScriptedLiveBackend(string mainPath, ulong mainBase, uint 
     }
 }
 
-/// <summary>Sessions through the broker on a scripted backend: the join to the loaded image, stops, reads, events, close.</summary>
-public sealed class LiveSessionTests : IDisposable
+/// <summary>A session service and its tools on a scripted backend, made for each test.</summary>
+public abstract class LiveSessionTestBase : IDisposable
 {
-    private const ulong Base = 0x7ff6_1000_0000;
-    private static readonly string Sqlite = RealPackages.File("SQLitePCLRaw.lib.e_sqlite3", "2.1.11", "runtimes", "win-x64", "native", "e_sqlite3.dll");
-    private readonly AssemblyWorkspace _workspace = new();
-    private readonly LiveSessionService _service;
-    private readonly ScriptedLiveBackend _backend;
-    private readonly LiveSessionTools _tools;
+    private protected const ulong Base = 0x7ff6_1000_0000;
+    private protected static readonly string Sqlite = RealPackages.File("SQLitePCLRaw.lib.e_sqlite3", "2.1.11", "runtimes", "win-x64", "native", "e_sqlite3.dll");
+    private protected readonly AssemblyWorkspace _workspace = new();
+    private protected readonly LiveSessionService _service;
+    private protected readonly ScriptedLiveBackend _backend;
+    private protected readonly LiveSessionTools _tools;
 
-    public LiveSessionTests()
+    protected LiveSessionTestBase()
     {
         _backend = new ScriptedLiveBackend(Sqlite, Base, 0x200000);
         _service = new LiveSessionService(_workspace, new NativeCodeService(_workspace, SharedCodeIndex.Options())) { Backend = _backend };
@@ -250,7 +250,11 @@ public sealed class LiveSessionTests : IDisposable
         _service.Dispose();
         _workspace.Dispose();
     }
+}
 
+/// <summary>Sessions through the broker on a scripted backend: the join to the loaded image, stops, frames and watches.</summary>
+public sealed class LiveSessionTests : LiveSessionTestBase
+{
     [Fact]
     public async Task The_programs_own_module_is_found_wherever_the_backend_lists_it()
     {
@@ -604,6 +608,44 @@ public sealed class LiveSessionTests : IDisposable
     }
 
     [Fact]
+    public async Task A_function_too_short_to_hook_is_refused_with_its_size()
+    {
+        await _tools.LiveSession("attach", program: "99994242");
+        var index = new NativeCodeService(_workspace, SharedCodeIndex.Options()).IndexOfOriginal(_workspace.Natives.Single(), default);
+        var shortest = index.Functions.Where(f => f.Size is > 0 and < 16).OrderBy(f => f.Start).First();
+        _backend.Unhookable.Add(Base + shortest.Start);
+        var refused = await Assert.ThrowsAsync<ToolError>(() => _tools.LiveBreak("live-1", "set", at: $"0x{Base + shortest.Start:X}"));
+        Assert.Equal(ErrorCode.Unsupported, refused.Code);
+        Assert.Contains($"the function is {shortest.Size} bytes long (", refused.Message);
+        Assert.Contains("), too short for the jump", refused.Message);
+        Assert.Contains("find_xrefs", refused.Remediation);
+        Assert.Equal(ErrorCode.Unsupported, (await Assert.ThrowsAsync<ToolError>(() => _tools.LiveWatchCalls("live-1", "set", at: $"0x{Base + shortest.Start:X}"))).Code);
+    }
+
+    [Fact]
+    public async Task A_stop_with_its_stack_is_unwound_by_the_modules_cfi()
+    {
+        var lib = NativeFormats.NativeFixtures.NativeAotLib("linux-x64", "libSystem.Native.so");
+        const ulong ElfBase = 0x7f00_0000_0000, Sp = 0x7ffc_0000_1000;
+        var backend = new ScriptedLiveBackend(lib, ElfBase, Corvus.Native.NativeImageLoader.Open(lib).SizeOfImage);
+        using var service = new LiveSessionService(_workspace, new NativeCodeService(_workspace, SharedCodeIndex.Options())) { Backend = backend };
+        var tools = new LiveSessionTools(new ServerOptions { AllowLive = true, AllowLiveAttach = true }, service);
+        await tools.LiveSession("attach", program: "99994242");
+        await tools.LiveBreak("live-1", "set", at: "SystemNative_FStat");
+        var index = new NativeCodeService(_workspace, SharedCodeIndex.Options()).IndexOfOriginal(_workspace.Natives.Single(), default);
+        ulong caller = ElfBase + index.AddressOfName("SystemNative_StrErrorR")!.Value + 0x10;
+        // at the function's start the return address is at the stack pointer; the backend's walk put the word there twice
+        backend.HitWithStack("s1", 77, Sp, [.. BitConverter.GetBytes(caller), .. new byte[8]], caller, caller);
+        var stop = await tools.LiveBreak("live-1", wait: true, waitSeconds: 10);
+        Assert.Contains($"#1 0x{caller:X} libSystem.Native.so!SystemNative_StrErrorR+0x10", stop);
+        Assert.DoesNotContain("#2 ", stop);
+    }
+}
+
+/// <summary>Sessions on a scripted backend: how a program starts, ends and closes, and the exit events.</summary>
+public sealed class LiveSessionExitTests : LiveSessionTestBase
+{
+    [Fact]
     public async Task A_started_program_gets_the_runtime_location_and_the_callers_variables_but_not_the_servers_others()
     {
         var server = new System.Collections.Hashtable { ["DOTNET_ROOT"] = "/opt/dotnet", ["DOTNET_ROOT_X86"] = "/opt/x86", ["API_TOKEN"] = "kept-out" };
@@ -736,21 +778,6 @@ public sealed class LiveSessionTests : IDisposable
         }
     }
 
-    [Fact]
-    public async Task A_function_too_short_to_hook_is_refused_with_its_size()
-    {
-        await _tools.LiveSession("attach", program: "99994242");
-        var index = new NativeCodeService(_workspace, SharedCodeIndex.Options()).IndexOfOriginal(_workspace.Natives.Single(), default);
-        var shortest = index.Functions.Where(f => f.Size is > 0 and < 16).OrderBy(f => f.Start).First();
-        _backend.Unhookable.Add(Base + shortest.Start);
-        var refused = await Assert.ThrowsAsync<ToolError>(() => _tools.LiveBreak("live-1", "set", at: $"0x{Base + shortest.Start:X}"));
-        Assert.Equal(ErrorCode.Unsupported, refused.Code);
-        Assert.Contains($"the function is {shortest.Size} bytes long (", refused.Message);
-        Assert.Contains("), too short for the jump", refused.Message);
-        Assert.Contains("find_xrefs", refused.Remediation);
-        Assert.Equal(ErrorCode.Unsupported, (await Assert.ThrowsAsync<ToolError>(() => _tools.LiveWatchCalls("live-1", "set", at: $"0x{Base + shortest.Start:X}"))).Code);
-    }
-
     // R-39: Frida reported process-terminated after the agent's exit status, before the exit code was set.
     [Fact]
     public async Task An_exit_reported_after_the_exit_status_waits_for_the_process_to_end()
@@ -851,34 +878,16 @@ public sealed class LiveSessionTests : IDisposable
             using var service = new LiveSessionService(_workspace, new NativeCodeService(_workspace, SharedCodeIndex.Options())) { Backend = backend };
             await new LiveSessionTools(new ServerOptions { AllowLive = true, AllowLiveAttach = true }, service).LiveSession("attach", program: "99994242");
             var session = service.Get("live-1");
-            // A spinning reader sees the state the moment it changes.
-            var reader = Task.Run(() =>
+            // A spinning reader sees the state the moment it changes; on a thread of its own, it neither waits for a
+            // pool thread nor holds one, which stalled this test for seconds beside the parallel classes.
+            var reader = Task.Factory.StartNew(() =>
             {
                 while (session.State != "exited") Thread.SpinWait(1);
                 return session.Page(0, "exit", null, 10).Events.Count;
-            });
+            }, CancellationToken.None, TaskCreationOptions.LongRunning, TaskScheduler.Default);
             backend.Worker!.Emit(new JsonObject { ["event"] = "exit", ["reason"] = "process-terminated" });
             Assert.Equal(1, await reader.WaitAsync(TimeSpan.FromSeconds(10)));
         }
-    }
-
-    [Fact]
-    public async Task A_stop_with_its_stack_is_unwound_by_the_modules_cfi()
-    {
-        var lib = NativeFormats.NativeFixtures.NativeAotLib("linux-x64", "libSystem.Native.so");
-        const ulong ElfBase = 0x7f00_0000_0000, Sp = 0x7ffc_0000_1000;
-        var backend = new ScriptedLiveBackend(lib, ElfBase, Corvus.Native.NativeImageLoader.Open(lib).SizeOfImage);
-        using var service = new LiveSessionService(_workspace, new NativeCodeService(_workspace, SharedCodeIndex.Options())) { Backend = backend };
-        var tools = new LiveSessionTools(new ServerOptions { AllowLive = true, AllowLiveAttach = true }, service);
-        await tools.LiveSession("attach", program: "99994242");
-        await tools.LiveBreak("live-1", "set", at: "SystemNative_FStat");
-        var index = new NativeCodeService(_workspace, SharedCodeIndex.Options()).IndexOfOriginal(_workspace.Natives.Single(), default);
-        ulong caller = ElfBase + index.AddressOfName("SystemNative_StrErrorR")!.Value + 0x10;
-        // at the function's start the return address is at the stack pointer; the backend's walk put the word there twice
-        backend.HitWithStack("s1", 77, Sp, [.. BitConverter.GetBytes(caller), .. new byte[8]], caller, caller);
-        var stop = await tools.LiveBreak("live-1", wait: true, waitSeconds: 10);
-        Assert.Contains($"#1 0x{caller:X} libSystem.Native.so!SystemNative_StrErrorR+0x10", stop);
-        Assert.DoesNotContain("#2 ", stop);
     }
 
     // CI run 39796597537: the scripted id 4242 opened a runner's process 4240, so an exit report was held for it.
@@ -925,7 +934,11 @@ public sealed class LiveSessionTests : IDisposable
         Assert.Contains("EXCEPTION_ACCESS_VIOLATION (0xC0000005), from the exit code", events);
         Assert.Contains("exit code 0xC0000005", await tools.LiveEvents("live-1", kind: "exit"));
     }
+}
 
+/// <summary>Sessions on a scripted backend: the event ring, its pages, watched calls and user scripts.</summary>
+public sealed class LiveSessionEventTests : LiveSessionTestBase
+{
     [Fact]
     public async Task Events_page_with_a_cursor_and_never_resend()
     {
@@ -1038,6 +1051,47 @@ public sealed class LiveSessionTests : IDisposable
         Assert.Equal(Enumerable.Range(1, 2000), seen);
     }
 
+    [Fact]
+    public async Task Events_refuse_an_unknown_kind_or_source_and_count_what_the_ring_dropped()
+    {
+        await _tools.LiveSession("attach", program: "99994242");
+        Assert.Equal(ErrorCode.InvalidArgument, (await Assert.ThrowsAsync<ToolError>(() => _tools.LiveEvents("live-1", kind: "stops"))).Code);
+        Assert.Equal(ErrorCode.NotFound, (await Assert.ThrowsAsync<ToolError>(() => _tools.LiveEvents("live-1", from: "w1"))).Code);
+        Assert.Equal(ErrorCode.InvalidArgument, (await Assert.ThrowsAsync<ToolError>(() => _tools.LiveEvents("live-1", cursor: "next"))).Code);
+        await _tools.LiveWatchCalls("live-1", "set", at: "sqlite3_open");
+        await _tools.LiveWatchCalls("live-1", "clear", watch: "w1");
+        Assert.Contains("No events.", await _tools.LiveEvents("live-1", from: "w1")); // a cleared watch keeps its id
+        for (int i = 1; i <= Services.LiveSession.RingCapacity + 50; i++) _backend.ScriptMessage("u1", new JsonObject { ["n"] = i });
+        for (int i = 0; i < 100 && _service.Get("live-1").Dropped < 50; i++) await Task.Delay(20);
+        var page = await _tools.LiveEvents("live-1", cursor: "1", limit: 1);
+        Assert.Contains($"50 events dropped (ring capacity {Services.LiveSession.RingCapacity:N0})", page);
+        Assert.Contains("#51 script", page);
+    }
+
+    [Fact]
+    public async Task A_call_flood_keeps_the_output_and_marks_the_calls_it_dropped()
+    {
+        await _tools.LiveSession("attach", program: "99994242");
+        var s = _service.Get("live-1");
+        long Call() => s.Add("call", 5, Base, "f()", source: "w1");
+        var head = s.Sequence;
+        for (int i = 0; i < 100; i++) Call();
+        var output = s.Add("output", null, null, "stdout: total 42");
+        for (int i = 0; i < Services.LiveSession.CallRingCapacity + 50; i++) Call();
+        var exit = s.Add("exit", null, null, "exited");
+        Assert.Equal(150, s.CallsDropped);
+
+        var page = await _tools.LiveEvents("live-1", cursor: $"{head + 1}", limit: 3);
+        Assert.Contains($"150 call events dropped (ring capacity {Services.LiveSession.CallRingCapacity:N0})", page);
+        Assert.Contains($"#{output} output: stdout: total 42", page);
+        Assert.Contains($"#{exit} exit", await _tools.LiveEvents("live-1", kind: "exit"));
+        Assert.DoesNotContain("dropped", await _tools.LiveEvents("live-1", cursor: $"{output + 51}", limit: 3));
+    }
+}
+
+/// <summary>Sessions on a scripted backend: memory, strings, values, registers, snapshots and the heap tools.</summary>
+public sealed class LiveSessionReadTests : LiveSessionTestBase
+{
     /// <summary>Two sessions in one process would place their hooks independently: a second attach names the first.</summary>
     [Fact]
     public async Task A_process_already_in_a_session_is_not_attached_again()
@@ -1184,43 +1238,6 @@ public sealed class LiveSessionTests : IDisposable
         Assert.Equal(ErrorCode.NotFound, (await Assert.ThrowsAsync<ToolError>(() => _tools.LiveRead("live-1", thread: "78"))).Code);
         Assert.Equal(ErrorCode.InvalidArgument, (await Assert.ThrowsAsync<ToolError>(() => _tools.LiveRead("live-1", thread: "t77"))).Code);
         Assert.Contains("thread 77 (held at s1)", await _tools.LiveRead("live-1", thread: "77"));
-    }
-
-    [Fact]
-    public async Task Events_refuse_an_unknown_kind_or_source_and_count_what_the_ring_dropped()
-    {
-        await _tools.LiveSession("attach", program: "99994242");
-        Assert.Equal(ErrorCode.InvalidArgument, (await Assert.ThrowsAsync<ToolError>(() => _tools.LiveEvents("live-1", kind: "stops"))).Code);
-        Assert.Equal(ErrorCode.NotFound, (await Assert.ThrowsAsync<ToolError>(() => _tools.LiveEvents("live-1", from: "w1"))).Code);
-        Assert.Equal(ErrorCode.InvalidArgument, (await Assert.ThrowsAsync<ToolError>(() => _tools.LiveEvents("live-1", cursor: "next"))).Code);
-        await _tools.LiveWatchCalls("live-1", "set", at: "sqlite3_open");
-        await _tools.LiveWatchCalls("live-1", "clear", watch: "w1");
-        Assert.Contains("No events.", await _tools.LiveEvents("live-1", from: "w1")); // a cleared watch keeps its id
-        for (int i = 1; i <= Services.LiveSession.RingCapacity + 50; i++) _backend.ScriptMessage("u1", new JsonObject { ["n"] = i });
-        for (int i = 0; i < 100 && _service.Get("live-1").Dropped < 50; i++) await Task.Delay(20);
-        var page = await _tools.LiveEvents("live-1", cursor: "1", limit: 1);
-        Assert.Contains($"50 events dropped (ring capacity {Services.LiveSession.RingCapacity:N0})", page);
-        Assert.Contains("#51 script", page);
-    }
-
-    [Fact]
-    public async Task A_call_flood_keeps_the_output_and_marks_the_calls_it_dropped()
-    {
-        await _tools.LiveSession("attach", program: "99994242");
-        var s = _service.Get("live-1");
-        long Call() => s.Add("call", 5, Base, "f()", source: "w1");
-        var head = s.Sequence;
-        for (int i = 0; i < 100; i++) Call();
-        var output = s.Add("output", null, null, "stdout: total 42");
-        for (int i = 0; i < Services.LiveSession.CallRingCapacity + 50; i++) Call();
-        var exit = s.Add("exit", null, null, "exited");
-        Assert.Equal(150, s.CallsDropped);
-
-        var page = await _tools.LiveEvents("live-1", cursor: $"{head + 1}", limit: 3);
-        Assert.Contains($"150 call events dropped (ring capacity {Services.LiveSession.CallRingCapacity:N0})", page);
-        Assert.Contains($"#{output} output: stdout: total 42", page);
-        Assert.Contains($"#{exit} exit", await _tools.LiveEvents("live-1", kind: "exit"));
-        Assert.DoesNotContain("dropped", await _tools.LiveEvents("live-1", cursor: $"{output + 51}", limit: 3));
     }
 
     [Fact]
