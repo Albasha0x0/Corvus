@@ -76,14 +76,22 @@ public abstract class McpProtocolTests : IAsyncLifetime
         // No separate probe limit: a server/discover answered late on a busy machine must not turn into an initialize fallback;
         // initialize gets 3 min, since a stdio server starts slowly on small CI runners.
         var started = DateTime.Now;
+        var limit = TimeSpan.FromMinutes(3);
+        // The dump is taken before the limit, since a timed-out start disposes the transport and ends the server.
+        using var answered = new CancellationTokenSource();
+        var dumps = Task.Delay(limit - TimeSpan.FromSeconds(20), answered.Token)
+            .ContinueWith(t => t.IsCanceled ? [] : ServerDump.Write(started), TaskScheduler.Default);
         try
         {
-            return await McpClient.CreateAsync(transport, new McpClientOptions { ProtocolVersion = protocolVersion, DiscoverProbeTimeout = Timeout.InfiniteTimeSpan, InitializationTimeout = TimeSpan.FromMinutes(3) });
+            return await McpClient.CreateAsync(transport, new McpClientOptions { ProtocolVersion = protocolVersion, DiscoverProbeTimeout = Timeout.InfiniteTimeSpan, InitializationTimeout = limit });
         }
         catch (TimeoutException ex)
         {
-            throw new TimeoutException($"{ex.Message} (server started {started:HH:mm:ss.fff}); its last error output:\n{string.Join("\n", stderr)}", ex);
+            var files = await dumps;
+            throw new TimeoutException($"{ex.Message} (server started {started:HH:mm:ss.fff}); its last error output:\n{string.Join("\n", stderr)}" +
+                (files.Count > 0 ? $"\nserver dumps: {string.Join(", ", files)}" : ""), ex);
         }
+        finally { answered.Cancel(); }
     }
 
     private static string Text(CallToolResult r) => string.Join("\n", r.Content.OfType<TextContentBlock>().Select(c => c.Text));
