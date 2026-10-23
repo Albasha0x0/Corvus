@@ -352,7 +352,11 @@ public sealed class MinidumpRealTests(ITestOutputHelper output)
         string dump = dir.File("managed.dmp");
         try
         {
-            Thread.Sleep(2500); // the server is up and waits for input
+            // Dump once the server has answered initialize, so its main thread waits for input in managed code; a fixed
+            // sleep wrote the dump during startup on a loaded machine, in runtime code where the DAC finds no frame.
+            p.StandardInput.WriteLine("""{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"test","version":"1"}}}""");
+            p.StandardInput.Flush();
+            Assert.Contains("\"id\":1", ReadLine(p));
             WriteDump(p, dump, Normal);
         }
         finally { Kill(p); }
