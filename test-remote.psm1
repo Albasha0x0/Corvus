@@ -332,9 +332,42 @@ function Get-MixedClasses([string]$testsDir) {
     @(Get-RemoteEntries $testsDir | Where-Object Mixed | ForEach-Object Class | Sort-Object -Unique)
 }
 
-# Shard $index (0-based) of $count over $classes, dealt in name order so every machine computes the same shards.
-function Get-RemoteShard([string[]]$classes, [int]$index, [int]$count) {
-    @(for ($i = $index; $i -lt $classes.Count; $i += $count) { $classes[$i] })
+# Shard $index (0-based) of $count over $classes, in name order. With $seconds (class -> recorded seconds), each class,
+# longest first, goes to the shard with the least recorded time so far (ties: by name, to the lower shard), a class with
+# no record counting 1 s; without it, classes are dealt in name order. Every machine computes the same shards.
+function Get-RemoteShard([string[]]$classes, [int]$index, [int]$count, [hashtable]$seconds) {
+    if (-not $seconds) { return @(for ($i = $index; $i -lt $classes.Count; $i += $count) { $classes[$i] }) }
+    $load = [double[]]::new($count)
+    $mine = foreach ($class in $classes | Sort-Object @{ Expression = { if ($seconds.ContainsKey($_)) { [double]$seconds[$_] } else { 1.0 } }; Descending = $true }, { $_ }) {
+        $least = 0
+        for ($i = 1; $i -lt $count; $i++) { if ($load[$i] -lt $load[$least]) { $least = $i } }
+        $load[$least] += if ($seconds.ContainsKey($class)) { [double]$seconds[$class] } else { 1.0 }
+        if ($least -eq $index) { $class }
+    }
+    @($mine | Sort-Object)
+}
+
+# The recorded seconds per offloaded class (class -> seconds) that Get-RemoteShard deals by, or $null when the file
+# at $path is missing or unreadable.
+function Read-OffloadSeconds([string]$path) {
+    if (-not (Test-Path $path)) { return $null }
+    try { Get-Content $path -Raw | ConvertFrom-Json -AsHashtable } catch { $null }
+}
+
+# Records in $path, per class, the median of its summed test seconds over the TRX files $trxPaths (the offload job's
+# results), whole seconds, at least 1; classes recorded before and absent from these files keep their entry.
+function Save-OffloadSeconds([string[]]$trxPaths, [string]$path) {
+    $runs = @{}
+    foreach ($trx in $trxPaths) { foreach ($c in Get-ClassOutcomes $trx) { $runs[$c.Class] = @($runs[$c.Class]) + $c.Seconds | Where-Object { $null -ne $_ } } }
+    $seconds = [ordered]@{}
+    $old = Read-OffloadSeconds $path
+    foreach ($class in @($runs.Keys) + @(if ($old) { $old.Keys }) | Sort-Object -Unique) {
+        if (-not $runs[$class]) { $seconds[$class] = $old[$class]; continue }
+        $sorted = @($runs[$class] | Sort-Object)
+        $median = if ($sorted.Count % 2) { $sorted[($sorted.Count - 1) / 2] } else { ($sorted[$sorted.Count / 2 - 1] + $sorted[$sorted.Count / 2]) / 2 }
+        $seconds[$class] = [math]::Max(1, [int][math]::Round($median))
+    }
+    Set-Content -Path $path -Value ($seconds | ConvertTo-Json)
 }
 
 # A dotnet test filter that runs $filter (everything when empty) without $classes, keeping the tests other than the
@@ -944,4 +977,4 @@ function Receive-GitHubRun($state, [string]$folder, [string]$group = '') {
     $result
 }
 
-Export-ModuleMember -Function Invoke-Transport, Test-RemoteHost, Get-RemoteRunScript, Invoke-RemoteRun, Receive-RemoteRun, New-RemoteSnapshot, Invoke-RemoteFilter, Invoke-Gh, Wait-GitHubRun, Receive-GitHubRun, Get-GitHubTarget, Receive-GitHubLive, Get-RemoteClasses, Get-IdaHostClasses, Get-HeldClasses, Get-HostVariables, Get-RealDataVariables, Get-RemoteShard, Get-LocalFilter, Get-ClassFilter, Get-ClassOutcomes, Get-TestOutcomes, Get-SkippedOnHost, Get-FastestClassSeconds, Get-SkippedOnBoth, Get-RerunClasses, Get-MixedClasses, Get-FailedThereNote, Join-TrxFiles, Get-TargetFileName, Save-RemoteRecord, Get-RemoteStatus, Get-TierFamilies, Get-TierClasses, Get-TierFilter, Get-TierFamiliesOf, Get-TierReturned, Get-TierHostClasses, Get-TierPasses, Save-TierRecord, Get-TierStatus, Get-DeferredClasses, Get-UndeferredFamilies, Save-DeferredClasses, Get-DeferredStatus, Get-OffloadTarget, Start-Offload, Receive-Offload
+Export-ModuleMember -Function Invoke-Transport, Test-RemoteHost, Get-RemoteRunScript, Invoke-RemoteRun, Receive-RemoteRun, New-RemoteSnapshot, Invoke-RemoteFilter, Invoke-Gh, Wait-GitHubRun, Receive-GitHubRun, Get-GitHubTarget, Receive-GitHubLive, Get-RemoteClasses, Get-IdaHostClasses, Get-HeldClasses, Get-HostVariables, Get-RealDataVariables, Get-RemoteShard, Read-OffloadSeconds, Save-OffloadSeconds, Get-LocalFilter, Get-ClassFilter, Get-ClassOutcomes, Get-TestOutcomes, Get-SkippedOnHost, Get-FastestClassSeconds, Get-SkippedOnBoth, Get-RerunClasses, Get-MixedClasses, Get-FailedThereNote, Join-TrxFiles, Get-TargetFileName, Save-RemoteRecord, Get-RemoteStatus, Get-TierFamilies, Get-TierClasses, Get-TierFilter, Get-TierFamiliesOf, Get-TierReturned, Get-TierHostClasses, Get-TierPasses, Save-TierRecord, Get-TierStatus, Get-DeferredClasses, Get-UndeferredFamilies, Save-DeferredClasses, Get-DeferredStatus, Get-OffloadTarget, Start-Offload, Receive-Offload

@@ -139,6 +139,36 @@ public sealed class TestRemoteTests : IDisposable
 
     [Fact]
     [Trait("Speed", "Slow")]
+    public void Offload_shards_take_the_classes_by_recorded_seconds_and_the_record_keeps_the_median()
+    {
+        var a = Path.Combine(_dir.Path, "a.trx");
+        var b = Path.Combine(_dir.Path, "b.trx");
+        var c = Path.Combine(_dir.Path, "c.trx");
+        File.WriteAllText(a, Trx(("LongTests", "Passed@90"), ("LongTests", "Passed@10"), ("MidTests", "Passed@90")));
+        File.WriteAllText(b, Trx(("LongTests", "Passed@300"), ("MidTests", "Passed@80")));
+        File.WriteAllText(c, Trx(("LongTests", "Failed@50"), ("ShortTests", "Passed@10")));
+        var record = Path.Combine(_dir.Path, "seconds.json");
+        File.WriteAllText(record, """{ "GoneTests": 7, "ShortTests": 99 }""");
+        var lines = TestReuseTests.Run($$"""
+            Import-Module {{Module}}
+            Save-OffloadSeconds @({{Quote(a)}}, {{Quote(b)}}, {{Quote(c)}}) {{Quote(record)}}
+            $seconds = Read-OffloadSeconds {{Quote(record)}}
+            'record=' + (($seconds.Keys | Sort-Object | ForEach-Object { "$_=$($seconds[$_])" }) -join ',')
+            $classes = @('LongTests', 'MidTests', 'NewTests', 'ShortTests')
+            'shard0=' + ((Get-RemoteShard $classes 0 2 $seconds) -join ',')
+            'shard1=' + ((Get-RemoteShard $classes 1 2 $seconds) -join ',')
+            'missing=' + ($null -eq (Read-OffloadSeconds {{Quote(Path.Combine(_dir.Path, "none.json"))}}))
+            """);
+        // Medians of 100, 300 and 50 s and of 90 and 80 s; a class absent from the results keeps its entry.
+        Assert.Contains("record=GoneTests=7,LongTests=100,MidTests=85,ShortTests=10", lines);
+        // Longest first, each to the shard with less so far: 100 to 0, 85 and 10 to 1, the unrecorded 1 s to 1.
+        Assert.Contains("shard0=LongTests", lines);
+        Assert.Contains("shard1=MidTests,NewTests,ShortTests", lines);
+        Assert.Contains("missing=True", lines);
+    }
+
+    [Fact]
+    [Trait("Speed", "Slow")]
     public void A_class_using_both_engines_joins_per_test_and_reruns_only_for_a_test_skipped_on_both_sides()
     {
         // Here M0 is an IDA test and M2 a plain one; there M0 skips, M1 is a Ghidra test, and M3 fails only there.

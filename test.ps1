@@ -100,11 +100,13 @@ if ($Remote) {
     exit (Invoke-RemoteFilter $root $target $Filter ([math]::Max(1, $Repeat)) (Join-Path $root 'TestResults/remote'))
 }
 
-# One shard of the offloaded classes, as the CI offload job runs it: results in TestResults/offload.trx.
+# One shard of the offloaded classes, as the CI offload job runs it: results in TestResults/offload.trx. Classes are
+# dealt by the seconds recorded in Support/offload-seconds.json (Save-OffloadSeconds rebuilds it from offload results).
 if ($RemoteRun) {
     Import-Module (Join-Path $root 'test-remote.psm1') -Force
     $index, $count = $Shard -split '/' | ForEach-Object { [int]$_ }
-    $classes = @(Get-RemoteShard @(Get-RemoteClasses $tests $Group -CrossPlatform:$CrossPlatform) $index $count)
+    $recorded = Read-OffloadSeconds (Join-Path $tests 'Support/offload-seconds.json')
+    $classes = @(Get-RemoteShard @(Get-RemoteClasses $tests $Group -CrossPlatform:$CrossPlatform) $index $count $recorded)
     if (-not $classes) { Write-Host "Shard $Shard of $(if ($Group) { $Group } else { 'every group' }) has no class."; exit 0 }
     Write-Host "Shard $Shard of $(if ($Group) { $Group } else { 'every group' }): $($classes -join ', ')"
     $env:CORVUS_ALL_TESTS = '1'; $env:CORVUS_SWEEP = if ($Exhaustive) { 'exhaustive' } else { $null }
