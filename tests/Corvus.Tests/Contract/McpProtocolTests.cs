@@ -68,7 +68,7 @@ public abstract class McpProtocolTests : IAsyncLifetime
                 // the dump bucketing cache is private: outside the working directory the contract sweep watches
                 [Corvus.Services.MinidumpService.BucketCacheVariable] = Path.Combine(AnnotationsDir, ".corvus-dumpbuckets"),
                 ["PATH"] = Corvus.Tests.Tools.CmdPath(), // the SDK starts the server through cmd /c on Windows
-            }.Concat(environment ?? new Dictionary<string, string?>()).ToDictionary(),
+            }.Concat(environment ?? new Dictionary<string, string?>()).GroupBy(v => v.Key).ToDictionary(g => g.Key, g => g.Last().Value),
             // The SDK waits this long for the server to exit before it closes the server's input, then ends it; the
             // server exits on end of input (ServerExitsWhenItsInputCloses), so waiting longer only delays each test.
             ShutdownTimeout = TimeSpan.FromMilliseconds(200),

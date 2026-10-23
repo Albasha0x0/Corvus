@@ -112,8 +112,21 @@ internal static class FakeDevice
         return fake;
     });
 
-    /// <summary>Environment for a test server: adb is the fake playing this emulator.</summary>
-    public static IReadOnlyDictionary<string, string?> ServerEnvironment => new Dictionary<string, string?>
+    /// <summary>The external tools' variables as the run started, before any test set one; empty means unset.</summary>
+    private static Dictionary<string, string> _toolVariablesAtStart = [];
+
+    [System.Runtime.CompilerServices.ModuleInitializer]
+    internal static void RecordToolVariables() =>
+        _toolVariablesAtStart = Corvus.Native.Providers.ExternalTools.Table.Select(t => t.Variable).Append("CORVUS_DIE")
+            .ToDictionary(v => v, v => Environment.GetEnvironmentVariable(v) ?? "");
+
+    /// <summary>
+    /// Environment for a test server: adb is the fake playing this emulator, and the other external tools are those the run
+    /// started with. A server started while an external tool test points a variable at its fake would otherwise run that
+    /// fake's copies, which can outlive the test and keep its folder from being deleted.
+    /// </summary>
+    public static IReadOnlyDictionary<string, string?> ServerEnvironment => new Dictionary<string, string?>(
+        _toolVariablesAtStart.Select(v => KeyValuePair.Create(v.Key, (string?)v.Value)))
     {
         ["CORVUS_ADB"] = FakeTool.Executable,
         [FakeTool.ScriptVariable] = SharedTool.Value.ScriptPath,

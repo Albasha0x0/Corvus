@@ -216,6 +216,14 @@ public class ExternalToolsTests : IDisposable
     }
 
     [Fact]
+    public void A_test_server_gets_the_external_tool_variables_the_run_started_with()
+    {
+        var atStart = FakeDevice.ServerEnvironment["CORVUS_TSHARK"];
+        using var env = new EnvironmentScope().Set("CORVUS_TSHARK", Path.Combine(Path.GetTempPath(), "set-by-a-test", "tshark.exe"));
+        Assert.Equal(atStart, FakeDevice.ServerEnvironment["CORVUS_TSHARK"]);
+    }
+
+    [Fact]
     public void ServerStatus_ListsEachExternalTool_WithItsFix()
     {
         using var fake = new FakeTool();
