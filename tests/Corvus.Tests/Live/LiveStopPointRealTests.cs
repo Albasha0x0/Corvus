@@ -195,7 +195,9 @@ public sealed class LiveStopPointRealTests(ITestOutputHelper output) : LiveToolC
             return;
         }
         var stop = await Ok(server, "live_break", new() { ["session"] = "live-1", ["action"] = "continue", ["wait"] = true, ["waitSeconds"] = 60 });
-        Assert.Contains("stopped at s1 (plugin.dll!PluginWork)", stop);
+        // A missed stop logs whether plugin.dll's load reached the server and how its entry point was followed.
+        if (!stop.Contains("stopped at s1 (plugin.dll!PluginWork)", StringComparison.Ordinal))
+            Assert.Fail($"{stop}\nevents:\n{await Events(server, "live-1", log: false)}");
         Assert.Equal(0UL, await FirstArgument(server, target));
         Assert.Contains("deferred stop point s1 set at plugin.dll!PluginWork (plugin.dll loaded; its entry point writes its code, so set once that returned)",
             await Events(server, "live-1", kind: "module"));
