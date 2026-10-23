@@ -76,7 +76,7 @@
   17.24.3). A class that uses both engines goes with the Ghidra group and keeps its IDA tests here (the trait
   `Engine=ida` or `Engine=ghidra` of each engine fact); the two halves join per test. Tests that need real data never
   go to GitHub. The groups are the `offload` job of `ci.yml`, dealt to Windows shards by the seconds each class took
-  in earlier offload runs, longest first (`Support/offload-seconds.json`; `Save-OffloadSeconds` in `test-remote.psm1`
+  in earlier offload runs on that platform, longest first (`Support/offload-seconds.json`; `Save-OffloadSeconds` in `test-remote.psm1`
   rebuilds it from the jobs' `offload.trx` artifacts), with the cross-platform classes
   on Linux as a check (`./test.ps1 -RemoteRun -Group <group> -Shard <i>/<n>` runs one shard). A routine whole-suite run here on a
   commit that has that job (the background push run, or `-Full` on a commit on `origin/main`) leaves those classes out,

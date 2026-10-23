@@ -349,27 +349,50 @@ function Get-RemoteShard([string[]]$classes, [int]$index, [int]$count, [hashtabl
     @($mine | Sort-Object)
 }
 
-# The recorded seconds per offloaded class (class -> seconds) that Get-RemoteShard deals by, or $null when the file
-# at $path is missing or unreadable.
-function Read-OffloadSeconds([string]$path) {
-    if (-not (Test-Path $path)) { return $null }
+# The platform offload seconds are recorded under: windows, linux or macos, as this machine is.
+function Get-OffloadPlatform { if ($IsWindows) { 'windows' } elseif ($IsMacOS) { 'macos' } else { 'linux' } }
+
+# The record at $path (platform -> class -> seconds), empty when the file is missing; $null when it is unreadable.
+function Read-OffloadRecord([string]$path) {
+    if (-not (Test-Path $path)) { return @{} }
     try { Get-Content $path -Raw | ConvertFrom-Json -AsHashtable } catch { $null }
 }
 
-# Records in $path, per class, the median of its summed test seconds over the TRX files $trxPaths (the offload job's
-# results), whole seconds, at least 1; classes recorded before and absent from these files keep their entry.
-function Save-OffloadSeconds([string[]]$trxPaths, [string]$path) {
+# The recorded seconds per offloaded class on $platform (class -> seconds) that Get-RemoteShard deals by: a class
+# recorded only on other platforms takes the longest of their times. $null when the file at $path is missing or
+# unreadable.
+function Read-OffloadSeconds([string]$path, [string]$platform = (Get-OffloadPlatform)) {
+    if (-not (Test-Path $path)) { return $null }
+    $record = Read-OffloadRecord $path
+    if ($null -eq $record) { return $null }
+    $seconds = @{}
+    foreach ($other in @($record.Keys | Where-Object { $_ -ne $platform })) {
+        foreach ($class in $record[$other].Keys) { $seconds[$class] = [math]::Max([double]$record[$other][$class], [double]$seconds[$class]) }
+    }
+    if ($record[$platform]) { foreach ($class in $record[$platform].Keys) { $seconds[$class] = $record[$platform][$class] } }
+    $seconds
+}
+
+# Records in $path, under $platform, per class, the median of its summed test seconds over the TRX files $trxPaths
+# (offload job results from that platform), whole seconds, at least 1; classes recorded before and absent from these
+# files keep their entry, and other platforms' entries are kept as they were.
+function Save-OffloadSeconds([string[]]$trxPaths, [string]$path, [string]$platform = (Get-OffloadPlatform)) {
     $runs = @{}
     foreach ($trx in $trxPaths) { foreach ($c in Get-ClassOutcomes $trx) { $runs[$c.Class] = @($runs[$c.Class]) + $c.Seconds | Where-Object { $null -ne $_ } } }
+    $record = Read-OffloadRecord $path
+    if ($null -eq $record) { $record = @{} }
+    $old = if ($record[$platform]) { $record[$platform] } else { @{} }
     $seconds = [ordered]@{}
-    $old = Read-OffloadSeconds $path
-    foreach ($class in @($runs.Keys) + @(if ($old) { $old.Keys }) | Sort-Object -Unique) {
+    foreach ($class in @($runs.Keys) + @($old.Keys) | Sort-Object -Unique) {
         if (-not $runs[$class]) { $seconds[$class] = $old[$class]; continue }
         $sorted = @($runs[$class] | Sort-Object)
         $median = if ($sorted.Count % 2) { $sorted[($sorted.Count - 1) / 2] } else { ($sorted[$sorted.Count / 2 - 1] + $sorted[$sorted.Count / 2]) / 2 }
         $seconds[$class] = [math]::Max(1, [int][math]::Round($median))
     }
-    Set-Content -Path $path -Value ($seconds | ConvertTo-Json)
+    $record[$platform] = $seconds
+    $sortedRecord = [ordered]@{}
+    foreach ($name in $record.Keys | Sort-Object) { $sortedRecord[$name] = $record[$name] }
+    Set-Content -Path $path -Value ($sortedRecord | ConvertTo-Json -Depth 3)
 }
 
 # A dotnet test filter that runs $filter (everything when empty) without $classes, keeping the tests other than the

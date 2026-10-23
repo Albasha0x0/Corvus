@@ -162,7 +162,7 @@ public sealed class TestRemoteTests : IDisposable
 
     [Fact]
     [Trait("Speed", "Slow")]
-    public void Offload_shards_take_the_classes_by_recorded_seconds_and_the_record_keeps_the_median()
+    public void Offload_shards_take_the_classes_by_the_seconds_recorded_on_their_platform_and_the_record_keeps_the_median()
     {
         var a = Path.Combine(_dir.Path, "a.trx");
         var b = Path.Combine(_dir.Path, "b.trx");
@@ -171,19 +171,22 @@ public sealed class TestRemoteTests : IDisposable
         File.WriteAllText(b, Trx(("LongTests", "Passed@300"), ("MidTests", "Passed@80")));
         File.WriteAllText(c, Trx(("LongTests", "Failed@50"), ("ShortTests", "Passed@10")));
         var record = Path.Combine(_dir.Path, "seconds.json");
-        File.WriteAllText(record, """{ "GoneTests": 7, "ShortTests": 99 }""");
+        File.WriteAllText(record, """{ "linux": { "LinuxTests": 40, "LongTests": 5 }, "windows": { "GoneTests": 7, "ShortTests": 99 } }""");
         var lines = TestReuseTests.Run($$"""
             Import-Module {{Module}}
-            Save-OffloadSeconds @({{Quote(a)}}, {{Quote(b)}}, {{Quote(c)}}) {{Quote(record)}}
-            $seconds = Read-OffloadSeconds {{Quote(record)}}
+            Save-OffloadSeconds @({{Quote(a)}}, {{Quote(b)}}, {{Quote(c)}}) {{Quote(record)}} windows
+            $seconds = Read-OffloadSeconds {{Quote(record)}} windows
+            'linux=' + (Read-OffloadSeconds {{Quote(record)}} linux)['LongTests']
             'record=' + (($seconds.Keys | Sort-Object | ForEach-Object { "$_=$($seconds[$_])" }) -join ',')
             $classes = @('LongTests', 'MidTests', 'NewTests', 'ShortTests')
             'shard0=' + ((Get-RemoteShard $classes 0 2 $seconds) -join ',')
             'shard1=' + ((Get-RemoteShard $classes 1 2 $seconds) -join ',')
             'missing=' + ($null -eq (Read-OffloadSeconds {{Quote(Path.Combine(_dir.Path, "none.json"))}}))
             """);
-        // Medians of 100, 300 and 50 s and of 90 and 80 s; a class absent from the results keeps its entry.
-        Assert.Contains("record=GoneTests=7,LongTests=100,MidTests=85,ShortTests=10", lines);
+        // Medians of 100, 300 and 50 s and of 90 and 80 s; a class absent from the results keeps its entry, and one
+        // recorded only on Linux takes its Linux time.
+        Assert.Contains("record=GoneTests=7,LinuxTests=40,LongTests=100,MidTests=85,ShortTests=10", lines);
+        Assert.Contains("linux=5", lines);
         // Longest first, each to the shard with less so far: 100 to 0, 85 and 10 to 1, the unrecorded 1 s to 1.
         Assert.Contains("shard0=LongTests", lines);
         Assert.Contains("shard1=MidTests,NewTests,ShortTests", lines);
