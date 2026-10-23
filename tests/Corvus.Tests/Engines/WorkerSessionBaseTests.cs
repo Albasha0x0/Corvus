@@ -87,13 +87,15 @@ public sealed class WorkerSessionBaseTests : IDisposable
         await using var s = await Open();
         Assert.Equal("idle", s.State().State);
         await s.CallAsync("set", Set("a", "1"), default, journal: true);
-        var running = s.CallAsync("sleep", new JsonObject { ["ms"] = 1500 }, default);
+        // The running request holds in the worker until the test releases it, so the state is read while it runs.
+        var running = s.CallAsync("hold", new JsonObject(), default);
         var waiting = s.CallAsync("get", Get("a"), default);
-        await Task.Delay(300);
-        var busy = s.State();
-        Assert.Equal(("busy", "sleep", 1, 1), (busy.State, busy.BusyOp, busy.Queued, busy.Unsaved));
-        Assert.True(busy.BusySeconds > 0);
+        EngineSessionState? busy = null;
+        Assert.True(SpinWait.SpinUntil(() => (busy = s.State()) is { BusyOp: "hold", Queued: 1, BusySeconds: > 0 }, TimeSpan.FromMinutes(1)),
+            $"state: {busy}");
+        Assert.Equal(("busy", "hold", 1, 1), (busy!.State, busy.BusyOp, busy.Queued, busy.Unsaved));
         Assert.NotNull(busy.WorkerPid);
+        s.Current!.Release();
         await running;
         await waiting;
         Assert.Equal(("idle", 0), (s.State().State, s.State().Queued));
