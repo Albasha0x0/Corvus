@@ -368,11 +368,17 @@ internal static class LivePrograms
         """;
 
     /// <summary>
-    /// inrange start end (Windows, an image of over 2 MiB): commits a page in the first free 64 KiB block between the
-    /// addresses, writes 7 there and passes it to Hold; when every block is in use it prints the range and exits 3.
+    /// inrange start end (Windows, an image of over 2 MiB, x86 preferred base 0x30000000): commits a page in the first free
+    /// 64 KiB block between the addresses, writes 7 there and passes it to Hold; when every block is in use it prints the
+    /// range and exits 3.
     /// </summary>
     public const string InImageRange = Platform + """
         #include <stdint.h>
+        #ifndef _WIN64
+        // A 32-bit process fills its low addresses bottom-up (heap, stacks, the
+        // session's agent), so the preferred base sits above them.
+        #pragma comment(linker, "/BASE:0x30000000")
+        #endif
         static char g_pad[0x200000];
         NOINLINE int Hold(volatile int* p) { return *p; }
         int main(int argc, char** argv)
