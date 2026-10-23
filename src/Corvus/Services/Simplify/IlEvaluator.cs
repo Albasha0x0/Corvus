@@ -3,6 +3,7 @@ using System.Runtime.CompilerServices;
 using System.Text;
 using dnlib.DotNet;
 using dnlib.DotNet.Emit;
+using Corvus.Core;
 
 namespace Corvus.Services.Simplify;
 
@@ -18,7 +19,7 @@ internal sealed class EvaluationBailout(FallbackReason reason, string message) :
 /// <summary>
 /// Limits of the evaluator: call depth (frames, the evaluated call itself included), instructions per evaluation (nested
 /// calls and the static constructors they trigger included), instructions across all evaluations of one method,
-/// simulated allocations per evaluation, and the time one method may take across all passes. A type initializer that
+/// simulated allocations per evaluation, and the CPU time one method may take across all passes. A type initializer that
 /// keeps committing new state may run past the budget up to the initializer ceiling and time limit, accounted apart
 /// (the extended tier, see IlEvaluator.Progress.cs).
 /// </summary>
@@ -35,26 +36,42 @@ public sealed record EvaluationLimits(
     public TimeSpan InitializerTimeLimit => TimeSpan.FromMilliseconds(InitializerTimeLimitMs);
 }
 
-/// <summary>Resources of simplifying one method, shared by its passes and every evaluation they run.</summary>
-internal sealed class MethodMeter(EvaluationLimits limits)
+/// <summary>
+/// Resources of simplifying one method, shared by its passes and every evaluation they run. Its time is the thread's
+/// CPU time, so the same method gets the same result on a busy machine; a wall-clock bound of
+/// <see cref="WallFactor"/> times the limit still ends a method whose thread stops using the CPU. Both stops report
+/// <see cref="FallbackReason.TimeLimit"/>. <paramref name="cpu"/> and <paramref name="wall"/> replace the two clocks
+/// (null: the calling thread's CPU time and the monotonic clock).
+/// </summary>
+internal sealed class MethodMeter(EvaluationLimits limits, Func<TimeSpan>? cpu = null, Func<TimeSpan>? wall = null)
 {
-    private readonly long _start = Stopwatch.GetTimestamp();
+    public const int WallFactor = 3;
+
+    private readonly Func<TimeSpan> _cpu = cpu ?? ThreadCpuTime.Now;
+    private readonly Func<TimeSpan> _wall = wall ?? (() => Stopwatch.GetElapsedTime(0));
+    private readonly TimeSpan _start = (cpu ?? ThreadCpuTime.Now)();
+    private readonly TimeSpan _wallStart = (wall ?? (() => Stopwatch.GetElapsedTime(0)))();
 
     public long InstructionsLeft { get; set; } = limits.MethodInstructionBudget;
 
-    public TimeSpan Elapsed => Stopwatch.GetElapsedTime(_start + _excluded);
+    /// <summary>The method's own CPU time so far.</summary>
+    public TimeSpan Elapsed => _cpu() - _start - _excluded;
 
     /// <summary>Time spent on module-wide analysis, which is not the method's own work.</summary>
     public IDisposable Exclude()
     {
-        long start = Stopwatch.GetTimestamp();
-        return new Resume(() => _excluded += Stopwatch.GetTimestamp() - start);
+        var (start, wallStart) = (_cpu(), _wall());
+        return new Resume(() => Exclude(_cpu() - start, _wall() - wallStart));
     }
 
-    private long _excluded;
+    private TimeSpan _excluded, _wallExcluded;
 
-    /// <summary>Time already spent (timestamp ticks) that was not the method's own work.</summary>
-    public void Exclude(long ticks) => _excluded += ticks;
+    /// <summary>CPU and wall time already spent that was not the method's own work.</summary>
+    public void Exclude(TimeSpan time, TimeSpan wallTime)
+    {
+        _excluded += time;
+        _wallExcluded += wallTime;
+    }
 
     private sealed class Resume(Action done) : IDisposable
     {
@@ -65,7 +82,9 @@ internal sealed class MethodMeter(EvaluationLimits limits)
     public void CheckTime()
     {
         if (Elapsed > limits.MethodTimeLimit)
-            throw new MethodTimeout($"simplifying the method took longer than its time limit of {limits.MethodTimeLimit.TotalSeconds:0.###} s");
+            throw new MethodTimeout($"simplifying the method took longer than its time limit of {limits.MethodTimeLimit.TotalSeconds:0.###} s of CPU time");
+        if (_wall() - _wallStart - _wallExcluded > limits.MethodTimeLimit * WallFactor)
+            throw new MethodTimeout($"simplifying the method took longer than {(limits.MethodTimeLimit * WallFactor).TotalSeconds:0.###} s of wall time");
     }
 }
 

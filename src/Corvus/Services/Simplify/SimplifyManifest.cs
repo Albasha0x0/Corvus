@@ -176,7 +176,7 @@ public static class SimplifyManifest
         ("budget", $"{new EvaluationLimits().InstructionBudget:N0} instructions per evaluation, shared by nested calls and the static constructors they trigger (tool parameter)"),
         ("method budget", $"{new EvaluationLimits().MethodInstructionBudget:N0} instructions across all evaluations of one method"),
         ("memory", $"{new EvaluationLimits().MemoryLimit / (1024 * 1024)} MB of simulated allocations per evaluation, static state included"),
-        ("time", $"{new EvaluationLimits().MethodTimeLimit.TotalSeconds:0} s per method, all passes included"),
+        ("time", $"{new EvaluationLimits().MethodTimeLimit.TotalSeconds:0} s of CPU time per method, all passes included, and at most {MethodMeter.WallFactor} times that of wall time"),
         ("arrays and strings", "1M elements / characters"),
         ("initializer tier", "a static constructor run (with everything it calls) whose budget runs out gets one more window of the budget's size, " +
                              "observed (its writes are tracked from then on; a run that ends or stops there without progress for what it ran fails as " +
@@ -186,7 +186,7 @@ public static class SimplifyManifest
                              "counted once per window, so loops that only change locals or the same few locations earn nothing; and a fingerprint of every " +
                              "location the run wrote differs from its value at the end of each earlier window (a run whose state comes back is a cycle). " +
                              $"Up to {new EvaluationLimits().InitializerInstructionCeiling:N0} instructions and " +
-                             $"{new EvaluationLimits().InitializerTimeLimit.TotalSeconds:0} s per run, accounted apart: the evaluation that triggered it " +
+                             $"{new EvaluationLimits().InitializerTimeLimit.TotalSeconds:0} s of CPU time and {MethodMeter.WallFactor} times that of wall time per run, accounted apart: the evaluation that triggered it " +
                              "gets its budget back and the method's total budget and time are not charged. Reports list the runs that used it; a failed " +
                              "run is remembered. Other evaluations keep the defaults above"),
     ];

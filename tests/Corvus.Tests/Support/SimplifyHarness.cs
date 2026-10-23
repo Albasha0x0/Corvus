@@ -64,6 +64,7 @@ internal static class SimplifyHarness
         var changes = new List<MethodChange>(methods.Count);
         var problems = new List<string>();
         var limit = options.EffectiveLimits.MethodTimeLimit + TimeSlack;
+        var wallLimit = options.EffectiveLimits.MethodTimeLimit * MethodMeter.WallFactor + TimeSlack;
         var elapsed = TimeSpan.Zero;
         (string, TimeSpan) slowest = ("", TimeSpan.Zero);
         (string, long) hungriest = ("", 0);
@@ -73,6 +74,7 @@ internal static class SimplifyHarness
             ct.ThrowIfCancellationRequested();
             long allocated = GC.GetAllocatedBytesForCurrentThread();
             long methodStart = Stopwatch.GetTimestamp();
+            var cpuStart = ThreadCpuClock.Now();
             List<MethodChange> result;
             try
             {
@@ -84,11 +86,14 @@ internal static class SimplifyHarness
                 continue;
             }
             var time = Stopwatch.GetElapsedTime(methodStart);
+            var cpu = ThreadCpuClock.Now() - cpuStart;
             long bytes = GC.GetAllocatedBytesForCurrentThread() - allocated;
             elapsed += time;
             if (time > slowest.Item2) slowest = (Label(m), time);
             if (bytes > hungriest.Item2) hungriest = (Label(m), bytes);
-            if (time > limit) problems.Add($"time: {Label(m)} took {time.TotalSeconds:0.00} s (limit {options.EffectiveLimits.MethodTimeLimit.TotalSeconds:0.##} s)");
+            // The limit is the method's CPU time, so a loaded machine's waits do not count; wall time has a wider bound.
+            if (cpu > limit || time > wallLimit)
+                problems.Add($"time: {Label(m)} took {cpu.TotalSeconds:0.00} s of CPU time, {time.TotalSeconds:0.00} s of wall time (limit {options.EffectiveLimits.MethodTimeLimit.TotalSeconds:0.##} s)");
             if (bytes > MethodAllocationLimit) problems.Add($"memory: {Label(m)} allocated {bytes / (1024 * 1024)} MB");
             foreach (var c in result)
             {

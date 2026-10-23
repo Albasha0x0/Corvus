@@ -735,6 +735,27 @@ public sealed class SimplifyContractTests
     }
 
     [Fact]
+    public void A_method_time_limit_counts_cpu_time_and_a_wall_bound_of_three_times_it_and_both_report_time_limit()
+    {
+        // Both clocks are the test's: a wait moves only the wall clock, work moves both.
+        TimeSpan cpu = TimeSpan.Zero, wall = TimeSpan.Zero;
+        var limits = new EvaluationLimits(MethodTimeLimitMs: 1000);
+        var meter = new MethodMeter(limits, () => cpu, () => wall);
+        wall += TimeSpan.FromSeconds(2.9);
+        meter.CheckTime();
+        cpu += TimeSpan.FromSeconds(1.1);
+        Assert.Contains("1 s of CPU time", Assert.Throws<MethodTimeout>(meter.CheckTime).Message);
+
+        var waiting = new MethodMeter(limits, () => cpu, () => wall);
+        var initializer = new MethodMeter(limits, () => cpu, () => wall);
+        wall += TimeSpan.FromSeconds(3.1);
+        Assert.Contains("3 s of wall time", Assert.Throws<MethodTimeout>(waiting.CheckTime).Message);
+        // An initializer run in the extended tier is accounted apart, its wall time too.
+        initializer.Exclude(TimeSpan.Zero, TimeSpan.FromSeconds(3.1));
+        initializer.CheckTime();
+    }
+
+    [Fact]
     public void StaticConstructorsShareTheEvaluationBudgetAndRetryWhenItRunsOut()
     {
         var lab = new IlLab();

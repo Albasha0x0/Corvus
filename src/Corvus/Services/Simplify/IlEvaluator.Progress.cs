@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Runtime.CompilerServices;
 using dnlib.DotNet;
+using Corvus.Core;
 
 namespace Corvus.Services.Simplify;
 
@@ -21,7 +22,7 @@ internal sealed partial class IlEvaluator
     private ulong _state; // fingerprint of the locations the current run wrote
     private readonly HashSet<ulong> _windowStates = new();
     private long _tierGranted; // instructions granted beyond the budget in the current run
-    private long _runStart; // timestamp the current initializer run began
+    private TimeSpan _runStart, _runWallStart; // thread CPU and wall time when the current initializer run began
     private long _budgetAtRun; // the evaluation's budget when the current initializer run began
     private string? _tierStop; // why the tier stopped granting windows
     private readonly Dictionary<FieldDef, int> _staticStamps = new();
@@ -52,7 +53,8 @@ internal sealed partial class IlEvaluator
         _tierGranted = 0;
         _tierStop = null;
         _observed = false;
-        _runStart = Stopwatch.GetTimestamp();
+        _runStart = ThreadCpuTime.Now();
+        _runWallStart = Stopwatch.GetElapsedTime(0);
         _budgetAtRun = _budget;
     }
 
@@ -75,7 +77,7 @@ internal sealed partial class IlEvaluator
             }
             long executed = _budgetAtRun + _tierGranted - Math.Max(_budget, 0);
             _extended.Add(new ExtendedInitializer(type.FullName, executed, completed, completed ? null : _tierStop ?? "evaluation left the supported subset"));
-            Meter?.Exclude(Stopwatch.GetTimestamp() - _runStart);
+            Meter?.Exclude(ThreadCpuTime.Now() - _runStart, Stopwatch.GetElapsedTime(0) - _runWallStart);
             _budget = _budgetAtRun; // the run is the tier's: the evaluation that triggered it is not charged
             return !completed;
         }
@@ -145,8 +147,12 @@ internal sealed partial class IlEvaluator
 
     private void CheckTierTime()
     {
-        if (Stopwatch.GetElapsedTime(_runStart) <= limits.InitializerTimeLimit) return;
-        _tierStop = $"it ran longer than the time limit of {limits.InitializerTimeLimit.TotalSeconds:0} s";
+        var wallLimit = limits.InitializerTimeLimit * MethodMeter.WallFactor;
+        if (ThreadCpuTime.Now() - _runStart > limits.InitializerTimeLimit)
+            _tierStop = $"it ran longer than the time limit of {limits.InitializerTimeLimit.TotalSeconds:0} s of CPU time";
+        else if (Stopwatch.GetElapsedTime(0) - _runWallStart > wallLimit)
+            _tierStop = $"it ran longer than {wallLimit.TotalSeconds:0} s of wall time";
+        else return;
         throw TierExhausted();
     }
 
