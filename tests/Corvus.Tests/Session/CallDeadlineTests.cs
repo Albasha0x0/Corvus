@@ -67,6 +67,23 @@ public class CallDeadlineTests
         Assert.Equal(CallFilter.Early(deadline) - spent, clock.FirstTimer);
     }
 
+    [Fact]
+    public async Task A_call_whose_stop_passes_before_its_tool_starts_reports_that_nothing_runs()
+    {
+        // Receipt to the pre-call step takes longer than the stop time, as a cold start on a loaded machine can (46dd5e3b).
+        var deadline = CallFilter.Deadline("decompile_member", new ServerOptions { TimeoutSeconds = 1 })!.Value;
+        var clock = new LateReceipt(CallFilter.Early(deadline) + TimeSpan.FromMilliseconds(100));
+        using var workspace = new AssemblyWorkspace();
+        using var services = new ServiceCollection().AddSingleton(new ServerOptions { TimeoutSeconds = 1 }).AddSingleton<ResultStore>()
+            .AddSingleton<TimeProvider>(clock).AddSingleton(workspace).BuildServiceProvider();
+        bool started = false;
+        var result = await Run(services, "decompile_member", _ => { started = true; return Task.FromResult(Done); });
+        var error = McpProtocolTests.ErrorJson(result);
+        Assert.Equal("timeout", error.GetProperty("code").GetString());
+        Assert.False(error.GetProperty("details").GetProperty("stillRunning").GetBoolean());
+        Assert.False(started);
+    }
+
     /// <summary>A clock that moves <paramref name="spent"/> right after the call reads its receipt time.</summary>
     private sealed class LateReceipt(TimeSpan spent) : TimeProvider
     {
