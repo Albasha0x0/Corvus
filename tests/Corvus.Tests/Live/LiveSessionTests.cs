@@ -174,6 +174,9 @@ internal sealed class ScriptedLiveBackend(string mainPath, ulong mainBase, uint 
                 }
                 return new JsonObject { ["results"] = results };
             case "clear": return _points.Remove((string)args["id"]!);
+            case "clear_many" when !Batches: return null;
+            case "clear_many":
+                return new JsonObject { ["cleared"] = new JsonArray([.. args["ids"]!.AsArray().Select(i => (string)i!).Where(i => _points.Remove(i)).Select(i => (JsonNode)i)]) };
             case "watch":
                 WatchedKinds[(string)args["id"]!] = args["args"]!.AsArray().Select(k => (string)k!).ToList();
                 return true;

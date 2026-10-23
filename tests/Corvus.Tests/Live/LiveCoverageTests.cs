@@ -91,7 +91,21 @@ public sealed class LiveCoverageTests : IDisposable
         Assert.Contains("sqlite3_open16", missed);
         Assert.DoesNotContain("  sqlite3_open\n", missed);
         Assert.Contains("complete", await _tools.LiveCoverage(action: "stop", run: "cov-1"));
-        Assert.Equal(n, Count("clear"));
+        // The hit limit cleared one point; the stop clears the rest in one batch.
+        Assert.Equal(1, Count("clear"));
+        Assert.Equal(1, Count("clear_many"));
+    }
+
+    /// <summary>A backend without clear_many is asked to clear each point alone.</summary>
+    [Fact]
+    public async Task A_backend_without_batches_clears_each_point_alone()
+    {
+        var backend = new ScriptedLiveBackend(Sqlite, Base, 0x200000) { Batches = false };
+        _service.Backend = backend;
+        await _tools.LiveSession("attach", program: "99994242");
+        var n = int.Parse(Regex.Match(await _tools.LiveCoverage("live-1", "start", match: "sqlite3_open"), @"cov-1 counting (\d+) functions").Groups[1].Value);
+        Assert.Contains("complete", await _tools.LiveCoverage(action: "stop", run: "cov-1"));
+        lock (backend.Ops) Assert.Equal(n, backend.Ops.Count(o => o == "clear"));
     }
 
     [Fact]

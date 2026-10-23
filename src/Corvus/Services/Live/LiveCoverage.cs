@@ -200,7 +200,7 @@ public sealed partial class LiveSessionService
     public const int MaxCoveragePoints = 5_000;
     /// <summary>The cap a run checks; tests lower it.</summary>
     internal int CoverageLimit { get; set; } = MaxCoveragePoints;
-    /// <summary>Stop points one set_many request carries; well within the request timeout at a few ms per point.</summary>
+    /// <summary>Stop points one set_many or clear_many request carries; well within the request timeout at a few ms per point.</summary>
     internal const int SetBatch = 256;
     private readonly ConcurrentDictionary<string, LiveCoverageRun> _coverage = new(StringComparer.OrdinalIgnoreCase);
     private int _nextCoverage;
@@ -625,10 +625,25 @@ public sealed partial class LiveSessionService
     private static async Task ClearPoints(LiveSession session, LiveCoverageRun run, string state, CancellationToken ct = default)
     {
         run.Finish(state);
-        foreach (var id in run.Armed)
+        var ids = run.Armed;
+        foreach (var id in ids) run.Retire(id);
+        bool Gone() => session.Closed || session.Ended != null || !session.Worker.IsAlive;
+        // A request per point costs a thread-pool scheduling delay each: at an
+        // exit point, thousands of them held the exiting thread for minutes.
+        int next = 0;
+        try
         {
-            run.Retire(id);
-            if (session.Closed || session.Ended != null || !session.Worker.IsAlive) continue;
+            for (; next < ids.Count && !Gone(); next += SetBatch)
+                await session.Worker.RequestAsync("clear_many", new JsonObject { ["ids"] = new JsonArray([.. ids.Skip(next).Take(SetBatch).Select(id => (JsonNode)id)]) },
+                    RequestTimeout, ct).ConfigureAwait(false);
+            return;
+        }
+        catch (ToolError e) when (e.Code is ErrorCode.InvalidArgument or ErrorCode.NotFound && e.Message.StartsWith("unknown op", StringComparison.Ordinal)) { }
+        catch (ToolError) { return; /* the session ended meanwhile */ }
+        // A backend without batches clears the rest a request each.
+        foreach (var id in ids.Skip(next))
+        {
+            if (Gone()) return;
             try { await session.Worker.RequestAsync("clear", new JsonObject { ["id"] = id }, RequestTimeout, ct).ConfigureAwait(false); }
             catch (ToolError) { /* the session ended meanwhile */ }
         }

@@ -82,6 +82,8 @@ public sealed class LiveWorkerTests : IDisposable
                 if address == "0xbad":
                     raise InvalidOperationError("unable to intercept instruction at 0xbad; please file a bug")
                 return True
+            def clear(self, id):
+                return id != "gone"
 
 
         class _Script:
@@ -253,6 +255,22 @@ public sealed class LiveWorkerTests : IDisposable
             Assert.Contains("""{"id":"a","ok":true}""", reply);
             Assert.Contains("""{"id":"b","ok":false,"error":{"code":"failed","message":"InvalidOperationError: unable to intercept instruction at 0xbad; please file a bug"}}""", reply);
             Assert.Contains("""{"id":"c","ok":true}""", reply);
+        }
+        finally
+        {
+            p.Kill();
+            p.WaitForExit(10_000);
+        }
+    }
+
+    [Fact]
+    public void Clear_many_names_the_points_it_cleared()
+    {
+        using var p = StartWorker(RefusingFrida);
+        try
+        {
+            Assert.Contains("\"ok\":true", Request(p, 1, "open", """{"attach":"4242"}"""));
+            Assert.Contains("""{"cleared":["a","c"]}""", Request(p, 2, "clear_many", """{"ids":["a","gone","c"]}"""));
         }
         finally
         {

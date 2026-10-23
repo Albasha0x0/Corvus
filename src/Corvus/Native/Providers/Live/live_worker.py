@@ -627,6 +627,9 @@ def handle(state, op, args):
         return {"results": set_each(state.require(), args["points"])}
     if op == "clear":
         return state.require().clear(args["id"])
+    if op == "clear_many":
+        agent = state.require()
+        return {"cleared": [i for i in args["ids"] if agent.clear(i)]}
     if op == "watch":
         return state.require().watch(args["id"], args["address"], args["args"], int(args["perSecond"]))
     if op == "unwatch":
