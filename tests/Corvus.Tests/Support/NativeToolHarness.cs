@@ -43,6 +43,11 @@ internal sealed class NativeToolHarness : IDisposable
     public NativeEngineService Engines { get; } = new();
     public List<Call> Calls { get; } = [];
 
+    /// <summary>Stack snapshots taken at a cancel so far (tests hold a wait open until one is taken).</summary>
+    public int StacksTaken => Volatile.Read(ref _stacksTaken);
+
+    private int _stacksTaken;
+
     /// <summary>Typed errors are accepted everywhere (mutated images): only unexpected exceptions, unclassified errors and time count.</summary>
     public bool Lenient { get; init; }
 
@@ -82,7 +87,12 @@ internal sealed class NativeToolHarness : IDisposable
         using var waits = AssemblyWorkspace.CancelWaitsWith(cts.Token, tool);
         // A call still running when it is cancelled has the stacks it runs or waits in taken, so its failure names them.
         using var answered = new CancellationTokenSource();
-        var late = Task.Delay(bound, answered.Token).ContinueWith(_ => Stacks(), TaskContinuationOptions.OnlyOnRanToCompletion);
+        var late = Task.Delay(bound, answered.Token).ContinueWith(_ =>
+        {
+            var stacks = Stacks();
+            Interlocked.Increment(ref _stacksTaken);
+            return stacks;
+        }, TaskContinuationOptions.OnlyOnRanToCompletion);
         // A call that ignores its cancellation is abandoned after a grace period and reported as a hang.
         try { text = await call(cts.Token).WaitAsync(bound + TimeSpan.FromSeconds(30)); }
         catch (ToolError e) { error = e.Code; errorText = e.Render(tool); }
@@ -303,9 +313,13 @@ public class NativeToolHarnessTests
     {
         using var harness = new NativeToolHarness(backgroundIndexing: false);
         using var held = new ManualResetEventSlim();
-        using var release = new ManualResetEventSlim();
-        // Another thread holds the workspace's exclusive lock for 3 s; the call's wait for the shared lock takes no token.
-        var holder = Task.Run(() => harness.Workspace.Write(() => { held.Set(); return release.Wait(TimeSpan.FromSeconds(3)); }));
+        // Another thread holds the workspace's exclusive lock until the stacks are taken at the cancel, so a snapshot
+        // that runs late under load still finds the call waiting; that wait takes no token.
+        var holder = Task.Factory.StartNew(() => harness.Workspace.Write(() =>
+        {
+            held.Set();
+            return SpinWait.SpinUntil(() => harness.StacksTaken > 0, TimeSpan.FromSeconds(30));
+        }), TaskCreationOptions.LongRunning);
         held.Wait();
         await harness.Run("image", "read", "", ct => Task.Run(() =>
         {
