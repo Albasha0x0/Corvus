@@ -95,7 +95,9 @@
   the repository, the .NET SDK `global.json` names with the x64 and x86 runtimes the tests start programs on (checked
   against Microsoft's release metadata), and the Visual C++ build tools (the bootstrapper's Microsoft signature is
   checked). A step keeps what is already there, so running it again fills only the gaps; `-Check` changes nothing and
-  names what is missing. The host needs OpenSSH Server, an administrator account and this machine's key in its
+  names what is missing. Two changes reach beyond the host folder, so setup only names them with the command that
+  makes them: the .NET Framework 4.8 Developer Pack and a Microsoft Defender exclusion for the host folder (Defender
+  quarantines some benign script fixtures). The host needs OpenSSH Server, an administrator account and this machine's key in its
   authorized keys; its engine and live permits are its own. With `CORVUS_TEST_REMOTE` naming such a host (`user@host`)
   and the host answering over ssh, a whole-suite run sends its offloaded classes there instead of waiting for GitHub:
   one `dotnet test` run, one at a time, at below-normal priority in a worktree of the host's clone, with the TRX results

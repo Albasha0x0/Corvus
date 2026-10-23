@@ -4,6 +4,8 @@
 # ~/corvus-test-host/tools, Frida's pinned release in that Python, a clone of the repository, the .NET SDK global.json
 # names with the runtimes the tests start programs on, and the Visual C++ build tools. Each step keeps what is already
 # there, so a second run only fills gaps; -Check changes nothing and names what is missing (exit 1 when anything is).
+# The .NET Framework 4.8 Developer Pack and a Microsoft Defender exclusion for the host folder are only named, with the
+# command that adds them.
 # The host needs OpenSSH Server and this machine's key authorized for an administrator account (the SDK, runtimes and
 # build tools install machine-wide). Engine and live permits are the host's own (its temporary folder).
 # Usage:  ./test-remote-setup.ps1 -Target user@host [-Check]
@@ -310,6 +312,21 @@ if (-not $found) {
         if ($process.ExitCode -notin 0, 3010) { throw "The build tools installer exited with $($process.ExitCode)." }
         if ($process.ExitCode -eq 3010) { Write-Host '  installed; restart the host before the first test run' }
     }
+}
+
+# The next two change the machine beyond the test folder, so setup only names them with the command that does it.
+Step '.NET Framework 4.8 reference assemblies'
+$framework48 = Join-Path ${env:ProgramFiles(x86)} 'Reference Assemblies\Microsoft\Framework\.NETFramework\v4.8\mscorlib.dll'
+if (-not (Test-Path $framework48)) { Need '.NET Framework 4.8 Developer Pack; as administrator: winget install --id Microsoft.DotNet.Framework.DeveloperPack_4 --version 4.8 --exact' }
+
+Step 'Microsoft Defender exclusion'
+# Defender quarantines some of the benign script fixtures under $Base.
+$defender = if (Get-Command Get-MpComputerStatus -ErrorAction SilentlyContinue) { try { Get-MpComputerStatus } catch { $null } }
+if (-not $defender -or -not $defender.RealTimeProtectionEnabled) { Write-Host '  real-time protection off or not reported' }
+else {
+    $exclusions = @((Get-MpPreference).ExclusionPath | Where-Object { $_ })
+    if ($exclusions -match '^N/A') { Write-Host "  unknown: the exclusions need an administrator to read; as administrator: Add-MpPreference -ExclusionPath '$Base'" }
+    elseif (-not ($exclusions | Where-Object { "$($Base.TrimEnd('\'))\".StartsWith("$($_.TrimEnd('\'))\", [StringComparison]::OrdinalIgnoreCase) })) { Need "a Defender exclusion for $Base; as administrator: Add-MpPreference -ExclusionPath '$Base'" }
 }
 
 Write-Host ''
