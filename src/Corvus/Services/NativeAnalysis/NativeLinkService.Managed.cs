@@ -176,7 +176,7 @@ public sealed partial class NativeLinkService
             if (code.Ready(image) is { } index && index.FunctionByStart(rva) is { } fn)
                 foreach (var c in index.Callers(fn))
                     rows.Add($"[{image.Id}] {NativeAddress.Va(image.Image, c.From)}  {c.Kind,-10} " +
-                             $"{(c.Caller is { } f ? $"{f.Name}+0x{c.From - f.Start:X}" : "(no function)")}  calls {fn.Name}");
+                             $"{(c.Caller is { } f ? Format.Within(f.Name, f.Start, c.From) : "(no function)")}  calls {fn.Name}");
             rows.AddRange(ImportCallSites(image, rva, ct));
         }
         return rows;

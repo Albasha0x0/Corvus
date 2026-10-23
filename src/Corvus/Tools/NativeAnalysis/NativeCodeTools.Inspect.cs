@@ -268,7 +268,7 @@ public sealed partial class NativeCodeTools
     {
         var image = index.Image;
         string Va(uint r) => NativeAddress.Va(image, r);
-        string? function = c.Function is { } f ? (c.Rva == f.Start ? f.Name : $"{f.Name}+0x{c.Rva - f.Start:X}") : null;
+        string? function = c.Function is { } f ? (c.Rva == f.Start ? f.Name : Format.Within(f.Name, f.Start, c.Rva)) : null;
         sb.Append($"{Va(c.Rva)}  {c.StatusName}");
         if (function != null) sb.Append($"  in {function}");
         if (c.Block is { } block) sb.Append($"  block {Va(block)}");

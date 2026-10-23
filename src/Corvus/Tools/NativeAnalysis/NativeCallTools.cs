@@ -178,7 +178,7 @@ public sealed class NativeCallTools(AssemblyWorkspace workspace, NativeCodeServi
     {
         string Va(uint rva) => NativeAddress.Va(index.Image, rva);
         var kind = s.Kind switch { CalleeKind.VirtualExact => "virtual_exact", CalleeKind.VirtualPossible => "virtual_possible", _ => s.Kind.ToString().ToLowerInvariant() };
-        return new CallSiteRecord(Va(s.Rva), $"{s.Caller.Name}+0x{s.Rva - s.Caller.Start:X}", s.Callee, kind, s.TailCall,
+        return new CallSiteRecord(Va(s.Rva), Format.Within(s.Caller.Name, s.Caller.Start, s.Rva), s.Callee, kind, s.TailCall,
             !s.Guessed,
             s.Arguments.Select(a => new CallArgumentRecord(a.Index, a.Name, a.Type, a.Location, a.Kind.ToString().ToLowerInvariant(), a.Text,
                 a.Value is { } v ? $"0x{v:X}" : null, a.Rva is { } r ? Va(r) : null, a.Derivation)).ToList());

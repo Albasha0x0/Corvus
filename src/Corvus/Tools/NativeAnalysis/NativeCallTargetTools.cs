@@ -140,7 +140,7 @@ public sealed class NativeCallTargetTools(AssemblyWorkspace workspace, NativeCod
             ? sites.Where(s => s.Status == "unresolved").GroupBy(s => s.Function).OrderByDescending(g => g.Count()).ThenBy(g => g.Key.Start).Take(10)
                 .Select(g => $"{g.Key.Name} ({g.Count()})").ToList()
             : [];
-        var items = page.Select(s => new CallTargetSiteRecord(Va(s.Rva), $"{s.Function.Name}+0x{s.Rva - s.Function.Start:X}", s.Mechanism, s.Status,
+        var items = page.Select(s => new CallTargetSiteRecord(Va(s.Rva), Format.Within(s.Function.Name, s.Function.Start, s.Rva), s.Mechanism, s.Status,
             s.TargetCount > s.Targets.Count ? s.TargetCount : null,
             s.Targets.Count == 0 ? null : s.Targets.Select(t => new CallTargetRecord(Va(t.Address), t.Name, t.Basis, t.Confidence, EngineBasis(t.Basis) ? null : t.Evidence)).ToList(), s.Reason, s.Hint)).ToList();
         var report = new CallTargetsReport(native.Id, scopeText, engineText, choice.Note, filtered.Count, byStatus, byMechanism, top, start, start + page.Count < filtered.Count, items, notes);

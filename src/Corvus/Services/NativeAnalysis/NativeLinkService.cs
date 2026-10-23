@@ -467,7 +467,7 @@ public sealed partial class NativeLinkService(AssemblyWorkspace workspace, Nativ
             if (sites.Count == 0) rows.Add($"[{importer.Id}] imports it as {NativeCodeIndex.ImportName(import)}: no call sites found (slot {NativeAddress.Va(importer.Image, import.SlotRva)})");
             foreach (var (x, caller, _) in sites)
                 rows.Add($"[{importer.Id}] {NativeAddress.Va(importer.Image, x.From)}  {x.Kind,-10} " +
-                         $"{(caller is { } f ? $"{f.Name}+0x{x.From - f.Start:X}" : "(no function)")}  via {NativeCodeIndex.ImportName(import)}");
+                         $"{(caller is { } f ? Format.Within(f.Name, f.Start, x.From) : "(no function)")}  via {NativeCodeIndex.ImportName(import)}");
         }
         return rows;
     }

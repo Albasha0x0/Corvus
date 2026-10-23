@@ -153,11 +153,11 @@ public sealed partial class NativeLinkService
         {
             ct.ThrowIfCancellationRequested();
             bool thunk = f.InstructionCount <= 2 && x.From == f.Start;
-            rows.Add($"[{view.Id}] {NativeAddress.Va(view.Image, x.From)}  {x.Kind,-10} {f.Name}+0x{x.From - f.Start:X}  " +
+            rows.Add($"[{view.Id}] {NativeAddress.Va(view.Image, x.From)}  {x.Kind,-10} {Format.Within(f.Name, f.Start, x.From)}  " +
                      $"({(thunk ? "jump thunk" : "call")} through vtfixup slot {NativeAddress.Va(view.Image, slot)})");
             if (!thunk) continue;
             foreach (var c in index.Callers(f))
-                rows.Add($"[{view.Id}] {NativeAddress.Va(view.Image, c.From)}  {c.Kind,-10} {(c.Caller is { } g ? $"{g.Name}+0x{c.From - g.Start:X}" : "(no function)")}  calls the thunk {f.Name}");
+                rows.Add($"[{view.Id}] {NativeAddress.Va(view.Image, c.From)}  {c.Kind,-10} {(c.Caller is { } g ? Format.Within(g.Name, g.Start, c.From) : "(no function)")}  calls the thunk {f.Name}");
             rows.AddRange(ImportCallSites(view, f.Start, ct));
         }
         return rows;

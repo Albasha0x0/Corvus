@@ -352,13 +352,13 @@ public sealed class NativeTraceTools(AssemblyWorkspace workspace, NativeCodeServ
     {
         string Va(uint r, int image = 0) => NativeAddress.Va(g.Images[image].Image, r);
         // a node without an instruction of its own (address 0) is in its function, at no offset
-        string? Where(TraceNode n) => n.Function is { } f ? n.Address >= f.Start ? $"{f.Name}+0x{n.Address - f.Start:X}" : f.Name : null;
+        string? Where(TraceNode n) => n.Function is { } f ? Format.Within(f.Name, f.Start, n.Address) : null;
         int start = Math.Clamp(offset, 0, g.Nodes.Count);
         var page = g.Nodes.Skip(start).Take(Math.Clamp(limit, 1, 1000)).ToList();
         var ids = page.Select(n => n.Id).ToHashSet();
         var s = g.Seed;
         return new ValueTraceReport(Path.GetFileName(index.Image.Path), g.Engine,
-            new TraceSeedRecord(s.Kind.ToString().ToLowerInvariant(), Va(s.Address), s.Function is { } sf ? $"{sf.Name}+0x{s.Address - sf.Start:X}" : null, s.Location, s.Description),
+            new TraceSeedRecord(s.Kind.ToString().ToLowerInvariant(), Va(s.Address), s.Function is { } sf ? Format.Within(sf.Name, sf.Start, s.Address) : null, s.Location, s.Description),
             g.Options.Direction.ToString().ToLowerInvariant(),
             g.Values.Select(v => new TraceValueRecord(v.Text, Kind(v.Kind), v.Rva is { } r ? Va(r, v.Image) : null, v.Node)).ToList(),
             page.Select(n => new TraceNodeRecord(n.Id, Kind(n.Kind), Va(n.Address, n.Image), n.Image == 0 ? null : g.Images[n.Image].Id, Where(n), n.Location, n.Text,
