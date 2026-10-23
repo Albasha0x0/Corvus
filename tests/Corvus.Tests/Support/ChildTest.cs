@@ -57,8 +57,9 @@ public static class ChildTest
 
     /// <summary>
     /// The assembly's entry point: runs the test method the arguments name in a child (exit code 0 when it passes), or the
-    /// perf run's baseline comparison (<see cref="PerfRegressions.Main"/>), the located tools (<see cref="LocatedTools.Main"/>), or the
-    /// classes that run alone (<see cref="AloneClasses.Main"/>).
+    /// perf run's baseline comparison (<see cref="PerfRegressions.Main"/>), the located tools (<see cref="LocatedTools.Main"/>), the
+    /// classes that run alone (<see cref="AloneClasses.Main"/>), or a read of a test process's stacks
+    /// (<see cref="ThreadPoolSnapshot.Main"/>).
     /// </summary>
     public static int Main(string[] args)
     {
@@ -68,6 +69,7 @@ public static class ChildTest
             [PerfRegressions.Flag, .. var trxPaths] => PerfRegressions.Main(trxPaths),
             [LocatedTools.Flag] => LocatedTools.Main(),
             [AloneClasses.Flag] => AloneClasses.Main(),
+            [ThreadPoolSnapshot.Flag, .. var read] => ThreadPoolSnapshot.Main(read),
             _ => 2,
         };
         // Exit now: a foreground thread the test started must not keep the child running.
