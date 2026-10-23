@@ -365,22 +365,34 @@ public sealed class TestRemoteTests : IDisposable
             }
             exit 1
             """);
+        // Start-Offload bundles from the module's own repository: a copy in a repository of the test's own, whose
+        // origin/main is set by hand, so a CI checkout without origin/main makes no difference.
+        var repo = Path.Combine(_dir.Path, "repo");
+        Directory.CreateDirectory(repo);
+        var module = Path.Combine(repo, "test-remote.psm1");
+        File.Copy(Path.Combine(DocsTests.RepoRoot(), "test-remote.psm1"), module);
         var lines = TestReuseTests.Run($$"""
-            Import-Module {{Module}}
-            $repo = {{Quote(DocsTests.RepoRoot())}}
+            Import-Module {{Quote(module)}}
             $env:CORVUS_TEST_SSH = {{Quote(ssh)}}; $env:CORVUS_TEST_SCP = {{Quote(scp)}}
-            $commit = (git -C $repo commit-tree 'HEAD^{tree}' -p HEAD -m 'A commit origin lacks').Trim()
-            $job = Start-Offload @{ Kind = 'ssh'; Host = 'tester@host2'; Name = 'tester@host2' } $commit @('FormatSweepTests') $false {{Module}}
+            Set-Location {{Quote(repo)}}
+            git init -q; git config user.email t@t; git config user.name t
+            Set-Content a.txt one; git add a.txt; git commit -q -m a
+            $pushed = (git rev-parse HEAD).Trim(); git update-ref refs/remotes/origin/main $pushed
+            Set-Content a.txt two; git commit -q -am b
+            $commit = (git rev-parse HEAD).Trim()
+            $job = Start-Offload @{ Kind = 'ssh'; Host = 'tester@host2'; Name = 'tester@host2' } $commit @('FormatSweepTests') $false {{Quote(module)}}
             'transport=' + $job.Transport
             $null = Receive-Job $job -Wait -AutoRemoveJob
             Get-Content {{Quote(sent)}}
-            $known = Start-Offload @{ Kind = 'ssh'; Host = 'tester@host2'; Name = 'tester@host2' } (git -C $repo rev-parse origin/main).Trim() @('FormatSweepTests') $false {{Module}}
+            $known = Start-Offload @{ Kind = 'ssh'; Host = 'tester@host2'; Name = 'tester@host2' } $pushed @('FormatSweepTests') $false {{Quote(module)}}
             'known=' + $known.Transport
             $null = Receive-Job $known -Wait -AutoRemoveJob
             $git = {{Quote(_dir.Path)}}
             Save-RemoteRecord $git ([ordered]@{ target = 'tester@host2'; commit = 'abc'; at = 'now'; classes = 1; held = 0; state = 'passed'; seconds = 1; note = $null; transport = 'bundle' })
             Get-RemoteStatus $git
             """);
+        // Git writes its objects read-only.
+        foreach (var f in Directory.EnumerateFiles(repo, "*", SearchOption.AllDirectories)) File.SetAttributes(f, FileAttributes.Normal);
         if (lines is ["skip"]) return;
         Assert.Contains("transport=bundle", lines);
         Assert.Contains("bundles=1 wait=True fetch=True", lines);
