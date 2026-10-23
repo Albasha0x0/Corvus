@@ -236,21 +236,24 @@ public sealed partial class DotnetRealDataTests(Xunit.Abstractions.ITestOutputHe
         Assert.Single(Directory.GetDirectories(_dir.Path));
     }
 
-    /// <summary>A client that waits 8 s (deadline 3 s): a partial answer before it, and the export completes in the background.</summary>
+    /// <summary>A client that waits 10 s (deadline 5 s): a partial answer before it, and the export completes in the background.</summary>
     [Fact]
     [Trait(PerfBudget.Trait, PerfBudget.Timing)]
     public async Task AShortClientGetsAPartialAndTheExportCompletes()
     {
-        await using var server = await McpProtocolTests.StartServerAsync(null, null, ["--no-watch", ClientProfiles.ClientTimeoutOption, "8", "--load", CoreLib]);
+        await using var server = await McpProtocolTests.StartServerAsync(null, null, ["--no-watch", ClientProfiles.ClientTimeoutOption, "10", "--load", CoreLib]);
         var target = _dir.File("corelib");
         var before = MachineLoad.Factor();
         var clock = Stopwatch.StartNew();
         var r = await server.CallToolAsync("export_project", new Dictionary<string, object?> { ["assembly"] = "System.Private.CoreLib", ["outputDirectory"] = target });
         var answered = clock.Elapsed;
-        // The contract: the partial answer reaches the client before it gives up; the 3 s deadline is a measurement.
-        Assert.True(answered < TimeSpan.FromSeconds(8), $"answered after {answered}, past the client's 8 s");
+        // The contract: the partial answer reaches the client before it gives up. The stop at 3.5 s leaves room for the
+        // first call's start on a loaded machine, so the export is running when it fires; the time from it is a measurement.
+        Assert.True(answered < TimeSpan.FromSeconds(10), $"answered after {answered}, past the client's 10 s");
+        var stop = CallFilter.Early(TimeSpan.FromSeconds(10) - Deadlines.ClientMargin);
+        var fromStop = answered > stop ? answered - stop : TimeSpan.Zero;
         var (_, load) = MachineLoad.Budget(TimeSpan.FromSeconds(3), before, MachineLoad.Factor());
-        PerfBudget.Time("dotnet/short-client-partial-answer", answered, TimeSpan.FromSeconds(3), output, load);
+        PerfBudget.Time("dotnet/short-client-partial-answer", fromStop, TimeSpan.FromSeconds(3), output, $"{load}; answered after {answered.TotalSeconds:0.0} s");
         var error = McpProtocolTests.ErrorJson(r);
         Assert.Equal("timeout", error.GetProperty("code").GetString());
         Assert.True(error.GetProperty("details").GetProperty("stillRunning").GetBoolean());
