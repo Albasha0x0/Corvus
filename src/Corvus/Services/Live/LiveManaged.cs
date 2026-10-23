@@ -15,11 +15,18 @@ internal sealed record LiveManagedTarget(string Path, int TypeToken, int MethodT
 public sealed partial class LiveSessionService
 {
     private static readonly TimeSpan CompileCheckPeriod = TimeSpan.FromMilliseconds(250);
+    // A held thread loads no module, so a runtime that could not be read at a stop is also tried again on time.
+    internal static readonly TimeSpan ClrRetryPeriod = TimeSpan.FromSeconds(5);
+
+    /// <summary>Whether the runtime is tried again: the program's modules changed, or <see cref="ClrRetryPeriod"/> passed since the last try.</summary>
+    internal static bool ClrRetryDue(int modules, int triedAt, long nowTicks, long triedTicks) =>
+        modules != triedAt || nowTicks - triedTicks >= (long)ClrRetryPeriod.TotalMilliseconds;
 
     /// <summary>
     /// The session's .NET runtime, opened on first use once the program has loaded one and read afresh on each call; null
     /// for a program without one. A runtime whose DAC could not be loaded is returned with the reason in
-    /// <see cref="LiveClr.Unavailable"/>; one that could not be read yet (still starting) is tried again when the modules change.
+    /// <see cref="LiveClr.Unavailable"/>; one that could not be read yet (still starting) is tried again when the modules change or
+    /// <see cref="ClrRetryPeriod"/> has passed.
     /// </summary>
     public async Task<LiveClr?> ClrAsync(LiveSession session, CancellationToken ct)
     {
@@ -29,9 +36,10 @@ public sealed partial class LiveSessionService
         {
             int modules;
             lock (session.Modules) modules = session.Modules.Count;
+            bool due = ClrRetryDue(modules, session.ClrTriedAt, Environment.TickCount64, session.ClrTriedTicks);
             if (session.Clr is { } open)
             {
-                if (!(open.Unavailable?.StartsWith("load_failed", StringComparison.Ordinal) ?? false) || modules == session.ClrTriedAt)
+                if (!(open.Unavailable?.StartsWith("load_failed", StringComparison.Ordinal) ?? false) || !due)
                 {
                     open.Refresh();
                     return open;
@@ -39,10 +47,19 @@ public sealed partial class LiveSessionService
                 open.Dispose();
                 session.Clr = null;
             }
-            if (session.Closed || session.Ended != null || modules == session.ClrTriedAt || !HostsRuntime(session)) return null;
-            session.ClrTriedAt = modules;
+            if (session.Closed || session.Ended != null || !due || !HostsRuntime(session)) return null;
+            (session.ClrTriedAt, session.ClrTriedTicks) = (modules, Environment.TickCount64);
             try { session.Clr = await LiveClr.OpenAsync(session.ProcessId, new Native.Dump.Managed.DacRequest(Download: session.DownloadDac) { Decoder = DecoderPath }, ct).ConfigureAwait(false); }
-            catch (ToolError) { session.Clr = null; } // the process exited meanwhile
+            catch (ToolError e)
+            {
+                // The process exited meanwhile, or the open failed (a 32-bit decoder that did not start in time).
+                session.Clr = null;
+                if (!session.ClrOpenFailureNoted && !session.Closed && session.Ended == null)
+                {
+                    session.ClrOpenFailureNoted = true;
+                    session.Add("error", null, null, $"the program's runtime could not be read ({e.Message}); it is tried again when the program loads a module or after {ClrRetryPeriod.TotalSeconds:0} s");
+                }
+            }
             if (session.Clr != null)
             {
                 session.Clr.Stopped = why => DecoderStopped(session, why);

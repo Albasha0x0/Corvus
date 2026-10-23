@@ -136,6 +136,10 @@ public sealed class LiveSession
     internal LiveClr? Clr { get; set; }
     /// <summary>The module count at the last attempt to read the runtime; it is tried again when the count changes.</summary>
     internal int ClrTriedAt { get; set; } = -1;
+    /// <summary>When the runtime was last tried (Environment.TickCount64); it is also tried again a while after.</summary>
+    internal long ClrTriedTicks { get; set; }
+    /// <summary>Whether a failed open of the runtime was named in the session's events (said once).</summary>
+    internal bool ClrOpenFailureNoted { get; set; }
     internal SemaphoreSlim ClrOpen { get; } = new(1, 1);
     /// <summary>Checks the points deferred until their method is compiled.</summary>
     internal Timer? CompileCheck { get; set; }

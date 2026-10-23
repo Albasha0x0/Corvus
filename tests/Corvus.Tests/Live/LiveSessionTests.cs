@@ -259,6 +259,16 @@ public abstract class LiveSessionTestBase : IDisposable
 public sealed class LiveSessionTests : LiveSessionTestBase
 {
     [Fact]
+    public void A_runtime_not_read_at_a_stop_is_tried_again_after_its_period()
+    {
+        long period = (long)LiveSessionService.ClrRetryPeriod.TotalMilliseconds;
+        // A held thread loads no module: only time makes the next try due.
+        Assert.False(LiveSessionService.ClrRetryDue(33, 33, 10_000 + period - 1, 10_000));
+        Assert.True(LiveSessionService.ClrRetryDue(33, 33, 10_000 + period, 10_000));
+        Assert.True(LiveSessionService.ClrRetryDue(34, 33, 10_000, 10_000));
+    }
+
+    [Fact]
     public async Task The_programs_own_module_is_found_wherever_the_backend_lists_it()
     {
         var service = new LiveSessionService(_workspace, new NativeCodeService(_workspace, SharedCodeIndex.Options())) { Backend = new ScriptedLiveBackend(Sqlite, Base, 0x200000) { MainListedLast = true } };
