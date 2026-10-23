@@ -20,22 +20,52 @@ public sealed record ScriptReading(string Language, string Plain, IReadOnlyList<
     public IReadOnlyList<string> Recovered { get; init; } = [];
 }
 
-/// <summary>The budget of one reading: evaluation steps, time and the largest string built.</summary>
-internal sealed class ScriptBudget(long steps = 4_000_000, int milliseconds = 4_000, int maxChars = 8 << 20, CancellationToken ct = default)
+/// <summary>
+/// The budget of one reading: evaluation steps, the largest string built, and a time cap that stops a reading whose
+/// steps are costly before the steps run out.
+/// </summary>
+internal sealed class ScriptBudget(long steps = ScriptBudget.DefaultSteps, int milliseconds = ScriptBudget.DefaultMilliseconds,
+    int maxChars = 8 << 20, CancellationToken ct = default)
 {
+    // Every reading keeps the 2.4.x ceiling of 4,000,000 steps: the fastest quiet rate measured, about 13,000 steps
+    // per millisecond on a VBScript loop, reaches it within every 2.4.x time limit, so a quiet machine reads at least
+    // as far as 2.4.x did. Caps are three times the 2.4.x time limits.
+
+    /// <summary>Steps of every reading.</summary>
+    public const long DefaultSteps = 4_000_000;
+
+    /// <summary>Time cap of a reading asked for directly.</summary>
+    public const int DefaultMilliseconds = 12_000;
+
+    /// <summary>Time cap of summarize_file's overview and of package review.</summary>
+    public const int OverviewMilliseconds = 4_500;
+
+    /// <summary>Time cap of one HTML script block in the overview.</summary>
+    public const int BlockMilliseconds = 2_250;
+
+    /// <summary>Time cap of one HTML script block in a file asked for directly.</summary>
+    public const int AskedBlockMilliseconds = 6_000;
+
     private readonly Stopwatch _clock = Stopwatch.StartNew();
     private long _steps;
 
     public int MaxChars { get; } = maxChars;
     public bool Exhausted { get; private set; }
 
-    /// <summary>Counts a step; false (and <see cref="Exhausted"/>) once the steps or the time are used up.</summary>
+    /// <summary>The time cap stopped the reading, not the steps.</summary>
+    public bool TimedOut { get; private set; }
+
+    /// <summary>The time cap in seconds, for the note that names it.</summary>
+    public double Seconds => milliseconds / 1000.0;
+
+    /// <summary>Counts a step; false (and <see cref="Exhausted"/>) once the steps or the time cap are used up.</summary>
     public bool Step(int n = 1)
     {
         if (Exhausted) return false;
         _steps += n;
         if ((_steps & 0xFFF) < n) ct.ThrowIfCancellationRequested();
-        if (_steps > steps || (_steps & 0x3FF) < n && _clock.ElapsedMilliseconds > milliseconds) Exhausted = true;
+        if (_steps > steps) Exhausted = true;
+        else if ((_steps & 0x3FF) < n && _clock.ElapsedMilliseconds > milliseconds) Exhausted = TimedOut = true;
         return !Exhausted;
     }
 

@@ -30,10 +30,14 @@ public static class ScriptReader
         return null;
     }
 
-    /// <summary>Reads <paramref name="text"/> in <paramref name="language"/>; never runs it.</summary>
-    public static ScriptReading Read(string text, string language, CancellationToken ct = default, int milliseconds = 4_000)
+    /// <summary>
+    /// Reads <paramref name="text"/> in <paramref name="language"/> within <paramref name="steps"/> evaluation steps, or
+    /// <paramref name="milliseconds"/> if that comes first; never runs it.
+    /// </summary>
+    public static ScriptReading Read(string text, string language, CancellationToken ct = default, long steps = ScriptBudget.DefaultSteps,
+        int milliseconds = ScriptBudget.DefaultMilliseconds)
     {
-        var ctx = new ScriptContext(new ScriptBudget(milliseconds: milliseconds, ct: ct));
+        var ctx = new ScriptContext(new ScriptBudget(steps, milliseconds, ct: ct));
         string? plain = null;
         Exception? failure = null;
         var thread = new Thread(() =>
@@ -49,6 +53,7 @@ public static class ScriptReader
             ctx.Note($"The {language} reader stopped: {failure.GetType().Name}.");
             ctx.Incomplete = true;
         }
+        if (ctx.Budget.TimedOut) ctx.Note(FormattableString.Invariant($"The {ctx.Budget.Seconds:0.##} s time limit ran out before the step budget: the reading is partial."));
         return new ScriptReading(language, plain ?? text, ctx.Layers, ctx.Folded, ctx.Calls.ToList(), ctx.Notes) { Complete = !ctx.Incomplete && !ctx.Budget.Exhausted, Recovered = ctx.Recovered.ToList() };
     }
 

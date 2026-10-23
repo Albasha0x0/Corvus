@@ -20,7 +20,12 @@ internal static class JsLayers
         var current = text;
         for (int pass = 0; pass < MaxPasses; pass++)
         {
-            if (ctx.Budget.Exhausted) { ctx.Incomplete = true; break; }
+            if (ctx.Budget.Exhausted)
+            {
+                if (!ctx.Incomplete) ctx.Note("The evaluation budget ran out: later passes are not shown.");
+                ctx.Incomplete = true;
+                break;
+            }
             if (current.Length > MaxChars) { ctx.Note($"Over {MaxChars:N0} characters: read as written."); break; }
             var program = Parse(current);
             if (program == null)

@@ -50,7 +50,7 @@ internal sealed class ScriptFileView : IFileSummaryView
             if (language == "javascript" && !asked && !Regex.IsMatch(text.Length > 200_000 ? text[..200_000] : text,
                     @"\b_0x[0-9a-f]{4,6}\b.{0,200}\b_0x[0-9a-f]{4,6}\b|\beval\s*\(\s*(?:atob|unescape|String\.fromCharCode|decodeURIComponent|function\s*\(p,a,c,k)|\b(?:new\s+)?Function\s*\(\s*(?:atob|unescape|String\.fromCharCode)|(?:\\x[0-9a-f]{2}){8}|\bActiveXObject\b"))
                 return null;
-            reading = ScriptReader.Read(text, language, ct, asked ? 4_000 : 1_500);
+            reading = ScriptReader.Read(text, language, ct, milliseconds: asked ? ScriptBudget.DefaultMilliseconds : ScriptBudget.OverviewMilliseconds);
         }
         if (!asked && reading.Layers.Count == 0 && reading.Recovered.Count == 0 && reading.Folded == 0 && reading.Language == "javascript") return null;
         long offset = Math.Clamp(file.Options.Offset, 0, reading.Plain.Length);
@@ -119,7 +119,7 @@ internal sealed class ScriptFileView : IFileSummaryView
         bool complete = true;
         foreach (var b in blocks.Take(64))
         {
-            var r = ScriptReader.Read(b.Text, b.Language, ct, asked ? 2_000 : 750);
+            var r = ScriptReader.Read(b.Text, b.Language, ct, milliseconds: asked ? ScriptBudget.AskedBlockMilliseconds : ScriptBudget.BlockMilliseconds);
             plain.Append($"<script language=\"{b.Language}\">").Append(r.Plain).Append("</script>\n");
             layers.AddRange(r.Layers);
             calls.UnionWith(r.Calls);

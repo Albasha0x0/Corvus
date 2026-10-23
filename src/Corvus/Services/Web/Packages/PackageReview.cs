@@ -147,7 +147,7 @@ public static partial class PackageReview
         // transformed scripts: read through their layers so the rules see the plain text
         if (peel && language != null && text.Length <= 4 << 20 && Transformed.IsMatch(text.Length > 200_000 ? text[..200_000] : text))
         {
-            var reading = ScriptReader.Read(text, language, ct, 1_500);
+            var reading = ScriptReader.Read(text, language, ct, milliseconds: ScriptBudget.OverviewMilliseconds);
             // decoded layers and obfuscator machinery, not ordinary eval or object-of-functions code
             bool transformed = reading.Recovered.Any(r => r is "obfuscator.io string array" or "control-flow flattening")
                                || reading.Layers.Any(l => l.Via.Contains(" of ", StringComparison.Ordinal) || l.Via.Contains("EncodedCommand", StringComparison.Ordinal));

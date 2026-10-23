@@ -85,6 +85,26 @@ public sealed class ScriptReaderTests(ITestOutputHelper output)
     }
 
     [Fact]
+    public void A_javascript_reading_out_of_steps_is_partial_and_says_so()
+    {
+        var text = File.ReadAllText(Fixture("javascript", "obfuscator-preset-high.js"));
+        var r = ScriptReader.Read(text, "javascript", steps: 1_000);
+        Assert.False(r.Complete);
+        Assert.Contains("The evaluation budget ran out: later passes are not shown.", r.Notes);
+        Assert.DoesNotContain(r.Notes, n => n.Contains("time limit", StringComparison.Ordinal));
+        Assert.Contains("='corvus marker';", ScriptReader.Read(text, "javascript", steps: 100_000).Plain);
+    }
+
+    [Fact]
+    public void A_reading_stopped_by_the_time_cap_is_partial_and_names_it()
+    {
+        // Steps far above what the loop reaches in 250 ms, so only the cap can stop it.
+        var r = ScriptReader.Read("$i = 0; while ($true) { $i++ }", "powershell", steps: 1L << 40, milliseconds: 250);
+        Assert.False(r.Complete);
+        Assert.Contains("The 0.25 s time limit ran out before the step budget: the reading is partial.", r.Notes);
+    }
+
+    [Fact]
     public void A_flattened_switch_loop_is_put_back_in_order()
     {
         const string script = "function f(){var s='2|0|1'.split('|'),i=0;while(!![]){switch(s[i++]){case'0':second();continue;case'1':third();continue;case'2':first();continue;}break;}}";
@@ -171,7 +191,7 @@ public sealed class ScriptReaderTests(ITestOutputHelper output)
     public void An_endless_loop_ends_at_the_budget()
     {
         var watch = System.Diagnostics.Stopwatch.StartNew();
-        var r = ScriptReader.Read("$i = 0; while ($true) { $i++ }", "powershell", milliseconds: 500);
+        var r = ScriptReader.Read("$i = 0; while ($true) { $i++ }", "powershell", steps: 300_000);
         Assert.False(r.Complete);
         PerfBudget.Time("web/script-reader-loop-budget", watch.Elapsed, TimeSpan.FromSeconds(5), output);
     }
@@ -186,11 +206,11 @@ public sealed class ScriptReaderTests(ITestOutputHelper output)
             ("batch", "for-loop.bat"), ("batch", "mshta-vbscript.cmd"), ("javascript", "obfuscator-strings-rc4.js"),
             ("javascript", "obfuscator-control-flow.js"), ("javascript", "packer.js"),
         ];
-        // On a busy machine each read runs to its 50 ms deadline, so the scripts are fuzzed side by side.
+        // Each read may run to its 30,000 steps, so the scripts are fuzzed side by side.
         var failures = new List<string>[scripts.Length];
         Parallel.For(0, scripts.Length, i => failures[i] = FormatFuzz.Run(File.ReadAllBytes(Fixture(scripts[i].Language, scripts[i].Name)), b =>
         {
-            var r = ScriptReader.Read(Encoding.UTF8.GetString(b), scripts[i].Language, milliseconds: 50);
+            var r = ScriptReader.Read(Encoding.UTF8.GetString(b), scripts[i].Language, steps: 30_000);
             Assert.NotNull(r.Plain);
         }, 25));
         var all = failures.SelectMany(f => f).ToList();
