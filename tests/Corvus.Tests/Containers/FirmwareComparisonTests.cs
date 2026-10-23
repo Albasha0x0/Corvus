@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.IO.Compression;
 using Corvus.Core;
 using Corvus.Native.Providers;
@@ -78,16 +79,54 @@ public sealed class FirmwareComparisonTests(ITestOutputHelper output)
         Assert.True(failures.Count == 0, string.Join("\n", failures));
     }
 
-    /// <summary>Signature hits of each image against the scanner's (binwalk) by offset, and the sizes both state.</summary>
-    [Fact]
-    public void Firmware_signatures_match_the_scanners()
+    /// <summary>Classes the signature images are taken by; each takes a reference-tool permit of its own.</summary>
+    public const int SignatureParts = 2;
+
+    public sealed class Signatures1(ITestOutputHelper output) : SignatureScan(output);
+    public sealed class Signatures2(ITestOutputHelper output) : SignatureScan(output);
+
+    /// <summary>
+    /// Signature hits of each image against the scanner's (binwalk) by offset, and the sizes both state. A part takes the
+    /// next image whenever it is free and adds its counts to totals all parts share; each part waits for the images still
+    /// being scanned and checks the totals, so the check covers every image whether one part runs or all do.
+    /// </summary>
+    [Trait("Speed", "Slow")]
+    public abstract class SignatureScan(ITestOutputHelper output)
     {
-        if (Environment.GetEnvironmentVariable("CORVUS_FIRMWARE_IMAGES") is not { Length: > 0 } root || !Directory.Exists(root)
-            || Environment.GetEnvironmentVariable("CORVUS_FS_REFERENCE") is not { Length: > 0 } runner) return;
-        var script = Path.Combine(FirmwareFilesystemTests.FixtureDir, "reference.sh");
-        int ours = 0, theirs = 0, common = 0, inside = 0, sized = 0, sameSize = 0;
-        foreach (var file in Directory.EnumerateFiles(root, "*", SearchOption.AllDirectories).Order(StringComparer.Ordinal))
+        private static readonly object Gate = new();
+        private static Queue<string>? _pending;
+        private static int _scanning, _ours, _theirs, _common, _inside, _sized, _sameSize;
+
+        [Fact]
+        public void Firmware_signatures_match_the_scanners()
         {
+            if (Environment.GetEnvironmentVariable("CORVUS_FIRMWARE_IMAGES") is not { Length: > 0 } root || !Directory.Exists(root)
+                || Environment.GetEnvironmentVariable("CORVUS_FS_REFERENCE") is not { Length: > 0 } runner) return;
+            var script = Path.Combine(FirmwareFilesystemTests.FixtureDir, "reference.sh");
+            lock (Gate) _pending ??= new(Directory.EnumerateFiles(root, "*", SearchOption.AllDirectories).Order(StringComparer.Ordinal));
+            while (true)
+            {
+                string file;
+                lock (Gate)
+                {
+                    if (!_pending.TryDequeue(out file!)) break;
+                    _scanning++;
+                }
+                try { Scan(file, runner, script); }
+                finally { lock (Gate) _scanning--; }
+            }
+            // An image another part is scanning still counts toward the totals.
+            var waited = Stopwatch.StartNew();
+            while (Volatile.Read(ref _scanning) > 0 && waited.Elapsed < TimeSpan.FromMinutes(20)) Thread.Sleep(500);
+            Assert.True(Volatile.Read(ref _scanning) == 0, "another part's image was still being scanned after 20 min");
+            output.WriteLine($"signatures: ours {_ours:N0}, scanner {_theirs:N0}, at the same offset {_common:N0}, scanner hits inside our sized regions {_inside:N0}; sizes stated by both {_sized:N0}, equal {_sameSize:N0}");
+            Assert.Equal(_sized, _sameSize);
+            Assert.True(_common + _inside >= _theirs * 0.99, $"{_theirs - _common - _inside} scanner hits outside every region we found");
+        }
+
+        private void Scan(string file, string runner, string script)
+        {
+            int ours = 0, theirs = 0, common = 0, inside = 0, sized = 0, sameSize = 0;
             using var work = new TempDir();
             var data = File.ReadAllBytes(file);
             if (file.EndsWith(".gz", StringComparison.OrdinalIgnoreCase)) data = Gunzip(data);
@@ -117,10 +156,13 @@ public sealed class FirmwareComparisonTests(ITestOutputHelper output)
             }
             output.WriteLine($"{Path.GetFileName(file)}: ours {hits.Count}, scanner {reference.Count}, both {hits.Keys.Intersect(reference.Keys).Count()}"
                              + (differences.Count > 0 ? "\n    " + string.Join("\n    ", differences.Take(15)) : ""));
+            Interlocked.Add(ref _ours, ours);
+            Interlocked.Add(ref _theirs, theirs);
+            Interlocked.Add(ref _common, common);
+            Interlocked.Add(ref _inside, inside);
+            Interlocked.Add(ref _sized, sized);
+            Interlocked.Add(ref _sameSize, sameSize);
         }
-        output.WriteLine($"signatures: ours {ours:N0}, scanner {theirs:N0}, at the same offset {common:N0}, scanner hits inside our sized regions {inside:N0}; sizes stated by both {sized:N0}, equal {sameSize:N0}");
-        Assert.Equal(sized, sameSize);
-        Assert.True(common + inside >= theirs * 0.99, $"{theirs - common - inside} scanner hits outside every region we found");
     }
 
     /// <summary>Each ELF program of a filesystem opens at its architecture; one linked to libraries lists its imports.</summary>
