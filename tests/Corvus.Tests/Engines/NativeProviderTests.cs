@@ -372,6 +372,21 @@ public class NativeProviderTests(ITestOutputHelper output)
     }
 
     [WindowsFact]
+    public void A_launch_releases_the_process_creation_lock_before_its_exit_thread_starts()
+    {
+        var cmd = Path.Combine(Environment.SystemDirectory, "cmd.exe");
+        bool? held = null;
+        WindowsJobProcess.ExitThreadStarting = _ => held ??= Monitor.IsEntered(WindowsJobProcess.CreateLock);
+        try
+        {
+            using var child = WindowsJobProcess.Launch(new ChildProcessStart(cmd, ["/d", "/c", "exit 0"]));
+            Assert.True(child.Exited.Wait(30_000));
+        }
+        finally { WindowsJobProcess.ExitThreadStarting = null; }
+        Assert.False(held);
+    }
+
+    [WindowsFact]
     public void Job_process_reports_exit_code_and_output()
     {
         var cmd = Path.Combine(Environment.SystemDirectory, "cmd.exe");

@@ -292,6 +292,7 @@ internal sealed class WindowsJobProcess : ChildProcess
         _stdout = new FileStream(stdout, FileAccess.Read, 1);
         _stderr = new FileStream(stderr, FileAccess.Read, 1);
         _waitHandle = new ProcessWaitHandle(process);
+        ExitThreadStarting?.Invoke(id);
         // A thread of its own, not a pool wait: a starved pool would report the exit seconds late.
         new Thread(() =>
         {
@@ -377,12 +378,24 @@ internal sealed class WindowsJobProcess : ChildProcess
     /// <summary>Test hook: runs while the child ends are inheritable.</summary>
     internal static Action<ChildProcessStart>? PipesCreated;
 
+    /// <summary>Test hook: runs on the launching thread just before the child's exit thread starts.</summary>
+    internal static Action<int>? ExitThreadStarting;
+
     public static WindowsJobProcess Launch(ChildProcessStart start)
     {
-        lock (CreateLock) return LaunchLocked(start);
+        // The lock covers only the window in which the child ends are inheritable; starting the exit thread waits for
+        // the thread to run, which on a loaded machine took up to 0.6 s and queued every other launch behind it.
+        Started started;
+        lock (CreateLock) started = LaunchLocked(start);
+        return new WindowsJobProcess(started.Job, started.Process, GetProcessId(started.Process), started.Stdin, started.Stdout, started.Stderr,
+            start.MemoryLimitBytes is > 0 ? start.MemoryLimitBytes : null, started.Port);
     }
 
-    private static WindowsJobProcess LaunchLocked(ChildProcessStart start)
+    /// <summary>A running child's handles: its job, process, the parent ends of its pipes, and the job's port if any.</summary>
+    private readonly record struct Started(SafeFileHandle Job, SafeProcessHandle Process, SafeFileHandle Stdin, SafeFileHandle Stdout, SafeFileHandle Stderr,
+        SafeFileHandle? Port);
+
+    private static Started LaunchLocked(ChildProcessStart start)
     {
         var job = CreateJobObjectW(IntPtr.Zero, null);
         if (job.IsInvalid) throw new Win32Exception(Marshal.GetLastWin32Error(), "CreateJobObject failed");
@@ -461,9 +474,9 @@ internal sealed class WindowsJobProcess : ChildProcess
                 process.Dispose();
                 throw new Win32Exception(error, "ResumeThread failed");
             }
-            var child = new WindowsJobProcess(job, process, GetProcessId(process), inWrite, outRead, errRead, start.MemoryLimitBytes is > 0 ? start.MemoryLimitBytes : null, port);
+            var started = new Started(job, process, inWrite, outRead, errRead, port);
             inWrite = outRead = errRead = null;
-            return child;
+            return started;
         }
         catch
         {
