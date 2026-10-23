@@ -200,6 +200,37 @@ public class WorkerConnectionTests
     }
 
     [Fact]
+    public async Task A_start_that_keeps_using_CPU_outlasts_its_idle_limit_and_an_idle_one_is_stopped()
+    {
+        var clock = new ArmedClock();
+        // 5% of a core: what a Ghidra start used on a machine busy with a whole test run.
+        using (var worker = new FakeWorkerProcess { Cpu = () => clock.Elapsed * 0.05 })
+        using (var c = worker.Connect(new WorkerConnectionOptions { Time = clock }))
+        {
+            var start = c.WaitReadyAsync(NoLimit, default, idle: TimeSpan.FromSeconds(1));
+            for (int i = 0; i < 24; i++)
+            {
+                await clock.ArmedAsync();
+                clock.Advance(TimeSpan.FromMilliseconds(125));
+            }
+            Assert.False(start.IsCompleted);
+            worker.Emit(new JsonObject { ["event"] = "ready" });
+            await start;
+        }
+        clock = new ArmedClock();
+        using (var worker = new FakeWorkerProcess { Cpu = () => TimeSpan.FromSeconds(7) })
+        using (var c = worker.Connect(new WorkerConnectionOptions { Time = clock }))
+        {
+            // 800 ms: samples an eighth apart land on whole milliseconds, as the fake clock's timers do.
+            var idle = c.WaitReadyAsync(NoLimit, default, idle: TimeSpan.FromMilliseconds(800));
+            Assert.Equal(TimeSpan.FromMilliseconds(800), await clock.RunUntilAsync(idle, within: TimeSpan.FromMilliseconds(800)));
+            var e = await Assert.ThrowsAsync<ToolError>(() => idle);
+            Assert.Equal(ErrorCode.Timeout, e.Code);
+            Assert.Contains("used less than 1% of a core for", e.Message);
+        }
+    }
+
+    [Fact]
     public async Task A_stall_report_that_read_nothing_says_the_worker_state_is_unknown()
     {
         foreach (var (answer, shown) in new[] { (WorkerConnection.StateUnknown + "jcmd Thread.print failed", "jcmd Thread.print failed"), ((string?)null, "the report read nothing") })

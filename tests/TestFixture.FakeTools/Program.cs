@@ -43,6 +43,15 @@ if (args is ["-version"])
     Console.Error.WriteLine(script["javaVersion"]?.GetValue<string>() ?? "openjdk version \"21.0.2\" 2024-01-16");
     return 0;
 }
+// "spin <ms>" computes until it has used that much CPU time, prints "done" and waits for a line on stdin.
+if (args is ["spin", var spinMs])
+{
+    using var self = System.Diagnostics.Process.GetCurrentProcess();
+    for (var until = TimeSpan.FromMilliseconds(int.Parse(spinMs)); self.TotalProcessorTime < until; self.Refresh()) Thread.SpinWait(100_000);
+    Console.WriteLine("done");
+    Console.ReadLine();
+    return 0;
+}
 if (args is ["version"])
 {
     Console.WriteLine("Android Debug Bridge version 1.0.41");

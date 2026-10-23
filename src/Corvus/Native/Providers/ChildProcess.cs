@@ -45,6 +45,26 @@ public abstract class ChildProcess : IDisposable
     public abstract void Kill();
     /// <summary>The memory limit in bytes when the tree's peak usage reached it (allocations failed), else null.</summary>
     public virtual long? MemoryLimitReached() => null;
+
+    /// <summary>
+    /// CPU time the tree has used so far (user plus kernel), or null when it cannot be read. The base sums the running
+    /// processes of <see cref="TreeProcessIds"/>, so it can fall when one exits; null when none could be read.
+    /// </summary>
+    public virtual TimeSpan? TreeCpuTime()
+    {
+        TimeSpan total = TimeSpan.Zero;
+        bool read = false;
+        foreach (var id in TreeProcessIds())
+            try
+            {
+                using var process = Process.GetProcessById(id);
+                total += process.TotalProcessorTime;
+                read = true;
+            }
+            catch (Exception ex) when (ex is ArgumentException or InvalidOperationException or System.ComponentModel.Win32Exception or NotSupportedException) { }
+        return read ? total : null;
+    }
+
     public abstract void Dispose();
 
     public static ChildProcess Start(ChildProcessStart start)
@@ -311,6 +331,23 @@ internal sealed class WindowsJobProcess : ChildProcess
 
     public override int? ExitCode => GetExitCodeProcess(_processHandle, out var code) && code != StillActive ? unchecked((int)code) : null;
 
+    // The job's accounting keeps the time of processes that already exited, so it never falls.
+    public override TimeSpan? TreeCpuTime()
+    {
+        if (_job.IsClosed) return null;
+        // JOBOBJECT_BASIC_ACCOUNTING_INFORMATION, 48 bytes (the call wants the exact size), starts with TotalUserTime and
+        // TotalKernelTime in 100 ns units.
+        const int size = 48;
+        var buffer = Marshal.AllocHGlobal(size);
+        try
+        {
+            if (!QueryInformationJobObject(_job, JobObjectBasicAccountingInformation, buffer, size, out _)) return null;
+            return TimeSpan.FromTicks(Marshal.ReadInt64(buffer, 0) + Marshal.ReadInt64(buffer, 8));
+        }
+        catch (ObjectDisposedException) { return null; }
+        finally { Marshal.FreeHGlobal(buffer); }
+    }
+
     public override IReadOnlyList<int> TreeProcessIds()
     {
         if (_job.IsClosed) return [];
@@ -521,6 +558,7 @@ internal sealed class WindowsJobProcess : ChildProcess
     }
 
     private const uint StillActive = 259;
+    private const int JobObjectBasicAccountingInformation = 1;
     private const int JobObjectBasicProcessIdList = 3;
     private const int JobObjectAssociateCompletionPortInformation = 7;
     private const uint JobMessageJobMemoryLimit = 10;

@@ -268,6 +268,18 @@ public class NativeProviderTests(ITestOutputHelper output)
         Assert.False(Running(grandchild), "the child's child outlived Kill");
     }
 
+    [Fact]
+    public void A_childs_CPU_time_grows_while_it_computes()
+    {
+        // Half a second of CPU time, then a wait on stdin so the tree is still running when it is read.
+        using var child = ChildProcess.Start(new ChildProcessStart(FakeTool.Executable, ["spin", "500"]));
+        using var reader = new StreamReader(child.StandardOutput);
+        Assert.Equal("done", reader.ReadLine()?.Trim());
+        var cpu = child.TreeCpuTime();
+        Assert.True(cpu >= TimeSpan.FromMilliseconds(500), $"{cpu}");
+        child.Kill();
+    }
+
     private static int ProcessGroup(int pid)
     {
         var stat = File.ReadAllText($"/proc/{pid}/stat");

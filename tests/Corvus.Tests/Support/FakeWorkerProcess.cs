@@ -220,6 +220,11 @@ internal sealed class FakeWorkerProcess : ChildProcess
     public override Task Exited => _exited.Task;
     public override IReadOnlyList<int> TreeProcessIds() => HasExited ? [] : [Id];
 
+    /// <summary>The CPU time the worker reports having used; null: it cannot be read.</summary>
+    public Func<TimeSpan?>? Cpu { get; init; }
+
+    public override TimeSpan? TreeCpuTime() => Cpu?.Invoke();
+
     public override void Kill()
     {
         _stop.Cancel();

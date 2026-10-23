@@ -157,17 +157,49 @@ public sealed class WorkerConnection : IDisposable
     public IReadOnlyList<int> TreeProcessIds() => _process.TreeProcessIds();
     public Task Closed => _closed.Task;
 
-    /// <summary>Waits for the worker's "ready" event.</summary>
-    public async Task<JsonElement> WaitReadyAsync(TimeSpan timeout, CancellationToken cancellationToken)
+    /// <summary>
+    /// Waits for the worker's "ready" event. With <paramref name="idle"/>, the start also stops once the worker's processes
+    /// used less than 1% of a core for that long, or after that long when their CPU time cannot be read.
+    /// </summary>
+    public async Task<JsonElement> WaitReadyAsync(TimeSpan timeout, CancellationToken cancellationToken, TimeSpan? idle = null)
     {
-        var done = await Task.WhenAny(_ready.Task, _closed.Task, Task.Delay(timeout, _options.Time, cancellationToken)).ConfigureAwait(false);
+        using var stop = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        var waits = new List<Task> { _ready.Task, _closed.Task, Task.Delay(timeout, _options.Time, stop.Token) };
+        var wentIdle = idle is { } i && i < timeout ? IdleAsync(i, stop.Token) : null;
+        if (wentIdle != null) waits.Add(wentIdle);
+        var done = await Task.WhenAny(waits).ConfigureAwait(false);
+        stop.Cancel();
         if (done == _ready.Task) return _ready.Task.Result;
         if (done == _closed.Task) throw await DiedAsync("start").ConfigureAwait(false);
         var stall = cancellationToken.IsCancellationRequested ? null : Stall();
         Kill(cancellationToken.IsCancellationRequested ? "cancelled" : "start timeout");
         cancellationToken.ThrowIfCancellationRequested();
-        throw new ToolError(ErrorCode.Timeout, $"{_name} did not start within {Seconds(timeout)}.{stall}{StderrSuffix()}",
-            _remediation(ErrorCode.Timeout, "start"));
+        var limit = done == wentIdle
+            ? wentIdle!.Result ? $"used less than 1% of a core for {Seconds(idle!.Value)} while starting" : $"did not start within {Seconds(idle!.Value)}"
+            : wentIdle != null ? $"did not start within its overall limit of {Seconds(timeout)}" : $"did not start within {Seconds(timeout)}";
+        throw new ToolError(ErrorCode.Timeout, $"{_name} {limit}.{stall}{StderrSuffix()}", _remediation(ErrorCode.Timeout, "start"));
+    }
+
+    // Completes once the worker's CPU time grew by less than 1% of idle over the last idle: true when that was
+    // measured, false when the CPU time could not be read and idle simply passed.
+    private async Task<bool> IdleAsync(TimeSpan idle, CancellationToken token)
+    {
+        var step = idle / 8;
+        var samples = new Queue<(long Ticks, TimeSpan Cpu)>();
+        while (true)
+        {
+            var now = _options.Time.GetTimestamp();
+            if (_process.TreeCpuTime() is not { } cpu)
+            {
+                await Task.Delay(idle, _options.Time, token).ConfigureAwait(false);
+                return false;
+            }
+            samples.Enqueue((now, cpu));
+            while (samples.Count > 1 && _options.Time.GetElapsedTime(samples.ElementAt(1).Ticks, now) >= idle) samples.Dequeue();
+            var (first, used) = samples.Peek();
+            if (_options.Time.GetElapsedTime(first, now) >= idle && cpu - used < idle / 100) return true;
+            await Task.Delay(step, _options.Time, token).ConfigureAwait(false);
+        }
     }
 
     /// <summary>

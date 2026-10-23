@@ -234,7 +234,7 @@ internal sealed class GhidraSession(GhidraProvider provider, GhidraInstallation 
             if (e.Name == "progress" && e.Body.TryGetProperty("stage", out var stage) && stage.GetString() is { Length: > 0 } s)
                 Options.Progress?.Report(new NativeProviderProgress(s, clock.Elapsed));
         };
-        await worker.WaitReadyAsync(provider.Options.StartTimeout, cancellationToken).ConfigureAwait(false);
+        await provider.WaitStartedAsync(worker, Options.OpenTimeout, cancellationToken).ConfigureAwait(false);
 
         // an archive given for the image imports as an analyzed database
         var reuse = DatabaseExists || Options.GhidraDatabase != null;

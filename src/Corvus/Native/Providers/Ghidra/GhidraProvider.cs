@@ -29,7 +29,7 @@ public sealed record GhidraProviderOptions
     public int? DecompilePayloadMb { get; init; }
     /// <summary>Time the worker gets to save and exit on close before it is killed.</summary>
     public TimeSpan ShutdownGrace { get; init; } = TimeSpan.FromSeconds(30);
-    /// <summary>Time for the JVM to start and initialize Ghidra.</summary>
+    /// <summary>Time the JVM may spend idle (under 1% of a core) while it starts and initializes Ghidra.</summary>
     public TimeSpan StartTimeout { get; init; } = TimeSpan.FromMinutes(2);
     /// <summary>Time a cancelled request gets to stop before the worker is killed.</summary>
     public TimeSpan CancelGrace { get; init; } = TimeSpan.FromSeconds(10);
@@ -149,6 +149,13 @@ public sealed class GhidraProvider(GhidraProviderOptions? options = null) : INat
         return (ProviderAvailability.Ok(Id, details), ghidra, java);
     }
 
+    /// <summary>
+    /// Waits for a new worker's ready event. A busy machine stretches the JVM's start while it keeps using CPU, so the
+    /// start limit counts time the worker spends idle; <paramref name="cap"/> bounds the whole start.
+    /// </summary>
+    internal Task WaitStartedAsync(WorkerConnection worker, TimeSpan cap, CancellationToken cancellationToken) =>
+        worker.WaitReadyAsync(cap > _options.StartTimeout ? cap : _options.StartTimeout, cancellationToken, idle: _options.StartTimeout);
+
     public async Task<ProviderAvailability> ProbeAsync(CancellationToken cancellationToken = default)
     {
         var (result, ghidra, java) = Static();
@@ -157,7 +164,7 @@ public sealed class GhidraProvider(GhidraProviderOptions? options = null) : INat
         try
         {
             using var worker = await StartWorkerAsync(ghidra!, java!, 0, cancellationToken).ConfigureAwait(false);
-            await worker.WaitReadyAsync(_options.StartTimeout, cancellationToken).ConfigureAwait(false);
+            await WaitStartedAsync(worker, _options.StartTimeout * 5, cancellationToken).ConfigureAwait(false);
             var hello = await worker.RequestAsync("hello", null, TimeSpan.FromMinutes(1), cancellationToken).ConfigureAwait(false);
             if (hello.TryGetProperty("version", out var v) && v.GetString() is { } version) details["version"] = version;
             if (hello.TryGetProperty("extensions", out var x) && x.GetArrayLength() > 0)
@@ -267,7 +274,7 @@ public sealed class GhidraProvider(GhidraProviderOptions? options = null) : INat
         if (!result.IsAvailable)
             throw new ToolError(ErrorCode.ProviderUnavailable, $"Reading a Ghidra archive (.gzf) needs Ghidra: {result.Reason}", result.Remediation);
         using var worker = await StartWorkerAsync(ghidra!, java!, new FileInfo(gzf).Length, cancellationToken).ConfigureAwait(false);
-        await worker.WaitReadyAsync(_options.StartTimeout, cancellationToken).ConfigureAwait(false);
+        await WaitStartedAsync(worker, _options.StartTimeout * 5, cancellationToken).ConfigureAwait(false);
         var r = await worker.RequestAsync("gzf_original", WorkerRows.Args(("gzf", gzf), ("out_dir", outDirectory),
             ("scratch", System.IO.Path.Combine(outDirectory, "scratch"))), TimeSpan.FromMinutes(10), cancellationToken).ConfigureAwait(false);
         await worker.ShutdownAsync("close", null, TimeSpan.FromSeconds(10)).ConfigureAwait(false);
@@ -282,7 +289,7 @@ public sealed class GhidraProvider(GhidraProviderOptions? options = null) : INat
         if (!result.IsAvailable)
             throw new ToolError(ErrorCode.ProviderUnavailable, $"Reading a Ghidra project (.gpr) needs Ghidra: {result.Reason}", result.Remediation);
         using var worker = await StartWorkerAsync(ghidra!, java!, 0, cancellationToken).ConfigureAwait(false);
-        await worker.WaitReadyAsync(_options.StartTimeout, cancellationToken).ConfigureAwait(false);
+        await WaitStartedAsync(worker, _options.StartTimeout * 5, cancellationToken).ConfigureAwait(false);
         var r = await worker.RequestAsync("gpr_pack", WorkerRows.Args(("project_dir", projectDirectory), ("name", name), ("program", program), ("out", gzf)),
             TimeSpan.FromMinutes(10), cancellationToken).ConfigureAwait(false);
         await worker.ShutdownAsync("close", null, TimeSpan.FromSeconds(10)).ConfigureAwait(false);
