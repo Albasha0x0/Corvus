@@ -24,7 +24,7 @@ public sealed class NativePeFuzzTests(ITestOutputHelper output)
         foreach (var path in RealSeeds()) seeds.Add((path, File.ReadAllBytes(path)));
         var result = PeFuzzer.Run(seeds, iterations, seed);
         output.WriteLine($"{iterations} iterations over {seeds.Count} seeds in {result.Elapsed.TotalSeconds:0.0} s; " +
-            $"slowest {result.MaxMilliseconds:0} ms, most allocated {result.MaxAllocatedBytes / (1 << 20)} MB, not a PE {result.NotPe}");
+            $"slowest {result.MaxMilliseconds:0} ms of CPU, most allocated {result.MaxAllocatedBytes / (1 << 20)} MB, not a PE {result.NotPe}");
         foreach (var (name, _) in seeds) output.WriteLine("seed: " + name);
         Assert.True(result.Failures.Count == 0, string.Join("\n", result.Failures.Take(20)));
     }
@@ -59,9 +59,14 @@ internal static class PeFuzzer
 {
     public sealed record Result(List<string> Failures, TimeSpan Elapsed, double MaxMilliseconds, long MaxAllocatedBytes, int NotPe);
 
-    /// <summary>A single parse (and full read) may take this long and allocate this much before it counts as a failure.</summary>
+    /// <summary>
+    /// A single parse (and full read) may use this much of its thread's CPU time and allocate this much before it counts
+    /// as a failure; CPU time, so that a parse descheduled on a loaded machine is not counted for the time it waited.
+    /// </summary>
     private static readonly TimeSpan TimeBound = TimeSpan.FromMilliseconds(int.TryParse(Environment.GetEnvironmentVariable("CORVUS_PE_FUZZ_TIME_BOUND_MS"), out int ms) ? ms : 10_000);
     private const long AllocationBound = 512L << 20;
+    // A hang guard: a parse that blocks without using CPU still fails.
+    private static readonly TimeSpan WallBound = TimeSpan.FromSeconds(60);
 
     public static Result Run(IReadOnlyList<(string Name, byte[] Bytes)> seeds, int iterations, int seed)
     {
@@ -78,6 +83,7 @@ internal static class PeFuzzer
             var bytes = Mutate(seeds[which].Bytes, targets[which], rng, out string what);
             long before = GC.GetAllocatedBytesForCurrentThread();
             var timer = Stopwatch.StartNew();
+            var cpuBefore = ThreadCpuClock.Now();
             try
             {
                 var pe = PeFile.FromBytes(bytes, "fuzz.bin");
@@ -87,14 +93,16 @@ internal static class PeFuzzer
             }
             catch (ToolError e) when (e.Code == ErrorCode.MalformedInput) { Interlocked.Increment(ref notPe); }
             catch (Exception ex) { failures.Add($"iteration {i} ({seeds[which].Name}; {what}): {ex}"); }
+            var cpu = ThreadCpuClock.Now() - cpuBefore;
             var elapsed = timer.Elapsed;
             long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
-            if (elapsed > TimeBound) failures.Add($"iteration {i} ({seeds[which].Name}; {what}): took {elapsed.TotalSeconds:0.0} s");
+            bool slow = cpu > TimeBound || elapsed > WallBound;
+            if (slow) failures.Add($"iteration {i} ({seeds[which].Name}; {what}): took {cpu.TotalSeconds:0.0} s of CPU in {elapsed.TotalSeconds:0.0} s");
             if (allocated > AllocationBound) failures.Add($"iteration {i} ({seeds[which].Name}; {what}): allocated {allocated >> 20} MB");
-            if ((elapsed > TimeBound || allocated > AllocationBound || failures.Any(f => f.StartsWith($"iteration {i} ", StringComparison.Ordinal)))
+            if ((slow || allocated > AllocationBound || failures.Any(f => f.StartsWith($"iteration {i} ", StringComparison.Ordinal)))
                 && Environment.GetEnvironmentVariable("CORVUS_PE_FUZZ_DUMP") is { Length: > 0 } dump)
                 File.WriteAllBytes(Path.Combine(dump, $"fuzz-{seed}-{i}.bin"), bytes);
-            InterlockedMax(ref maxMs, elapsed.TotalMilliseconds);
+            InterlockedMax(ref maxMs, cpu.TotalMilliseconds);
             InterlockedMax(ref maxAllocated, allocated);
         });
         return new Result([.. failures], clock.Elapsed, maxMs, maxAllocated, notPe);

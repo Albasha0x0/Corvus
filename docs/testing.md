@@ -289,7 +289,7 @@ read, or a "Read by" cell that differs from the classes and scripts that read it
 | `CORVUS_PE_FUZZ_DUMP` | A folder that receives the PE fuzz inputs over their time or memory bound. | NativePeFuzzTests |
 | `CORVUS_PE_FUZZ_ITERATIONS` | Iterations of the PE fuzz test (default 20,000). | NativePeFuzzTests |
 | `CORVUS_PE_FUZZ_SEED` | The base seed of the PE fuzz test. | NativePeFuzzTests |
-| `CORVUS_PE_FUZZ_TIME_BOUND_MS` | Time bound per PE fuzz input, in milliseconds (default 10,000). | NativePeFuzzTests |
+| `CORVUS_PE_FUZZ_TIME_BOUND_MS` | CPU time bound per PE fuzz input, in milliseconds (default 10,000); an input also fails after 60 s of wall time. | NativePeFuzzTests |
 | `CORVUS_PE_SWEEP_LIMIT` | Images of the PE sweep (default all). | NativePeSweepTests |
 | `CORVUS_PE_SWEEP_REPORT` | A file for the PE sweep report. | NativePeSweepTests |
 | `CORVUS_PERF_FACTOR` | How far over its baseline the simplify sweep may run before it fails (default 5 times). | SimplifySweepTests |
