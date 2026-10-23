@@ -18,8 +18,9 @@ if (args is ["job-parent", var program, .. var arguments])
     Thread.Sleep(Timeout.Infinite);
 }
 
-var script = Environment.GetEnvironmentVariable("ADB_FAKE_SCRIPT") is { Length: > 0 } path && File.Exists(path)
-    ? JsonNode.Parse(File.ReadAllText(path))!.AsObject()
+var scriptPath = Environment.GetEnvironmentVariable("ADB_FAKE_SCRIPT");
+var script = scriptPath is { Length: > 0 } && File.Exists(scriptPath)
+    ? JsonNode.Parse(File.ReadAllText(scriptPath))!.AsObject()
     : new JsonObject();
 var log = script["log"]?.GetValue<string>();
 Log(log, JsonSerializer.Serialize(args));
@@ -31,11 +32,17 @@ if (script["barriers"]?[string.Join(' ', args)] is JsonObject barrier)
     var other = barrier["waitFor"]!.GetValue<string>();
     var limit = TimeSpan.FromSeconds(barrier["seconds"]?.GetValue<int>() ?? 20);
     for (var waited = System.Diagnostics.Stopwatch.StartNew(); !File.Exists(other); Thread.Sleep(20))
+    {
+        // A deleted script means its test has ended: a call another test started on this copy stops waiting, so the
+        // running copy does not keep the test's folder from being deleted.
+        if (!File.Exists(scriptPath))
+            return 1;
         if (waited.Elapsed > limit)
         {
             Console.Error.WriteLine("fake tool: the other call did not start");
             return 1;
         }
+    }
 }
 
 if (args is ["-version"])

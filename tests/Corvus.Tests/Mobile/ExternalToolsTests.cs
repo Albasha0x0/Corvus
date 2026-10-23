@@ -216,6 +216,22 @@ public class ExternalToolsTests : IDisposable
     }
 
     [Fact]
+    public async Task A_barrier_call_ends_when_its_script_is_deleted()
+    {
+        using var fake = new FakeTool();
+        // The mark this call waits for never comes: only the deleted script ends its wait before 100 s.
+        var started = Path.Combine(fake.Directory, "version.started");
+        fake.Set("barriers", new System.Text.Json.Nodes.JsonObject
+        {
+            ["version"] = new System.Text.Json.Nodes.JsonObject { ["touch"] = started, ["waitFor"] = Path.Combine(fake.Directory, "never"), ["seconds"] = 100 },
+        });
+        var call = Task.Run(() => ExternalTools.Run(FakeTool.Executable, ["version"], TimeSpan.FromMinutes(2), 1000, default, fake.Environment));
+        Assert.True(SpinWait.SpinUntil(() => File.Exists(started), TimeSpan.FromMinutes(1)), "the call did not start");
+        File.Delete(fake.ScriptPath);
+        Assert.Equal(1, (await call.WaitAsync(TimeSpan.FromSeconds(30))).ExitCode);
+    }
+
+    [Fact]
     public void A_test_server_gets_the_external_tool_variables_the_run_started_with()
     {
         var atStart = FakeDevice.ServerEnvironment["CORVUS_TSHARK"];
