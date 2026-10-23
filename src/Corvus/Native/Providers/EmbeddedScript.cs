@@ -27,7 +27,15 @@ public static class EmbeddedScript
         var bytes = Read(resourceName);
         var hash = Convert.ToHexStringLower(SHA256.HashData(bytes))[..16];
         Directory.CreateDirectory(directory);
-        var path = Path.Combine(directory, $"{stem}-{hash}{extension}");
+        return Place(Path.Combine(directory, $"{stem}-{hash}{extension}"), bytes);
+    }
+
+    /// <summary>
+    /// <paramref name="path"/>, a name that stands for its content, holding <paramref name="bytes"/>: written atomically
+    /// when missing or different, so concurrent writers and readers never see a partial file. Throws when it cannot be written.
+    /// </summary>
+    public static string Place(string path, byte[] bytes)
+    {
         try
         {
             if (File.Exists(path) && File.ReadAllBytes(path).AsSpan().SequenceEqual(bytes)) return path;

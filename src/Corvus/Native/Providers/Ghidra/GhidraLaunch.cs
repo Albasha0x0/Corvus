@@ -80,7 +80,7 @@ public static class GhidraLaunch
             ["ghidra"] = ghidra.Directory, ["java_home"] = java.Home, ["vmargs"] = ServerVmArgs(maxMemory, dirs, workerJar), ["boot_jar"] = bootJar,
         });
         var file = Path.Combine(dirs.Temp, "pyghidra-" + Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(config)))[..12] + ".json");
-        if (!File.Exists(file)) File.WriteAllText(file, config);
-        return [host, file];
+        // Workers starting together write the same file.
+        return [host, EmbeddedScript.Place(file, System.Text.Encoding.UTF8.GetBytes(config))];
     }
 }

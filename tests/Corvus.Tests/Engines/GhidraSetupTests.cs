@@ -174,4 +174,22 @@ public class GhidraSetupTests
         Assert.Equal(["ghidra.Ghidra", GhidraLaunch.BootClass], args.TakeLast(2));
         Assert.Equal(g.UtilityJar + Path.PathSeparator + "boot.jar", args[^3]);
     }
+
+    // Regression: two PyGhidra workers starting together wrote the same config file, and one start failed with the file
+    // in use (the second Ghidra pass of 40356230's push run).
+    [Fact]
+    public void PyGhidra_workers_starting_together_share_one_complete_config_file()
+    {
+        using var tmp = new TempDir();
+        var g = GhidraInstallation.Locate(FakeInstall(tmp), out _, out _)!;
+        var dirs = new GhidraDirectories(tmp.File("cache"));
+        Directory.CreateDirectory(dirs.Temp);
+        var java = new JavaRuntime(tmp.Path, "java", "javac", 21, "test");
+        var files = new System.Collections.Concurrent.ConcurrentBag<string>();
+        Parallel.For(0, 32, new ParallelOptions { MaxDegreeOfParallelism = 16 },
+            _ => files.Add(GhidraLaunch.PyGhidraArguments(g, java, "4G", dirs, "boot.jar", "worker.jar")[1]));
+        var file = Assert.Single(files.Distinct());
+        Assert.Equal("boot.jar", System.Text.Json.JsonDocument.Parse(File.ReadAllText(file)).RootElement.GetProperty("boot_jar").GetString());
+        Assert.Empty(Directory.GetFiles(dirs.Temp, "*.tmp"));
+    }
 }
