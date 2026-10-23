@@ -95,7 +95,8 @@ function Get-PathStamp([string]$value) {
 function Get-RunEnvironment([hashtable]$override = @{}, [string[]]$tools = @()) {
     $os = if ($IsWindows) { $v = Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion'; "windows $($v.CurrentBuild).$($v.UBR)" } else { uname -srm }
     $values = @{}
-    Get-ChildItem env: | Where-Object { ($_.Name -like 'CORVUS_*' -and $_.Name -notin 'CORVUS_ALL_TESTS', 'CORVUS_SWEEP', 'CORVUS_UPDATE_DOCS', 'CORVUS_BACKGROUND_DIR', 'CORVUS_HEAVY_LOCK', 'CORVUS_PERMIT_LOG', 'CORVUS_TEST_HISTORY', 'CORVUS_TEST_MODE', 'CORVUS_STALL_DIR', 'CORVUS_PERMITS_HELD', 'CORVUS_TEST_PRIORITY', 'CORVUS_SEED_VALIDATE') -or $_.Name -in 'JAVA_HOME', 'GHIDRA_INSTALL_DIR' } |
+    # CORVUS_ANNOTATIONS_DIR is a test run's own folder (a7a9d20d), written while the run goes: run state, not an input.
+    Get-ChildItem env: | Where-Object { ($_.Name -like 'CORVUS_*' -and $_.Name -notin 'CORVUS_ALL_TESTS', 'CORVUS_SWEEP', 'CORVUS_UPDATE_DOCS', 'CORVUS_BACKGROUND_DIR', 'CORVUS_HEAVY_LOCK', 'CORVUS_PERMIT_LOG', 'CORVUS_TEST_HISTORY', 'CORVUS_TEST_MODE', 'CORVUS_STALL_DIR', 'CORVUS_PERMITS_HELD', 'CORVUS_TEST_PRIORITY', 'CORVUS_SEED_VALIDATE', 'CORVUS_ANNOTATIONS_DIR') -or $_.Name -in 'JAVA_HOME', 'GHIDRA_INSTALL_DIR' } |
         ForEach-Object { $values[$_.Name] = $_.Value }
     # The IDA install the tests find without CORVUS_IDA_DIR: the one IDA's own configuration names.
     $idaConfig = if ($IsWindows) { Join-Path "$env:APPDATA" 'Hex-Rays/IDA Pro/ida-config.json' } else { Join-Path $HOME '.idapro/ida-config.json' }

@@ -370,6 +370,12 @@ public class TestReuseTests
                 (Get-Item '{{Path.Combine(dir, "new.dll")}}').LastWriteTimeUtc = [datetime]::UtcNow.AddDays(1)
                 'folder=' + ($folderBefore -ne (Get-RunEnvironment))
                 'text=' + (Get-PathStamp 'not a path')
+                Remove-Item Env:CORVUS_ZZ_FOLDER
+                $env:CORVUS_ANNOTATIONS_DIR = '{{Path.Combine(dir, "annotations")}}'
+                New-Item -ItemType Directory $env:CORVUS_ANNOTATIONS_DIR | Out-Null
+                $annotationsBefore = Get-RunEnvironment
+                Set-Content (Join-Path $env:CORVUS_ANNOTATIONS_DIR 'journal.json') 'x'
+                'annotations=' + ($annotationsBefore -eq (Get-RunEnvironment))
                 """);
             if (lines is ["skip"]) return; // no pwsh on this machine
             string Line(string name) => lines.Single(l => l.StartsWith(name + "=")).Substring(name.Length + 1);
@@ -377,6 +383,8 @@ public class TestReuseTests
             Assert.Equal("True", Line("tool"));
             Assert.Equal("True", Line("folder"));
             Assert.Equal("", Line("text"));
+            // The push run on 47be8db0 saw "same" fail: the test run's own annotations folder changed between calls.
+            Assert.Equal("True", Line("annotations"));
         }
         finally { Directory.Delete(dir, true); }
     }
