@@ -250,6 +250,14 @@ public sealed partial class NativeLinker
         var targetModule = forward[..dot];
         var targetName = forward[(dot + 1)..];
         var (targetFile, searched) = Locate(targetModule, file, x86);
+        // A kernel-mode image's forwarder can name the kernel itself (hal.dll: ntoskrnl.KeStallExecutionProcessor),
+        // which the kernel's loader binds to ntoskrnl.exe; user-mode forwarders name DLLs only.
+        if (targetFile == null && !Path.HasExtension(targetModule) && image is Pe.PeFile { Optional.Subsystem: 1 })
+        {
+            var (kernelFile, kernelSearched) = Locate(targetModule + ".exe", file, x86);
+            searched.AddRange(kernelSearched);
+            targetFile = kernelFile;
+        }
         if (targetFile == null)
             return new LinkResult(ForwarderBroken, module, file, [hop], $"forwarder {forward}: module not found (searched {string.Join("; ", searched)})");
         uint? targetOrdinal = null;

@@ -324,4 +324,22 @@ public sealed class NativeLinkTests : IDisposable
         Assert.Equal(NativeLinker.MissingOrdinal, linker.Bind(a, null, false, null, 99, "import").Status);
         Assert.Equal(NativeLinker.DllNotFound, linker.Bind("nosuch_8f3a.dll", a, false, "F", null, "import").Status);
     }
+
+    [Fact]
+    public void A_kernel_mode_forwarder_without_an_extension_binds_the_exe()
+    {
+        // Push run on 987c1c28: hal.dll's ntoskrnl.KeStallExecutionProcessor read as a broken forwarder.
+        var kernel = _dir.File("kern.exe");
+        File.WriteAllBytes(kernel, LinkedImages.Build("kern.exe", [("Stall", 0)], [], _ => [0xC3]));
+        var hal = LinkedImages.Build("halx.dll", [("Stall", "kern.Stall")], [], _ => [0xC3]);
+        File.WriteAllBytes(_dir.File("userx.dll"), LinkedImages.Build("userx.dll", [("Stall", "kern.Stall")], [], _ => [0xC3]));
+        // IMAGE_SUBSYSTEM_NATIVE in the optional header's Subsystem field.
+        BitConverter.GetBytes((ushort)1).CopyTo(hal, BitConverter.ToInt32(hal, 0x3C) + 24 + 68);
+        File.WriteAllBytes(_dir.File("halx.dll"), hal);
+        var linker = new NativeLinker(PeFile.Open);
+        var bound = linker.Bind(_dir.File("halx.dll"), null, false, "Stall", null, "import");
+        Assert.True(bound.IsResolved, bound.Detail);
+        Assert.Equal(kernel, bound.Hops[^1].File, ignoreCase: true);
+        Assert.Equal(NativeLinker.ForwarderBroken, linker.Bind(_dir.File("userx.dll"), null, false, "Stall", null, "import").Status);
+    }
 }
