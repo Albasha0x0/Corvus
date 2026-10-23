@@ -367,6 +367,27 @@ internal static class LivePrograms
         }
         """;
 
+    /// <summary>
+    /// inrange address (Windows, an image of at least 256 KiB): commits a page at the address, writes 7 there and passes
+    /// it to Hold; prints "taken" and exits 3 when the address cannot be committed (the image itself was loaded there).
+    /// </summary>
+    public const string InImageRange = Platform + """
+        #include <stdint.h>
+        static char g_pad[0x40000];
+        NOINLINE int Hold(volatile int* p) { return *p; }
+        int main(int argc, char** argv)
+        {
+            void* at = (void*)(uintptr_t)strtoull(argc > 1 ? argv[1] : "0", NULL, 16);
+            int* p = (int*)VirtualAlloc(at, 4096, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
+            if (p != at) { printf("taken\n"); return 3; }
+            *p = 7;
+            g_pad[0] = 1;
+            printf("held %d\n", Hold(p));
+            fflush(stdout);
+            return 0;
+        }
+        """;
+
     /// <summary>plugin (a shared library): PluginWork and PluginOther, each returning twice its argument.</summary>
     public const string Plugin = """
         #ifdef _WIN32

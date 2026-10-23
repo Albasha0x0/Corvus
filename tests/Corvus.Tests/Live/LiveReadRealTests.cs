@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Text.RegularExpressions;
+using Corvus.Native;
 using Xunit.Abstractions;
 
 namespace Corvus.Tests;
@@ -76,6 +77,30 @@ public sealed class LiveReadRealTests(ITestOutputHelper output) : LiveToolCalls(
         Assert.Matches(@"(?m)^  4[2-5]$", running);
         Assert.Matches(@"exit code 0(?![0-9xX])", await UntilExited(server, "live-1"));
         Assert.Contains("count 45", await Events(server, "live-1", kind: "output"));
+        await Ok(server, "live_session", new() { ["action"] = "close", ["session"] = "live-1" });
+        Ended(pid);
+    }
+
+    // Regression: CI run 39859824612 read an x86 stack below the image's
+    // preferred base as an image address.
+    [LiveTargetFact("win-x86")] public Task Memory_in_the_image_file_range_is_read_where_the_program_has_it_on_win_x86() => ReadInImageRange(LiveTarget.WinX86);
+    [LiveTargetFact("win-x64")] public Task Memory_in_the_image_file_range_is_read_where_the_program_has_it_on_win_x64() => ReadInImageRange(LiveTarget.WinX64);
+
+    // The program commits a page inside its own file range, which is free
+    // because ASLR loaded the image elsewhere; a reservation starts on a
+    // 64 KiB boundary.
+    private async Task ReadInImageRange(LiveTarget target)
+    {
+        var exe = target.Build(_dir, "inrange", LivePrograms.InImageRange);
+        var image = NativeImageLoader.Open(exe);
+        Assert.True(image.SizeOfImage > 0x30000, $"SizeOfImage 0x{image.SizeOfImage:X}");
+        var at = $"0x{image.ImageBase + 0x20000:X}";
+        await using var server = await Server();
+        var pid = await Spawn(server, exe, "live-1", at);
+        await Ok(server, "live_break", new() { ["session"] = "live-1", ["action"] = "set", ["at"] = "Hold" });
+        var stop = await Ok(server, "live_break", new() { ["session"] = "live-1", ["action"] = "continue", ["wait"] = true, ["waitSeconds"] = 60 });
+        Assert.Contains("stopped at s1", stop);
+        Assert.Contains("  7\n", await Read(server, at, "int32"));
         await Ok(server, "live_session", new() { ["action"] = "close", ["session"] = "live-1" });
         Ended(pid);
     }

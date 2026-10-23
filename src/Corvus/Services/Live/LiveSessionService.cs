@@ -1185,7 +1185,13 @@ public sealed partial class LiveSessionService(AssemblyWorkspace workspace, Nati
             if (modules.Any(m => m.Contains(value))) return value;
             foreach (var m in modules)
                 if (Match(m) is { } native && value >= native.Image.ImageBase && value - native.Image.ImageBase < native.Image.SizeOfImage)
+                {
+                    // A readable data address is live even inside an image's
+                    // file range: an x86 stack can lie below the image's
+                    // preferred base.
+                    if (data && await ReadAsync(session, value, 1, ct).ConfigureAwait(false) != null) return value;
                     return m.Base + (value - native.Image.ImageBase);
+                }
             if (data || session.CompiledName(value) != null) return value;
             throw new ToolError(ErrorCode.NotFound, $"0x{value:X} is in no module of the program, live or as an image address.", "live_session action=status lists module ranges");
         }
