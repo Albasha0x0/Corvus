@@ -276,7 +276,8 @@ public class NativeProviderTests(ITestOutputHelper output)
         using var reader = new StreamReader(child.StandardOutput);
         Assert.Equal("done", reader.ReadLine()?.Trim());
         var cpu = child.TreeCpuTime();
-        Assert.True(cpu >= TimeSpan.FromMilliseconds(500), $"{cpu}");
+        // Linux reads another process's CPU time from /proc in clock ticks, which can read below the child's own reading.
+        Assert.True(cpu >= TimeSpan.FromMilliseconds(400), $"{cpu}");
         child.Kill();
     }
 
