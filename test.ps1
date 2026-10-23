@@ -855,7 +855,10 @@ if ($Reuse -and $familyKeys) { $timing.reused = @($kept).Count; $timing.families
 # A test that runs past its hang limit ends the run with a dump (kept in .git/corvus-hang-<time>). The limits hold
 # today's slowest tests with room: 2 min for a quick test (slowest 41 s) and 30 min in a full run (slowest 27 min).
 $hangLimit = if ($Full) { '30m' } else { '120s' }
-$arguments += @('--blame-hang', '--blame-hang-timeout', $hangLimit, '--blame-hang-dump-type', 'mini')
+# A full run's hang dump keeps the heap, so the task an awaited cleanup never completed can be found; a quick run's
+# 2 min limit mostly catches slow tests under load, and a mini dump names them.
+$hangDump = if ($Full) { 'full' } else { 'mini' }
+$arguments += @('--blame-hang', '--blame-hang-timeout', $hangLimit, '--blame-hang-dump-type', $hangDump)
 $quarantineFile = Join-Path $tests 'Ratchets/quarantine.txt'
 # Coverage floors are set by whole-suite runs, so a partial run is never checked against them.
 if ($Coverage) {
@@ -888,7 +891,8 @@ try {
         if ($alone) {
             $split = Get-AloneFilters $null $alone
             $arguments += @('--filter', $split.Rest)
-            $aloneJob = Start-AloneRun $split.Alone (Join-Path $results 'alone') @('--blame-hang', '--blame-hang-timeout', $hangLimit, '--blame-hang-dump-type', 'mini')
+            # The run-alone classes are few, so their host's full dump stays small.
+            $aloneJob = Start-AloneRun $split.Alone (Join-Path $results 'alone') @('--blame-hang', '--blame-hang-timeout', $hangLimit, '--blame-hang-dump-type', 'full')
         }
     }
     & dotnet @arguments
@@ -1023,6 +1027,9 @@ try {
         New-Item -ItemType Directory -Force $kept | Out-Null
         $dumps | Copy-Item -Destination $kept
         Write-Host "A test ran past its hang limit ($hangLimit): dump and test sequence in $kept." -ForegroundColor Red
+        # Full dumps (over 100 MB) are kept in the newest three hang folders only; older folders keep their test sequence.
+        Get-ChildItem $gitDir -Directory -Filter 'corvus-hang-*' | Sort-Object Name -Descending | Select-Object -Skip 3 |
+            ForEach-Object { Get-ChildItem $_.FullName -Filter '*.dmp' | Where-Object Length -gt 100MB | Remove-Item -Force -ErrorAction SilentlyContinue }
     }
     if ($Coverage) {
         $reports = @(Get-ChildItem $results -Recurse -Filter coverage.cobertura.xml -ErrorAction SilentlyContinue)
