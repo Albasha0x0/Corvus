@@ -466,7 +466,7 @@ function Get-RemoteStatus([string]$gitDir) {
         $r = Get-Content $_.FullName -Raw | ConvertFrom-Json
         # The run reads the offloaded results only after its own tests end, so "running" covers both halves.
         $state = if ($r.state -eq 'running') { 'running (results joined when the local tests end)' } else { $r.state }
-        "$($r.target): $state on $($r.commit) at $($r.at) ($($r.classes) classes$(if ($null -ne $r.seconds) { ", $($r.seconds) s" }))$(if ($r.held) { "; $($r.held) kept here for real-data variables not set there" })$(if ($r.note) { "; $($r.note)" })"
+        "$($r.target): $state on $($r.commit) at $($r.at) ($($r.classes) classes$(if ($null -ne $r.seconds) { ", $($r.seconds) s" }))$(if ($r.transport -eq 'bundle') { '; the commit went as a bundle, origin lacked it' })$(if ($r.held) { "; $($r.held) kept here for real-data variables not set there" })$(if ($r.note) { "; $($r.note)" })"
     }
 }
 
@@ -526,12 +526,18 @@ function Start-Offload($target, [string]$commit, [string[]]$classes, [bool]$rele
     switch ($target.Kind) {
         'ssh' {
             $id = [guid]::NewGuid().ToString('N').Substring(0, 12)
-            $script = Get-RemoteRunScript $commit (Get-ClassFilter $classes $releaseTier $mixed) $id
-            Start-ThreadJob -ArgumentList $module, $target.Host, $script, $id -ScriptBlock {
-                param($module, $remoteHost, $script, $id)
+            # A push run starts before its push lands: a commit origin lacks travels with the script as a bundle.
+            # A bundle that fails leaves the wait for origin, and then the run here, as before.
+            $bundle = try { New-CommitBundle (Split-Path $module -Parent) $commit $id } catch { '' }
+            $script = Get-RemoteRunScript $commit (Get-ClassFilter $classes $releaseTier $mixed) $id -Bundle:([bool]$bundle)
+            $job = Start-ThreadJob -ArgumentList $module, $target.Host, $script, $id, $bundle -ScriptBlock {
+                param($module, $remoteHost, $script, $id, $bundle)
                 Import-Module $module
-                Invoke-RemoteRun $remoteHost $script $id
+                try { Invoke-RemoteRun $remoteHost $script $id $bundle }
+                finally { if ($bundle) { Remove-Item $bundle -Force -ErrorAction SilentlyContinue } }
             }
+            $job | Add-Member -NotePropertyName Transport -NotePropertyValue $(if ($bundle) { 'bundle' } else { 'origin' })
+            $job
         }
         'github' {
             Start-ThreadJob -ArgumentList $module, $target.Repository, $commit -ScriptBlock {
@@ -686,14 +692,20 @@ function New-RemoteSnapshot([string]$repo, [string]$id) {
     finally { Remove-Item Env:GIT_INDEX_FILE -ErrorAction SilentlyContinue; Remove-Item $index -Force -ErrorAction SilentlyContinue }
     $head = (git -C $repo rev-parse HEAD).Trim()
     $commit = if ($tree -eq (git -C $repo rev-parse 'HEAD^{tree}').Trim()) { $head } else { (git -C $repo commit-tree $tree -p $head -m 'Working tree sent to a test host').Trim() }
+    @{ Commit = $commit; Bundle = (New-CommitBundle $repo $commit $id) }
+}
+
+# A bundle file of the commits $commit has that $repo's origin/main lacks, under ref refs/corvus/remote-$id as the
+# host's run script fetches it; empty when origin/main contains $commit. Throws when bundling fails.
+function New-CommitBundle([string]$repo, [string]$commit, [string]$id) {
     git -C $repo merge-base --is-ancestor $commit origin/main 2>$null
-    if ($LASTEXITCODE -eq 0) { return @{ Commit = $commit; Bundle = '' } }
+    if ($LASTEXITCODE -eq 0) { return '' }
     $bundle = Join-Path ([IO.Path]::GetTempPath()) "$id.bundle"
     git -C $repo update-ref "refs/corvus/remote-$id" $commit
-    try { git -C $repo bundle create --quiet $bundle "refs/corvus/remote-$id" '^origin/main' 2>$null }
+    try { git -C $repo bundle create --quiet $bundle "refs/corvus/remote-$id" '^origin/main' 2>$null; $code = $LASTEXITCODE }
     finally { git -C $repo update-ref -d "refs/corvus/remote-$id" }
-    if ($LASTEXITCODE -ne 0) { throw "Bundling $commit failed." }
-    @{ Commit = $commit; Bundle = $bundle }
+    if ($code -ne 0) { throw "Bundling $commit failed." }
+    $bundle
 }
 
 # Runs $filter $repeat times on the test host from $repo's working tree as it is (test.ps1 -Remote), printing a line per

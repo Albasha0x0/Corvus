@@ -96,7 +96,9 @@
   authorized keys; its engine and live permits are its own. With `CORVUS_TEST_REMOTE` naming such a host (`user@host`)
   and the host answering over ssh, a whole-suite run sends its offloaded classes there instead of waiting for GitHub:
   one `dotnet test` run, one at a time, at below-normal priority in a worktree of the host's clone, with the TRX results
-  copied back by scp and joined as above. A test host also takes the host group, which never goes to GitHub: the
+  copied back by scp and joined as above. A commit origin does not have yet (a push run starts before its push lands)
+  goes to the host as a git bundle with the run, and `-Status` says so; only when that fails too do the classes run
+  here. A test host also takes the host group, which never goes to GitHub: the
   Program Files sweep and the timed and working-set classes, which need a machine no other run loads, and the classes
   with real-data facts whose variables the host has set: copy the real data there with
   `./test-remote-setup.ps1 -Target user@host -Data` (the folders and files the real-data variables name here, links

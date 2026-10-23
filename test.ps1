@@ -708,6 +708,7 @@ if ($offload) {
     if ($sent) {
         $offloadClock = [Diagnostics.Stopwatch]::StartNew()
         $offloadHandle = Start-Offload $offload (git -C $root rev-parse HEAD).Trim() $sent ($runFilter -notmatch 'Tier!=Release') (Join-Path $root 'test-remote.psm1') $mixed
+        if ($offloadHandle.Transport) { $offloadRecord.transport = $offloadHandle.Transport }
         $runFilter = Get-LocalFilter $runFilter $sent $mixed
         Write-Host "Offloading $($sent.Count) classes to $($offload.Name); the rest run here."
     }

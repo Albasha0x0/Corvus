@@ -347,6 +347,48 @@ public sealed class TestRemoteTests : IDisposable
     }
 
     [Fact]
+    public void A_commit_origin_lacks_goes_to_the_host_as_a_bundle_and_the_record_names_it()
+    {
+        // A push run starts before its push lands (the run on a5dbd1db waited 120 s for origin, then ran all here).
+        var sent = _dir.File("sent.txt");
+        var ssh = _dir.File("ssh.ps1");
+        File.WriteAllText(ssh, """
+            if (($args -join ' ') -match '-File corvus-test-host/corvus-remote-\w+\.ps1$') { 'corvus-remote: started'; 'corvus-remote-run 1 0'; 'corvus-remote-exit 0'; exit 0 }
+            exit 0
+            """);
+        var scp = _dir.File("scp.ps1");
+        File.WriteAllText(scp, $$"""
+            if ($args[-1] -like '*:corvus-test-host/') {
+                $script = $args | Where-Object { "$_" -like '*corvus-remote-*.ps1' } | ForEach-Object { Get-Content $_ -Raw }
+                $bundles = @($args | Where-Object { "$_" -like '*.bundle' -and (Test-Path $_) })
+                Set-Content {{Quote(sent)}} ("bundles=$($bundles.Count) wait=$($script.Contains('AddSeconds(0)')) fetch=$($script.Contains('fetch --quiet $bundle'))")
+            }
+            exit 1
+            """);
+        var lines = TestReuseTests.Run($$"""
+            Import-Module {{Module}}
+            $repo = {{Quote(DocsTests.RepoRoot())}}
+            $env:CORVUS_TEST_SSH = {{Quote(ssh)}}; $env:CORVUS_TEST_SCP = {{Quote(scp)}}
+            $commit = (git -C $repo commit-tree 'HEAD^{tree}' -p HEAD -m 'A commit origin lacks').Trim()
+            $job = Start-Offload @{ Kind = 'ssh'; Host = 'tester@host2'; Name = 'tester@host2' } $commit @('FormatSweepTests') $false {{Module}}
+            'transport=' + $job.Transport
+            $null = Receive-Job $job -Wait -AutoRemoveJob
+            Get-Content {{Quote(sent)}}
+            $known = Start-Offload @{ Kind = 'ssh'; Host = 'tester@host2'; Name = 'tester@host2' } (git -C $repo rev-parse origin/main).Trim() @('FormatSweepTests') $false {{Module}}
+            'known=' + $known.Transport
+            $null = Receive-Job $known -Wait -AutoRemoveJob
+            $git = {{Quote(_dir.Path)}}
+            Save-RemoteRecord $git ([ordered]@{ target = 'tester@host2'; commit = 'abc'; at = 'now'; classes = 1; held = 0; state = 'passed'; seconds = 1; note = $null; transport = 'bundle' })
+            Get-RemoteStatus $git
+            """);
+        if (lines is ["skip"]) return;
+        Assert.Contains("transport=bundle", lines);
+        Assert.Contains("bundles=1 wait=True fetch=True", lines);
+        Assert.Contains("known=origin", lines);
+        Assert.Contains("tester@host2: passed on abc at now (1 classes, 1 s); the commit went as a bundle, origin lacked it", lines);
+    }
+
+    [Fact]
     [Trait("Speed", "Slow")]
     public void A_filter_runs_repeatedly_on_the_host_from_the_working_tree_and_failed_runs_come_back()
     {
