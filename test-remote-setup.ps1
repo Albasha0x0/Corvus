@@ -322,12 +322,13 @@ if (-not (Test-Path $framework48)) { Need '.NET Framework 4.8 Developer Pack; as
 Step 'Microsoft Defender exclusion'
 # Defender quarantines some of the benign script fixtures under $Base.
 $defender = if (Get-Command Get-MpComputerStatus -ErrorAction SilentlyContinue) { try { Get-MpComputerStatus } catch { $null } }
-if (-not $defender -or -not $defender.RealTimeProtectionEnabled) { Write-Host '  real-time protection off or not reported' }
-else {
-    $exclusions = @((Get-MpPreference).ExclusionPath | Where-Object { $_ })
-    if ($exclusions -match '^N/A') { Write-Host "  unknown: the exclusions need an administrator to read; as administrator: Add-MpPreference -ExclusionPath '$Base'" }
-    elseif (-not ($exclusions | Where-Object { "$($Base.TrimEnd('\'))\".StartsWith("$($_.TrimEnd('\'))\", [StringComparison]::OrdinalIgnoreCase) })) { Need "a Defender exclusion for $Base; as administrator: Add-MpPreference -ExclusionPath '$Base'" }
-}
+$exclusions = if ($defender) { @((Get-MpPreference).ExclusionPath | Where-Object { $_ }) } else { @() }
+$excluded = $exclusions | Where-Object { $_ -notmatch '^N/A' -and "$($Base.TrimEnd('\'))\".StartsWith("$($_.TrimEnd('\'))\",[StringComparison]::OrdinalIgnoreCase) }
+if (-not $defender) { Write-Host '  unknown: Defender reported no status' }
+elseif ($excluded) { Write-Host "  excluded ($($excluded | Select-Object -First 1))" }
+elseif ($exclusions -match '^N/A') { Write-Host "  unknown: the exclusions need an administrator to read; as administrator: Add-MpPreference -ExclusionPath '$Base'" }
+elseif (-not $defender.RealTimeProtectionEnabled) { Write-Host "  real-time protection off; once it is on, as administrator: Add-MpPreference -ExclusionPath '$Base'" }
+else { Need "a Defender exclusion for $Base; as administrator: Add-MpPreference -ExclusionPath '$Base'" }
 
 Write-Host ''
 if ($missing.Count) { Write-Host "Not ready: $($missing.Count) missing."; exit 1 }
