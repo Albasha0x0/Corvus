@@ -402,7 +402,8 @@ public class NativeProviderTests(ITestOutputHelper output)
     public void Job_process_reports_exit_code_and_output()
     {
         var cmd = Path.Combine(Environment.SystemDirectory, "cmd.exe");
-        var run = PythonLocator.RunCapture(cmd, ["/d", "/c", "echo out& echo err 1>&2& exit 3"], TimeSpan.FromSeconds(10));
+        // The limit only guards against a hang: a cmd.exe starved by a busy machine took 12 s to start and exit.
+        var run = PythonLocator.RunCapture(cmd, ["/d", "/c", "echo out& echo err 1>&2& exit 3"], TimeSpan.FromMinutes(2));
         Assert.False(run.TimedOut);
         Assert.Equal(3, run.ExitCode);
         Assert.Equal("out", run.Stdout.Trim());
