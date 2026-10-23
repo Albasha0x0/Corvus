@@ -148,7 +148,12 @@ public static class PythonLocator
             string? stopped = null;
             var exited = bound > timeout ? WaitWhileBusy(child, timeout, bound, out stopped) : child.Exited.Wait(timeout);
             // A tree still holding the output at the deadline is stopped, which ends it.
-            if (!exited || !ChildProcess.JoinReaders(readers, watch, bound)) child.Kill();
+            if (!exited || !ChildProcess.JoinReaders(readers, watch, bound))
+            {
+                child.Kill();
+                // A killed POSIX child's exit is reaped after the kill returns; until then it has no exit code.
+                child.Exited.Wait(TimeSpan.FromSeconds(2));
+            }
             ChildProcess.JoinReaders(readers, System.Diagnostics.Stopwatch.StartNew(), TimeSpan.FromSeconds(2));
             return new CaptureResult(child.ExitCode, stdout, stderr, !exited, null, exited ? null : stopped);
         }
