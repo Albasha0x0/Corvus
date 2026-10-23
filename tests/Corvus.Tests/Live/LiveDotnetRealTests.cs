@@ -475,6 +475,9 @@ public sealed class LiveDotnetRealTests(ITestOutputHelper output) : LiveToolCall
         await Refused(server, "live_break", new() { ["session"] = "live-1", ["action"] = "set", ["at"] = "readers.dll!Readers::ReadTwice" }, "not_found");
         Assert.Contains("is compiled", await Ok(server, "live_break", new() { ["session"] = "live-1", ["action"] = "set", ["at"] = "readers.dll!Readers::ReadOnce" }));
         var stop = await Ok(server, "live_break", new() { ["session"] = "live-1", ["action"] = "continue", ["wait"] = true, ["waitSeconds"] = 60 });
+        // A missed stop names the modules the session saw, where s1 was set and any error binding it.
+        if (!stop.Contains("stopped at s1", StringComparison.Ordinal))
+            Assert.Fail($"{stop}\nmodule events:\n{await Events(server, "live-1", kind: "module", log: false)}\nstop events:\n{await Events(server, "live-1", kind: "stop", log: false)}\nerrors:\n{await Events(server, "live-1", kind: "error", log: false)}");
         Assert.Matches(@"stopped at s1 \(readers\.dll!Readers\.ReadOnce\(System\.String\)\)\r?\n  #0 0x[0-9A-F]+ readers\.dll!Readers\.ReadOnce\(System\.String\)\r?\n", stop);
         Assert.Contains("closed", await Ok(server, "live_session", new() { ["action"] = "close", ["session"] = "live-1" }));
     }
@@ -692,7 +695,12 @@ public sealed class LiveDotnetRealTests(ITestOutputHelper output) : LiveToolCall
         await using var server = await Server();
         await Spawn(server, exe, "live-1", "120000");
         await Ok(server, "live_break", new() { ["session"] = "live-1", ["action"] = "continue" });
-        for (int i = 0; i < 300 && !(await Events(server, "live-1", kind: "output", log: false)).Contains("ready"); i++) await Task.Delay(100);
+        bool ready = false;
+        for (int i = 0; i < 900 && !(ready = (await Events(server, "live-1", kind: "output", log: false)).Contains("ready")); i++) await Task.Delay(100);
+        // A heap read before "ready" sees a runtime still starting, so a
+        // missed signal fails here with what the session saw.
+        if (!ready)
+            Assert.Fail($"no \"ready\" within 90 s\n{await Ok(server, "live_session", new() { ["action"] = "status", ["session"] = "live-1" })}\nmodule events:\n{await Events(server, "live-1", kind: "module", log: false)}\nerrors:\n{await Events(server, "live-1", kind: "error", log: false)}");
         var stats = await Ok(server, "dump_heap", new() { ["dump"] = "live-1", ["type"] = "Item" });
         Assert.Matches(@"(?m)^ *Item  1,234 objects, [\d,]+ bytes", stats);
         Assert.Contains("note: The program runs during the read", stats);

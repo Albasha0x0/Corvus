@@ -155,8 +155,10 @@ public sealed class FridaEnvironmentRealTests(ITestOutputHelper output) : IDispo
     {
         var env = new FridaEnvironment(_dir.File("frida-env"));
         var watch = Stopwatch.StartNew();
-        Assert.Equal(env.Python, env.Create(PythonLocator.Find([], []), out var problem));
+        var python = env.Create(PythonLocator.Find([], []), out var problem);
+        // The problem names the failed step (venv or pip) and why.
         Assert.Null(problem);
+        Assert.Equal(env.Python, python);
         var bytes = new DirectoryInfo(env.Folder).EnumerateFiles("*", SearchOption.AllDirectories).Sum(f => f.Length);
         output.WriteLine($"private environment: {watch.Elapsed.TotalSeconds:0.0} s, {bytes / 1048576.0:0.0} MB on disk");
 
