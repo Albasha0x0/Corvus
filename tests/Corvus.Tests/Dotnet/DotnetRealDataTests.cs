@@ -19,12 +19,14 @@ namespace Corvus.Tests;
 public sealed partial class DotnetRealDataTests(Xunit.Abstractions.ITestOutputHelper output) : IAsyncLifetime
 {
     private readonly TempDir _dir = new();
+    private readonly TestPhases _phases = new(output);
     private McpClient _client = null!;
 
     private static string CoreLib => RealPackages.File("Microsoft.NETCore.App.Runtime.linux-arm64", "10.0.11", "runtimes", "linux-arm64", "lib", "net10.0", "System.Private.CoreLib.dll");
     private static string Newtonsoft => RealPackages.Lib("Newtonsoft.Json", "13.0.4", "netstandard2.0", "Newtonsoft.Json.dll");
 
-    public async Task InitializeAsync() => _client = await McpProtocolTests.StartServerAsync(null, null, ["--no-watch", "--load", CoreLib]);
+    public async Task InitializeAsync() =>
+        _client = await _phases.Run("server start", () => McpProtocolTests.StartServerAsync(null, null, ["--no-watch", "--load", CoreLib]));
 
     public async Task DisposeAsync()
     {
@@ -36,9 +38,9 @@ public sealed partial class DotnetRealDataTests(Xunit.Abstractions.ITestOutputHe
 
     private async Task<(string Text, JsonElement Record, int TextTokens, int RecordTokens)> Call(string tool, Dictionary<string, object?> args, McpClient? client = null)
     {
-        var r = await (client ?? _client).CallToolAsync(tool, args);
+        var r = await _phases.Run(tool, () => (client ?? _client).CallToolAsync(tool, args).AsTask());
         var text = Text(r);
-        Assert.True(r.IsError != true, $"{tool}: {text[..Math.Min(500, text.Length)]}");
+        Assert.True(r.IsError != true, $"{tool}: {text[..Math.Min(500, text.Length)]}; {_phases.Summary()}");
         var raw = r.StructuredContent!.Value.GetRawText();
         output.WriteLine($"{tool}({string.Join(", ", args.Select(a => $"{a.Key}={a.Value}"))}): text {TokenEstimate.Of(text)}, record {TokenEstimate.Of(raw)}");
         return (text, JsonDocument.Parse(raw).RootElement.Clone(), TokenEstimate.Of(text), TokenEstimate.Of(raw));
@@ -224,7 +226,7 @@ public sealed partial class DotnetRealDataTests(Xunit.Abstractions.ITestOutputHe
     [Fact]
     public async Task ExportTwiceWithOverwrite()
     {
-        await using var server = await McpProtocolTests.StartServerAsync(null, null, ["--no-watch", "--load", Newtonsoft]);
+        await using var server = await _phases.Run("export server start", () => McpProtocolTests.StartServerAsync(null, null, ["--no-watch", "--load", Newtonsoft]));
         var target = _dir.File("export");
         var (_, first, _, _) = await Call("export_project", new() { ["assembly"] = "Newtonsoft.Json", ["outputDirectory"] = target }, server);
         Assert.True(first.GetProperty("applied").GetBoolean());
@@ -241,15 +243,17 @@ public sealed partial class DotnetRealDataTests(Xunit.Abstractions.ITestOutputHe
     [Trait(PerfBudget.Trait, PerfBudget.Timing)]
     public async Task AShortClientGetsAPartialAndTheExportCompletes()
     {
-        await using var server = await McpProtocolTests.StartServerAsync(null, null, ["--no-watch", ClientProfiles.ClientTimeoutOption, "10", "--load", CoreLib]);
+        await using var server = await _phases.Run("short client server start",
+            () => McpProtocolTests.StartServerAsync(null, null, ["--no-watch", ClientProfiles.ClientTimeoutOption, "10", "--load", CoreLib]));
         var target = _dir.File("corelib");
         var before = MachineLoad.Factor();
         var clock = Stopwatch.StartNew();
         var r = await server.CallToolAsync("export_project", new Dictionary<string, object?> { ["assembly"] = "System.Private.CoreLib", ["outputDirectory"] = target });
         var answered = clock.Elapsed;
+        _phases.Phase("export answered");
         // The contract: the partial answer reaches the client before it gives up. The stop at 3.5 s leaves room for the
         // first call's start on a loaded machine, so the export is running when it fires; the time from it is a measurement.
-        Assert.True(answered < TimeSpan.FromSeconds(10), $"answered after {answered}, past the client's 10 s");
+        Assert.True(answered < TimeSpan.FromSeconds(10), $"answered after {answered}, past the client's 10 s; {_phases.Summary()}");
         var stop = CallFilter.Early(TimeSpan.FromSeconds(10) - Deadlines.ClientMargin);
         var fromStop = answered > stop ? answered - stop : TimeSpan.Zero;
         var (_, load) = MachineLoad.Budget(TimeSpan.FromSeconds(3), before, MachineLoad.Factor());
@@ -258,7 +262,10 @@ public sealed partial class DotnetRealDataTests(Xunit.Abstractions.ITestOutputHe
         Assert.Equal("timeout", error.GetProperty("code").GetString());
         Assert.True(error.GetProperty("details").GetProperty("stillRunning").GetBoolean());
         Assert.False(Directory.Exists(target));
-        while (!File.Exists(Path.Combine(target, Corvus.Services.ExportDirectory.Marker)) && clock.Elapsed < TimeSpan.FromMinutes(10)) await Task.Delay(500);
+        var marker = Path.Combine(target, Corvus.Services.ExportDirectory.Marker);
+        while (!File.Exists(marker) && clock.Elapsed < TimeSpan.FromMinutes(10)) await Task.Delay(500);
+        Assert.True(File.Exists(marker), $"the export did not complete within 10 min; {_phases.Summary()}");
+        _phases.Phase("export completed");
         Assert.NotEmpty(Directory.GetFiles(target, "*.cs", SearchOption.AllDirectories));
     }
 }

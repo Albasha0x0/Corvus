@@ -12,6 +12,7 @@ namespace Corvus.Tests;
 public sealed class EngineRealDataTests(ITestOutputHelper output) : IDisposable
 {
     private readonly TempDir _dir = new();
+    private readonly TestPhases _phases = new(output);
 
     public void Dispose() => _dir.Dispose();
 
@@ -25,7 +26,7 @@ public sealed class EngineRealDataTests(ITestOutputHelper output) : IDisposable
 
     private async Task<string> Log(McpClient c, string tool, Dictionary<string, object?> args)
     {
-        var (text, _) = await Call(c, tool, args);
+        var (text, _) = await _phases.Run(tool, () => Call(c, tool, args));
         output.WriteLine($"== {tool}\n{text}");
         return text;
     }
@@ -34,8 +35,8 @@ public sealed class EngineRealDataTests(ITestOutputHelper output) : IDisposable
     public async Task Ida_tools_work_on_a_real_dll()
     {
         var image = Image();
-        await using var c = await McpProtocolTests.StartServerInAsync(_dir.Path, "--ida-scripting");
-        var (_, exports) = await Call(c, "list_exports", new() { ["image"] = image });
+        await using var c = await _phases.Run("server start", () => McpProtocolTests.StartServerInAsync(_dir.Path, "--ida-scripting"));
+        var (_, exports) = await _phases.Run("list_exports", () => Call(c, "list_exports", new() { ["image"] = image }));
         var function = exports.GetProperty("items")[0].GetProperty("name").GetString()!;
         Dictionary<string, object?> On(params (string Key, object? Value)[] more) =>
             new[] { ("image", (object?)image), ("engine", "ida") }.Concat(more).ToDictionary(p => p.Item1, p => p.Item2);
@@ -60,8 +61,8 @@ public sealed class EngineRealDataTests(ITestOutputHelper output) : IDisposable
     public async Task Ghidra_tools_work_on_a_real_dll()
     {
         var image = Image();
-        await using var c = await McpProtocolTests.StartServerInAsync(_dir.Path, "--ghidra-scripting");
-        var (_, exports) = await Call(c, "list_exports", new() { ["image"] = image });
+        await using var c = await _phases.Run("server start", () => McpProtocolTests.StartServerInAsync(_dir.Path, "--ghidra-scripting"));
+        var (_, exports) = await _phases.Run("list_exports", () => Call(c, "list_exports", new() { ["image"] = image }));
         var function = exports.GetProperty("items")[0].GetProperty("name").GetString()!;
         Assert.Contains("returned to the caller", await Log(c, "emulate_native", new() { ["image"] = image, ["address"] = function, ["maxInstructions"] = 1000, ["stubs"] = "*=0", ["engine"] = "ghidra" }));
         Assert.Contains("jitinterface_x64.dll", await Log(c, "ghidra_script", new() { ["image"] = image, ["code"] = "println(currentProgram.getName());", ["engine"] = "ghidra" }));
@@ -99,7 +100,7 @@ public sealed class EngineRealDataTests(ITestOutputHelper output) : IDisposable
     public async Task Ghidra_python_scripts_run_under_pyghidra()
     {
         var image = Image();
-        await using var c = await McpProtocolTests.StartServerInAsync(_dir.Path, "--ghidra-scripting");
+        await using var c = await _phases.Run("server start", () => McpProtocolTests.StartServerInAsync(_dir.Path, "--ghidra-scripting"));
         var clock = System.Diagnostics.Stopwatch.StartNew();
         var text = await Log(c, "ghidra_script", new()
         {

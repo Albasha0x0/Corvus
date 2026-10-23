@@ -21,6 +21,22 @@ public sealed class TestPhases(ITestOutputHelper output)
     }
 
     /// <summary>
+    /// Runs <paramref name="step"/> and records <paramref name="name"/> once it completes; a step that throws is
+    /// reported as an <see cref="InvalidOperationException"/> naming the phases reached, with the original inside.
+    /// </summary>
+    public async Task<T> Run<T>(string name, Func<Task<T>> step)
+    {
+        T result;
+        try { result = await step(); }
+        catch (Exception ex)
+        {
+            throw new InvalidOperationException($"{name} did not complete; {Summary()}", ex);
+        }
+        Phase(name);
+        return result;
+    }
+
+    /// <summary>
     /// Records the step a successful session tool call completed: a session opened, a script loaded, a stop point, watch
     /// or coverage run set, a stop reached or the session closed; other calls record nothing. A call that waited without a stop writes the summary.
     /// </summary>

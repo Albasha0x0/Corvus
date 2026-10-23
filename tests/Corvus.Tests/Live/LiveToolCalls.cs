@@ -43,10 +43,10 @@ public abstract class LiveToolCalls(ITestOutputHelper output)
         return text;
     }
 
-    private protected static Task<InProcessServer> Server(bool scripting = false) => InProcessServer.StartAsync(options: new ServerOptions
+    private protected Task<InProcessServer> Server(bool scripting = false) => Phases.Run("server start", () => InProcessServer.StartAsync(options: new ServerOptions
     {
         BackgroundIndexing = false, WatchFiles = false, AllowLiveAttach = true, AllowLiveSpawn = true, LiveScripting = scripting,
-    });
+    }));
 
     /// <summary>Starts <paramref name="exe"/> suspended as <paramref name="session"/>; returns its process id.</summary>
     private protected async Task<int> Spawn(InProcessServer server, string exe, string session, params string[] arguments)
