@@ -44,9 +44,16 @@ public abstract class McpProtocolTests : IAsyncLifetime
     internal static async Task<McpClient> StartServerAsync(string? workingDirectory, string? protocolVersion, string[] args,
         IReadOnlyDictionary<string, string?>? environment = null)
     {
+        // The server's last error output lines, timed, name the start phase it reached when initialize times out.
+        var stderr = new System.Collections.Concurrent.ConcurrentQueue<string>();
         var transport = new StdioClientTransport(new StdioClientTransportOptions
         {
             Name = "corvus",
+            StandardErrorLines = line =>
+            {
+                stderr.Enqueue($"{DateTime.Now:HH:mm:ss.fff} {line}");
+                while (stderr.Count > 40) stderr.TryDequeue(out _);
+            },
             Command = "dotnet",
             Arguments = [ServerDll, .. args],
             WorkingDirectory = workingDirectory,
@@ -68,7 +75,15 @@ public abstract class McpProtocolTests : IAsyncLifetime
         });
         // No separate probe limit: a server/discover answered late on a busy machine must not turn into an initialize fallback;
         // initialize gets 3 min, since a stdio server starts slowly on small CI runners.
-        return await McpClient.CreateAsync(transport, new McpClientOptions { ProtocolVersion = protocolVersion, DiscoverProbeTimeout = Timeout.InfiniteTimeSpan, InitializationTimeout = TimeSpan.FromMinutes(3) });
+        var started = DateTime.Now;
+        try
+        {
+            return await McpClient.CreateAsync(transport, new McpClientOptions { ProtocolVersion = protocolVersion, DiscoverProbeTimeout = Timeout.InfiniteTimeSpan, InitializationTimeout = TimeSpan.FromMinutes(3) });
+        }
+        catch (TimeoutException ex)
+        {
+            throw new TimeoutException($"{ex.Message} (server started {started:HH:mm:ss.fff}); its last error output:\n{string.Join("\n", stderr)}", ex);
+        }
     }
 
     private static string Text(CallToolResult r) => string.Join("\n", r.Content.OfType<TextContentBlock>().Select(c => c.Text));
