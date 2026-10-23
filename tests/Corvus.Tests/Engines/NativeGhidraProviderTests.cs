@@ -511,6 +511,42 @@ public sealed class NativeGhidraEditTests(ITestOutputHelper output, GhidraCacheF
         }
     }
 
+    [GhidraFact]
+    public async Task A_project_held_by_another_process_opens_as_a_read_only_snapshot()
+    {
+        var path = Shared.Sample;
+        var rva = NativeIdaProviderTests.ExportRva(path, Export);
+        var owner = Isolated(path);
+        await using var held = (GhidraSession)await owner.OpenAsync(path, null, Offline);
+        await held.SetNameAsync(rva, "sample_owner_name");
+        await held.SaveAsync();
+        // As if another server process held the entry.
+        var entryDir = Path.GetDirectoryName(held.ProjectDirectory)!;
+        File.WriteAllText(Path.Combine(entryDir, ".owner"), "4242");
+
+        using var second = new GhidraProvider(owner.Options);
+        string snapshotProject;
+        await using (var s = (GhidraSession)await second.OpenAsync(path, null, Offline))
+        {
+            snapshotProject = s.ProjectDirectory;
+            Assert.NotEqual(held.ProjectDirectory, snapshotProject);
+            Assert.True(s.ReusedDatabase);
+            Assert.Contains("read-only snapshot", s.DatabaseNote);
+            Assert.Contains("4242", s.DatabaseNote);
+            Assert.Contains(await s.ListFunctionsAsync(), f => f.StartRva == rva && f.Name == "sample_owner_name");
+            await s.SetNameAsync(rva, "sample_snapshot_name");
+            Assert.Equal(0, s.UnsavedCount);
+        }
+        Assert.False(Directory.Exists(snapshotProject));
+        Assert.Contains(await held.ListFunctionsAsync(), f => f.StartRva == rva && f.Name == "sample_owner_name");
+
+        // No saved project of the asked profile: the conflict names the owner.
+        File.WriteAllText(Path.Combine(entryDir, ".owner"), "4242");
+        var e = await Assert.ThrowsAsync<ToolError>(() => second.OpenAsync(path, null, new NativeOpenOptions()));
+        Assert.Equal(ErrorCode.Conflict, e.Code);
+        Assert.Contains("process 4242", e.Message);
+    }
+
     /// <summary>ObjC method names carry a blank ("-[Class sel]"), which Ghidra refuses: the batch keeps them with '_'.</summary>
     [GhidraFact]
     public async Task Batch_names_with_blanks_are_applied()

@@ -337,7 +337,8 @@ public sealed class AnalysisCache(string root, long? maxBytes = null, TimeSpan? 
     }
 
     /// <summary>
-    /// A private copy of a locked entry's input and of <paramref name="files"/> (its saved database), for a read-only
+    /// A private copy of a locked entry's input and of <paramref name="files"/> (its saved database: files, or folders
+    /// copied whole without the engine's lock files), for a read-only
     /// session beside the process that holds the entry; the copy is deleted when the entry is disposed. Throws IoError
     /// when a file cannot be read (the owner may hold it open).
     /// </summary>
@@ -352,7 +353,9 @@ public sealed class AnalysisCache(string root, long? maxBytes = null, TimeSpan? 
                 ?? throw locked.Conflict;
             var copy = Path.Combine(dir, "input", Path.GetFileName(input));
             CopyShared(input, copy);
-            foreach (var f in files) CopyShared(f, Path.Combine(dir, Path.GetFileName(f)));
+            foreach (var f in files)
+                if (Directory.Exists(f)) CopyFolder(f, Path.Combine(dir, Path.GetFileName(f)));
+                else CopyShared(f, Path.Combine(dir, Path.GetFileName(f)));
             if (HashFile(copy) != sha256) throw locked.Conflict;
             return new CacheEntry(dir, copy, sha256, source, lockFile) { SnapshotOf = locked.OwnerPid };
         }
@@ -364,6 +367,15 @@ public sealed class AnalysisCache(string root, long? maxBytes = null, TimeSpan? 
             throw new ToolError(ErrorCode.Conflict, $"{locked.Conflict.Message} Its saved database could not be copied for a read-only snapshot: {ex.Message}",
                 locked.Conflict.Remediation);
         }
+    }
+
+    // A Ghidra project's lock file names its owner; the copy is opened by another process.
+    private static void CopyFolder(string from, string to)
+    {
+        Directory.CreateDirectory(to);
+        foreach (var sub in Directory.GetDirectories(from)) CopyFolder(sub, Path.Combine(to, Path.GetFileName(sub)));
+        foreach (var file in Directory.GetFiles(from))
+            if (!Path.GetFileName(file).Contains(".lock", StringComparison.OrdinalIgnoreCase)) CopyShared(file, Path.Combine(to, Path.GetFileName(file)));
     }
 
     private static void CopyShared(string from, string to)

@@ -69,12 +69,27 @@ internal sealed class GhidraSession(GhidraProvider provider, GhidraInstallation 
     {
         Options.Analysis == EngineAnalysis.None && !AnalysisComplete ? "no auto-analysis: functions made where asked" : null,
         Options.Overrides is { } ov ? "import overrides: " + ov.Text : null,
+        Entry?.SnapshotOf is { } pid ? $"read-only snapshot of the project process {pid} has open: edits are not saved" : null,
     }.Where(n => n != null)) is { Length: > 0 } note ? note : null;
     internal string Language { get; private set; } = "";
     internal int FunctionCount { get; private set; }
     internal IReadOnlyList<string> Warnings { get; private set; } = [];
 
-    protected override CacheEntry AcquireEntry(string imagePath, string? sha256) => provider.Cache.Acquire(ProviderId, imagePath, sha256);
+    /// <summary>
+    /// The image's cache entry; when another server process holds it, a read-only snapshot of the saved project this open
+    /// would use, else Conflict naming that process.
+    /// </summary>
+    protected override CacheEntry AcquireEntry(string imagePath, string? sha256) =>
+        provider.Cache.Acquire(ProviderId, imagePath, sha256, (locked, sha) =>
+        {
+            if (locked.OwnerPid is not { } pid || pid == Environment.ProcessId) throw locked.Conflict;
+            var header = Options.Raw is { } raw ? new Header(raw.Arch, raw.Base, false) : ReadHeader(imagePath, imagePath);
+            var project = Project(provider, ghidra, locked.Directory, header, Options.Symbols, Options.Analysis, Options.Raw, Options.GhidraDatabase, Options.Overrides).Directory;
+            if (!File.Exists(Path.Combine(project, ProjectName + ".gpr")))
+                throw new ToolError(ErrorCode.Conflict, $"{locked.Conflict.Message} It has no saved project of this image to take a read-only snapshot of yet.",
+                    locked.Conflict.Remediation);
+            return provider.Cache.Snapshot(ProviderId, locked, sha, Path.GetFullPath(imagePath), [project]);
+        });
 
     protected override void PrepareOpen()
     {

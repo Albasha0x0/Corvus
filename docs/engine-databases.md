@@ -39,9 +39,9 @@ open took (`openSeconds`), the profile and the import overrides in effect.
   the output cache holds are keyed by the database's state: any change to the database makes new keys, so a stale
   answer is never served. A change confined to one function (a local or stack member renamed, with no signature
   committed) makes only that function's answers stale; the other functions' stay.
-- **Two processes, one image.** The cache entry is locked by the process using it. IDA in a second process opens a
-  read-only snapshot of the last saved database (edits are neither journaled nor saved; status says so); Ghidra
-  answers `conflict` naming the owning process.
+- **Two processes, one image.** The cache entry is locked by the process using it. IDA or Ghidra in a second process
+  opens a read-only snapshot of the last saved database or project (edits are neither journaled nor saved; status says
+  so); with nothing saved yet it answers `conflict` naming the owning process.
 - **Edits outlive the database.** Names, comments, types and patches are also kept per file hash outside the engine
   (sidecars) and pushed into a new database, so invalidating one loses no user work.
 
