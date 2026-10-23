@@ -84,4 +84,18 @@ public sealed class WorkerHostTests(ITestOutputHelper output)
         Assert.Contains($"reached its memory limit of 300 MB ({WorkerPool.MemoryVariable}) while running 'fixture_allocate' on input.bin", e.Message);
         Assert.NotEqual(first, await Ping(pool));
     }
+
+    // Regression: on a CI runner a worker whose allocation failed answered nothing, and the call ran out its 60 s as a
+    // timeout (CI on 48563dd9). The fixture waits forever after the failure.
+    [Fact]
+    public async Task A_worker_that_hangs_at_its_memory_limit_is_ended_and_named()
+    {
+        if (!OperatingSystem.IsWindows()) return;
+        using var pool = Pool(300L << 20);
+        var watch = System.Diagnostics.Stopwatch.StartNew();
+        var e = await Assert.ThrowsAsync<ToolError>(() => pool.RunAsync("test", "fixture_allocate", new JsonObject { ["native"] = true, ["hang"] = true },
+            Limit, CancellationToken.None));
+        Assert.Equal((ErrorCode.LimitExceeded, false), (e.Code, e.Retryable));
+        Assert.True(watch.Elapsed < TimeSpan.FromSeconds(20), $"ended after {watch.Elapsed.TotalSeconds:0.0} s");
+    }
 }

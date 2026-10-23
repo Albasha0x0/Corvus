@@ -70,11 +70,13 @@ public static class WorkerHost
     /// <summary>
     /// Keeps allocating 16 MB blocks, each page written, until an allocation fails; <c>native: true</c> allocates outside
     /// the managed heap, where no GC limit applies. Native blocks are never freed: the worker exits after the failure.
+    /// <c>hang: true</c> (native) waits forever after the failure instead, never answering.
     /// </summary>
     private static Task<JsonNode?> Allocate(JsonObject args, CancellationToken cancellationToken)
     {
         const int size = 16 << 20;
         var native = args["native"]?.GetValueKind() == JsonValueKind.True;
+        var hang = args["hang"]?.GetValueKind() == JsonValueKind.True;
         var kept = new List<byte[]>();
         while (true)
         {
@@ -82,7 +84,9 @@ public static class WorkerHost
             if (native)
             {
                 // AllocHGlobal throws OutOfMemoryException when the allocation fails.
-                var block = System.Runtime.InteropServices.Marshal.AllocHGlobal(size);
+                IntPtr block;
+                try { block = System.Runtime.InteropServices.Marshal.AllocHGlobal(size); }
+                catch (OutOfMemoryException) when (hang) { Thread.Sleep(Timeout.Infinite); throw; }
                 for (int i = 0; i < size; i += 4096) System.Runtime.InteropServices.Marshal.WriteByte(block, i, 1);
                 continue;
             }

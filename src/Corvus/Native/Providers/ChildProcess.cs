@@ -298,7 +298,7 @@ internal sealed class WindowsJobProcess : ChildProcess
 
     private readonly long? _memoryLimit;
     private readonly SafeFileHandle? _port;
-    private bool _limitHit;
+    private volatile bool _limitHit;
 
     private WindowsJobProcess(SafeFileHandle job, SafeProcessHandle process, int id, SafeFileHandle stdin, SafeFileHandle stdout, SafeFileHandle stderr,
         long? memoryLimit, SafeFileHandle? port)
@@ -320,6 +320,23 @@ internal sealed class WindowsJobProcess : ChildProcess
             _exited.TrySetResult();
             ReleaseHandles();
         }) { IsBackground = true, Name = "child exit " + id }.Start();
+        if (port != null) new Thread(() => WatchMemoryLimit(port)) { IsBackground = true, Name = "child memory " + id }.Start();
+    }
+
+    // A worker whose allocations fail can hang instead of exiting, so the job is ended at the limit, as the footprint
+    // watchdog ends it on macOS (CI on 48563dd9: a 60 s timeout instead of limit_exceeded).
+    private void WatchMemoryLimit(SafeFileHandle port)
+    {
+        try
+        {
+            while (Volatile.Read(ref _disposed) == 0 && !_limitHit)
+            {
+                if (!GetQueuedCompletionStatus(port, out var message, out _, out _, 250) || message != JobMessageJobMemoryLimit) continue;
+                _limitHit = true;
+                Kill();
+            }
+        }
+        catch (ObjectDisposedException) { }
     }
 
     public override int Id => _id;
@@ -374,7 +391,8 @@ internal sealed class WindowsJobProcess : ChildProcess
     public override long? MemoryLimitReached()
     {
         if (_memoryLimit is not { } limit || _port is not { IsClosed: false } port) return null;
-        // the job posts JOB_OBJECT_MSG_JOB_MEMORY_LIMIT when an allocation would pass the limit (and fails)
+        // The job posts JOB_OBJECT_MSG_JOB_MEMORY_LIMIT when an allocation would pass the limit (and fails); read here too,
+        // so a death seen before the watcher wakes still names the limit.
         lock (port)
             while (!_limitHit && GetQueuedCompletionStatus(port, out var message, out _, out _, 0))
                 _limitHit = message == JobMessageJobMemoryLimit;

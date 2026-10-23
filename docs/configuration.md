@@ -182,7 +182,7 @@ Variables of the options above are listed with them. A program variable takes th
 | `CORVUS_GHIDRA_DECOMPILE_TIMEOUT` | 60 | Seconds per decompiled function (1-600). |
 | `CORVUS_GHIDRA_DECOMPILE_PAYLOAD_MB` | 200 | Decompiler response limit (16-2048). |
 | `CORVUS_ENGINE_ANALYSIS` | `full` | `none`: open images without auto-analysis, kept apart from fully analyzed databases. For huge or hostile inputs. |
-| `CORVUS_ENGINE_MEMORY_MB` | ¾ of available | Memory limit of each IDA or Ghidra worker (Windows job object); `0`: none. |
+| `CORVUS_ENGINE_MEMORY_MB` | ¾ of available | Memory limit of each IDA or Ghidra worker (Windows job object); a worker that reaches it is ended. `0`: none. |
 | `CORVUS_ENGINE_REQUEST_TIMEOUT` | 120 | Seconds per engine request; a stopped request returns what it found. |
 | `CORVUS_ENGINE_OPEN_TIMEOUT` | 1200 | Seconds for an engine's start plus auto-analysis. |
 | `CORVUS_STALL_DIR` | `<analysis cache>/ghidra/stalls` | Where the thread dump of a Ghidra worker stopped for time is saved. |
