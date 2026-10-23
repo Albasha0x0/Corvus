@@ -18,6 +18,10 @@ internal static class TestDataFolder
         if (Environment.GetEnvironmentVariable(Native.Providers.Ghidra.JavaThreadDump.FolderVariable) is not { Length: > 0 })
             Environment.SetEnvironmentVariable(Native.Providers.Ghidra.JavaThreadDump.FolderVariable,
                 Path.Combine(Environment.GetEnvironmentVariable(DataFolder.RootVariable)!, "stalls"));
+        // Sidecars and edit journals belong to the run: one a killed server left in a shared folder was offered to every
+        // later run's servers. Children inherit the folder; McpProtocolTests gives each of its servers one of its own.
+        if (Environment.GetEnvironmentVariable(Native.Annotations.AnnotationStore.RootVariable) is not { Length: > 0 })
+            Environment.SetEnvironmentVariable(Native.Annotations.AnnotationStore.RootVariable, LeakGuard.DeleteAtEnd(LeakGuard.RunAnnotations));
         // Ghidra's answers stay fixed within a test; CompletionPassTests turns the pass on
         Environment.SetEnvironmentVariable("CORVUS_GHIDRA_COMPLETION", "off");
     }

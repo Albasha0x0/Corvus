@@ -20,6 +20,9 @@ internal static class LeakGuard
 
     public static readonly string RunTemp = Path.Combine(SharedTemp, $"corvus-test-run-{Environment.ProcessId}-{Guid.NewGuid().ToString("N")[..8]}");
 
+    /// <summary>This run's annotations folder (sidecars and edit journals), beside its temporary folder and named alike.</summary>
+    public static readonly string RunAnnotations = Path.Combine(SharedTemp, $"corvus-test-annotations-{Environment.ProcessId}-{Guid.NewGuid().ToString("N")[..8]}");
+
     /// <summary>
     /// Files runtimes and SDKs keep in the temporary folder by design: .NET's diagnostic endpoints (left by a killed child),
     /// the JVM's performance data, the log of Oracle's java.exe launcher stub on Windows, the dotnet CLI's workload logs and
@@ -49,12 +52,15 @@ internal static class LeakGuard
         };
     }
 
-    /// <summary>Folders of earlier runs whose process has ended (a failed run leaves what it reported).</summary>
-    private static void RemoveEndedRuns()
+    /// <summary>
+    /// Removes the temporary and annotations folders of earlier runs whose process has ended (a failed run leaves what it
+    /// reported).
+    /// </summary>
+    internal static void RemoveEndedRuns()
     {
         try
         {
-            foreach (var dir in Directory.EnumerateDirectories(SharedTemp, "corvus-test-run-*"))
+            foreach (var dir in Directory.EnumerateDirectories(SharedTemp, "corvus-test-run-*").Concat(Directory.EnumerateDirectories(SharedTemp, "corvus-test-annotations-*")))
             {
                 if (Path.GetFileName(dir).Split('-') is not [_, _, _, var id, _] || !int.TryParse(id, out var pid)) continue;
                 try
