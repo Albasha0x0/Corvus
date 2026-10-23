@@ -11,6 +11,10 @@ public sealed class TestRemoteTests : IDisposable
 
     private static string Quote(string path) => "'" + path.Replace("'", "''") + "'";
 
+    // The host script lowers itself to below-normal priority, which a push run at full CPU starves: on 2fce80f1 it
+    // had not ended after 60 s.
+    private const int ScriptExitMs = 300_000;
+
     /// <summary>A TRX file with one result per (class, outcome), an outcome "Passed@40" lasting 40 s (else 1 s).</summary>
     internal static string Trx(params (string Class, string Outcome)[] results)
     {
@@ -402,7 +406,7 @@ public sealed class TestRemoteTests : IDisposable
             while (-not $run.HasExited -and $said.Elapsed.TotalSeconds -lt 60 -and -not ((Get-Content {{Quote(output)}} -ErrorAction SilentlyContinue) -contains 'corvus-remote: waiting for another run on the host')) { Start-Sleep -Milliseconds 100 }
             Start-Sleep -Milliseconds 1500
             $lock.ReleaseMutex()
-            'ended=' + $run.WaitForExit(60000)
+            'ended=' + $run.WaitForExit({{ScriptExitMs}})
             $out = @(Get-Content {{Quote(output)}})
             'waiting=' + ($out -contains 'corvus-remote: waiting for another run on the host')
             'waited=' + [bool]($out | Where-Object { $_ -match '^corvus-remote-waited [1-9]\d*$' })
@@ -445,7 +449,7 @@ public sealed class TestRemoteTests : IDisposable
             Set-Content {{Quote(script)}} (Get-RemoteRunScript $commit 'FullyQualifiedName~X' 'gone1' -Bundle)
             $env:USERPROFILE = {{Quote(home)}}; $env:HOME = {{Quote(home)}}; $env:PATH = {{Quote(bin)}} + ';' + $env:PATH
             $run = Start-Process (Get-Process -Id $PID).Path -ArgumentList '-NoProfile', '-File', {{Quote(script)}} -RedirectStandardOutput {{Quote(output)}} -PassThru -WindowStyle Hidden
-            'ended=' + $run.WaitForExit(60000)
+            'ended=' + $run.WaitForExit({{ScriptExitMs}})
             $got = Receive-RemoteRun @{ Kind = 'ssh'; Host = 'tester@host2'; Output = @(Get-Content {{Quote(output)}}) } {{Quote(Path.Combine(_dir.Path, "back"))}}
             'got=' + $got.Started + ',' + $got.Note
             # Git writes its objects read-only, which the folder's delete cannot remove.
