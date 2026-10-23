@@ -37,7 +37,12 @@ public static class OutputSchemas
                 if (root["required"] is not JsonArray required || required.All(r => (string?)r != name)) properties.Remove(name);
         if (strip && root is JsonObject top) top.Remove("required");
         DropDanglingReferences(root, root);
-        if (strip) InlineReferences(root, root, 0);
+        if (strip)
+        {
+            InlineReferences(root, root, 0);
+            // A row copied in for a $ref lands at the reference's depth, which may be below the cap.
+            Visit(root, root, strip, maxDepth, IsObject(root) ? 1 : 0);
+        }
         return JsonSerializer.SerializeToElement(root);
     }
 

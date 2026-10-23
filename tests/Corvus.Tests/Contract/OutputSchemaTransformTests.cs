@@ -101,6 +101,22 @@ public class OutputSchemaTransformTests
     }
 
     [Fact]
+    public void A_row_inlined_below_the_depth_cap_is_open()
+    {
+        // The SDK writes a row type once and points at it again with $ref (emulate_native's reads in candidates).
+        var schema = Parse("""
+            {"type":"object","properties":{
+              "reads":{"type":"array","items":{"type":"object","properties":{"va":{"type":"string"}}}},
+              "candidates":{"type":"array","items":{"type":"object","properties":{
+                "reads":{"type":"array","items":{"$ref":"#/properties/reads/items"}}}}}}}
+            """);
+        var compact = JsonNode.Parse(OutputSchemas.Compact(schema).GetRawText())!;
+        Assert.Equal("""{"type":"object","properties":{"va":{"type":"string"}}}""", compact["properties"]!["reads"]!["items"]!.ToJsonString());
+        Assert.Equal("""{"type":"object"}""", compact["properties"]!["candidates"]!["items"]!["properties"]!["reads"]!["items"]!.ToJsonString());
+        Assert.Empty(ContractSweep.SchemaProblems(OutputSchemas.Compact(schema)));
+    }
+
+    [Fact]
     public void SharedEnvelopeFieldsAreDeclaredOnceOutsideTheCompactForm()
     {
         var notices = """{"type":"array","items":{"type":"string"}}""";
