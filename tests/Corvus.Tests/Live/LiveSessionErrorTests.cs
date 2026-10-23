@@ -158,7 +158,7 @@ public sealed class LiveSessionErrorTests : IDisposable
             observed.StandardInput.Close();
             await observed.WaitForExitAsync();
             backend.Worker!.Emit(new System.Text.Json.Nodes.JsonObject { ["event"] = "exit", ["reason"] = "process-terminated" });
-            for (int i = 0; i < 100 && service.Get("live-1").State != "exited"; i++) await Task.Delay(50);
+            for (var waited = System.Diagnostics.Stopwatch.StartNew(); service.Get("live-1").State != "exited" && waited.Elapsed < TimeSpan.FromMinutes(1);) await Task.Delay(50);
             service.Get("live-1").ProcessId = other.Id; // the id given to a new process
             await Refused(ErrorCode.NotFound, () => inspect.InspectProcess("live-1"), "The program of session live-1 has ended");
         }

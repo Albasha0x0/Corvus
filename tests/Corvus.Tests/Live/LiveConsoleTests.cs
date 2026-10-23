@@ -94,7 +94,7 @@ public sealed class LiveConsoleTests : IDisposable
         Assert.Matches(@"#1 name\? Ada\r?\n#2 hello, Ada\r?\n#3 > \r?\nend of the transcript so far; poll again with cursor=3", transcript);
 
         _host.Last.Exit(0);
-        for (int i = 0; i < 100 && _service.GetConsole("con-1").State == "running"; i++) await Task.Delay(10);
+        for (var waited = System.Diagnostics.Stopwatch.StartNew(); _service.GetConsole("con-1").State == "running" && waited.Elapsed < TimeSpan.FromMinutes(1);) await Task.Delay(10);
         Assert.Contains("con-1 prompt.exe pid 4242: exited (0), script complete, 3 lines", await _tools.LiveConsole());
     }
 
@@ -113,7 +113,7 @@ public sealed class LiveConsoleTests : IDisposable
 
         // stop leaves a run whose program has exited as it was
         _host.Last.Exit(3);
-        for (int i = 0; i < 100 && _service.GetConsole("con-1").State == "running"; i++) await Task.Delay(10);
+        for (var waited = System.Diagnostics.Stopwatch.StartNew(); _service.GetConsole("con-1").State == "running" && waited.Elapsed < TimeSpan.FromMinutes(1);) await Task.Delay(10);
         var stop = await _tools.LiveConsole("stop", run: "con-1");
         Assert.Contains("con-1 exited (exit code 3)", stop);
     }

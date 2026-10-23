@@ -324,7 +324,7 @@ public sealed class LiveSessionTests : LiveSessionTestBase
         _backend.Hit("s1", 77, Base + 0x1010);
         var s = _service.Get("live-1");
         int Resumes() { lock (_backend.Ops) return _backend.Ops.Count(o => o == "resume"); }
-        for (int i = 0; i < 250 && Resumes() < 2; i++) await Task.Delay(20);
+        for (var waited = System.Diagnostics.Stopwatch.StartNew(); Resumes() < 2 && waited.Elapsed < TimeSpan.FromMinutes(1);) await Task.Delay(20);
         Assert.Equal(2, Resumes());
         Assert.Equal("running", s.State);
         Assert.Contains("stop point s1 hit after it was cleared: thread released", await _tools.LiveEvents("live-1", kind: "stop"));

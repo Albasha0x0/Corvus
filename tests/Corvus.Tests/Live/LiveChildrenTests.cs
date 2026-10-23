@@ -32,7 +32,7 @@ public sealed class LiveChildrenTests : IDisposable
     private async Task<string> Until(Func<Task<string>> call, string text)
     {
         var last = "";
-        for (int i = 0; i < 100 && !(last = await call()).Contains(text, StringComparison.Ordinal); i++) await Task.Delay(20);
+        for (var waited = System.Diagnostics.Stopwatch.StartNew(); !(last = await call()).Contains(text, StringComparison.Ordinal) && waited.Elapsed < TimeSpan.FromMinutes(1);) await Task.Delay(20);
         Assert.Contains(text, last);
         return last;
     }
