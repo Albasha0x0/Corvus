@@ -413,6 +413,18 @@ public class NativeProviderTests(ITestOutputHelper output)
         Assert.NotNull(missing.StartError);
     }
 
+    [Fact]
+    public void A_capture_past_its_time_limit_ends_the_child_and_says_it_timed_out()
+    {
+        using var fake = new FakeTool();
+        fake.On("slow", sleepMs: 20_000, stdout: "late");
+        var run = PythonLocator.RunCapture(FakeTool.Executable, ["slow"], TimeSpan.FromMilliseconds(500), fake.Environment);
+        Assert.True(run.TimedOut);
+        // The child prints only after its 20 s sleep, so no output means it was ended at the limit.
+        Assert.DoesNotContain("late", run.Stdout);
+        Assert.NotNull(run.ExitCode);
+    }
+
     [WindowsFact]
     public void Job_memory_limit_fails_allocations_past_it_and_is_reported()
     {
