@@ -166,16 +166,28 @@ public class ExternalToolsTests : IDisposable
     }
 
     [Fact]
-    public void A_version_check_still_running_when_status_stops_waiting_is_an_unknown_version_read_by_the_next_call()
+    public async Task A_version_check_still_running_when_status_stops_waiting_is_an_unknown_version_read_by_the_next_call()
     {
         using var fake = new FakeTool();
-        fake.On("^--version$", stdout: "osv-scanner version: 2.7.0", sleepMs: 3000);
+        fake.On("^--version$", stdout: "osv-scanner version: 2.7.0");
+        // The check runs until the test releases it: the first answer cannot have waited for it, however loaded the
+        // runner (a 2.5 s bound on that answer failed in a push run at 2.8 s).
+        var release = Path.Combine(fake.Directory, "check.release");
+        fake.Set("barriers", new System.Text.Json.Nodes.JsonObject
+        {
+            ["--version"] = new System.Text.Json.Nodes.JsonObject { ["touch"] = Path.Combine(fake.Directory, "check.started"), ["waitFor"] = release, ["seconds"] = 100 },
+        });
         using var env = new EnvironmentScope().Set("CORVUS_OSV_SCANNER", fake.CopyAs("osv-scanner")).Set(FakeTool.ScriptVariable, fake.ScriptPath);
-        var watch = System.Diagnostics.Stopwatch.StartNew();
-        var first = Assert.Single(Corvus.Tools.SessionTools.ExternalToolCapabilities(TimeSpan.FromMilliseconds(300)), c => c.Name.StartsWith("osv-scanner", StringComparison.Ordinal));
-        Assert.True(watch.Elapsed < TimeSpan.FromSeconds(2.5), $"{watch.Elapsed}");
-        Assert.True(first.Available);
-        Assert.EndsWith("version unknown (its version check is still running; call server_status again)", first.Detail);
+        try
+        {
+            var answer = Task.Run(() => Corvus.Tools.SessionTools.ExternalToolCapabilities(TimeSpan.FromMilliseconds(300)).ToList());
+            // A status that waits for the check fails here, not after the barrier's own 100 s.
+            Assert.True(await Task.WhenAny(answer, Task.Delay(TimeSpan.FromSeconds(60))) == answer, "status waited for the version check");
+            var first = Assert.Single(await answer, c => c.Name.StartsWith("osv-scanner", StringComparison.Ordinal));
+            Assert.True(first.Available);
+            Assert.EndsWith("version unknown (its version check is still running; call server_status again)", first.Detail);
+        }
+        finally { File.WriteAllText(release, ""); }
         var next = Assert.Single(Corvus.Tools.SessionTools.ExternalToolCapabilities(), c => c.Name.StartsWith("osv-scanner", StringComparison.Ordinal));
         Assert.Contains("version 2.7.0", next.Detail);
     }
