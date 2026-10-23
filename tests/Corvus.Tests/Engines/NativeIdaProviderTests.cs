@@ -27,8 +27,33 @@ public sealed class IdaCacheFixture : IDisposable
 
     public IdaProvider NewProvider() => new(new IdaProviderOptions { CacheRoot = Cache.Path });
 
+    // The read-only tests share one open session, on a provider and cache of its own so that the other tests can
+    // still open the same image on Provider.
+    private readonly TempDir _readerCache = new();
+    private IdaProvider? _reader;
+    private Task<IdaSession>? _session;
+
+    /// <summary>The provider that holds <see cref="Session"/>.</summary>
+    public IdaProvider Reader => _reader ??= SeededReader();
+
+    /// <summary>One session on the 64-bit test image with symbols off, opened on first use and kept for the class.</summary>
+    internal Task<IdaSession> Session => _session ??= OpenSession();
+
+    private IdaProvider SeededReader()
+    {
+        EngineSeed.Copy(_readerCache.Path, NativeIdaProviderTests.System64, EngineSeed.Recipe.SymbolsOff, "ida");
+        return new IdaProvider(new IdaProviderOptions { CacheRoot = _readerCache.Path });
+    }
+
+    private async Task<IdaSession> OpenSession() =>
+        (IdaSession)await Reader.OpenAsync(NativeIdaProviderTests.System64, null, new NativeOpenOptions { Symbols = SymbolMode.Off });
+
     public void Dispose()
     {
+        // The session first: it holds the reader's cache entry.
+        if (_session is { IsCompletedSuccessfully: true }) _session.Result.DisposeAsync().AsTask().GetAwaiter().GetResult();
+        _reader?.Dispose();
+        _readerCache.Dispose();
         _provider?.Dispose();
         Cache.Dispose();
     }
@@ -78,7 +103,7 @@ public sealed class NativeIdaProviderTests(ITestOutputHelper output, IdaCacheFix
     }
 
     [IdaFact]
-    public Task X64_open_list_decompile_disassemble_xrefs() => Walk(System64, NativeArch.X64);
+    public async Task X64_open_list_decompile_disassemble_xrefs() => await Walk(System64, NativeArch.X64, await shared.Session);
 
     [IdaFact]
     public async Task The_function_list_is_kept_until_an_edit()
@@ -105,7 +130,7 @@ public sealed class NativeIdaProviderTests(ITestOutputHelper output, IdaCacheFix
     [IdaFact]
     public async Task References_to_several_addresses_come_in_one_request_as_one_at_a_time()
     {
-        await using var s = await Provider.OpenAsync(System64, null, Offline);
+        var s = await shared.Session;
         var starts = (await s.ListFunctionsAsync()).Select(f => f.StartRva).Take(40).ToList();
         var many = await s.GetXrefsToManyAsync(starts);
         Assert.Equal(starts.Count, many.Count);
@@ -158,17 +183,17 @@ public sealed class NativeIdaProviderTests(ITestOutputHelper output, IdaCacheFix
     }
 
     [IdaFact]
-    public Task X86_open_list_decompile_disassemble_xrefs()
+    public async Task X86_open_list_decompile_disassemble_xrefs()
     {
-        if (!File.Exists(System32OnWow)) return Task.CompletedTask;
-        return Walk(System32OnWow, NativeArch.X86);
+        if (!File.Exists(System32OnWow)) return;
+        await using var s = await Provider.OpenAsync(System32OnWow, null, Offline);
+        await Walk(System32OnWow, NativeArch.X86, s);
     }
 
-    private async Task Walk(string path, NativeArch arch)
+    private async Task Walk(string path, NativeArch arch, INativeDecompilerSession s)
     {
         var exportRva = ExportRva(path, Export);
         var clock = Stopwatch.StartNew();
-        await using var s = await Provider.OpenAsync(path, null, Offline);
         output.WriteLine($"{arch} open: {s.OpenTime.TotalMilliseconds:0} ms (reused {s.ReusedDatabase})");
         Assert.Equal(arch, s.Arch);
         Assert.Equal(HeaderImageBase(path), s.ImageBase);
@@ -444,7 +469,7 @@ public sealed class NativeIdaProviderTests(ITestOutputHelper output, IdaCacheFix
     [IdaFact]
     public async Task Cancellation_stops_the_running_request()
     {
-        await using var s = (IdaSession)await Provider.OpenAsync(System64, null, Offline);
+        var s = await shared.Session;
         var pid = s.WorkerProcessId!.Value;
         using var cts = new CancellationTokenSource(TimeSpan.FromMilliseconds(500));
         var clock = Stopwatch.StartNew();
@@ -461,16 +486,16 @@ public sealed class NativeIdaProviderTests(ITestOutputHelper output, IdaCacheFix
     [Trait(PerfBudget.Trait, PerfBudget.Timing)]
     public async Task Session_state_answers_while_the_worker_is_busy()
     {
-        await using var s = (IdaSession)await Provider.OpenAsync(System64, null, Offline);
+        var s = await shared.Session;
         var running = s.CallAsync("sleep", new JsonObject { ["seconds"] = 3 }, default);
         await Task.Delay(500);
         var clock = Stopwatch.StartNew();
-        var state = Assert.Single(Provider.SessionStates(), x => x.ImagePath == System64);
+        var state = Assert.Single(shared.Reader.SessionStates(), x => x.ImagePath == System64);
         PerfBudget.Time("engines/ida-state-while-busy", clock.Elapsed, TimeSpan.FromMilliseconds(100), output);
         Assert.Equal(("ida", "busy", "sleep", s.WorkerProcessId), (state.Engine, state.State, state.BusyOp, state.WorkerPid));
         Assert.Equal(s.DatabasePath, state.Database);
         await running;
-        Assert.Equal("idle", Provider.SessionStates().Single(x => x.ImagePath == System64).State);
+        Assert.Equal("idle", shared.Reader.SessionStates().Single(x => x.ImagePath == System64).State);
     }
 
     [IdaFact]
@@ -546,7 +571,7 @@ public sealed class NativeIdaProviderTests(ITestOutputHelper output, IdaCacheFix
     [IdaFact]
     public async Task The_worker_runs_in_batch_mode()
     {
-        await using var s = await Provider.OpenAsync(System64, null, Offline);
+        var s = await shared.Session;
         // idc.batch returns the mode before the call: already on
         Assert.Contains((await s.RunScriptAsync("import idc\nidc.batch(1)")).Result, (string[])["1", "True"]);
     }
@@ -554,7 +579,7 @@ public sealed class NativeIdaProviderTests(ITestOutputHelper output, IdaCacheFix
     [IdaFact]
     public async Task Concurrent_requests_are_serialized()
     {
-        await using var s = await Provider.OpenAsync(System64, null, Offline);
+        var s = await shared.Session;
         var functions = (await s.ListFunctionsAsync()).Where(f => !f.Flags.HasFlag(NativeFunctionFlags.Thunk)).Take(12).ToList();
         var results = await Task.WhenAll(functions.Select(f => Task.Run(() => s.DisassembleAsync(f.StartRva))));
         Assert.Equal(functions.Select(f => f.StartRva), results.Select(r => r.StartRva));
@@ -727,8 +752,8 @@ public sealed class NativeIdaProviderTests(ITestOutputHelper output, IdaCacheFix
     [IdaFact]
     public async Task Same_image_cannot_be_open_twice()
     {
-        await using var s = await Provider.OpenAsync(System64, null, Offline);
-        Assert.Equal(ErrorCode.Conflict, (await Assert.ThrowsAsync<ToolError>(() => Provider.OpenAsync(System64, null, Offline))).Code);
+        await shared.Session;
+        Assert.Equal(ErrorCode.Conflict, (await Assert.ThrowsAsync<ToolError>(() => shared.Reader.OpenAsync(System64, null, Offline))).Code);
     }
 
     [IdaFact]

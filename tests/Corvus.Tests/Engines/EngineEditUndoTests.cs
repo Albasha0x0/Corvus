@@ -9,16 +9,25 @@ using Xunit.Abstractions;
 namespace Corvus.Tests;
 
 /// <summary>
-/// The engine edit tools against real engines: each edit names its editId, and undo_native_edit takes back a local, a
-/// stack member, an enum member, a struct field, a declaration and a type deletion in the engine's database.
+/// The rigs of <see cref="EngineEditUndoTests"/>: one shared per engine for the tests that undo every edit they make, so
+/// they reuse one open session, and a fresh one for a test that leaves edits behind.
 /// </summary>
-[Trait("Speed", "Slow")]
-[Trait("Data", "Real")]
-public sealed class EngineEditUndoTests(ITestOutputHelper output) : IDisposable
+public sealed class EngineEditUndoRigs : IDisposable
 {
-    private const string Function = "CheckSumMappedFile";
     private readonly TempDir _dir = new();
     private readonly List<IDisposable> _owned = [];
+    private readonly Dictionary<string, EngineEditUndoTests.Rig> _shared = [];
+    private int _fresh;
+
+    /// <summary>The rig of <paramref name="engine"/> that the class's undoing tests share, made on first use.</summary>
+    public EngineEditUndoTests.Rig Shared(string engine)
+    {
+        if (!_shared.TryGetValue(engine, out var rig)) _shared[engine] = rig = Setup(engine, "shared");
+        return rig;
+    }
+
+    /// <summary>A rig of its own, for a test whose edits stay.</summary>
+    public EngineEditUndoTests.Rig Fresh(string engine) => Setup(engine, $"fresh{++_fresh}");
 
     public void Dispose()
     {
@@ -26,28 +35,40 @@ public sealed class EngineEditUndoTests(ITestOutputHelper output) : IDisposable
         _dir.Dispose();
     }
 
-    private sealed record Rig(AssemblyWorkspace Workspace, NativeCodeService Code, NativeEngineService Engines, NativeTypeTools Types, NativeEditJournal Journal)
+    private EngineEditUndoTests.Rig Setup(string engine, string name)
     {
-        public LoadedNative Native => Workspace.Read(() => Workspace.Natives[0]);
-    }
-
-    private Rig Setup(string engine)
-    {
+        var key = engine + "-" + name;
         var options = new ServerOptions { TimeoutSeconds = 600, BackgroundIndexing = false };
         var workspace = new AssemblyWorkspace(options);
-        var code = new NativeCodeService(workspace, options, null, new AnnotationStore(_dir.File("annotations-" + engine)));
-        var engines = new NativeEngineService(new IdaProviderOptions { CacheRoot = _dir.File("cache-" + engine) }, code, workspace, options);
+        var code = new NativeCodeService(workspace, options, null, new AnnotationStore(_dir.File("annotations-" + key)));
+        var engines = new NativeEngineService(new IdaProviderOptions { CacheRoot = _dir.File("cache-" + key) }, code, workspace, options);
         _owned.Add(engines);
         _owned.Add(workspace);
         var names = new NativeNamePush(code);
         var user = new NativeUserTypePush(code);
         var journal = new NativeEditJournal(workspace, code, engines, names, user);
-        var dir = Directory.CreateDirectory(_dir.File("input-" + engine)).FullName;
+        var dir = Directory.CreateDirectory(_dir.File("input-" + key)).FullName;
         var copy = Path.Combine(dir, Path.GetFileName(NativeIdaProviderTests.System64));
         File.Copy(NativeIdaProviderTests.System64, copy, overwrite: true);
-        EngineSeed.Copy(_dir.File("cache-" + engine), copy, engine);
+        EngineSeed.Copy(_dir.File("cache-" + key), copy, engine);
         workspace.LoadAny(copy);
-        return new Rig(workspace, code, engines, new NativeTypeTools(workspace, engines, user, code, names, new NativeTypePush(), journal), journal);
+        return new(workspace, code, engines, new NativeTypeTools(workspace, engines, user, code, names, new NativeTypePush(), journal), journal);
+    }
+}
+
+/// <summary>
+/// The engine edit tools against real engines: each edit names its editId, and undo_native_edit takes back a local, a
+/// stack member, an enum member, a struct field, a declaration and a type deletion in the engine's database.
+/// </summary>
+[Trait("Speed", "Slow")]
+[Trait("Data", "Real")]
+public sealed class EngineEditUndoTests(ITestOutputHelper output, EngineEditUndoRigs rigs) : IClassFixture<EngineEditUndoRigs>
+{
+    private const string Function = "CheckSumMappedFile";
+
+    public sealed record Rig(AssemblyWorkspace Workspace, NativeCodeService Code, NativeEngineService Engines, NativeTypeTools Types, NativeEditJournal Journal)
+    {
+        public LoadedNative Native => Workspace.Read(() => Workspace.Natives[0]);
     }
 
     /// <summary>Runs an edit tool and returns its text and the editId of its outcome.</summary>
@@ -77,7 +98,7 @@ public sealed class EngineEditUndoTests(ITestOutputHelper output) : IDisposable
     [IdaFact]
     public async Task Stack_and_operand_batches_in_IDA()
     {
-        var rig = Setup("ida");
+        var rig = rigs.Fresh("ida");
         var native = rig.Native;
         var fn = native.Image.Exports.First(e => e.Name == Function).Rva;
         var session = await rig.Engines.Session(native, "ida", null, default);
@@ -108,7 +129,7 @@ public sealed class EngineEditUndoTests(ITestOutputHelper output) : IDisposable
     /// <summary>50 frames in one call, each row marked with its function; an address without a function is reported, not fatal.</summary>
     private async Task Frames(string engine)
     {
-        var rig = Setup(engine);
+        var rig = rigs.Shared(engine);
         var native = rig.Native;
         var session = await rig.Engines.Session(native, engine, null, default);
         var fns = (await session.ListFunctionsAsync()).Where(f => f.EndRva - f.StartRva > 0x20).Take(50).ToList();
@@ -137,7 +158,7 @@ public sealed class EngineEditUndoTests(ITestOutputHelper output) : IDisposable
     /// <summary>The first argument moved to r10, then undone to where the convention puts it; a non-argument is refused.</summary>
     private async Task ArgumentStorage(string engine)
     {
-        var rig = Setup(engine);
+        var rig = rigs.Shared(engine);
         var native = rig.Native;
         var fn = native.Image.Exports.First(e => e.Name == Function).Rva;
         var session = await rig.Engines.Session(native, engine, null, default);
@@ -158,7 +179,7 @@ public sealed class EngineEditUndoTests(ITestOutputHelper output) : IDisposable
     /// <summary>On a 40-field struct: one field retyped keeps the rest; an insert moves the later fields and its undo moves them back; resize and gap names undo.</summary>
     private async Task StructLayout(string engine)
     {
-        var rig = Setup(engine);
+        var rig = rigs.Shared(engine);
         var native = rig.Native;
         var session = await rig.Engines.Session(native, engine, null, default);
         async Task<Dictionary<string, long>> Offsets() => (await session.GetTypeAsync("Corvus40")).Members.Where(m => !m.Name.StartsWith("gap", StringComparison.Ordinal))
@@ -196,7 +217,7 @@ public sealed class EngineEditUndoTests(ITestOutputHelper output) : IDisposable
 
     private async Task EngineEditsUndo(string engine)
     {
-        var rig = Setup(engine);
+        var rig = rigs.Shared(engine);
         var native = rig.Native;
         var fn = native.Image.Exports.First(e => e.Name == Function).Rva;
         var session = await rig.Engines.Session(native, engine, null, default);

@@ -21,7 +21,7 @@ public abstract class NativeQueryEngineTests(ITestOutputHelper output) : IDispos
         _dir.Dispose();
     }
 
-    private sealed record Rig(AssemblyWorkspace Workspace, NativeCodeService Code, NativeEngineService Engines, NativeTypeTools Types, NativeAnalysisTools Analysis,
+    internal sealed record Rig(AssemblyWorkspace Workspace, NativeCodeService Code, NativeEngineService Engines, NativeTypeTools Types, NativeAnalysisTools Analysis,
         NativeCodeTools CodeTools)
     {
         public LoadedNative Native => Workspace.Read(() => Workspace.Natives[0]);
@@ -29,18 +29,20 @@ public abstract class NativeQueryEngineTests(ITestOutputHelper output) : IDispos
         public async Task<uint> Rva(string name) => (await Code.Index(Native, null, default)).AddressOfName(name)!.Value;
     }
 
-    private Rig Setup()
+    private Rig Setup() => Setup(_dir, _owned);
+
+    private static Rig Setup(TempDir root, List<IDisposable> owned)
     {
-        var dir = Directory.CreateDirectory(_dir.File("input")).FullName;
+        var dir = Directory.CreateDirectory(root.File("input")).FullName;
         var copy = Path.Combine(dir, Path.GetFileName(NativeIdaProviderTests.System64));
         if (!File.Exists(copy)) File.Copy(NativeIdaProviderTests.System64, copy);
-        EngineSeed.Copy(_dir.File("cache"), copy);
+        EngineSeed.Copy(root.File("cache"), copy);
         var options = new ServerOptions { TimeoutSeconds = 600, BackgroundIndexing = false };
         var workspace = new AssemblyWorkspace(options);
-        var code = new NativeCodeService(workspace, options, null, new Native.Annotations.AnnotationStore(_dir.File("annotations")));
-        var engines = new NativeEngineService(new IdaProviderOptions { CacheRoot = _dir.File("cache") }, code, workspace, options);
-        _owned.Add(engines);
-        _owned.Add(workspace);
+        var code = new NativeCodeService(workspace, options, null, new Native.Annotations.AnnotationStore(root.File("annotations")));
+        var engines = new NativeEngineService(new IdaProviderOptions { CacheRoot = root.File("cache") }, code, workspace, options);
+        owned.Add(engines);
+        owned.Add(workspace);
         var names = new NativeNamePush(code);
         var types = new NativeTypePush();
         var user = new NativeUserTypePush(code);
@@ -50,9 +52,9 @@ public abstract class NativeQueryEngineTests(ITestOutputHelper output) : IDispos
             new NativeAnalysisTools(workspace, engines, pager, names, code, types, user), new NativeCodeTools(workspace, code, pager, null, engines, names, types, user));
     }
 
-    private async Task FunctionFilters(string engine)
+    private async Task FunctionFilters(string engine, Rig? shared = null)
     {
-        var rig = Setup();
+        var rig = shared ?? Setup();
         static List<FunctionEntry> Items(FunctionList list) => [.. list.Items];
         var all = await NativeQuerySurfaceTests.Structured<FunctionList>(() => rig.CodeTools.ListFunctions(rig.Native.Id, engine: engine, limit: 5000));
         // a PDB or the exports give the engine prototypes for some functions, not for every one
@@ -122,9 +124,28 @@ public abstract class NativeQueryEngineTests(ITestOutputHelper output) : IDispos
         }
     }
 
+    /// <summary>
+    /// One rig for the IDA tests that only read or add their own types, so they share one open session; a test that
+    /// renames inside IDA takes a rig of its own.
+    /// </summary>
+    public sealed class IdaRig : IDisposable
+    {
+        private readonly TempDir _dir = new();
+        private readonly List<IDisposable> _owned = [];
+        private Rig? _rig;
+
+        internal Rig Get() => _rig ??= Setup(_dir, _owned);
+
+        public void Dispose()
+        {
+            foreach (var d in _owned) d.Dispose();
+            _dir.Dispose();
+        }
+    }
+
     /// <summary>The same queries through IDA.</summary>
     [Trait("Speed", "Slow")]
-    public sealed class Ida(ITestOutputHelper output) : NativeQueryEngineTests(output)
+    public sealed class Ida(ITestOutputHelper output, IdaRig shared) : NativeQueryEngineTests(output), IClassFixture<IdaRig>
     {
         [IdaFact]
         public async Task Decompile_and_frame_headers_demangle_IDA_names()
@@ -147,7 +168,7 @@ public abstract class NativeQueryEngineTests(ITestOutputHelper output) : IDispos
         [IdaFact]
         public async Task Find_xrefs_from_a_function_through_IDA_by_kind()
         {
-            var rig = Setup();
+            var rig = shared.Get();
             var from = await rig.CodeTools.FindXrefs(rig.Native.Id, Function, engine: "ida", direction: "from");
             Output.WriteLine(string.Join('\n', from.Split('\n').Take(12)));
             Assert.Contains($"References from 0x", from);
@@ -166,12 +187,12 @@ public abstract class NativeQueryEngineTests(ITestOutputHelper output) : IDispos
         }
 
         [IdaFact]
-        public Task List_functions_through_IDA_filters_by_type_name_and_size() => FunctionFilters("ida");
+        public Task List_functions_through_IDA_filters_by_type_name_and_size() => FunctionFilters("ida", shared.Get());
 
         [IdaFact]
         public async Task Decompile_refs_lists_the_ctree_objects_through_IDA()
         {
-            var rig = Setup();
+            var rig = shared.Get();
             var report = await NativeQuerySurfaceTests.Structured<NativeAnalysisTools.DecompileReport>(() => rig.Analysis.DecompileNative(rig.Native.Id, Function, engine: "ida", refs: true));
             var text = await rig.Analysis.DecompileNative(rig.Native.Id, Function, engine: "ida", refs: true);
             Output.WriteLine(text[text.IndexOf("// refs:", StringComparison.Ordinal)..]);
@@ -185,7 +206,7 @@ public abstract class NativeQueryEngineTests(ITestOutputHelper output) : IDispos
         [IdaFact]
         public async Task List_native_types_through_IDA_by_pattern_kind_order_and_members()
         {
-            var rig = Setup();
+            var rig = shared.Get();
             await rig.Types.DeclareNativeTypes(rig.Native.Id, "struct QzPkt { int len; char data[12]; }; typedef struct QzPkt *PQzPkt; " +
                                                               "enum QzColor { QzRed = 1, QzGreen = 2 };", engine: "ida");
             static List<string> Names(string text) => [.. text.Split('\n').Where(l => l.StartsWith("  ", StringComparison.Ordinal) && !l.StartsWith("    ", StringComparison.Ordinal))

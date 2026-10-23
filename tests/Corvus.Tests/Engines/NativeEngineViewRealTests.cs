@@ -213,14 +213,11 @@ public sealed class NativeGhidraViewTests(ITestOutputHelper output, GhidraCacheF
 public sealed class NativeIdaViewTests(ITestOutputHelper output, IdaCacheFixture shared) : IClassFixture<IdaCacheFixture>
 {
     private const string Export = "CheckSumMappedFile";
-    private static readonly NativeOpenOptions Offline = new() { Symbols = SymbolMode.Off };
-
-    private async Task<IdaSession> Open() => (IdaSession)await shared.Provider.OpenAsync(NativeIdaProviderTests.System64, null, Offline);
 
     [IdaFact]
     public async Task Image_info_is_the_engine_view_of_the_image()
     {
-        await using var s = await Open();
+        var s = await shared.Session;
         var info = await s.GetEngineInfoAsync();
         output.WriteLine($"{info.Version} {info.Language} {info.Compiler} {info.Format} {info.Functions} functions, {info.ExternalFunctions} external, " +
                          $"{info.Blocks.Count} blocks, analysis {info.Analysis}");
@@ -239,7 +236,7 @@ public sealed class NativeIdaViewTests(ITestOutputHelper output, IdaCacheFixture
     [IdaFact]
     public async Task Defined_data_lists_typed_items_with_values_and_strings()
     {
-        await using var s = await Open();
+        var s = await shared.Session;
         var data = await s.ListDataAsync(100_000);
         output.WriteLine($"{data.Total} items; " + string.Join("; ", data.Items.Take(8).Select(d => $"0x{d.Rva:X} {d.Size} {d.Type} {d.Label} = {d.Value}")));
         Assert.True(data.Total > 200, $"{data.Total} items");
@@ -252,7 +249,7 @@ public sealed class NativeIdaViewTests(ITestOutputHelper output, IdaCacheFixture
     [IdaFact]
     public async Task Defined_strings_include_unreferenced_ones()
     {
-        await using var s = await Open();
+        var s = await shared.Session;
         var strings = await s.ListStringsAsync(100_000);
         output.WriteLine($"{strings.Count} strings; " + string.Join("; ", strings.Take(6).Select(x => $"0x{x.Rva:X} {x.Type} {x.Text}")));
         Assert.True(strings.Count > 20);
@@ -263,7 +260,7 @@ public sealed class NativeIdaViewTests(ITestOutputHelper output, IdaCacheFixture
     [IdaFact]
     public async Task Function_record_has_prototype_convention_storage_and_thunk_target()
     {
-        await using var s = await Open();
+        var s = await shared.Session;
         var rva = NativeIdaProviderTests.ExportRva(NativeIdaProviderTests.System64, Export);
         var r = await s.GetFunctionRecordAsync(rva + 2);
         output.WriteLine(string.Join("\n", Corvus.Tools.NativeEngineCode.RecordLines(r, x => $"0x{x:X}")));
