@@ -527,6 +527,8 @@ function Write-TreeStamp([string]$tree, [string]$mode, [bool]$reused) {
 # The last whole-suite run's results and what recording them needs, so -Stamp can record them without a rerun.
 $lastRun = Join-Path $gitDir 'corvus-last-run.json'
 $lastTrx = Join-Path $gitDir 'corvus-last-run.trx'
+# The last whole run without -Reuse: a push run leaves the host tier out, so the tier's run compares with this.
+$lastWholeTrx = Join-Path $gitDir 'corvus-last-whole.trx'
 
 if ($Full -and $IfChanged) {
     $tree = Get-CleanTree
@@ -708,7 +710,8 @@ if ($HostTier) {
         if ($got.Waited) { $record.waited = $got.Waited }
         if ($got.Started) {
             if ($got.Trx) { Copy-Item $got.Trx (Join-Path $gitDir 'corvus-host-tier.trx') -Force }
-            $proved = Get-TierPasses $got $split.Sent $classMap $lastTrx (Get-FastestClassSeconds $timeHistory)
+            # Without a whole run here yet, every class that skipped a test there has no full result.
+            $proved = Get-TierPasses $got $split.Sent $classMap $lastWholeTrx (Get-FastestClassSeconds $timeHistory)
             Save-FamilyPasses $familyStamps $proved.Passed $familyKeys $mode $record.commit
             $record.recorded = $proved.Passed; $record.failed = $proved.Failed; $record.unproven = $proved.Unproven
             $record.state = if ($proved.Failed) { 'failed' } elseif ($proved.Unproven -or $got.Note -ne 'exit 0') { 'partial' } else { 'passed' }
@@ -893,6 +896,7 @@ try {
         $commit = (git -C $root rev-parse --short HEAD).Trim()
         # saved before recording, so a recording step that fails costs no rerun (-Stamp)
         Copy-Item $trx $lastTrx -Force
+        if (-not $Reuse) { Copy-Item $trx $lastWholeTrx -Force }
         $run = [ordered]@{ tree = $tree; mode = $mode; reused = [bool]$Filter; code = $code; keys = $familyKeys; commit = $commit; at = (Get-Date -Format 'yyyy-MM-dd HH:mm'); deferred = @($deferred + $tierSkip) }
         Set-Content -Path $lastRun -Value ($run | ConvertTo-Json -Depth 3) -NoNewline
         try {

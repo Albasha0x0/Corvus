@@ -690,6 +690,28 @@ public sealed class TestRemoteTests : IDisposable
     }
 
     [Fact]
+    public void A_tier_class_skipping_there_what_the_last_whole_run_skipped_here_passes_and_without_that_run_it_does_not()
+    {
+        // The hand run on 03378fef compared with a push run's TRX, which holds no tier class, so every skip counted.
+        var remote = _dir.File("tier.trx");
+        File.WriteAllText(remote, Trx(("YaraTests", "Passed"), ("YaraTests", "NotExecuted")));
+        var whole = _dir.File("whole.trx");
+        File.WriteAllText(whole, Trx(("YaraTests", "Passed"), ("YaraTests", "NotExecuted")));
+        var lines = TestReuseTests.Run($$"""
+            Import-Module {{Module}}
+            Import-Module {{Quote(Path.Combine(DocsTests.RepoRoot(), "test-reuse.psm1"))}}
+            $map = @{ Containers = @('YaraTests') }
+            $got = [pscustomobject]@{ Started = $true; Trx = {{Quote(remote)}}; Failed = @(); Note = 'exit 0' }
+            'baseline=' + ((Get-TierPasses $got @('YaraTests') $map {{Quote(whole)}}).Passed -join ',')
+            $none = Get-TierPasses $got @('YaraTests') $map {{Quote(Path.Combine(_dir.Path, "absent.trx"))}}
+            'none=' + ($none.Passed -join ',') + '|' + ($none.Unproven -join ',')
+            """);
+        if (lines is ["skip"]) return;
+        Assert.Contains("baseline=Containers", lines);
+        Assert.Contains("none=|YaraTests", lines);
+    }
+
+    [Fact]
     public void The_host_tier_records_only_families_whose_classes_all_passed_there_with_a_full_result()
     {
         var remote = _dir.File("tier.trx");

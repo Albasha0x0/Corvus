@@ -162,7 +162,8 @@
   Windows scheduled task for the current user (opt-in; `-Unregister` removes it) that runs `./test.ps1 -HostTier` on
   HEAD in a worktree of its own. That run builds here only for the family keys, sends the tier's classes to the test
   host `CORVUS_TEST_REMOTE` names (the commit as a bundle when origin lacks it), and records a pass for each family
-  whose classes all went there and passed with a full result. A class whose inputs are this machine's own, whose file
+  whose classes all went there and passed with a full result: no test skipped there that ran in the last whole run
+  here (`.git/corvus-last-whole.trx`, kept by every run without `-Reuse`), and no class far shorter there. A class whose inputs are this machine's own, whose file
   has live real data, or whose real-data or engine variables the host does not set stays unsent and is named; its
   family records no pass from this run. The task has no idle condition, since it costs this machine only the build,
   and a night the machine was off runs when it is on again; a recorded pass stays valid until its family's inputs
