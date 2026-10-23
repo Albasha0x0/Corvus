@@ -368,18 +368,25 @@ internal static class LivePrograms
         """;
 
     /// <summary>
-    /// inrange address (Windows, an image of at least 256 KiB): commits a page at the address, writes 7 there and passes
-    /// it to Hold; prints "taken" and exits 3 when the address cannot be committed (the image itself was loaded there).
+    /// inrange start end (Windows, an image of over 2 MiB): commits a page in the first free 64 KiB block between the
+    /// addresses, writes 7 there and passes it to Hold; when every block is in use it prints the range and exits 3.
     /// </summary>
     public const string InImageRange = Platform + """
         #include <stdint.h>
-        static char g_pad[0x40000];
+        static char g_pad[0x200000];
         NOINLINE int Hold(volatile int* p) { return *p; }
         int main(int argc, char** argv)
         {
-            void* at = (void*)(uintptr_t)strtoull(argc > 1 ? argv[1] : "0", NULL, 16);
-            int* p = (int*)VirtualAlloc(at, 4096, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
-            if (p != at) { printf("taken\n"); return 3; }
+            uintptr_t start = (uintptr_t)strtoull(argc > 1 ? argv[1] : "0", NULL, 16), end = (uintptr_t)strtoull(argc > 2 ? argv[2] : "0", NULL, 16);
+            int* p = NULL;
+            for (uintptr_t at = start; !p && at + 0x10000 <= end; at += 0x10000)
+                p = (int*)VirtualAlloc((void*)at, 4096, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
+            if (!p)
+            {
+                printf("no free 64 KiB block from 0x%llx to 0x%llx\n", (unsigned long long)start, (unsigned long long)end);
+                fflush(stdout);
+                return 3;
+            }
             *p = 7;
             g_pad[0] = 1;
             printf("held %d\n", Hold(p));

@@ -86,20 +86,21 @@ public sealed class LiveReadRealTests(ITestOutputHelper output) : LiveToolCalls(
     [LiveTargetFact("win-x86")] public Task Memory_in_the_image_file_range_is_read_where_the_program_has_it_on_win_x86() => ReadInImageRange(LiveTarget.WinX86);
     [LiveTargetFact("win-x64")] public Task Memory_in_the_image_file_range_is_read_where_the_program_has_it_on_win_x64() => ReadInImageRange(LiveTarget.WinX64);
 
-    // The program commits a page inside its own file range, which is free
-    // because ASLR loaded the image elsewhere; a reservation starts on a
-    // 64 KiB boundary.
+    // The program commits a page inside its own file range, left free where
+    // ASLR loaded the image elsewhere. The range spans over 2 MiB, past the
+    // 1 MiB main thread stack that can lie in it (CI run 39884500244).
     private async Task ReadInImageRange(LiveTarget target)
     {
         var exe = target.Build(_dir, "inrange", LivePrograms.InImageRange);
         var image = NativeImageLoader.Open(exe);
-        Assert.True(image.SizeOfImage > 0x30000, $"SizeOfImage 0x{image.SizeOfImage:X}");
-        var at = $"0x{image.ImageBase + 0x20000:X}";
+        Assert.True(image.SizeOfImage > 0x200000, $"SizeOfImage 0x{image.SizeOfImage:X}");
         await using var server = await Server();
-        var pid = await Spawn(server, exe, "live-1", at);
+        var pid = await Spawn(server, exe, "live-1", $"0x{image.ImageBase + 0x10000:X}", $"0x{image.ImageBase + image.SizeOfImage:X}");
         await Ok(server, "live_break", new() { ["session"] = "live-1", ["action"] = "set", ["at"] = "Hold" });
         var stop = await Ok(server, "live_break", new() { ["session"] = "live-1", ["action"] = "continue", ["wait"] = true, ["waitSeconds"] = 60 });
-        Assert.Contains("stopped at s1", stop);
+        if (!stop.Contains("stopped at s1", StringComparison.Ordinal))
+            Assert.Fail($"{stop}\noutput:\n{await Events(server, "live-1", kind: "output")}");
+        var at = await Argument(server, target, 0);
         Assert.Contains("  7\n", await Read(server, at, "int32"));
         await Ok(server, "live_session", new() { ["action"] = "close", ["session"] = "live-1" });
         Ended(pid);
