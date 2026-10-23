@@ -312,24 +312,32 @@ public static partial class ContractSweep
     }
 
     /// <summary>
-    /// Tools whose first call in a server JIT-compiles a large library (the decompiler, the PDB type reader): alone in a
-    /// fresh test server it took 5 s on an idle machine and 22 s on a loaded one, over <see cref="CallLimit"/>; warm, 0.1 s.
+    /// Tools whose first call in a server pays a cold start: JIT of a large library (the decompiler, the PDB type reader,
+    /// the C# compiler, the ReadyToRun reader) or, for list_assemblies with a path, the start of the files worker and its
+    /// first read. Alone in a fresh test server a first call took 1-5 s idle and 6-22 s loaded, near or over
+    /// <see cref="CallLimit"/>; the files worker under load took 3-17 s to start and 4-5 s more for its first read.
+    /// Warm, each call takes under 1 s.
     /// </summary>
-    private static readonly string[] Warmed = ["decompile_member", "get_native_type"];
+    private static readonly string[] Warmed = ["decompile_member", "get_native_type", "add_members_csharp", "get_r2r_code", "list_assemblies"];
 
     /// <summary>
-    /// Calls each <see cref="Warmed"/> tool's plausible case once, untimed and unjudged, then unloads an image it loaded,
-    /// so the timed calls see a warm server and the same workspace; a warm call that hangs is left to its timed call.
+    /// Calls each <see cref="Warmed"/> tool's plausible case once, untimed and unjudged, the C# edit as a dry run, then
+    /// unloads a file it loaded, so the timed calls see a warm server and the same workspace; a warm call that hangs is
+    /// left to its timed call.
     /// </summary>
-    private static async Task WarmAsync(McpClient client, List<Case> cases)
+    public static async Task WarmAsync(McpClient client, List<Case> cases)
     {
         await Task.WhenAll(cases.Where(c => c.Label == "plausible" && Warmed.Contains(c.Tool)).Select(async c =>
         {
+            var args = new Dictionary<string, object?>(c.Args);
+            if (c.Tool == "add_members_csharp") args["dryRun"] = true;
             using var cts = new CancellationTokenSource(TimeSpan.FromMinutes(2));
-            try { await client.CallToolAsync(c.Tool, c.Args, cancellationToken: cts.Token); }
+            try { await client.CallToolAsync(c.Tool, args, cancellationToken: cts.Token); }
             catch (OperationCanceledException) when (cts.IsCancellationRequested) { return; }
-            if (c.Args.GetValueOrDefault("image") is string image)
-                await client.CallToolAsync("unload_assembly", new Dictionary<string, object?> { ["assembly"] = Path.GetFileName(image) });
+            // A file given by path (get_native_type's image, get_r2r_code's System.Linq) was loaded for the call.
+            foreach (var key in new[] { "image", "assembly" })
+                if (c.Args.GetValueOrDefault(key) is string file && Path.IsPathRooted(file))
+                    await client.CallToolAsync("unload_assembly", new Dictionary<string, object?> { ["assembly"] = Path.GetFileName(file) });
         }));
     }
 

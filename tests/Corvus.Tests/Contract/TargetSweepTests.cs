@@ -62,6 +62,7 @@ public sealed class TargetSweepTests(Xunit.Abstractions.ITestOutputHelper output
         using var dir = new TempDir();
         await using var client = await ContractSweep.StartAsync(dir);
         var tools = await client.ListToolsAsync();
+        await ContractSweep.WarmAsync(client, ContractSweep.Build(tools, dir, ContractSweep.Depth.Core));
         var plausible = Plausible(tools, dir);
         var native = NativePeTests.KitchenSink(is64: true);
         int n = 0;
@@ -106,6 +107,7 @@ public sealed class TargetSweepTests(Xunit.Abstractions.ITestOutputHelper output
         using var dir = new TempDir();
         await using var client = await ContractSweep.StartAsync(dir);
         var tools = await client.ListToolsAsync();
+        await ContractSweep.WarmAsync(client, ContractSweep.Build(tools, dir, ContractSweep.Depth.Core));
         var plausible = Plausible(tools, dir);
         var missing = dir.File(Path.Combine("missing", "nope.dll"));
         var expected = $"File not found: '{missing}'\nNext: {Targets.FileNotFoundNext}";
