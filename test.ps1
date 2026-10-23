@@ -631,6 +631,14 @@ if ($Stamp) {
 # The Engines tests again with a second Ghidra (the oldest supported, say), keyed like a family with that Ghidra in the
 # settings: unchanged inputs skip it, and a retry under the same key runs only the tests that failed.
 $secondStamp = Join-Path $gitDir 'corvus-second-ghidra.json'
+
+# Writes the first three lines of each named test's failure message in a TRX file.
+function Write-FailureMessages([string]$trx, [string[]]$names) {
+    $messages = Get-FailureMessages $trx
+    foreach ($test in $names | Where-Object { $messages[$_] }) {
+        Write-Host "  $test`: $((($messages[$test] -split "`r?`n") | Where-Object { $_.Trim() } | Select-Object -First 3) -join ' | ')"
+    }
+}
 function Invoke-SecondGhidra {
     if (-not $env:CORVUS_SECOND_GHIDRA_DIR) { Write-Host 'Engine tests on a second Ghidra skipped: CORVUS_SECOND_GHIDRA_DIR is not set.' -ForegroundColor Yellow; return 0 }
     Import-Module (Join-Path $root 'test-reuse.psm1') -Force
@@ -654,6 +662,13 @@ function Invoke-SecondGhidra {
     try { & dotnet test $tests --nologo @buildPriority --filter $filter --logger 'trx;LogFileName=second.trx' --results-directory $results | Out-Host; $code = $LASTEXITCODE }
     finally { $env:CORVUS_GHIDRA_DIR, $env:CORVUS_ALL_TESTS, $env:CORVUS_TEST_ENGINE = $saved }
     $trx = Join-Path $results 'second.trx'
+    # The log and a kept copy name each failure's cause, as for the main run: the results folder is removed below.
+    if ($code -ne 0 -and (Test-Path $trx)) {
+        Write-FailureMessages $trx @(Get-FailedTests $trx)
+        $failedRun = "$(Get-Date -Format 'yyyyMMdd-HHmmss')-$((git -C $root rev-parse --short HEAD).Trim())-second"
+        Save-FailedRun (Join-Path $gitDir 'corvus-failed-runs') $failedRun @($trx)
+        Write-Host "Results kept in $(Join-Path $gitDir "corvus-failed-runs/$failedRun.trx")."
+    }
     if ($key) {
         # A failure no test is blamed for (a crashed host) keeps no record, so everything runs next time.
         $failed = if (Test-Path $trx) { @(Get-FailedTests $trx) } else { @() }
@@ -1018,10 +1033,7 @@ try {
             Set-Content -Path (Join-Path $gitDir 'corvus-last-run-labels.txt') -Value $labels
             Write-Host "Failures after one rerun (the run stays failed):`n  $($labels -join "`n  ")" -ForegroundColor Red
             # The log and a kept copy of the results name each failure's cause after the next run replaces the TRX.
-            $messages = Get-FailureMessages $trx
-            foreach ($test in $split.Blocking | Where-Object { $messages[$_] }) {
-                Write-Host "  $test`: $((($messages[$test] -split "`r?`n") | Where-Object { $_.Trim() } | Select-Object -First 3) -join ' | ')"
-            }
+            Write-FailureMessages $trx $split.Blocking
             $failedRun = "$(Get-Date -Format 'yyyyMMdd-HHmmss')-$((git -C $root rev-parse --short HEAD).Trim())"
             Save-FailedRun (Join-Path $gitDir 'corvus-failed-runs') $failedRun @($trx, $rerunTrx)
             Write-Host "Results kept in $(Join-Path $gitDir "corvus-failed-runs/$failedRun.trx")."
