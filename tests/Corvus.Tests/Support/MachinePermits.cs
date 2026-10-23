@@ -38,6 +38,10 @@ public static class MachinePermits
     /// </summary>
     public static readonly TimeSpan WaitLimit = TimeSpan.FromMinutes(10);
 
+    // The Restart Manager reads every handle on the machine: 0.6-6.7 s under load in quick runs, and past 30 s
+    // beside a whole run, so a wait that runs out names the holders it learns within this bound.
+    private static readonly TimeSpan HolderLookupLimit = TimeSpan.FromSeconds(30);
+
     /// <summary>How often a holder reports progress while a test runs, so only a holder that stopped runs out a wait.</summary>
     public static readonly TimeSpan Heartbeat = TimeSpan.FromSeconds(60);
     private static readonly object LogLock = new();
@@ -78,10 +82,12 @@ public static class MachinePermits
             ? Task.FromResult((new PermitHandle(), TimeSpan.Zero))
             : TakeAsync(resources, Folder, Counts, cancellation, WaitLimit, Heartbeat);
 
-    // Tests measure the limit on their own clock and learn from polled when the waiter has checked the records.
+    // Tests measure the limit on their own clock, learn from polled when the waiter has checked the records, and
+    // may replace the holder lookup or its bound (infinite: wait for its answer).
     internal static async Task<(PermitHandle Held, TimeSpan Waited)> TakeAsync(IReadOnlyList<string> resources, string folder,
         IReadOnlyDictionary<string, int> counts, CancellationToken cancellation, TimeSpan? limit = null, TimeSpan? heartbeat = null,
-        Func<TimeSpan>? clock = null, Action? polled = null)
+        Func<TimeSpan>? clock = null, Action? polled = null, Func<string, IReadOnlyList<(int Pid, string? CommandLine)>>? holders = null,
+        TimeSpan? holderLookupLimit = null)
     {
         var watch = Stopwatch.StartNew();
         clock ??= () => watch.Elapsed;
@@ -102,7 +108,7 @@ public static class MachinePermits
                     // permit without either fails the wait.
                     if (Owners(dir, count) is var now && now != seen) (seen, quietSince) = (now, clock());
                     else if (clock() - quietSince > limit)
-                        throw new TimeoutException($"No {resource} permit within {limit.Value.TotalMinutes:0.##} min without progress: {Holders(dir, count)}.");
+                        throw new TimeoutException($"No {resource} permit within {limit.Value.TotalMinutes:0.##} min without progress: {await Holders(dir, count, holders ?? FileHolders.Of, holderLookupLimit ?? HolderLookupLimit)}.");
                     polled?.Invoke();
                     await Task.Delay(Poll, cancellation);
                 }
@@ -128,15 +134,34 @@ public static class MachinePermits
         lock (LogLock) File.AppendAllLines(log, [line]);
     }
 
-    /// <summary>Each slot file of a resource and who holds it: the process id and command line where Windows reports them.</summary>
-    private static string Holders(string dir, int count) => string.Join("; ", Enumerable.Range(0, count).Select(i =>
+    /// <summary>
+    /// Each slot file of a resource and who holds it: the process id and command line where Windows reports them
+    /// within <paramref name="bound"/>, otherwise the holder is named unknown.
+    /// </summary>
+    private static async Task<string> Holders(string dir, int count, Func<string, IReadOnlyList<(int Pid, string? CommandLine)>> lookup, TimeSpan bound)
     {
-        var slot = Path.Combine(dir, $"slot-{i}");
-        var holders = OperatingSystem.IsWindows() ? FileHolders.Of(slot) : [];
-        return holders.Count == 0
-            ? $"{slot} is held by another process"
-            : $"{slot} is held by " + string.Join(", ", holders.Select(h => $"process {h.Pid}" + (h.CommandLine is { } c ? $" ({c})" : "")));
-    }));
+        var named = new List<string>();
+        for (int i = 0; i < count; i++)
+        {
+            var slot = Path.Combine(dir, $"slot-{i}");
+            IReadOnlyList<(int Pid, string? CommandLine)> holders = [];
+            if (OperatingSystem.IsWindows())
+            {
+                // A lookup that outlasts the bound keeps its own thread until it ends; its result is dropped.
+                var query = Task.Factory.StartNew(() => lookup(slot), CancellationToken.None, TaskCreationOptions.LongRunning, TaskScheduler.Default);
+                if (await Task.WhenAny(query, Task.Delay(bound)) != query)
+                {
+                    named.Add($"{slot} is held by a process not known yet (the holder lookup took over {bound.TotalSeconds:0.#} s)");
+                    continue;
+                }
+                holders = await query;
+            }
+            named.Add(holders.Count == 0
+                ? $"{slot} is held by another process"
+                : $"{slot} is held by " + string.Join(", ", holders.Select(h => $"process {h.Pid}" + (h.CommandLine is { } c ? $" ({c})" : ""))));
+        }
+        return string.Join("; ", named);
+    }
 
     /// <summary>
     /// The owner records of a resource's slots, joined: "pid test token progress" from a test process, "pid script" from

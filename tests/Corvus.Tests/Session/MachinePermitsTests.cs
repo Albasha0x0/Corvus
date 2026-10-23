@@ -53,13 +53,40 @@ public class MachinePermitsTests
         try
         {
             var (held, _) = await MachinePermits.TakeAsync(["one"], folder, counts, default);
-            var late = await Assert.ThrowsAsync<TimeoutException>(() => MachinePermits.TakeAsync(["one"], folder, counts, default, TimeSpan.FromMilliseconds(500)));
+            // The holder lookup is waited for however long the machine's load makes it.
+            var late = await Assert.ThrowsAsync<TimeoutException>(() => MachinePermits.TakeAsync(["one"], folder, counts, default, TimeSpan.FromMilliseconds(500),
+                holderLookupLimit: Timeout.InfiniteTimeSpan));
             held.Dispose();
             Assert.Contains("No one permit within ", late.Message);
             Assert.Contains(Path.Combine(folder, "one", "slot-0") + " is held by ", late.Message);
             if (OperatingSystem.IsWindows()) Assert.Contains($"process {Environment.ProcessId} (", late.Message);
         }
         finally { Directory.Delete(folder, true); }
+    }
+
+    [Fact]
+    public async Task A_holder_lookup_that_does_not_answer_leaves_the_holder_unknown_and_the_wait_ends()
+    {
+        var folder = Path.Combine(Path.GetTempPath(), $"corvus-permits-{Guid.NewGuid():N}");
+        var counts = new Dictionary<string, int> { ["one"] = 1 };
+        using var answer = new ManualResetEventSlim();
+        try
+        {
+            var (held, _) = await MachinePermits.TakeAsync(["one"], folder, counts, default);
+            var clock = Stopwatch.StartNew();
+            // The lookup answers only after the test, as the Restart Manager can beside a whole run.
+            var late = await Assert.ThrowsAsync<TimeoutException>(() => MachinePermits.TakeAsync(["one"], folder, counts, default, TimeSpan.FromMilliseconds(500),
+                holders: _ => { answer.Wait(); return []; }, holderLookupLimit: TimeSpan.FromSeconds(1)).WaitAsync(TimeSpan.FromSeconds(30)));
+            held.Dispose();
+            Assert.Contains("No one permit within ", late.Message);
+            if (OperatingSystem.IsWindows()) Assert.Contains(Path.Combine(folder, "one", "slot-0") + " is held by a process not known yet (the holder lookup took over 1 s)", late.Message);
+            Assert.True(clock.Elapsed < TimeSpan.FromSeconds(25), $"{clock.Elapsed}");
+        }
+        finally
+        {
+            answer.Set();
+            Directory.Delete(folder, true);
+        }
     }
 
     [Fact]
@@ -136,7 +163,7 @@ public class MachinePermitsTests
         finally { steps.Delete(); }
     }
 
-    /// <summary>A wait on one slot with a 600 ms limit measured on a clock the test advances.</summary>
+    /// <summary>A wait on one slot with a 600 ms limit measured on a clock the test advances, naming holders found within 5 s.</summary>
     private sealed class SteppedWait : IDisposable
     {
         public readonly string Folder = Path.Combine(Path.GetTempPath(), $"corvus-permits-{Guid.NewGuid():N}");
@@ -149,7 +176,8 @@ public class MachinePermitsTests
         public string Dir => Path.Combine(Folder, "one");
 
         public Task<(PermitHandle Held, TimeSpan Waited)> Wait() =>
-            MachinePermits.TakeAsync(["one"], Folder, Counts, default, TimeSpan.FromMilliseconds(600), clock: () => _now, polled: () => _polls.Release());
+            MachinePermits.TakeAsync(["one"], Folder, Counts, default, TimeSpan.FromMilliseconds(600), clock: () => _now, polled: () => _polls.Release(),
+                holderLookupLimit: TimeSpan.FromSeconds(5));
 
         /// <summary>
         /// Moves the clock on, runs <paramref name="act"/>, then waits for two of the waiter's polls, so one checked the
