@@ -156,7 +156,17 @@
   least: Accuracy, Builds, Containers, DotnetEdits, Dumps, Il2Cpp, Mobile, NativeAot, NativeEdits, NativeFormats,
   Support and Web. A push run leaves their classes out, here and on the test host, and runs only their smoke tests
   (trait `Smoke=push`: one or two fast tests on each family's main path; Accuracy has none); it records no family
-  pass for the tier's families.
+  pass for the tier's families. The tier runs nightly on the test host: `./host-tier.ps1 -Register [-At 02:00]` adds a
+  Windows scheduled task for the current user (opt-in; `-Unregister` removes it) that runs `./test.ps1 -HostTier` on
+  HEAD in a worktree of its own. That run builds here only for the family keys, sends the tier's classes to the test
+  host `CORVUS_TEST_REMOTE` names (the commit as a bundle when origin lacks it), and records a pass for each family
+  whose classes all went there and passed with a full result. A class whose inputs are this machine's own, whose file
+  has live real data, or whose real-data or engine variables the host does not set stays unsent and is named; its
+  family records no pass from this run. The task has no idle condition, since it costs this machine only the build,
+  and a night the machine was off runs when it is on again; a recorded pass stays valid until its family's inputs
+  change. The run goes to `.git/corvus-host-tier.log` (the test output to `.git/corvus-host-tier.log.run`), the host's
+  results to `.git/corvus-host-tier.trx`, and `-Status` shows the last run: what it recorded, what failed there, the
+  classes without a full result and those kept here.
 - **Nightly run.** `./nightly.ps1 -Register [-At 02:00]` adds a Windows scheduled task for the current user (opt-in;
   `-Unregister` removes it). Each night, once the machine has been idle for 10 minutes, it starts a full run of HEAD in
   the background worktree (`-Strength`, whole by default, which holds the heavy lock), waits for it and any run queued
@@ -204,7 +214,7 @@ read, or a "Read by" cell that differs from the classes and scripts that read it
 | `CORVUS_ANDROID_PACKAGE` | A real Android package (.apk, .aab or split set). | AndroidRealTests, DalvikDisassemblerTests, OutputBudgetTests |
 | `CORVUS_ARCHIVE_LISTER` | The 7-Zip command line the NSIS listings are compared with. | InstallerComparisonTests |
 | `CORVUS_ASSEMBLY_DIR` | A folder of real .NET assemblies. | CppBindingTests, RealAssemblyTests, SerialTimingTests |
-| `CORVUS_BACKGROUND_DIR` | The folder background runs keep their worktree in (default: the temp folder). | test-reuse.psm1, test.ps1 |
+| `CORVUS_BACKGROUND_DIR` | The folder background runs keep their worktree in (default: the temp folder). | host-tier.ps1, test-reuse.psm1, test.ps1 |
 | `CORVUS_BUNDLE_EXTRACTOR` | The WiX command line whose `burn extract` the WiX Burn listings are compared with. | InstallerComparisonTests |
 | `CORVUS_BUNDLE_PAIRS` | A folder of folders, each holding two builds of one JavaScript bundle as old.* and new.*. | JsBundleFilesTests, JsDiffTests |
 | `CORVUS_CALLPATH_TARGET` | A method to search call paths to (default: picked from the assemblies). | SerialTimingTests |
@@ -311,7 +321,7 @@ read, or a "Read by" cell that differs from the classes and scripts that read it
 | `CORVUS_WEBPACK_APPS` | A folder of folders, each an app's extracted webpack output. | JsRuntimeTests |
 | `CORVUS_WPF_APPS` | A folder of WPF programs (.exe, three levels deep) whose BAML must decompile to XAML that parses. | XamlEventsTests |
 | `CORVUS_SEED_VALIDATE` | How many engine seeds to compare with a cold analysis of their input; the night's run sets `3`. | EngineSeedTests, nightly.ps1, test-reuse.psm1 |
-| `CORVUS_TEST_REMOTE` | The test host (`user@host`) prepared by `test-remote-setup.ps1`; a whole-suite run sends its offloaded classes there when it answers over ssh. | test-remote-setup.ps1, test-remote.psm1, test.ps1 |
+| `CORVUS_TEST_REMOTE` | The test host (`user@host`) prepared by `test-remote-setup.ps1`; a whole-suite run sends its offloaded classes there when it answers over ssh. | host-tier.ps1, test-remote-setup.ps1, test-remote.psm1, test.ps1 |
 | `CORVUS_TEST_SCP` | The scp program, or a `.ps1` script standing in for it; OpenSSH's own when unset. | test-remote-setup.ps1, test-remote.psm1 |
 | `CORVUS_TEST_SSH` | The ssh program, or a `.ps1` script standing in for it; OpenSSH's own when unset. | test-remote-setup.ps1, test-remote.psm1 |
 

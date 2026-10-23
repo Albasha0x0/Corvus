@@ -18,6 +18,7 @@
 #         ./test.ps1 -Stamp               # records the last full run's passes when its recording step failed (same tree only)
 #         ./test.ps1 -RemoteRun -Group sweep -Shard 0/2  # CI: one shard of a group a push run offloads (test-remote.psm1)
 #         ./test.ps1 -Remote -Filter <filter> -Repeat 20  # runs the filter 20 times on the test host CORVUS_TEST_REMOTE names, from this working tree
+#         ./test.ps1 -HostTier            # the host tier's classes on that test host; records the families they pass (host-tier.ps1)
 #         ./test.ps1 -Full -Coverage      # also collects line coverage (coverlet) and checks Ratchets/coverage.txt
 #         ./test.ps1 -CoverageMap         # which source files each family's tests (and each slow class) run (a whole background run refreshes it weekly): -Reuse keys on them
 #         ./test.ps1 -Mutation [-Target sqlite,pe]  # mutation testing of the core readers (Stryker.NET; tests/mutation.json),
@@ -48,6 +49,7 @@ param(
     [string]$Group = '',
     [string]$Shard = '0/1',
     [switch]$CrossPlatform,
+    [switch]$HostTier,
     [switch]$Wait
 )
 
@@ -76,7 +78,7 @@ function Import-UserTestVariables {
         if (($name -like 'CORVUS_*' -or $name -eq 'GHIDRA_INSTALL_DIR') -and -not [Environment]::GetEnvironmentVariable($name)) { Set-Item "env:$name" $user[$name] }
     }
 }
-if ($Full -or $Background -or $Perf -or $Remote) { Import-UserTestVariables }
+if ($Full -or $Background -or $Perf -or $Remote -or $HostTier) { Import-UserTestVariables }
 
 # Test runs yield to the desktop: the builds, test hosts and engine workers they start inherit the lowered priority. The
 # perf run keeps normal priority: it measures alone on the machine.
@@ -139,6 +141,7 @@ if ($Status) {
     Import-Module (Join-Path $root 'test-remote.psm1') -Force
     Get-RemoteStatus $gitDir | ForEach-Object { Write-Host "Offload $_" }
     if (Get-DeferredStatus $gitDir) { Write-Host "Host-only classes left for the nightly run: $(Get-DeferredStatus $gitDir)" }
+    if (Get-TierStatus $gitDir) { Write-Host "Host tier: $(Get-TierStatus $gitDir)" }
     $nightly = Join-Path $gitDir 'corvus-nightly.log'
     if (Test-Path $nightly) { Write-Host "Nightly ($nightly): $(Get-Content $nightly -Tail 1)" }
     $verdicts = Join-Path $gitDir 'corvus-perf-verdicts.json'
@@ -456,7 +459,7 @@ function Get-FamilyClasses([string]$family) {
 # The commit gate: the quick tests of the families a change touches (committed since $Base, uncommitted and untracked),
 # by the coverage map where it knows a file, plus the contract tests; shared code runs the whole quick set. The full
 # run after the push (the pre-push hook) runs everything.
-if (-not ($Full -or $All -or $Affected -or $Filter -or $Coverage -or $CoverageMap -or $SecondGhidra -or $Background)) {
+if (-not ($Full -or $All -or $Affected -or $Filter -or $Coverage -or $CoverageMap -or $SecondGhidra -or $Background -or $HostTier)) {
     $changed = @(git -C $root diff --name-only $Base) + @(git -C $root ls-files --others --exclude-standard) | Where-Object { $_ } | Sort-Object -Unique
     if (-not $changed) { Write-Host "Nothing changed since ${Base}; ./test.ps1 -All runs the whole quick set."; exit 0 }
     Import-Module (Join-Path $root 'test-reuse.psm1') -Force
@@ -642,7 +645,7 @@ if ($CoverageMap) {
     exit 0
 }
 
-if ($wholeSuite -and (Get-CleanTree)) {
+if (($wholeSuite -or $HostTier) -and (Get-CleanTree)) {
     Import-Module (Join-Path $root 'test-reuse.psm1') -Force
     $classMap = Get-ClassMap $tests
     $treeLines = @(git -C $root ls-tree -r HEAD)
@@ -672,6 +675,43 @@ if ($wholeSuite -and (Get-CleanTree)) {
     }
 }
 elseif ($Reuse) { Write-Host 'Reuse needs a clean tree and the whole suite: nothing is reused.' }
+
+# The host tier's nightly run (host-tier.ps1): its classes run on the test host, and the families they prove there
+# record passes under this tree's keys. This machine only builds for the keys and reads the results back.
+if ($HostTier) {
+    Import-Module (Join-Path $root 'test-remote.psm1') -Force
+    # Not $target: PowerShell names ignore case, and -Target is a [string[]] parameter.
+    $tierHost = "$env:CORVUS_TEST_REMOTE".Trim()
+    $commit = (git -C $root rev-parse HEAD).Trim()
+    $record = [ordered]@{ target = $tierHost; commit = $commit.Substring(0, 8); at = (Get-Date -Format 'yyyy-MM-dd HH:mm'); state = 'not run'; classes = 0; seconds = $null
+        recorded = @(); failed = @(); unproven = @(); kept = @(); note = $null }
+    $why = if (-not ($familyKeys -and $built)) { 'it needs a clean tree that builds' } elseif (-not $tierHost) { 'CORVUS_TEST_REMOTE names no test host' } elseif (-not (Test-RemoteHost $tierHost)) { "$tierHost gave no answer" } else { $null }
+    if ($why) { $record.note = $why; Save-TierRecord $gitDir $record; Write-Host "The host tier did not run: $why." -ForegroundColor Red; exit 2 }
+    $split = Get-TierHostClasses $tests @(Get-TierClasses $tests) @(Get-HostVariables $tierHost)
+    $record.classes = $split.Sent.Count; $record.kept = $split.Kept
+    if ($split.Kept) { Write-Host "Kept here, unsent: $($split.Kept -join '; ')." }
+    Write-Host "Host tier: $($split.Sent.Count) classes of $(@(Get-TierFamilies).Count) families to $tierHost on $($record.commit)."
+    $clock = [Diagnostics.Stopwatch]::StartNew()
+    $handle = Start-Offload @{ Name = $tierHost; Kind = 'ssh'; Host = $tierHost } $commit $split.Sent $false (Join-Path $root 'test-remote.psm1')
+    if ($handle.Transport -eq 'bundle') { $record.transport = 'bundle' }
+    $results = Join-Path $tempRoot "corvus-tier-$PID"
+    try {
+        $got = Receive-Offload $handle $results
+        $record.seconds = [math]::Round($clock.Elapsed.TotalSeconds, 1)
+        $record.note = $got.Note
+        if ($got.Started) {
+            if ($got.Trx) { Copy-Item $got.Trx (Join-Path $gitDir 'corvus-host-tier.trx') -Force }
+            $proved = Get-TierPasses $got $split.Sent $classMap $lastTrx (Get-FastestClassSeconds $timeHistory)
+            Save-FamilyPasses $familyStamps $proved.Passed $familyKeys $mode $record.commit
+            $record.recorded = $proved.Passed; $record.failed = $proved.Failed; $record.unproven = $proved.Unproven
+            $record.state = if ($proved.Failed) { 'failed' } elseif ($proved.Unproven -or $got.Note -ne 'exit 0') { 'partial' } else { 'passed' }
+        }
+    }
+    finally { if (Test-Path $results) { Remove-Item -Recurse -Force $results } }
+    Save-TierRecord $gitDir $record
+    Write-Host "Host tier: $(Get-TierStatus $gitDir)"
+    exit $(if ($record.state -eq 'passed') { 0 } else { 1 })
+}
 
 # Engine tests skip silently without their engine; a full run names the missing ones before and after it runs.
 $missingEngines = @()

@@ -623,4 +623,75 @@ public sealed class TestRemoteTests : IDisposable
         Assert.Contains("bare=(FullyQualifiedName!~.WasmTests)|Smoke=push", lines);
         Assert.Contains("none=Tier!=Release", lines);
     }
+
+    [Fact]
+    public void A_tier_class_the_test_host_cannot_run_stays_here_and_is_named()
+    {
+        var tests = Path.Combine(_dir.Path, "tests");
+        void Source(string folder, string file, string text)
+        {
+            Directory.CreateDirectory(Path.Combine(tests, folder));
+            File.WriteAllText(Path.Combine(tests, folder, file), text);
+        }
+        Source("Support", "TestEnv.cs", "public static class RealData { public const string Apps = \"CORVUS_APPS\"; }");
+        Source("Web", "W.cs", "public sealed class WasmTests { [Fact] public void M() { } }");
+        Source("Mobile", "A.cs", "public class ApkRealTests { [RequiresRealDataFact(RealData.Apps)] public void M() { } }");
+        Source("Mobile", "B.cs", "public class BundleRealTests { [RequiresRealDataFact(\"CORVUS_BUNDLES\")] public void M() { } }");
+        Source("Il2Cpp", "I.cs", "public class MetaIdaTests { [IdaFact] public void M() { } }\npublic class MetaGhidraTests { [GhidraFact] public void M() { } }");
+        Source("Dumps", "D.cs", "public class DumpLiveTests { [LiveRealDataFact] public void M() { } }");
+        Source("NativeFormats", "F.cs", "public class FirmwareComparisonTests { [Fact] public void M() { } }");
+        Source("Live", "L.cs", "public class LiveTargetTests { [Fact] public void M() { } }");
+        var lines = TestReuseTests.Run($$"""
+            Import-Module {{Module}}
+            $split = Get-TierHostClasses {{Quote(tests)}} @(Get-TierClasses {{Quote(tests)}}) @('CORVUS_APPS', 'CORVUS_GHIDRA_DIR')
+            'sent=' + ($split.Sent -join ',')
+            'kept=' + ($split.Kept -join '; ')
+            """);
+        if (lines is ["skip"]) return;
+        Assert.Contains("sent=ApkRealTests,MetaGhidraTests,WasmTests", lines);
+        Assert.Contains("kept=BundleRealTests (CORVUS_BUNDLES not set there); DumpLiveTests (live real data); "
+            + "FirmwareComparisonTests (this machine's inputs); MetaIdaTests (CORVUS_IDA_DIR not set there)", lines);
+    }
+
+    [Fact]
+    public void The_host_tier_records_only_families_whose_classes_all_passed_there_with_a_full_result()
+    {
+        var remote = _dir.File("tier.trx");
+        File.WriteAllText(remote, Trx(("WasmTests", "Passed"), ("CaptureTests", "Passed"), ("MinidumpTests", "Failed"), ("ApkTests", "Passed"),
+            ("MetaTests", "Passed"), ("EarlyTests", "Passed")));
+        var clean = _dir.File("clean.trx");
+        File.WriteAllText(clean, Trx(("WasmTests", "Passed"), ("CaptureTests", "Passed")));
+        var before = _dir.File("last.trx");
+        File.WriteAllText(before, Trx(("EarlyTests", "Passed@40"), ("DiffTests", "Passed")));
+        var git = _dir.Path;
+        var lines = TestReuseTests.Run($$"""
+            Import-Module {{Module}}
+            Import-Module {{Quote(Path.Combine(DocsTests.RepoRoot(), "test-reuse.psm1"))}}
+            $map = @{ Web = @('WasmTests', 'CaptureTests', 'WasmTheoryAttribute'); Dumps = @('MinidumpTests'); Mobile = @('ApkTests', 'ApkRealTests'); Il2Cpp = @('MetaTests')
+                'class:EarlyTests' = @('EarlyTests'); Builds = @('DiffTests') }
+            $sent = 'WasmTests', 'CaptureTests', 'MinidumpTests', 'ApkTests', 'MetaTests', 'EarlyTests', 'DiffTests'
+            $got = [pscustomobject]@{ Started = $true; Trx = {{Quote(remote)}}; Failed = @([pscustomobject]@{ Class = 'MinidumpTests'; Platform = 'host' }); Note = 'exit 1' }
+            $proved = Get-TierPasses $got $sent $map {{Quote(before)}}
+            'passed=' + ($proved.Passed -join ',')
+            'failed=' + ($proved.Failed -join ',')
+            'unproven=' + ($proved.Unproven -join ',')
+            $cut = Get-TierPasses ([pscustomobject]@{ Started = $true; Trx = {{Quote(clean)}}; Failed = @(); Note = 'the connection ended before the run did' }) @('WasmTests', 'CaptureTests') $map {{Quote(before)}}
+            'cut=' + ($cut.Passed -join ',')
+            $none = Get-TierPasses ([pscustomobject]@{ Started = $true; Trx = $null; Failed = @(); Note = 'exit 0' }) @('WasmTests') $map {{Quote(before)}}
+            'none=' + ($none.Passed -join ',') + '|' + ($none.Unproven -join ',')
+            Save-TierRecord {{Quote(git)}} ([ordered]@{ target = 'tester@host2'; commit = 'abc12345'; at = 'now'; state = 'failed'; classes = 7; seconds = 90.5
+                recorded = $proved.Passed; failed = $proved.Failed; unproven = $proved.Unproven; kept = @('ApkRealTests (CORVUS_APPS not set there)'); note = 'exit 1' })
+            'status=' + (Get-TierStatus {{Quote(git)}})
+            """);
+        if (lines is ["skip"]) return;
+        // Mobile has a class that was not sent, Web an attribute class (the hand run on 03378fef recorded no NativeAot
+        // pass for one); EarlyTests took 1 s there and 40 s in the last run here; DiffTests has no result there.
+        Assert.Contains("passed=Il2Cpp,Web", lines);
+        Assert.Contains("failed=Dumps", lines);
+        Assert.Contains("unproven=DiffTests,EarlyTests", lines);
+        Assert.Contains("cut=", lines);
+        Assert.Contains("none=|WasmTests", lines);
+        Assert.Contains("status=failed on abc12345 at now on tester@host2 (7 classes, 90.5 s); recorded: Il2Cpp, Web; failed there: Dumps; "
+            + "no full result there: DiffTests, EarlyTests; kept here: ApkRealTests (CORVUS_APPS not set there); exit 1", lines);
+    }
 }

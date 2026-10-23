@@ -22,6 +22,10 @@ $script:HostClasses = 'NativeToolSweepTests', 'DevRelayRealServerTests', 'Deadli
 $script:TierFamilies = 'Accuracy', 'Builds', 'Containers', 'DotnetEdits', 'Dumps', 'Il2Cpp', 'Mobile', 'NativeAot', 'NativeEdits',
     'NativeFormats', 'Support', 'Web'
 $script:SmokeTrait = 'Smoke=push'
+# The host tier's last nightly run on the test host, under the repository's .git: its record and its results.
+$script:TierFile = 'corvus-host-tier.json'
+# A Ghidra fact skips without its engine, as an IDA fact does without $script:IdaVariable.
+$script:GhidraVariable = 'CORVUS_GHIDRA_DIR'
 # Folders whose classes go only as the ghidra group (by their Ghidra facts).
 $script:EngineFolders = 'Engines'
 # Attributes that keep a class's file here: the live real-data facts.
@@ -103,6 +107,14 @@ function Get-DataVariables([string]$text, [hashtable]$constants) {
     @($names | Sort-Object -Unique)
 }
 
+# The RealData constants of $testsDir's real-data source, name to variable; empty when the file is absent.
+function Get-RealDataConstants([string]$testsDir) {
+    $constants = @{}
+    $source = Join-Path $testsDir $script:RealDataSource
+    if (Test-Path $source) { [regex]::Matches((Get-Content $source -Raw), 'public const string (\w+) = "(CORVUS_\w+)"') | ForEach-Object { $constants[$_.Groups[1].Value] = $_.Groups[2].Value } }
+    $constants
+}
+
 # The top-level *Tests classes of C# source $text as @{ Class; Ida; Ghidra }: whether the class holds an IDA fact, and
 # one a routine run includes (a Ghidra fact without the release tier on it or on its class). An offload never runs the
 # release tier, so a class whose Ghidra facts are all release-tier counts as IDA alone.
@@ -134,9 +146,7 @@ function Get-ClassEngines([string]$text) {
 # hold no test of their own; an abstract *Tests class holds nested ones).
 function Get-RemoteEntries([string]$testsDir, [switch]$CrossPlatform) {
     $local = '\[(' + ($script:LocalAttributes -join '|') + $(if ($CrossPlatform) { '|WindowsFact' }) + ')\b'
-    $constants = @{}
-    $source = Join-Path $testsDir $script:RealDataSource
-    if (Test-Path $source) { [regex]::Matches((Get-Content $source -Raw), 'public const string (\w+) = "(CORVUS_\w+)"') | ForEach-Object { $constants[$_.Groups[1].Value] = $_.Groups[2].Value } }
+    $constants = Get-RealDataConstants $testsDir
     Get-ChildItem $testsDir -Directory | Where-Object { $_.Name -notin 'bin', 'obj' } | ForEach-Object {
         $folder = $_.Name
         Get-ChildItem $_.FullName -Recurse -Filter *.cs | ForEach-Object {
@@ -187,6 +197,74 @@ function Get-TierClasses([string]$testsDir, [string[]]$returned = @()) {
 function Get-TierFilter([string]$filter, [string[]]$classes) {
     if (-not $classes) { return $filter }
     "($(Get-LocalFilter $filter $classes))|$script:SmokeTrait"
+}
+
+# Of the host tier's $classes, @{ Sent; Kept } for a test host whose user variables are $hostVariables: Kept names each
+# class that stays unsent as "Class (reason)", a local class, a file with live real data, or a file whose real-data or
+# engine facts need a variable not set there ('?' for one the facts do not name). Both sorted.
+function Get-TierHostClasses([string]$testsDir, [string[]]$classes, [string[]]$hostVariables = @()) {
+    $constants = Get-RealDataConstants $testsDir
+    $local = '\[(' + ($script:LocalAttributes -join '|') + ')\b'
+    $sent = [Collections.Generic.List[string]]::new(); $kept = [Collections.Generic.List[string]]::new()
+    foreach ($family in $script:TierFamilies) {
+        $folder = Join-Path $testsDir $family
+        if (-not (Test-Path $folder)) { continue }
+        foreach ($file in Get-ChildItem $folder -Recurse -Filter *.cs) {
+            $text = Get-Content $file.FullName -Raw
+            $data = if ($text -match ('\[' + $script:DataAttribute + '\b')) { @(Get-DataVariables $text $constants) } else { @() }
+            foreach ($class in Get-ClassEngines $text | Where-Object Class -in $classes) {
+                $name = $class.Class
+                $needed = @($data) + @(if ($class.Ida) { $script:IdaVariable }) + @(if ($class.Ghidra) { $script:GhidraVariable })
+                $absent = @($needed | Where-Object { $_ -notin $hostVariables } | Sort-Object -Unique)
+                if ($name -in $script:LocalClasses) { $kept.Add("$name (this machine's inputs)") }
+                elseif ($text -match $local) { $kept.Add("$name (live real data)") }
+                elseif ($absent) { $kept.Add("$name ($($absent -join ', ') not set there)") }
+                else { $sent.Add($name) }
+            }
+        }
+    }
+    @{ Sent = @($sent | Sort-Object -Unique); Kept = @($kept | Sort-Object -Unique) }
+}
+
+# What the host tier's run proved, from $got (Receive-Offload) for the $sent classes, as @{ Passed; Failed; Unproven }:
+# the families of $classMap whose classes were all sent and all passed there with a full result (none proving less
+# than in $localTrx, the last local whole run; Get-SkippedOnHost with $fastest), the families with a class that failed
+# there, and the sent classes without a full result. Sorted; nothing passes without results.
+function Get-TierPasses($got, [string[]]$sent, [hashtable]$classMap, [string]$localTrx, [hashtable]$fastest = @{}) {
+    if (-not $got.Trx) { return @{ Passed = @(); Failed = @(); Unproven = @($sent | Sort-Object -Unique) } }
+    $failedClasses = @($got.Failed | ForEach-Object Class)
+    $unproven = @(Get-RerunClasses $got $sent $localTrx @() '' $fastest | Where-Object { $_ -notin $failedClasses })
+    # A run that ended without its exit line and shows no failure passes nothing (Get-PassedFamilies).
+    $exitCode = if ($got.Note -match '^exit (-?\d+)$') { [int]$Matches[1] } else { 1 }
+    # The class map names every top-level class; fixtures and attributes hold no test to send.
+    $unsent = @($classMap.Values | ForEach-Object { $_ } | Where-Object { $_ -like '*Tests' -and $_ -notin $sent })
+    @{
+        Passed = @(Get-UndeferredFamilies @(Get-PassedFamilies $got.Trx $classMap $exitCode) $classMap @($unsent + $unproven))
+        Failed = @($classMap.Keys | Where-Object { $key = $_; @($classMap[$key] | Where-Object { $_ -in $failedClasses }) } | Sort-Object)
+        Unproven = @($unproven | Sort-Object -Unique)
+    }
+}
+
+# Saves the host tier's run record -Status shows: <gitDir>/corvus-host-tier.json.
+function Save-TierRecord([string]$gitDir, [System.Collections.IDictionary]$record) {
+    Set-Content -Path (Join-Path $gitDir $script:TierFile) -Value ($record | ConvertTo-Json -Depth 3) -NoNewline
+}
+
+# The host tier's last run as one line: "<state> on <commit> at <time> on <target> (<n> classes, <s> s); ...", naming
+# the families it recorded, those that failed, the classes without a full result and those kept unsent; $null when it
+# has not run.
+function Get-TierStatus([string]$gitDir) {
+    $file = Join-Path $gitDir $script:TierFile
+    if (-not (Test-Path $file)) { return $null }
+    $r = Get-Content $file -Raw | ConvertFrom-Json
+    $parts = @("$($r.state) on $($r.commit) at $($r.at) on $($r.target) ($($r.classes) classes$(if ($null -ne $r.seconds) { ", $($r.seconds) s" }))")
+    if ($r.transport -eq 'bundle') { $parts += 'the commit went as a bundle, origin lacked it' }
+    if ($r.recorded) { $parts += "recorded: $($r.recorded -join ', ')" }
+    if ($r.failed) { $parts += "failed there: $($r.failed -join ', ')" }
+    if ($r.unproven) { $parts += "no full result there: $($r.unproven -join ', ')" }
+    if ($r.kept) { $parts += "kept here: $($r.kept -join '; ')" }
+    if ($r.note) { $parts += $r.note }
+    $parts -join '; '
 }
 
 # The classes of $testsDir a run sends, of one group or (empty) of every group but the host and IDA groups
@@ -827,4 +905,4 @@ function Receive-GitHubRun($state, [string]$folder, [string]$group = '') {
     $result
 }
 
-Export-ModuleMember -Function Invoke-Transport, Test-RemoteHost, Get-RemoteRunScript, Invoke-RemoteRun, Receive-RemoteRun, New-RemoteSnapshot, Invoke-RemoteFilter, Invoke-Gh, Wait-GitHubRun, Receive-GitHubRun, Get-GitHubTarget, Receive-GitHubLive, Get-RemoteClasses, Get-IdaHostClasses, Get-HeldClasses, Get-HostVariables, Get-RealDataVariables, Get-RemoteShard, Get-LocalFilter, Get-ClassFilter, Get-ClassOutcomes, Get-TestOutcomes, Get-SkippedOnHost, Get-FastestClassSeconds, Get-SkippedOnBoth, Get-RerunClasses, Get-MixedClasses, Get-FailedThereNote, Join-TrxFiles, Get-TargetFileName, Save-RemoteRecord, Get-RemoteStatus, Get-TierFamilies, Get-TierClasses, Get-TierFilter, Get-DeferredClasses, Get-UndeferredFamilies, Save-DeferredClasses, Get-DeferredStatus, Get-OffloadTarget, Start-Offload, Receive-Offload
+Export-ModuleMember -Function Invoke-Transport, Test-RemoteHost, Get-RemoteRunScript, Invoke-RemoteRun, Receive-RemoteRun, New-RemoteSnapshot, Invoke-RemoteFilter, Invoke-Gh, Wait-GitHubRun, Receive-GitHubRun, Get-GitHubTarget, Receive-GitHubLive, Get-RemoteClasses, Get-IdaHostClasses, Get-HeldClasses, Get-HostVariables, Get-RealDataVariables, Get-RemoteShard, Get-LocalFilter, Get-ClassFilter, Get-ClassOutcomes, Get-TestOutcomes, Get-SkippedOnHost, Get-FastestClassSeconds, Get-SkippedOnBoth, Get-RerunClasses, Get-MixedClasses, Get-FailedThereNote, Join-TrxFiles, Get-TargetFileName, Save-RemoteRecord, Get-RemoteStatus, Get-TierFamilies, Get-TierClasses, Get-TierFilter, Get-TierHostClasses, Get-TierPasses, Save-TierRecord, Get-TierStatus, Get-DeferredClasses, Get-UndeferredFamilies, Save-DeferredClasses, Get-DeferredStatus, Get-OffloadTarget, Start-Offload, Receive-Offload
