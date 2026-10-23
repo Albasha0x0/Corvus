@@ -556,10 +556,17 @@ public sealed class TestRemoteTests : IDisposable
             'all=' + ((Get-TierClasses {{Quote(tests)}}) -join ',')
             'returned=' + ((Get-TierClasses {{Quote(tests)}} @('Dumps')) -join ',')
             'families=' + ((Get-TierFamilies @('Dumps', 'Web')) -join ',')
+            'filter=' + (Get-TierFilter 'Tier!=Release' @('WasmTests', 'MinidumpTests'))
+            'bare=' + (Get-TierFilter '' @('WasmTests'))
+            'none=' + (Get-TierFilter 'Tier!=Release' @())
             """);
         if (lines is ["skip"]) return;
         Assert.Contains("all=MinidumpTests,WasmTests", lines);
         Assert.Contains("returned=WasmTests", lines);
         Assert.Contains("families=Accuracy,Builds,Containers,DotnetEdits,Il2Cpp,Mobile,NativeAot,NativeEdits,NativeFormats,Support", lines);
+        // A push run keeps the smoke tests of the classes it leaves out.
+        Assert.Contains("filter=((Tier!=Release)&FullyQualifiedName!~.WasmTests&FullyQualifiedName!~.MinidumpTests)|Smoke=push", lines);
+        Assert.Contains("bare=(FullyQualifiedName!~.WasmTests)|Smoke=push", lines);
+        Assert.Contains("none=Tier!=Release", lines);
     }
 }

@@ -60,6 +60,7 @@ public class IlPatchTests : IDisposable
         Assert.Contains("IsActive", code);
     }
 
+    [Trait("Smoke", "push")]
     [Fact]
     public void PrependKeepsOriginalAndBranchesIntoIt()
     {

@@ -337,6 +337,7 @@ public class NativeEditTests(ITestOutputHelper output)
         Assert.True(SameOperation(32, 0x1000, Convert.FromHexString("6A01"), Convert.FromHexString("6801000000")));
     }
 
+    [Trait("Smoke", "push")]
     [Fact]
     public async Task RenameAndComment_RoundTripThroughReloadAndNewWorkspace()
     {

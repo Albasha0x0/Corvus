@@ -537,6 +537,9 @@ $coverageMapFile = Join-Path $gitDir 'corvus-coverage-map.json'
 $mode = if ($Exhaustive) { 'exhaustive' } else { 'sampled' }
 $familyKeys = $null; $built = $false
 $wholeSuite = $Full -and -not $Filter
+# A push run leaves the host tier's families to the tier's nightly run on the test host, but for their smoke tests.
+$tierSkip = @()
+if ($Reuse -and $wholeSuite -and -not $Coverage) { Import-Module (Join-Path $root 'test-remote.psm1') -Force; $tierSkip = @(Get-TierClasses $tests) }
 
 # Records the saved run's passes (a run whose recording step failed), for the tree it ran on only.
 if ($Stamp) {
@@ -660,7 +663,9 @@ if ($wholeSuite -and (Get-CleanTree)) {
     if ($Reuse) {
         $stamps = if (Test-Path $familyStamps) { Get-Content $familyStamps -Raw | ConvertFrom-Json } else { $null }
         $stale = Get-StaleFamilies $familyKeys $stamps $Exhaustive.IsPresent
-        $Filter = Get-ReuseFilter $stale $classMap
+        $reuseMap = $classMap
+        if ($tierSkip) { $reuseMap = @{}; foreach ($key in $classMap.Keys) { $left = @($classMap[$key] | Where-Object { $_ -notin $tierSkip }); if ($left) { $reuseMap[$key] = $left } } }
+        $Filter = Get-ReuseFilter $stale $reuseMap
         $kept = @($classMap.Keys | Where-Object { $_ -notin $stale } | Sort-Object)
         if ($Filter) { Write-Host "Reusing the $mode passes of $($kept -join ', '); running $($stale -join ', ') and the always-run classes." }
         else { Write-Host 'No family pass to reuse: the full suite runs.' }
@@ -695,6 +700,7 @@ if ($offload) {
         $candidates = @($candidates + $idaThere | Sort-Object -Unique); $mixed = @($mixed | Where-Object { $_ -notin $idaThere })
         Write-Host "IDA classes split: $($idaThere.Count) run on $($offload.Name), the rest here."
     }
+    $candidates = @($candidates | Where-Object { $_ -notin $tierSkip })
     $held = if ($offload.Kind -eq 'ssh' -and -not $Filter) { @(Get-HeldClasses $tests $offload.Variables) } else { @() }
     if ($held) { Write-Host "Kept here, their real-data variables not set on $($offload.Name): $($held -join '; ')." }
     $sent = if ($Filter) { @([regex]::Matches($Filter, 'FullyQualifiedName~\.(\w+)') | ForEach-Object { $_.Groups[1].Value } | Where-Object { $_ -in $candidates }) } else { $candidates }
@@ -715,9 +721,19 @@ if ($wholeSuite -and -not $Coverage) {
     Import-Module (Join-Path $root 'test-remote.psm1') -Force
     if ($Reuse) {
         $hostGroup = @(Get-RemoteClasses $tests -Group host)
-        $deferred = @(Get-DeferredClasses @($hostGroup | Where-Object { $_ -notin $sent }) $hostGroup)
+        $deferred = @(Get-DeferredClasses @($hostGroup | Where-Object { $_ -notin $sent -and $_ -notin $tierSkip }) $hostGroup)
         if ($deferred) { $runFilter = Get-LocalFilter $runFilter $deferred; Write-Host "Left for the nightly run: $($deferred.Count) host-only classes." }
     }
+}
+if ($tierSkip) {
+    $tierFilter = Get-TierFilter $runFilter $tierSkip
+    # Past the command line limit the reused passes are dropped: every class but the tier's runs.
+    if ($tierFilter.Length -gt 30000) {
+        $tierFilter = Get-TierFilter (Get-LocalFilter $(if ($Exhaustive) { '' } else { 'Tier!=Release' }) @($sent + $deferred) $(if ($sent) { $mixed } else { @() })) $tierSkip
+        Write-Host 'The reuse and tier filters together pass the command line limit: every class but the host tier runs.'
+    }
+    $runFilter = $tierFilter
+    Write-Host "Host tier: $($tierSkip.Count) classes of $(@(Get-TierFamilies).Count) families left to the tier's nightly run on the test host; their smoke tests run here."
 }
 if ($runFilter) { $arguments += @('--filter', $runFilter) }
 $results = Join-Path ([IO.Path]::GetTempPath()) "corvus-trx-$PID"
@@ -828,10 +844,10 @@ try {
         $commit = (git -C $root rev-parse --short HEAD).Trim()
         # saved before recording, so a recording step that fails costs no rerun (-Stamp)
         Copy-Item $trx $lastTrx -Force
-        $run = [ordered]@{ tree = $tree; mode = $mode; reused = [bool]$Filter; code = $code; keys = $familyKeys; commit = $commit; at = (Get-Date -Format 'yyyy-MM-dd HH:mm'); deferred = $deferred }
+        $run = [ordered]@{ tree = $tree; mode = $mode; reused = [bool]$Filter; code = $code; keys = $familyKeys; commit = $commit; at = (Get-Date -Format 'yyyy-MM-dd HH:mm'); deferred = @($deferred + $tierSkip) }
         Set-Content -Path $lastRun -Value ($run | ConvertTo-Json -Depth 3) -NoNewline
         try {
-            $passed = @(Get-UndeferredFamilies @(Get-PassedFamilies $trx $classMap $code) $classMap $deferred)
+            $passed = @(Get-UndeferredFamilies @(Get-PassedFamilies $trx $classMap $code) $classMap @($deferred + $tierSkip))
             # A run that reused nothing checks the selection: a failure under a recorded pass's key is a miss.
             if (-not $Filter) {
                 $before = if (Test-Path $familyStamps) { Get-Content $familyStamps -Raw | ConvertFrom-Json } else { $null }

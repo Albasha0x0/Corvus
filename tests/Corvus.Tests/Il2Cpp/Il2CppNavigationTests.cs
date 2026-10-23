@@ -125,6 +125,7 @@ public sealed class Il2CppNavigationTests(ITestOutputHelper output) : IDisposabl
         Assert.Equal("method_info", Assert.Single(Assert.IsType<Corvus.Tools.Il2CppLookup>(collector.Value).Items).Kind);
     }
 
+    [Trait("Smoke", "push")]
     [Fact]
     public async Task EntitiesNameTheirCodeAndSlots()
     {

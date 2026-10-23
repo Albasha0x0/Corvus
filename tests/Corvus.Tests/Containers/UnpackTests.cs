@@ -428,6 +428,7 @@ public partial class UnpackTests(ContainerFixtures fx) : IClassFixture<Container
         Assert.Equal(4, r.Files.Count);
     }
 
+    [Trait("Smoke", "push")]
     [Fact]
     public void StandaloneXalzFile_IsDecompressed()
     {

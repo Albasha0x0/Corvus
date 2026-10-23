@@ -47,6 +47,7 @@ public sealed class AppGraphTests(Xunit.Abstractions.ITestOutputHelper output) :
     }
 
     /// <summary>Damaged packages: the view and the graph answer or throw a tool error.</summary>
+    [Trait("Smoke", "push")]
     [Fact]
     [FuzzEntry(typeof(Services.Analysis.LayersFileView), typeof(AppGraph))]
     public void Damaged_packages_fail_only_as_tool_errors()

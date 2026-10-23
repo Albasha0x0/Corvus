@@ -50,6 +50,7 @@ public class BuildUpdateTests : IDisposable
         return (Write("v1", V1Image.Value), Write("v2", V2Image.Value));
     }
 
+    [Trait("Smoke", "push")]
     [Fact]
     public async Task Compare_HidesCompilerGeneratedChanges_AndCountsThem()
     {

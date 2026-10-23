@@ -173,6 +173,7 @@ public sealed class EditJournalTests : IDisposable
         Assert.Empty(Files());
     }
 
+    [Trait("Smoke", "push")]
     [Fact]
     public async Task PatchesAreJournaledAndReplayedOnTheSameBuild()
     {

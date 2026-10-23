@@ -17,6 +17,7 @@ public sealed class EnvironmentCollectionTests
     /// </summary>
     private static readonly string[] Isolating = [ProcessEnvironmentCollection.Name, ExternalToolEnvironmentCollection.Name];
 
+    [Trait("Smoke", "push")]
     [Fact]
     public void A_class_that_sets_a_CORVUS_variable_runs_in_an_isolating_collection()
     {

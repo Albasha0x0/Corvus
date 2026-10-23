@@ -223,6 +223,7 @@ public sealed class Il2CppMobileTests(ITestOutputHelper output) : IDisposable
         Assert.Null(Il2CppPackages.Extract(Put("in/plain.apk", Zip(("classes.dex", [0]))), null, cache));
     }
 
+    [Trait("Smoke", "push")]
     [Fact]
     public async Task LoadAssemblyReadsAPackageAndReportsWhyNot()
     {

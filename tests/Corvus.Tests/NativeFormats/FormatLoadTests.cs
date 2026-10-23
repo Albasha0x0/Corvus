@@ -12,6 +12,7 @@ public sealed class FormatLoadTests
 {
     private static string Text(string result) => result;
 
+    [Trait("Smoke", "push")]
     [Fact]
     public void Open_DispatchesByContent()
     {
@@ -77,6 +78,7 @@ public sealed class FormatLoadTests
         Assert.Contains("Fixups: dyld info", fat);
     }
 
+    [Trait("Smoke", "push")]
     [Fact]
     public async Task ListImportsAndExports_RenderElfAndMachO()
     {
