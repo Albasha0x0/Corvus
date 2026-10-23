@@ -76,8 +76,9 @@ public sealed partial class DeviceService(ServerOptions options, DexService? dex
     private string AdbPath()
     {
         if (AdbOverride != null) return AdbOverride;
+        // The path is enough: adb has no minimum version, so running adb version first only delayed the first call.
+        if (ExternalTools.Locate(Adb) is { } at) return at.Path;
         var probe = ExternalTools.Probe(Adb);
-        if (probe.Path is { } path && probe.Found) return path;
         throw new ToolError(ErrorCode.ProviderUnavailable, $"adb is not available: {probe.Problem}.", probe.Remediation);
     }
 

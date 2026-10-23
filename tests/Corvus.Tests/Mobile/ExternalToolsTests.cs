@@ -232,6 +232,26 @@ public class ExternalToolsTests : IDisposable
     }
 
     [Fact]
+    public void A_device_call_runs_adb_without_checking_its_version_first()
+    {
+        using var fake = new FakeTool();
+        fake.On("^devices -l$", "List of devices attached\n");
+        // adb version waits up to 30 s for the devices call to start: a device call that checked the version first
+        // waited it out. Classes running beside this one may probe the same copy through CORVUS_ADB, so the log alone
+        // cannot tell whose version call it was.
+        fake.Set("barriers", new System.Text.Json.Nodes.JsonObject
+        {
+            ["version"] = new System.Text.Json.Nodes.JsonObject { ["touch"] = Path.Combine(fake.Directory, "version.started"), ["waitFor"] = Path.Combine(fake.Directory, "devices.started"), ["seconds"] = 30 },
+            ["devices -l"] = new System.Text.Json.Nodes.JsonObject { ["touch"] = Path.Combine(fake.Directory, "devices.started"), ["waitFor"] = fake.ScriptPath },
+        });
+        using var env = new EnvironmentScope().Set("CORVUS_ADB", fake.CopyAs("adb")).Set(FakeTool.ScriptVariable, fake.ScriptPath);
+        var watch = System.Diagnostics.Stopwatch.StartNew();
+        Assert.Empty(new Corvus.Services.Mobile.DeviceService(new Corvus.Core.ServerOptions()) { Environment = fake.Environment }.Devices(default).Items);
+        Assert.True(watch.Elapsed < TimeSpan.FromSeconds(20), $"{watch.Elapsed}");
+        Assert.Contains(["devices", "-l"], fake.ArgumentLists);
+    }
+
+    [Fact]
     public void A_status_probes_the_external_tools_side_by_side()
     {
         using var fake = new FakeTool();
