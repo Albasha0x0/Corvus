@@ -52,7 +52,7 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-$runClock = [Diagnostics.Stopwatch]::StartNew()
+$runClock = [Diagnostics.Stopwatch]::StartNew(); $buildSeconds = 0.0
 $root = $PSScriptRoot
 $tests = Join-Path $root 'tests/Corvus.Tests'
 # The repository's own .git (shared by its worktrees): stamps and background results land there and are never committed.
@@ -157,6 +157,14 @@ function Start-RunTiming([string]$mode) {
     $script:loadJob = try { Start-MachineLoad } catch { $null }
     $env:CORVUS_PERMIT_LOG = Join-Path $tempRoot "corvus-permits-$PID.tsv"
     Remove-Item $env:CORVUS_PERMIT_LOG -ErrorAction SilentlyContinue
+}
+
+# Builds the test project and adds the build's seconds to the run's timed build ($buildSeconds), which the history
+# records only when the tests then run without building.
+function Invoke-TestBuild {
+    $clock = [Diagnostics.Stopwatch]::StartNew()
+    & dotnet build $tests --nologo @buildPriority -v q
+    $script:buildSeconds += $clock.Elapsed.TotalSeconds
 }
 
 # Records a run's TRX times in the history and the time report and prints the report's one line. Timing never fails
@@ -464,9 +472,13 @@ if (-not ($Full -or $All -or $Affected -or $Filter -or $Coverage -or $CoverageMa
             Write-Host "Changed since ${Base}: $($changed.Count) files; quick tests of $($families -join ', ')."
             $results = Join-Path $tempRoot "corvus-trx-$PID"
             Start-RunTiming 'quick'
-            & dotnet test $tests --nologo @buildPriority --filter $quickFilter --logger 'trx;LogFileName=full.trx' --results-directory $results
+            # A failed build leaves --no-build out: the test command builds again and names the errors.
+            Invoke-TestBuild
+            $built = $LASTEXITCODE -eq 0
+            $noBuild = @(if ($built) { '--no-build' })
+            & dotnet test $tests --nologo @buildPriority @noBuild --filter $quickFilter --logger 'trx;LogFileName=full.trx' --results-directory $results
             $code = $LASTEXITCODE
-            Save-RunTimes (Join-Path $results 'full.trx') 'quick' $code
+            Save-RunTimes (Join-Path $results 'full.trx') 'quick' $code @{ build = if ($built) { [math]::Round($buildSeconds, 1) } else { $null } }
             if (Test-Path $results) { Remove-Item -Recurse -Force $results }
             exit $code
         }
@@ -641,7 +653,7 @@ if ($wholeSuite -and (Get-CleanTree)) {
     }
     else { $coveredBy = Read-CoverageMap $coverageMapFile }
     # The tools found outside the settings come from the test assembly's own table, so it is built first.
-    & dotnet build $tests --nologo @buildPriority -v q | Out-Null
+    Invoke-TestBuild | Out-Null
     $built = $LASTEXITCODE -eq 0
     $familyKeys = Get-FamilyKeys $treeLines @($classMap.Keys) $readers (Get-RunEnvironment -tools (Get-LocatedTools $tests)) $coveredBy
     if (-not $coveredBy) { Write-Host 'No coverage map from the last week (./test.ps1 -CoverageMap): shared code keys every family.' }
@@ -734,6 +746,10 @@ try {
         if ($heavy) { $timing.heavyWait = [math]::Round($lockClock.Elapsed.TotalSeconds, 1) }
     }
     Start-RunTiming $runMode
+    if ($runMode -eq 'quick' -and -not $built) {
+        Invoke-TestBuild
+        if ($LASTEXITCODE -eq 0) { $built = $true; $arguments += '--no-build' }
+    }
     & dotnet @arguments
     $code = $LASTEXITCODE
     $trx = Join-Path $results 'full.trx'
@@ -797,7 +813,10 @@ try {
     }
     if ($wholeSuite -and -not $Coverage) { Save-DeferredClasses $gitDir (git -C $root rev-parse --short HEAD).Trim() $deferred }
     # Instrumented runs are slower throughout and are not timed.
-    if (-not $Coverage) { Save-RunTimes $trx $runMode $code $timing }
+    if (-not $Coverage) {
+        $timing.build = if ($built) { [math]::Round($buildSeconds, 1) } else { $null }
+        Save-RunTimes $trx $runMode $code $timing
+    }
     $recordFailed = $false
     if ($familyKeys -and (Test-Path $trx)) {
         $commit = (git -C $root rev-parse --short HEAD).Trim()

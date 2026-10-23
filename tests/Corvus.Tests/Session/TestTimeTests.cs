@@ -99,6 +99,33 @@ public class TestTimeTests
 
     [Fact]
     [Trait("Speed", "Slow")]
+    public void A_timed_build_is_reported_apart_from_test_start_and_an_untimed_one_is_not()
+    {
+        var dir = NewFolder();
+        var trx = Path.Combine(dir, "run.trx");
+        File.WriteAllText(trx, Trx(("Engine", "Open", 0, 6, "Passed")));
+        var history = Path.Combine(dir, "history.jsonl");
+        var report = Path.Combine(dir, "report.md");
+        try
+        {
+            var lines = Run($$"""
+                Import-Module '{{Module}}'
+                $null = Save-TestTimes '{{trx}}' ([ordered]@{ mode = 'quick'; commit = 'abc'; at = '2026-10-01 09:00'; code = 0; wall = 150.0; build = 20.0 }) '{{history}}' '{{report}}'
+                'timed=' + ((Get-Content '{{report}}' | Where-Object { $_ -like '- Wall time*' }) -join '')
+                'reason=' + ((Get-Content '{{report}}' | Where-Object { $_ -like '<!-- reason quick:*' }) -join '')
+                $null = Save-TestTimes '{{trx}}' ([ordered]@{ mode = 'quick'; commit = 'abc'; at = '2026-10-01 09:10'; code = 0; wall = 150.0; build = $null }) '{{history}}' '{{report}}'
+                'untimed=' + ((Get-Content '{{report}}' | Where-Object { $_ -like '- Wall time*' }) -join '')
+                """);
+            if (lines is ["skip"]) return; // no pwsh on this machine
+            Assert.StartsWith("- Wall time 2.5 min (tests 6.0 s, build 20.0 s, test start and setup 2.1 min);", Line(lines, "timed"));
+            Assert.Equal("<!-- reason quick: build 20.0 s, test start and setup 2.1 min; Corvus.Tests.Engine.Open 6.0 s -->", Line(lines, "reason"));
+            Assert.StartsWith("- Wall time 2.5 min (tests 6.0 s, build and setup 2.4 min);", Line(lines, "untimed"));
+        }
+        finally { Directory.Delete(dir, true); }
+    }
+
+    [Fact]
+    [Trait("Speed", "Slow")]
     public void A_perf_regression_needs_most_of_five_samples_and_two_runs_in_a_row()
     {
         var dir = NewFolder();

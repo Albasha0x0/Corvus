@@ -300,6 +300,14 @@ function Get-Concurrency($times, [double]$bucket) {
     }
 }
 
+# A run's time outside its tests: its timed build and the rest (test start and setup) when the run built before its
+# tests, otherwise one figure for both.
+function Format-Setup($times, $run) {
+    $outside = [math]::Max(0, $run.wall - $times.Wall)
+    if ($null -eq $run.build) { return "build and setup $(Format-Seconds $outside)" }
+    "build $(Format-Seconds $run.build), test start and setup $(Format-Seconds ([math]::Max(0, $outside - $run.build)))"
+}
+
 # The report section of one run, as markdown lines.
 function Get-RunSection($times, $run, $history) {
     $mode = $run.mode
@@ -309,7 +317,7 @@ function Get-RunSection($times, $run, $history) {
     $lines.Add("$($run.commit) at $($run.at), exit code $($run.code): $($run.tests) tests, $($run.failed) failed.")
     $lines.Add('')
     $parallel = if ($times.Wall -gt 0) { $times.Summed / $times.Wall } else { 0 }
-    $lines.Add("- Wall time $(Format-Seconds $run.wall) (tests $(Format-Seconds $times.Wall), build and setup $(Format-Seconds ([math]::Max(0, $run.wall - $times.Wall)))); summed test time $(Format-Seconds $times.Summed), $([string]::Format($script:Invariant, '{0:0.0}', $parallel)) tests at a time on average.")
+    $lines.Add("- Wall time $(Format-Seconds $run.wall) (tests $(Format-Seconds $times.Wall), $(Format-Setup $times $run)); summed test time $(Format-Seconds $times.Summed), $([string]::Format($script:Invariant, '{0:0.0}', $parallel)) tests at a time on average.")
     $before = @($history.Runs | Where-Object { $_.mode -eq $mode -and $_.run -ne $run.run } | Select-Object -Last 5)
     if ($before) {
         $median = (Get-Spread @($before | ForEach-Object wall))[0]
@@ -422,8 +430,7 @@ function Get-TargetSection($history, [hashtable]$reasons) {
 # longest tests of the critical path.
 function Get-TargetReason($times, $run) {
     $slow = if ($run.mode -eq 'quick') {
-        $build = [math]::Max(0, $run.wall - $times.Wall)
-        @("build and setup $(Format-Seconds $build)") + @($times.Tests | Where-Object Seconds -ge 1 | Sort-Object Seconds -Descending | Select-Object -First 3 | ForEach-Object { "$($_.Name) $(Format-Seconds $_.Seconds)" })
+        @(Format-Setup $times $run) + @($times.Tests | Where-Object Seconds -ge 1 | Sort-Object Seconds -Descending | Select-Object -First 3 | ForEach-Object { "$($_.Name) $(Format-Seconds $_.Seconds)" })
     }
     else { @(Get-CriticalPath $times | Sort-Object Seconds -Descending | Select-Object -First 3 | ForEach-Object { "$($_.Name) $(Format-Seconds $_.Seconds)" }) }
     ($slow -join '; ') -replace '\|', '\|'
