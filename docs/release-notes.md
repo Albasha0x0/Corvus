@@ -128,7 +128,7 @@
 - **Sessions on Linux:** `file:line` from DWARF, CFI-unwound stops, exit status from `_exit`, thread starts, `ptrace_scope`
   refusals named, statically linked programs refused before a worker starts (Frida cannot load into them,
   frida/frida#2533). Verified on Ubuntu 24.04 x64 and x86 (glibc 2.39), an ARM64 Linux smoke test in an emulated
-  VM; musl: attach only. [fda1fd00](https://github.com/Albasha0x0/Corvus/commit/fda1fd00) [635708e5](https://github.com/Albasha0x0/Corvus/commit/635708e5) [d451d936](https://github.com/Albasha0x0/Corvus/commit/d451d936) [a9a2a00b](https://github.com/Albasha0x0/Corvus/commit/a9a2a00b) [053f382e](https://github.com/Albasha0x0/Corvus/commit/053f382e)
+  VM; musl: attach only. [fda1fd00](https://github.com/Albasha0x0/Corvus/commit/fda1fd00) [bdef2e19](https://github.com/Albasha0x0/Corvus/commit/bdef2e19) [483a1bb0](https://github.com/Albasha0x0/Corvus/commit/483a1bb0) [635708e5](https://github.com/Albasha0x0/Corvus/commit/635708e5) [d451d936](https://github.com/Albasha0x0/Corvus/commit/d451d936) [a9a2a00b](https://github.com/Albasha0x0/Corvus/commit/a9a2a00b) [053f382e](https://github.com/Albasha0x0/Corvus/commit/053f382e)
 - **Snapshots at a stop:** the stop is the dump's exception (x64, x86 under WoW64) or the core's signal with the stop's
   registers (Linux); a snapshot of a program changing during the read is retried. Verified on Windows 11 x64 (64-bit
   and 32-bit programs), Windows 11 ARM64 and Ubuntu 24.04 (x64 and x86 programs). [02a58f2b](https://github.com/Albasha0x0/Corvus/commit/02a58f2b) [8b242284](https://github.com/Albasha0x0/Corvus/commit/8b242284)
@@ -515,6 +515,16 @@
   for that processor, fails as `unsupported`, names the missing decompiler and its bitness, and suggests `engine=ghidra`
   or `disassemble`, instead of a failure whose Next: line asked to start IDA and accept the license terms. Verified with
   IDA 9.3 on Windows 11 x64. [b5a5c246](https://github.com/Albasha0x0/Corvus/commit/b5a5c246)
+- **Session tool details:** a stop that arrives before the resume reply is kept, and the program's own module is
+  found by the path the OS reports; `live_break` wait ended by the program's exit says it ended and how, and `continue`
+  with a thread on a suspended program that holds nothing says it is still suspended; a spawn of a missing file is
+  refused before a worker starts; an open that times out says the program did not load the agent in time; a script
+  load checks once more for a first error when its wait ends; `live_coverage` reads a loaded module's code from its
+  file when its image is not loaded, and a run whose program ends first stays ended; `live_read` takes `uint32 [4]`
+  and `uint32[ 4 ]` as array types; `live_timeline` diff keeps a side's later lines at its first line's column; and on
+  Windows the stop handler looks up symbols in the agent's folder only, so stops add no symbol file lookups to the
+  program's activity.
+  [24c47f48](https://github.com/Albasha0x0/Corvus/commit/24c47f48) [811104d1](https://github.com/Albasha0x0/Corvus/commit/811104d1) [88351ba8](https://github.com/Albasha0x0/Corvus/commit/88351ba8) [9ad90796](https://github.com/Albasha0x0/Corvus/commit/9ad90796) [91b92c54](https://github.com/Albasha0x0/Corvus/commit/91b92c54) [82e7f346](https://github.com/Albasha0x0/Corvus/commit/82e7f346) [680bfe02](https://github.com/Albasha0x0/Corvus/commit/680bfe02) [bbb845e9](https://github.com/Albasha0x0/Corvus/commit/bbb845e9) [dfb00783](https://github.com/Albasha0x0/Corvus/commit/dfb00783) [82557323](https://github.com/Albasha0x0/Corvus/commit/82557323) [f2afc731](https://github.com/Albasha0x0/Corvus/commit/f2afc731) [e46ae343](https://github.com/Albasha0x0/Corvus/commit/e46ae343) [1d551ef5](https://github.com/Albasha0x0/Corvus/commit/1d551ef5)
 
 ## 2.4.0
 
