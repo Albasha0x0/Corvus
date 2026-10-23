@@ -87,7 +87,7 @@ internal sealed class GhidraSession(GhidraProvider provider, GhidraInstallation 
             var project = Project(provider, ghidra, locked.Directory, header, Options.Symbols, Options.Analysis, Options.Raw, Options.GhidraDatabase, Options.Overrides).Directory;
             if (!File.Exists(Path.Combine(project, ProjectName + ".gpr")))
                 throw new ToolError(ErrorCode.Conflict, $"{locked.Conflict.Message} It has no saved project of this image to take a read-only snapshot of yet.",
-                    locked.Conflict.Remediation);
+                    locked.Conflict.Remediation) { RetryAfter = locked.Conflict.RetryAfter, Retryable = true };
             return provider.Cache.Snapshot(ProviderId, locked, sha, Path.GetFullPath(imagePath), [project]);
         });
 

@@ -81,7 +81,7 @@ internal sealed class IdaSession(IdaProvider provider, IdaInstallation ida, Pyth
             var saved = Path.Combine(locked.Directory, IdaProvider.DatabaseFileName(ida, Profile));
             if (!File.Exists(saved))
                 throw new ToolError(ErrorCode.Conflict, $"{locked.Conflict.Message} It has no saved database of this image to take a read-only snapshot of yet.",
-                    locked.Conflict.Remediation);
+                    locked.Conflict.Remediation) { RetryAfter = locked.Conflict.RetryAfter, Retryable = true };
             return provider.Cache.Snapshot(ProviderId, locked, sha, Path.GetFullPath(imagePath), [saved]);
         });
 

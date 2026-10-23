@@ -232,6 +232,7 @@ public class NativeProviderTests(ITestOutputHelper output)
             var e = Assert.Throws<ToolError>(() => cache.Acquire("test", input, null));
             Assert.Equal(ErrorCode.Conflict, e.Code);
             Assert.Contains("process 4242", e.Message);
+            Assert.True(e.Retryable && e.RetryAfter > TimeSpan.Zero);
 
             using var snapshot = cache.Acquire("test", input, null, (locked, sha) =>
                 cache.Snapshot("test", locked, sha, input, [Path.Combine(locked.Directory, "db.i64")]));

@@ -306,6 +306,7 @@ public sealed class AnalysisCache(string root, long? maxBytes = null, TimeSpan? 
                 "Close the other session (or the other server process) first, or work in that session, or retry after details.retryAfterMs.")
             {
                 RetryAfter = LockRetryAfter,
+                Retryable = true,
             }));
         }
     }
