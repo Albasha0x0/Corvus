@@ -22,7 +22,9 @@ public sealed class NativePeSweepTests(ITestOutputHelper output)
     public void System32AndSysWow64AgreeWithOracles()
     {
         int limit = int.TryParse(Environment.GetEnvironmentVariable("CORVUS_PE_SWEEP_LIMIT"), out int l) ? l : int.MaxValue;
+        var phases = new TestPhases(output);
         var files = (limit == int.MaxValue ? SweepScope.Pick(PeCorpus.Files()) : PeCorpus.Files().Take(limit)).ToList();
+        phases.Phase($"corpus listed, {files.Count} files");
         var failures = new ConcurrentBag<string>();
         var diffs = new ConcurrentBag<string>();
         var oracleGaps = new ConcurrentBag<string>();
@@ -70,6 +72,7 @@ public sealed class NativePeSweepTests(ITestOutputHelper output)
             else oracleGaps.Add($"{path}: AsmResolver rejected the file");
         });
         var parseTime = clock.Elapsed;
+        phases.Phase($"parsed, {parsed.Count} files");
 
         int dumpbinFiles = 0;
         if (Dumpbin.Path != null)
@@ -86,6 +89,7 @@ public sealed class NativePeSweepTests(ITestOutputHelper output)
                     foreach (var d in PeOracles.CompareWithDumpbin(pe, r)) diffs.Add($"{path}: {d}");
                 }
             });
+            phases.Phase($"dumpbin compared, {dumpbinFiles} files");
         }
 
         var report = new StringBuilder();
@@ -144,16 +148,13 @@ internal static class PeCorpus
     /// <summary>Every file under System32 and SysWOW64 (recursively) that starts with "MZ", in a stable order.</summary>
     public static IEnumerable<string> Files()
     {
-        if (!OperatingSystem.IsWindows()) yield break;
+        if (!OperatingSystem.IsWindows()) return [];
         var windows = Environment.GetFolderPath(Environment.SpecialFolder.Windows);
         var options = new EnumerationOptions { RecurseSubdirectories = true, IgnoreInaccessible = true, AttributesToSkip = FileAttributes.ReparsePoint };
-        foreach (var root in new[] { "System32", "SysWOW64" })
-        {
-            var dir = Path.Combine(windows, root);
-            if (!Directory.Exists(dir)) continue;
-            foreach (var file in Directory.EnumerateFiles(dir, "*", options).Order(StringComparer.OrdinalIgnoreCase))
-                if (StartsWithMz(file)) yield return file;
-        }
+        var listing = new[] { "System32", "SysWOW64" }.Select(root => Path.Combine(windows, root)).Where(Directory.Exists)
+            .SelectMany(dir => Directory.EnumerateFiles(dir, "*", options).Order(StringComparer.OrdinalIgnoreCase)).ToList();
+        // Opening each of the ~34,000 files one after another took minutes on CI; the ordered merge keeps the listing's order.
+        return listing.AsParallel().AsOrdered().Where(StartsWithMz);
     }
 
     /// <summary>Well-known System32 images by name, when present.</summary>
