@@ -14,7 +14,7 @@ public sealed record PythonInterpreter(string Executable, Version Version, int B
 public static class PythonLocator
 {
     public static readonly Version MinimumVersion = new(3, 9);
-    private const string ProbeScript = "import sys,struct;print(sys.version_info[0],sys.version_info[1],struct.calcsize('P')*8);print(sys.executable)";
+    internal const string ProbeScript = "import sys,struct;print(sys.version_info[0],sys.version_info[1],struct.calcsize('P')*8);print(sys.executable)";
 
     /// <summary>How long a candidate may stay idle before it counts as not answering, unless the caller gives more.</summary>
     public static readonly TimeSpan DefaultProbeTimeout = TimeSpan.FromSeconds(15);

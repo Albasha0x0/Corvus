@@ -11,7 +11,17 @@ public class PythonLocatorTests
     {
         using var fake = new FakeTool();
         var python = fake.CopyAs("python");
-        fake.On("^-I -c ", stdout: $"3 12 64\n{python}\n", sleepMs: 3000);
+        fake.On("^-I -c ", stdout: $"3 12 64\n{python}\n");
+        // A fixed 3 s answer reached a probe starved past its cap in a loaded quick set (after f0035bbb): the
+        // interpreter answers only once the gate exists, after the first search ends.
+        var gate = Path.Combine(fake.Directory, "gate");
+        fake.Set("barriers", new System.Text.Json.Nodes.JsonObject
+        {
+            ["-I -c " + PythonLocator.ProbeScript] = new System.Text.Json.Nodes.JsonObject
+            {
+                ["touch"] = Path.Combine(fake.Directory, "asked"), ["waitFor"] = gate, ["seconds"] = 120,
+            },
+        });
         using var env = new EnvironmentScope().Set(FakeTool.ScriptVariable, fake.ScriptPath);
 
         var log = new List<string>();
@@ -19,6 +29,7 @@ public class PythonLocatorTests
         Assert.Equal((null, true), (late, unanswered));
         Assert.Contains("did not answer within", Assert.Single(log));
 
+        File.WriteAllText(gate, "");
         var (found, _) = PythonLocator.Search([(python, "configured")], [], TimeSpan.FromSeconds(60), defaults: false);
         Assert.Equal((python, new Version(3, 12), 64, "configured"), (found?.Executable, found?.Version, found?.Bits, found?.Source));
     }
