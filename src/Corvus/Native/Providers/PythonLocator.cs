@@ -16,8 +16,12 @@ public static class PythonLocator
     public static readonly Version MinimumVersion = new(3, 9);
     private const string ProbeScript = "import sys,struct;print(sys.version_info[0],sys.version_info[1],struct.calcsize('P')*8);print(sys.executable)";
 
-    /// <summary>How long a candidate may take to answer unless the caller gives more.</summary>
+    /// <summary>How long a candidate may stay idle before it counts as not answering, unless the caller gives more.</summary>
     public static readonly TimeSpan DefaultProbeTimeout = TimeSpan.FromSeconds(15);
+
+    // A busy machine stretches an interpreter's start while it keeps using CPU; the probe's limit counts idle time
+    // only, and this many limits bound the whole probe.
+    private const int ProbeCapLimits = 3;
 
     /// <summary>Returns the first working 64-bit interpreter, or null; <paramref name="log"/> lists every candidate and why it was rejected.</summary>
     public static PythonInterpreter? Find(IEnumerable<(string Path, string Source)> preferred, List<string> log, TimeSpan? probeTimeout = null) =>
@@ -91,9 +95,9 @@ public static class PythonLocator
 
     private static PythonInterpreter? Probe(string exe, string[] launcherArgs, TimeSpan timeout, out string error, out bool timedOut)
     {
-        var run = RunCapture(exe, [.. launcherArgs, "-I", "-c", ProbeScript], timeout);
+        var run = RunCapture(exe, [.. launcherArgs, "-I", "-c", ProbeScript], timeout, cap: timeout * ProbeCapLimits);
         timedOut = run.TimedOut;
-        if (run.TimedOut) { error = $"did not answer within {timeout.TotalSeconds:0} s"; return null; }
+        if (run.TimedOut) { error = run.Stopped ?? $"did not answer within {timeout.TotalSeconds:0} s"; return null; }
         if (run.StartError != null) { error = run.StartError; return null; }
         var lines = run.Stdout.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
         if (run.ExitCode != 0 || lines.Length < 2)
@@ -114,10 +118,16 @@ public static class PythonLocator
     private static string Last(string text) =>
         text.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).LastOrDefault() ?? "(no output)";
 
-    public sealed record CaptureResult(int? ExitCode, string Stdout, string Stderr, bool TimedOut, string? StartError);
+    /// <summary>A finished run; <paramref name="Stopped"/> names the limit that stopped a timed-out run, null when it is the plain timeout.</summary>
+    public sealed record CaptureResult(int? ExitCode, string Stdout, string Stderr, bool TimedOut, string? StartError, string? Stopped = null);
 
-    /// <summary>Runs a short-lived process in its own job, capturing output; the tree is killed on timeout.</summary>
-    public static CaptureResult RunCapture(string exe, IReadOnlyList<string> args, TimeSpan timeout, IReadOnlyDictionary<string, string?>? environment = null)
+    /// <summary>
+    /// Runs a short-lived process in its own job, capturing output; the tree is killed on timeout. With
+    /// <paramref name="cap"/>, <paramref name="timeout"/> counts only time the tree spends idle (under 0.1% of a core)
+    /// and the cap bounds the whole run; where the tree's CPU time cannot be read, the run stops after timeout.
+    /// </summary>
+    public static CaptureResult RunCapture(string exe, IReadOnlyList<string> args, TimeSpan timeout, IReadOnlyDictionary<string, string?>? environment = null,
+        TimeSpan? cap = null)
     {
         ChildProcess child;
         try
@@ -134,11 +144,56 @@ public static class PythonLocator
             var watch = System.Diagnostics.Stopwatch.StartNew();
             string stdout = "", stderr = "";
             Thread[] readers = [ChildProcess.StartReader(() => stdout = ReadAll(child.StandardOutput)), ChildProcess.StartReader(() => stderr = ReadAll(child.StandardError))];
-            var exited = child.Exited.Wait(timeout);
+            var bound = cap is { } c && c > timeout ? c : timeout;
+            string? stopped = null;
+            var exited = bound > timeout ? WaitWhileBusy(child, timeout, bound, out stopped) : child.Exited.Wait(timeout);
             // A tree still holding the output at the deadline is stopped, which ends it.
-            if (!exited || !ChildProcess.JoinReaders(readers, watch, timeout)) child.Kill();
+            if (!exited || !ChildProcess.JoinReaders(readers, watch, bound)) child.Kill();
             ChildProcess.JoinReaders(readers, System.Diagnostics.Stopwatch.StartNew(), TimeSpan.FromSeconds(2));
-            return new CaptureResult(child.ExitCode, stdout, stderr, !exited, null);
+            return new CaptureResult(child.ExitCode, stdout, stderr, !exited, null, exited ? null : stopped);
+        }
+    }
+
+    private static bool WaitWhileBusy(ChildProcess child, TimeSpan idle, TimeSpan cap, out string? stopped)
+    {
+        var watch = System.Diagnostics.Stopwatch.StartNew();
+        return WaitWhileBusy(wait => child.Exited.Wait(wait), child.TreeCpuTime, () => watch.Elapsed, idle, cap, out stopped);
+    }
+
+    /// <summary>
+    /// Waits through <paramref name="waitExit"/> (true once the tree exited) in steps of an eighth of
+    /// <paramref name="idle"/>; false once the tree's CPU time grew by less than 0.1% of idle over the last idle, after
+    /// idle when the CPU time reads null, or at <paramref name="cap"/>. <paramref name="stopped"/> names the limit.
+    /// </summary>
+    internal static bool WaitWhileBusy(Func<TimeSpan, bool> waitExit, Func<TimeSpan?> cpuTime, Func<TimeSpan> elapsed, TimeSpan idle, TimeSpan cap,
+        out string? stopped)
+    {
+        var step = idle / 8;
+        var samples = new Queue<(TimeSpan At, TimeSpan Cpu)>();
+        while (true)
+        {
+            var now = elapsed();
+            if (cpuTime() is not { } cpu)
+            {
+                stopped = $"did not answer within {idle.TotalSeconds:0.#} s";
+                return waitExit(idle - now > TimeSpan.Zero ? idle - now : TimeSpan.Zero);
+            }
+            samples.Enqueue((now, cpu));
+            while (samples.Count > 1 && now - samples.ElementAt(1).At >= idle) samples.Dequeue();
+            var (first, used) = samples.Peek();
+            // An interpreter's whole start uses about 50 ms of CPU, under 1% of a 15 s limit, so idle is under 0.1%.
+            if (now - first >= idle && cpu - used < idle / 1000)
+            {
+                stopped = $"did not answer within {idle.TotalSeconds:0.#} s spent under 0.1% of a core";
+                return false;
+            }
+            var left = cap - now;
+            if (left <= TimeSpan.Zero)
+            {
+                stopped = $"did not answer within its overall limit of {cap.TotalSeconds:0.#} s";
+                return false;
+            }
+            if (waitExit(left < step ? left : step)) { stopped = null; return true; }
         }
     }
 
