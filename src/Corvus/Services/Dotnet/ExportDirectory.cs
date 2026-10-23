@@ -67,8 +67,11 @@ public sealed class ExportDirectory : IDisposable
     /// <summary>A path in the staging folder as it will be after the commit.</summary>
     public string ToFinal(string stagedPath) => Path.Combine(Final, Path.GetRelativePath(Staging, stagedPath));
 
-    /// <summary>Writes the marker and moves the staging folder into place (replacing a previous export); returns the files, relative.</summary>
-    public IReadOnlyList<string> Commit()
+    /// <summary>
+    /// Writes the marker and moves the staging folder into place (replacing a previous export); returns the files, relative.
+    /// <paramref name="patience"/> bounds the wait for a file another process holds open (default 2 s).
+    /// </summary>
+    public IReadOnlyList<string> Commit(TimeSpan? patience = null)
     {
         var files = Directory.EnumerateFiles(Staging, "*", SearchOption.AllDirectories).Select(f => Path.GetRelativePath(Staging, f).Replace('\\', '/'))
             .Order(StringComparer.Ordinal).ToList();
@@ -78,9 +81,9 @@ public sealed class ExportDirectory : IDisposable
             // The check at Begin may be stale: something written since then is not deleted.
             if (Replace && Foreign(Final) is { } other)
                 throw new ToolError(ErrorCode.Conflict, $"Output directory changed during the export ({other} appeared): {Final}.", "export again");
-            SafeFile.WhenReleased(() => Directory.Delete(Final, recursive: true));
+            SafeFile.WhenReleased(() => Directory.Delete(Final, recursive: true), patience);
         }
-        SafeFile.WhenReleased(() => Directory.Move(Staging, Final));
+        SafeFile.WhenReleased(() => Directory.Move(Staging, Final), patience);
         _committed = true;
         return files;
     }

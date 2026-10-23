@@ -20,8 +20,9 @@ public sealed class ExportProjectTests
         File.WriteAllText(file, "class A {}");
         // As a virus scanner or indexer does with a new file; on Windows the folder cannot move while it is open.
         var held = new FileStream(file, FileMode.Open, FileAccess.Read, FileShare.None);
-        var release = Task.Delay(300).ContinueWith(_ => held.Dispose());
-        Assert.Contains("a.cs", export.Commit());
+        // A thread of its own and a minute's patience, so a busy pool or machine cannot run the release past the wait.
+        var release = Task.Factory.StartNew(() => { Thread.Sleep(300); held.Dispose(); }, TaskCreationOptions.LongRunning);
+        Assert.Contains("a.cs", export.Commit(patience: TimeSpan.FromMinutes(1)));
         await release;
         Assert.True(File.Exists(Path.Combine(dir.File("out"), "a.cs")));
     }
