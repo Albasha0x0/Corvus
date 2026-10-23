@@ -50,12 +50,13 @@ public sealed class LiveConsoleTests : IDisposable
     private readonly LiveSessionService _service;
     private readonly ScriptedConsoleHost _host;
     private readonly LiveSessionTools _tools;
+    private readonly ArmedClock _clock = new();
     private readonly string _program;
 
     public LiveConsoleTests()
     {
         _host = new ScriptedConsoleHost { Answer = input => input == "Ada\r" ? "Ada\r\n\x1b[32mhello, Ada\x1b[0m\r\n> " : null };
-        _service = new LiveSessionService(_workspace, new NativeCodeService(_workspace, SharedCodeIndex.Options())) { ConsoleHost = _host };
+        _service = new LiveSessionService(_workspace, new NativeCodeService(_workspace, SharedCodeIndex.Options())) { ConsoleHost = _host, ConsoleTime = _clock };
         _tools = new LiveSessionTools(new ServerOptions { AllowLive = true, AllowLiveSpawn = true }, _service);
         _program = _dir.File("prompt.exe");
         File.WriteAllBytes(_program, [0x4D, 0x5A]);
@@ -68,16 +69,16 @@ public sealed class LiveConsoleTests : IDisposable
         _dir.Dispose();
     }
 
-    /// <summary>Starts the run and shows the prompt once the script is waiting for it.</summary>
-    private Task<string> Start(int timeoutSeconds, params string[] script)
+    /// <summary>Starts the run, shows the prompt, then moves the clock through the script's timers until it ends.</summary>
+    private async Task<string> Start(int timeoutSeconds, params string[] script)
     {
         var call = _tools.LiveConsole("start", program: _program, script: script, timeoutSeconds: timeoutSeconds);
-        _ = Task.Run(async () =>
-        {
-            while (_host.Last == null) await Task.Delay(5);
-            _host.Last.Show("\x1b]0;prompt.exe\a\x1b[?25lname?\x1b[1C");
-        });
-        return call;
+        for (var waited = System.Diagnostics.Stopwatch.StartNew(); _host.Last == null && !call.IsCompleted && waited.Elapsed < TimeSpan.FromMinutes(1);)
+            await Task.Delay(5);
+        // The prompt is shown before the clock moves, so a wait for it matches whether its timeout fired or not.
+        _host.Last?.Show("\x1b]0;prompt.exe\a\x1b[?25lname?\x1b[1C");
+        await _clock.RunUntilAsync(call);
+        return await call;
     }
 
     [Fact]

@@ -122,9 +122,9 @@ public sealed class LiveConsoleRun
     }
 
     /// <summary>Waits until the output since the last match contains <paramref name="text"/>; the match consumes the output up to its end.</summary>
-    internal async Task<bool> WaitForAsync(string text, TimeSpan timeout, CancellationToken ct)
+    internal async Task<bool> WaitForAsync(string text, TimeSpan timeout, TimeProvider time, CancellationToken ct)
     {
-        var deadline = DateTime.UtcNow + timeout;
+        long start = time.GetTimestamp();
         while (true)
         {
             Task changed;
@@ -139,9 +139,9 @@ public sealed class LiveConsoleRun
                 if (_state != "running") return false;
                 changed = _changed.Task;
             }
-            var left = deadline - DateTime.UtcNow;
+            var left = timeout - time.GetElapsedTime(start);
             if (left <= TimeSpan.Zero) return false;
-            await Task.WhenAny(changed, Task.Delay(left, ct)).ConfigureAwait(false);
+            await Task.WhenAny(changed, Task.Delay(left, time, ct)).ConfigureAwait(false);
             ct.ThrowIfCancellationRequested();
         }
     }
@@ -179,6 +179,9 @@ public sealed partial class LiveSessionService
 
     /// <summary>The console host console runs start programs under.</summary>
     public IConsoleHost ConsoleHost { get; set; } = ConsoleHosts.ForThisMachine();
+
+    /// <summary>The clock script waits and delays are measured by.</summary>
+    public TimeProvider ConsoleTime { get; init; } = TimeProvider.System;
 
     public IReadOnlyList<LiveConsoleRun> ConsoleRuns => _consoles.Values.OrderBy(r => int.Parse(r.Id[4..], CultureInfo.InvariantCulture)).ToList();
 
@@ -282,7 +285,7 @@ public sealed partial class LiveSessionService
                 outcomes.Add(new(step, "not run", 0, null));
                 continue;
             }
-            var sw = System.Diagnostics.Stopwatch.StartNew();
+            long began = ConsoleTime.GetTimestamp();
             string? why = null;
             switch (step.Verb)
             {
@@ -293,7 +296,7 @@ public sealed partial class LiveSessionService
                         catch (Exception e) when (e is IOException or InvalidOperationException or ObjectDisposedException) { why = $"the console did not take the input: {e.Message}"; }
                     break;
                 case "wait":
-                    if (!await run.WaitForAsync(step.Text, waitTimeout, ct).ConfigureAwait(false))
+                    if (!await run.WaitForAsync(step.Text, waitTimeout, ConsoleTime, ct).ConfigureAwait(false))
                         why = run.State != "running" ? $"{Ended(run)} before output containing \"{Visible(step.Text)}\""
                             : $"no output containing \"{Visible(step.Text)}\" within {waitTimeout.TotalMilliseconds:N0} ms";
                     break;
@@ -306,11 +309,11 @@ public sealed partial class LiveSessionService
                     }
                     break;
                 case "delay":
-                    await Task.Delay(step.First, ct).ConfigureAwait(false);
+                    await Task.Delay(TimeSpan.FromMilliseconds(step.First), ConsoleTime, ct).ConfigureAwait(false);
                     break;
             }
             stopped = why;
-            outcomes.Add(new(step, why == null ? "done" : "stopped", sw.ElapsedMilliseconds, why));
+            outcomes.Add(new(step, why == null ? "done" : "stopped", (long)ConsoleTime.GetElapsedTime(began).TotalMilliseconds, why));
         }
         foreach (var o in outcomes) run.Record(o);
         return outcomes;
