@@ -148,7 +148,9 @@ public sealed class SessionTools(AssemblyWorkspace workspace, IndexingService in
         int loaded = workspace.LoadedCount; // without the lock: status answers while a long call holds it
         var registered = (server?.ToolCollection?.Select(t => t.ProtocolTool.Name) ?? []).ToHashSet(StringComparer.Ordinal);
         var client = context?.Server?.ClientInfo;
-        var unavailable = Group(ToolAvailability.Of(registered, availability, options.IdaScripting, OperatingSystem.IsWindows(), options.AllowDeviceChanges, options.GhidraScripting, options.AllowLive, options.AllowLiveSpawn, options.LiveScripting, options.AllowLiveAttach));
+        var unavailable = Group(ToolAvailability.Of(registered, availability, options.IdaScripting, OperatingSystem.IsWindows(), options.AllowDeviceChanges, options.GhidraScripting, options.AllowLive, options.AllowLiveSpawn, options.LiveScripting, options.AllowLiveAttach,
+            // What is left of the one status deadline: these programs were checked above already.
+            deadline > DateTime.UtcNow ? deadline - DateTime.UtcNow : TimeSpan.Zero));
         return new ServerStatus(ServerIdentity.Product, typeof(ServerOptions).Assembly.GetName().Version?.ToString(3) ?? "?", ServerIdentity.InformationalVersion,
             ServerIdentity.Executable, string.IsNullOrWhiteSpace(expectedExecutable) ? null : ServerIdentity.SamePath(expectedExecutable.Trim(), ServerIdentity.Executable),
             ServerIdentity.InstallKind, ServerIdentity.StartedAt, (long)(DateTimeOffset.UtcNow - ServerIdentity.StartedAt).TotalSeconds,

@@ -193,6 +193,29 @@ public class ExternalToolsTests : IDisposable
     }
 
     [Fact]
+    public void Tool_availability_checks_the_programs_side_by_side()
+    {
+        using var fake = new FakeTool();
+        // Each version check waits for the other to start: checked one after another, the first holds the call for the
+        // whole wait and its version stays unknown.
+        fake.Set("barriers", new System.Text.Json.Nodes.JsonObject
+        {
+            ["-version"] = new System.Text.Json.Nodes.JsonObject { ["touch"] = Path.Combine(fake.Directory, "java.started"), ["waitFor"] = Path.Combine(fake.Directory, "adb.started"), ["seconds"] = 100 },
+            ["version"] = new System.Text.Json.Nodes.JsonObject { ["touch"] = Path.Combine(fake.Directory, "adb.started"), ["waitFor"] = Path.Combine(fake.Directory, "java.started"), ["seconds"] = 100 },
+        });
+        using var env = new EnvironmentScope().Set("CORVUS_JAVA", fake.CopyAs("java")).Set("CORVUS_ADB", fake.CopyAs("adb"))
+            .Set("CORVUS_JAVA_DECOMPILER", Path.Combine(fake.Directory, "none.jar")).Set(FakeTool.ScriptVariable, fake.ScriptPath);
+        var wait = TimeSpan.FromSeconds(60);
+        var watch = System.Diagnostics.Stopwatch.StartNew();
+        var unavailable = Corvus.Mcp.ToolAvailability.Of(new HashSet<string>(["decompile_java", "list_android_devices"], StringComparer.Ordinal), [],
+            idaScripting: false, isWindows: OperatingSystem.IsWindows(), wait: wait);
+        Assert.True(watch.Elapsed < wait, $"{watch.Elapsed}");
+        Assert.DoesNotContain(unavailable, u => u.Tool == "list_android_devices");
+        Assert.Equal("21.0.2", ExternalTools.Probe(ExternalTools.Java).Version);
+        Assert.Equal("1.0.41", ExternalTools.Probe(ExternalTools.Adb).Version);
+    }
+
+    [Fact]
     public void ServerStatus_ListsEachExternalTool_WithItsFix()
     {
         using var fake = new FakeTool();

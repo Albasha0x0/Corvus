@@ -32,17 +32,22 @@ public static class ToolAvailability
 
     public static readonly IReadOnlyList<string> WindowsOnly = ["inspect_process"];
 
-    /// <summary>Modes that launch a program found on this machine: (tool, mode, found, reason, fix).</summary>
-    private static IEnumerable<(string Tool, string? Mode, bool Found, string Reason, string Remediation)> ExternalPrograms()
+    /// <summary>
+    /// Modes that launch a program found on this machine: (tool, mode, found, reason, fix). The program checks run side
+    /// by side, each waiting at most <paramref name="wait"/> (default <see cref="ExternalTools.StatusWait"/>); a check
+    /// still running then counts as found, its version unknown.
+    /// </summary>
+    private static IEnumerable<(string Tool, string? Mode, bool Found, string Reason, string Remediation)> ExternalPrograms(TimeSpan? wait = null)
     {
+        var limit = wait ?? ExternalTools.StatusWait;
+        var checks = new[] { ExternalTools.JavaDecompiler, ExternalTools.Java, ExternalTools.Adb }
+            .Select(tool => Task.Factory.StartNew(() => ExternalTools.Probe(tool, limit), CancellationToken.None, TaskCreationOptions.LongRunning, TaskScheduler.Default))
+            .ToArray();
         yield return ("unity_overview", "detectItEasy=true", Services.Analysis.UnityOverview.FindDie() != null,
             "Detect It Easy (diec) was not found in CORVUS_DIE or on PATH", "set CORVUS_DIE to the Detect It Easy folder (or diec.exe)");
-        foreach (var tool in new[] { ExternalTools.JavaDecompiler, ExternalTools.Java })
-        {
-            var probe = ExternalTools.Probe(tool, ExternalTools.StatusWait);
+        foreach (var probe in checks[..2].Select(c => c.GetAwaiter().GetResult()))
             yield return ("decompile_java", null, probe.Usable, $"{probe.Name}: {probe.Problem}", probe.Remediation);
-        }
-        var adb = ExternalTools.Probe(ExternalTools.Adb, ExternalTools.StatusWait);
+        var adb = checks[2].GetAwaiter().GetResult();
         foreach (var tool in DeviceTools) yield return (tool, null, adb.Usable, $"{adb.Name}: {adb.Problem}", adb.Remediation);
     }
 
@@ -66,10 +71,13 @@ public static class ToolAvailability
     public static IEnumerable<string> NamedTools =>
         EngineOnly.Keys.Concat(EngineModes.Select(m => m.Tool)).Concat(WindowsOnly).Concat(ExternalPrograms().Select(p => p.Tool)).Distinct();
 
-    /// <summary>What does not work here among <paramref name="registered"/> tools, given the engines' static availability.</summary>
+    /// <summary>
+    /// What does not work here among <paramref name="registered"/> tools, given the engines' static availability; each
+    /// program check waits at most <paramref name="wait"/> (default <see cref="ExternalTools.StatusWait"/>).
+    /// </summary>
     public static List<Unavailable> Of(IReadOnlySet<string> registered, IReadOnlyList<ProviderAvailability> engines, bool idaScripting, bool isWindows,
         bool allowDeviceChanges = false, bool ghidraScripting = false, bool allowLive = false, bool allowLiveSpawn = false,
-        bool liveScripting = false, bool allowLiveAttach = false)
+        bool liveScripting = false, bool allowLiveAttach = false, TimeSpan? wait = null)
     {
         var result = new List<Unavailable>();
         ProviderAvailability? Missing(string provider) => engines.FirstOrDefault(e => e.ProviderId == provider && !e.IsAvailable)
@@ -104,7 +112,7 @@ public static class ToolAvailability
         foreach (var tool in WindowsOnly)
             if (registered.Contains(tool) && !isWindows)
                 result.Add(new(tool, null, "it uses the Windows process API; this server is not running on Windows", "inspect a minidump instead, or run the server on Windows"));
-        foreach (var (tool, mode, found, reason, fix) in ExternalPrograms())
+        foreach (var (tool, mode, found, reason, fix) in ExternalPrograms(wait))
             if (registered.Contains(tool) && !found) result.Add(new(tool, mode, reason, fix));
         foreach (var tool in DeviceChanging.Where(registered.Contains).Where(_ => !allowDeviceChanges))
             result.Add(new(tool, null, "off: it changes a connected device",
