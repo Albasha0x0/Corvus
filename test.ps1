@@ -227,7 +227,9 @@ function Save-RunTimes([string]$trx, [string]$mode, [int]$code, [hashtable]$extr
 # and counts as over only when most of its 5 samples are. A measurement whose value is past 1.5 times its baseline in
 # Ratchets/perf-baseline.txt has its tests run 4 more times, and regresses when the median of each sample's worst value
 # is (PerfRegressions). The run fails only on a test over budget or a regressed measurement that was also so in the
-# perf run before (.git/corvus-perf-verdicts.json), so one slow run is reported, and a second in a row fails.
+# perf run before (.git/corvus-perf-verdicts.json), so one slow run is reported, and a second in a row fails. Work
+# outside the run that took no lock still slows it: when other processes used over 25% of the machine in more than a
+# tenth of the 10 s samples, the run is partial, records no verdict and exits 3.
 $perfVerdicts = Join-Path $gitDir 'corvus-perf-verdicts.json'
 if ($Perf) {
     Import-Module (Join-Path $root 'test-reuse.psm1') -Force
@@ -240,17 +242,31 @@ if ($Perf) {
     $waited = [math]::Round($lockClock.Elapsed.TotalSeconds, 1)
     $saved = $env:CORVUS_PERF, $env:CORVUS_ALL_TESTS, $env:CORVUS_PERMITS_HELD
     $results = Join-Path $tempRoot "corvus-trx-perf-$PID"
+    $loadLog = Join-Path $tempRoot "corvus-perf-load-$PID.log"
+    $loadSampler = $null
+    # Ends the run when other work loaded the machine: its timings neither confirm nor clear a verdict.
+    function Exit-IfContended([string[]]$over) {
+        $contention = Get-PerfContention $loadLog
+        if (-not $contention) { Write-Host 'Perf run: the machine load is unknown (no sample).' -ForegroundColor Yellow; return }
+        if (-not $contention.Partial) { Write-Host "Perf run: $($contention.Text)."; return }
+        Write-Host "Perf run partial: $($contention.Text); no verdict recorded." -ForegroundColor Yellow
+        if ($over) { Write-Host "Over budget while the machine was busy: $($over -join ', ')." -ForegroundColor Yellow }
+        exit 3
+    }
     try {
         $env:CORVUS_PERF = '1'; $env:CORVUS_ALL_TESTS = '1'; $env:CORVUS_PERMITS_HELD = '1'
         $serial = @('--', 'xUnit.MaxParallelThreads=1', 'xUnit.ParallelizeTestCollections=false')
         Start-RunTiming 'perf'
+        $loadSampler = try { Start-LoadSampler $loadLog } catch { $null }
         $perfFilter = if ($Filter) { "Perf=Timing&($Filter)" } else { 'Perf=Timing' }
         & dotnet test $tests --nologo @buildPriority --filter $perfFilter --logger 'trx;LogFileName=full.trx' --results-directory $results @serial
         $code = $LASTEXITCODE
         $trx = Join-Path $results 'full.trx'
-        Save-RunTimes $trx 'perf' $code @{ heavyWait = $waited }
+        $contention = Get-PerfContention $loadLog
+        Save-RunTimes $trx 'perf' $code @{ heavyWait = $waited; partial = [bool]$contention.Partial; otherLoad = $contention.Text }
         $failed = @(if (Test-Path $trx) { Get-FailedTests $trx })
         if ($code -ne 0 -and -not $failed) { Write-Host "The perf run failed (exit $code) with no failed test to sample again." -ForegroundColor Red; exit $code }
+        Exit-IfContended $failed
         $sample = 1
         $samples = [Collections.Generic.List[string]]::new()
         if (Test-Path $trx) { $samples.Add($trx) }
@@ -277,6 +293,7 @@ if ($Perf) {
         $regressed = @(Get-Regressions | Where-Object { $_ -like "regressed`t*" } | ForEach-Object { $f = $_ -split "`t"; [pscustomobject]@{ Name = $f[1]; Text = $f[2] } })
         foreach ($r in $regressed) { Write-Host "Past 1.5 times its baseline: $($r.Text)." -ForegroundColor Yellow }
         $flagged = @($over) + @($regressed | ForEach-Object { "baseline:$($_.Name)" })
+        Exit-IfContended $flagged
         $confirmed = @(Update-PerfVerdicts $perfVerdicts $flagged (git -C $root rev-parse --short HEAD).Trim())
         $once = @($flagged | Where-Object { $_ -notin $confirmed })
         if ($failed -and -not $over) { Write-Host "Over budget once, within it in most of 5 samples: $($failed -join ', ')." -ForegroundColor Yellow }
@@ -287,6 +304,8 @@ if ($Perf) {
     }
     finally {
         $env:CORVUS_PERF, $env:CORVUS_ALL_TESTS, $env:CORVUS_PERMITS_HELD = $saved
+        if ($loadSampler) { Stop-Job $loadSampler; Remove-Job $loadSampler -Force }
+        Remove-Item $loadLog -ErrorAction SilentlyContinue
         if (Test-Path $results) { Remove-Item -Recurse -Force $results }
         Exit-AllPermits $permits
         if ($heavy) { Exit-HeavyLock $lockName }

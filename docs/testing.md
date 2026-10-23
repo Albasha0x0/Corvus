@@ -151,8 +151,10 @@
   measurement through `PerfBudget.Time`, `AtMost` or `AtLeast` as one line, `perf: <name> <value> <unit> (budget <= <limit>
   <unit>)`. Gating runs only record the line. The perf run (`./test.ps1 -Perf`, nightly after a full run: `CORVUS_PERF=1`,
   filter `Perf=Timing`, one test at a time) enforces the budgets. It runs alone on the machine: it holds the heavy lock
-  and every test permit. A test over its budget runs up to 4 more times and counts as over only when most of the 5
-  samples are. Each measurement is also compared with `tests/Corvus.Tests/Ratchets/perf-baseline.txt`, one baseline per
+  and every test permit. Work that takes no lock still slows it: when processes outside the run use over 25% of the
+  machine's CPU in more than a tenth of its 10 s samples, the run is partial; it names that load, records no verdict and
+  exits 3, and the nightly log calls it partial. A test over its budget runs up to 4 more times and counts as over
+  only when most of the 5 samples are. Each measurement is also compared with `tests/Corvus.Tests/Ratchets/perf-baseline.txt`, one baseline per
   name and OS (a new measurement name needs a line there): a value past 1.5 times its baseline (below a rate's baseline
   divided by 1.5) runs its tests 4 more times, and the measurement regresses when the median of each sample's worst
   value is past it. The run fails only on a test over budget or a regressed measurement that was also so in the perf

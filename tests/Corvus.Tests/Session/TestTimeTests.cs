@@ -198,6 +198,47 @@ public class TestTimeTests
         finally { Directory.Delete(dir, true); }
     }
 
+    [Fact]
+    [Trait("Speed", "Slow")]
+    public void A_perf_run_is_partial_when_processes_outside_its_tree_load_the_machine()
+    {
+        var dir = NewFolder();
+        string Log(string name, params int[] loads)
+        {
+            var path = Path.Combine(dir, name);
+            File.WriteAllLines(path, loads.Select((l, i) => $"2026-10-23 13:{43 + i / 6:00}:{i % 6 * 10:00}\tothers={l}"));
+            return path.Replace("'", "''");
+        }
+        try
+        {
+            var lines = Run($$"""
+                Import-Module '{{Module}}'
+                function P($id, $parent, $cpu) { [pscustomobject]@{ ProcessId = $id; ParentProcessId = $parent; KernelModeTime = 0; UserModeTime = $cpu } }
+                # The run is 10 with child 11 and grandchild 12; 20 is other work; 0 is the idle process. 2 cores, 10 s apart.
+                $state = @{}
+                'first=' + (Get-OtherLoad 10 $state @((P 0 0 0), (P 10 1 0), (P 11 10 0), (P 12 11 0), (P 20 1 0)) 0 2)
+                'second=' + (Get-OtherLoad 10 $state @((P 0 0 9e7), (P 10 1 1e7), (P 11 10 5e7), (P 12 11 5e7), (P 20 1 5e7)) 10 2)
+                # 11 ended: 12 stays the run's, and 21 starts as other work.
+                'orphan=' + (Get-OtherLoad 10 $state @((P 10 1 1e7), (P 12 11 2e8), (P 20 1 5e7), (P 21 1 1e8)) 20 2)
+                'unread=' + ($null -eq (Get-OtherLoad 10 $state $null 30 2))
+                $busy = Get-PerfContention '{{Log("busy.log", 5, 90, 100, 5, 8, 6, 7, 5, 4, 3)}}'
+                'busy=' + $busy.Partial + ' ' + $busy.Text
+                $quiet = Get-PerfContention '{{Log("quiet.log", 5, 90, 5, 8, 6, 7, 5, 4, 3, 2)}}'
+                'quiet=' + $quiet.Partial + ' ' + $quiet.Text
+                'unknown=' + ($null -eq (Get-PerfContention '{{Path.Combine(dir, "missing.log")}}'))
+                """);
+            if (lines is ["skip"]) return; // no pwsh on this machine
+            Assert.Equal("", Line(lines, "first"));
+            Assert.Equal("25", Line(lines, "second"));
+            Assert.Equal("50", Line(lines, "orphan"));
+            Assert.Equal("True", Line(lines, "unread"));
+            Assert.Equal("True other processes used over 25% of the machine in 2 of 10 samples (up to 100%)", Line(lines, "busy"));
+            Assert.Equal("False other processes used over 25% of the machine in 1 of 10 samples (up to 90%)", Line(lines, "quiet"));
+            Assert.Equal("True", Line(lines, "unknown"));
+        }
+        finally { Directory.Delete(dir, true); }
+    }
+
     private static string Module => Path.Combine(DocsTests.RepoRoot(), "test-time.psm1").Replace("'", "''");
 
     private static string NewFolder()

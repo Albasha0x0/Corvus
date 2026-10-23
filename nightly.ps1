@@ -116,5 +116,5 @@ if ("$(git -C $dir rev-parse HEAD 2>$null)".Trim() -ne $tested) {
 }
 & (Join-Path $dir 'test.ps1') -Perf *>> $runLog
 $code = $LASTEXITCODE
-Write-Nightly "perf run: $(if ($code -eq 0) { 'no regression confirmed' } else { "FAILED (exit $code)" })"
+Write-Nightly "perf run: $(switch ($code) { 0 { 'no regression confirmed' } 3 { 'partial, other work loaded the machine' } default { "FAILED (exit $code)" } })"
 exit $code

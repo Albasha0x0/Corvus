@@ -87,6 +87,71 @@ function Get-MachineLoad {
 # Starts sampling the machine's load on a thread of its own, so the sample costs a run no time; Receive-Job returns it.
 function Start-MachineLoad { Start-ThreadJob -ScriptBlock ${function:Get-MachineLoad} }
 
+# The machine's processes as ProcessId, ParentProcessId, KernelModeTime and UserModeTime (100 ns units); $null where
+# the list cannot be read (off Windows).
+function Read-ProcessTimes {
+    if (-not $IsWindows) { return $null }
+    try { @(Get-CimInstance Win32_Process -Property ProcessId, ParentProcessId, KernelModeTime, UserModeTime -ErrorAction Stop) } catch { $null }
+}
+
+# The percent of the machine's CPU that processes outside the tree of $rootPid used since the call before with the same
+# $state, which keeps each process's CPU time and the tree; $null on the first call or without $processes. A process
+# stays in the tree once seen there, after its parent ends; one that ended between two calls is not counted.
+function Get-OtherLoad([int]$rootPid, [hashtable]$state, [object[]]$processes, [double]$seconds, [int]$cores = [Environment]::ProcessorCount) {
+    if ($null -eq $processes) { return $null }
+    if (-not $state.Ours) { $state.Ours = [Collections.Generic.HashSet[int]]::new([int[]]@($rootPid)) }
+    do {
+        $added = $false
+        foreach ($p in $processes) { if ($state.Ours.Contains([int]$p.ParentProcessId) -and $state.Ours.Add([int]$p.ProcessId)) { $added = $true } }
+    } while ($added)
+    $first = $null -eq $state.Times
+    $before = if ($first) { @{} } else { $state.Times }
+    $times = @{}
+    $used = 0.0
+    # Process 0 is the idle process: its time is the machine's idle time.
+    foreach ($p in $processes | Where-Object { $_.ProcessId -ne 0 }) {
+        $times[[int]$p.ProcessId] = $cpu = [double]$p.KernelModeTime + [double]$p.UserModeTime
+        if (-not $state.Ours.Contains([int]$p.ProcessId)) { $used += [math]::Max(0.0, $cpu - [double]$before[[int]$p.ProcessId]) }
+    }
+    $elapsed = $seconds - $state.Seconds
+    $state.Times = $times; $state.Seconds = $seconds
+    if ($first -or $elapsed -le 0) { return $null }
+    [int][math]::Min(100, 100 * $used / ($elapsed * 1e7 * $cores))
+}
+
+# Writes "<time><tab>others=<percent>" to $log every $seconds while the calling process runs: the CPU that processes
+# outside the tree of $rootPid used (Get-OtherLoad); a sample that cannot be read writes nothing.
+function Invoke-LoadSampler([string]$log, [int]$rootPid, [int]$seconds = 10) {
+    $state = @{}
+    $clock = [Diagnostics.Stopwatch]::StartNew()
+    while ($true) {
+        $load = Get-OtherLoad $rootPid $state (Read-ProcessTimes) $clock.Elapsed.TotalSeconds
+        if ($null -ne $load) { Add-Content -Path $log -Value "$((Get-Date).ToString('yyyy-MM-dd HH:mm:ss', [cultureinfo]::InvariantCulture))`tothers=$load" }
+        Start-Sleep -Seconds $seconds
+    }
+}
+
+# Starts Invoke-LoadSampler for this process's tree on a thread of its own; it ends with the process, or with Stop-Job
+# on the returned job.
+function Start-LoadSampler([string]$log) {
+    Set-Content -Path $log -Value $null
+    $functions = 'Read-ProcessTimes', 'Get-OtherLoad', 'Invoke-LoadSampler' | ForEach-Object { "function $_ {$((Get-Item "function:$_").Definition)}" }
+    Start-ThreadJob -InitializationScript ([scriptblock]::Create($functions -join "`n")) -ScriptBlock { Invoke-LoadSampler @args } -ArgumentList $log, $PID
+}
+
+# The other load a perf run met, from a Start-LoadSampler log: Text names how often other processes used over $busy
+# percent of the machine, and Partial is set when that was more than $share of the samples, so its timings cannot count.
+# $null when the log has no sample: the load is unknown.
+function Get-PerfContention([string]$log, [int]$busy = 25, [double]$share = 0.1) {
+    $samples = @(Get-Content $log -ErrorAction SilentlyContinue | Where-Object { $_ -match "`tothers=(\d+)$" } | ForEach-Object { [int]($_ -replace '.*=', '') })
+    if (-not $samples) { return $null }
+    $over = @($samples | Where-Object { $_ -gt $busy })
+    [pscustomobject]@{
+        Partial = $over.Count -gt $share * $samples.Count
+        Text = "other processes used over $busy% of the machine in $($over.Count) of $($samples.Count) samples (up to $(($samples | Measure-Object -Maximum).Maximum)%)"
+    }
+}
+
 # Writes a line to $log every $seconds while the calling process runs: how late this thread woke for the sample (lag,
 # ms; the run's own priority, so it shows the run starved of CPU), the milliseconds a normal-priority helper took to
 # create, write and delete a small file in each of $folders (-1 when that failed), the disk queue length and idle
@@ -545,4 +610,4 @@ function Update-PerfVerdicts([string]$path, [string[]]$over, [string]$commit) {
     @($over | Where-Object { $_ -in $before })
 }
 
-Export-ModuleMember -Function Get-PermitCounts, Enter-AllPermits, Exit-AllPermits, Get-PerfOverBudget, Update-PerfVerdicts, Read-TestTimes, Get-MachineLoad, Start-MachineLoad, Invoke-IoSampler, Start-IoSampler, Get-IoStalls, Add-TestHistory, Read-TestHistory, Get-CriticalPath, Get-Concurrency, Save-TestTimes, Get-TimeSummary
+Export-ModuleMember -Function Get-PermitCounts, Enter-AllPermits, Exit-AllPermits, Get-PerfOverBudget, Update-PerfVerdicts, Read-TestTimes, Get-MachineLoad, Start-MachineLoad, Read-ProcessTimes, Get-OtherLoad, Invoke-LoadSampler, Start-LoadSampler, Get-PerfContention, Invoke-IoSampler, Start-IoSampler, Get-IoStalls, Add-TestHistory, Read-TestHistory, Get-CriticalPath, Get-Concurrency, Save-TestTimes, Get-TimeSummary
