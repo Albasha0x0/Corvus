@@ -148,13 +148,23 @@ public sealed class WorkerSessionBaseTests : IDisposable
     [Fact]
     public async Task Concurrent_sessions_overlap_reads_and_serialize_writes()
     {
+        // Each request holds in the worker until the test releases it, so arrivals show the overlap, not timing.
         await using var c = await Open(concurrent: true);
-        await Task.WhenAll(Enumerable.Range(0, 4).Select(_ => c.CallAsync("sleep", new JsonObject { ["ms"] = 150 }, default)));
-        Assert.True(c.Current!.MaxInFlight >= 2, $"reads in flight: {c.Current.MaxInFlight}");
+        var reads = Enumerable.Range(0, 4).Select(_ => c.CallAsync("hold", new JsonObject(), default)).ToArray();
+        Assert.True(SpinWait.SpinUntil(() => c.Current!.Received.Count == 4, TimeSpan.FromMinutes(1)), $"reads received: {c.Current!.Received.Count}");
+        c.Current.Release();
+        await Task.WhenAll(reads);
+        Assert.Equal(4, c.Current.MaxInFlight);
 
+        // The two requests counted as queued wait in the session, so the worker has the first one only.
         await using var serial = await Open(concurrent: false);
-        await Task.WhenAll(Enumerable.Range(0, 3).Select(_ => serial.CallAsync("sleep", new JsonObject { ["ms"] = 50 }, default)));
-        Assert.Equal(1, serial.Current!.MaxInFlight);
+        var writes = Enumerable.Range(0, 3).Select(_ => serial.CallAsync("hold", new JsonObject(), default)).ToArray();
+        Assert.True(SpinWait.SpinUntil(() => serial.Current!.Received.Count == 1 && serial.State().Queued == 2, TimeSpan.FromMinutes(1)),
+            $"writes received: {serial.Current!.Received.Count}, queued: {serial.State().Queued}");
+        Assert.Single(serial.Current.Received);
+        serial.Current.Release();
+        await Task.WhenAll(writes);
+        Assert.Equal(1, serial.Current.MaxInFlight);
     }
 
     [Fact]
