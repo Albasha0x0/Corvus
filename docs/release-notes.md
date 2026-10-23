@@ -466,6 +466,10 @@
   17.24.3 on Windows 11 x64. [15da2f05](https://github.com/Albasha0x0/Corvus/commit/15da2f05)
 - **Call deadlines:** a client's call deadline counts from when the request reaches the server, so setup before the
   call runs (up to 0.3 s on a fresh server under load) no longer extends the answer past the client's wait. [46dd5e3b](https://github.com/Albasha0x0/Corvus/commit/46dd5e3b)
+- **Script readings:** `summarize_file`'s script view and package review keep the 2.4.0 step budget of 4,000,000 steps
+  and triple the time limits (12 s, 4.5 s for the overview and package review, 2.25 s per script block), so a reading
+  on a busy machine is no longer cut short at the 2.4.0 limits; a note names the limit that stops a reading, time or
+  JavaScript steps, and marks it partial. [a10c24d6](https://github.com/Albasha0x0/Corvus/commit/a10c24d6)
 
 ## 2.4.0
 
