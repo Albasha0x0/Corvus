@@ -116,6 +116,22 @@ public class DecompilerTests : IDisposable
         Assert.EndsWith(plain, simplified);
     }
 
+    // The XML doc file beside the assembly is held open with no sharing, so any read of it fails.
+    [Fact]
+    public void A_type_decompiles_whole_without_reading_the_xml_doc_file_beside_it()
+    {
+        using var dir = new TempDir();
+        var path = dir.File("Documented.dll");
+        File.WriteAllBytes(path, Roslyn.Release("Documented", "namespace Docs { /// <summary>Adds.</summary>\npublic class Adder { public int Add(int a, int b) => a + b; } }"));
+        File.WriteAllText(dir.File("Documented.xml"), "<?xml version=\"1.0\"?><doc><members><member name=\"T:Docs.Adder\"><summary>Adds.</summary></member></members></doc>");
+        using var held = new FileStream(dir.File("Documented.xml"), FileMode.Open, FileAccess.Read, FileShare.None);
+        using var ws = new AssemblyWorkspace();
+        var asm = ws.Load(path);
+        var code = ws.Read(() => new Corvus.Services.DecompilerService(ws, new ServerOptions()).DecompileType(asm, asm.Module.Find("Docs.Adder", false)!, default));
+        Assert.DoesNotContain("decompilation failed", code);
+        Assert.Contains("public int Add(int a, int b)", code);
+    }
+
     /// <summary>A write that changes no assembly keeps the decompiler's type systems; an edit of the assembly replaces its own.</summary>
     [Fact]
     public void TypeSystemsOutliveWritesThatChangeNoAssembly()

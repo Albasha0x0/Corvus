@@ -20,6 +20,14 @@ public sealed class DecompilerService(AssemblyWorkspace workspace, ServerOptions
 
     private sealed record TypeSystemEntry(string Key, DecompilerTypeSystem TypeSystem);
 
+    /// <summary>Documentation for no entity: output never shows XML documentation.</summary>
+    internal sealed class NoDocumentation : ICSharpCode.Decompiler.Documentation.IDocumentationProvider
+    {
+        public static readonly NoDocumentation Instance = new();
+
+        public string? GetDocumentation(IEntity entity) => null;
+    }
+
     public static DecompilerSettings CreateSettings() => new(LanguageVersion.Latest)
     {
         ThrowOnAssemblyResolveErrors = false,
@@ -53,7 +61,8 @@ public sealed class DecompilerService(AssemblyWorkspace workspace, ServerOptions
 
     private CSharpDecompiler CreateDecompiler(LoadedAssembly asm, CancellationToken token, bool compilable = false)
     {
-        var decompiler = new CSharpDecompiler(GetTypeSystem(asm), CreateSettings()) { CancellationToken = token };
+        // Workaround for icsharpcode/ILSpy#4275 (tested 11.1.0.9782; fixed in: pending): XML docs are read though off.
+        var decompiler = new CSharpDecompiler(GetTypeSystem(asm), CreateSettings()) { CancellationToken = token, DocumentationProvider = NoDocumentation.Instance };
         AstCleanup.AddTo(decompiler, Frameworks.TargetFrameworkOf(asm.Module));
         // Compiler-generated names (<>c__DisplayClass1_0, <Run>d__4) shown as nested types do not parse as C#.
         if (compilable) decompiler.AstTransforms.Add(new ICSharpCode.Decompiler.CSharp.Transforms.EscapeInvalidIdentifiers());

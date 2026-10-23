@@ -996,7 +996,7 @@ internal sealed class MissingLocalFunctions : IAstTransform
     private static LocalFunctionDeclarationStatement? Recover(IMethod method, string name, TransformContext context)
     {
         if (method.MetadataToken.IsNil || method.MetadataToken.Kind != System.Reflection.Metadata.HandleKind.MethodDefinition) return null;
-        var decompiler = new CSharpDecompiler(context.TypeSystem, context.Settings) { CancellationToken = context.CancellationToken };
+        var decompiler = new CSharpDecompiler(context.TypeSystem, context.Settings) { CancellationToken = context.CancellationToken, DocumentationProvider = DecompilerService.NoDocumentation.Instance };
         var tree = decompiler.Decompile(method.MetadataToken);
         if (tree.Descendants.OfType<MethodDeclaration>().FirstOrDefault() is not { Body: { } compiledBody } compiled) return null;
 
