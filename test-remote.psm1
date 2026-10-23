@@ -90,11 +90,34 @@ function Get-DataVariables([string]$text, [hashtable]$constants) {
     @($names | Sort-Object -Unique)
 }
 
+# The top-level *Tests classes of C# source $text as @{ Class; Ida; Ghidra }: whether the class holds an IDA fact, and
+# one a routine run includes (a Ghidra fact without the release tier on it or on its class). An offload never runs the
+# release tier, so a class whose Ghidra facts are all release-tier counts as IDA alone.
+function Get-ClassEngines([string]$text) {
+    $declarations = @([regex]::Matches($text, '(?m)^public (?:sealed |abstract |partial |static )*class (\w+Tests)\b'))
+    $release = 'Trait\("Tier",\s*"Release"\)'
+    for ($i = 0; $i -lt $declarations.Count; $i++) {
+        $start = $declarations[$i].Index
+        $end = if ($i + 1 -lt $declarations.Count) { $declarations[$i + 1].Index } else { $text.Length }
+        $body = $text.Substring($start, $end - $start)
+        # The class's own attributes: the lines of brackets right above its declaration.
+        $above = @($text.Substring(0, $start) -split '\r?\n')
+        $header = @(for ($j = $above.Count - 2; $j -ge 0 -and $above[$j].Trim() -match '^(\[|//)'; $j--) { $above[$j] }) -join "`n"
+        # A fact's attributes run from the end of the member before it to the next member's declaration.
+        $ghidra = $header -notmatch $release -and @([regex]::Matches($body, '\[GhidraFact\b') | Where-Object {
+            $from = $body.LastIndexOfAny([char[]]'{};', $_.Index) + 1
+            $to = $body.IndexOf('public ', $_.Index); if ($to -lt 0) { $to = $body.Length }
+            $body.Substring($from, $to - $from) -notmatch $release
+        }).Count -gt 0
+        [pscustomobject]@{ Class = $declarations[$i].Groups[1].Value; Ida = $body -match '\[IdaFact\b'; Ghidra = $ghidra }
+    }
+}
+
 # The offloaded classes of $testsDir as @{ Class; Group; Mixed; Variables }: host, the host classes and those in files
-# with real-data facts (Variables, the variables those facts name); live, the classes of the Live folder; ghidra, those
-# in files with a Ghidra fact (Mixed when the file has IDA facts too); sweep, names matching the table outside the
-# engine folder. Files with IDA facts alone, real data with IDA facts, live real data, and the local classes stay here;
-# with -CrossPlatform, files with a Windows-only fact too. Only classes named *Tests count (fixtures and test bases
+# with real-data facts (Variables, the variables those facts name); live, the classes of the Live folder; ghidra, the
+# classes with a Ghidra fact a routine run includes (Mixed when the class has IDA facts too); sweep, names matching the
+# table outside the engine folder. Classes with IDA facts alone, files with real data and IDA facts, live real data,
+# and the local classes stay here; with -CrossPlatform, files with a Windows-only fact too. Only classes named *Tests count (fixtures and test bases
 # hold no test of their own; an abstract *Tests class holds nested ones).
 function Get-RemoteEntries([string]$testsDir, [switch]$CrossPlatform) {
     $local = '\[(' + ($script:LocalAttributes -join '|') + $(if ($CrossPlatform) { '|WindowsFact' }) + ')\b'
@@ -115,11 +138,13 @@ function Get-RemoteEntries([string]$testsDir, [switch]$CrossPlatform) {
                     ForEach-Object { [pscustomobject]@{ Class = $_; Group = $script:HostGroup; Mixed = $false; Variables = $variables } }
                 return
             }
-            if ($ida -and -not $ghidra) { return }
-            $of = if ($folder -eq 'Live') { 'live' } elseif ($ghidra) { 'ghidra' } elseif ($folder -notin $script:EngineFolders) { 'sweep' } else { return }
-            [regex]::Matches($text, '(?m)^public (?:sealed |abstract |partial |static )*class (\w+Tests)\b') | ForEach-Object { $_.Groups[1].Value } |
-                Where-Object { $name = $_; $name -in $script:HostClasses -or ($name -notin $script:LocalClasses -and ($of -ne 'sweep' -or ($script:RemotePatterns | Where-Object { $name -like $_ }))) } |
-                ForEach-Object { [pscustomobject]@{ Class = $_; Group = $(if ($_ -in $script:HostClasses) { $script:HostGroup } else { $of }); Mixed = $ida; Variables = @() } }
+            foreach ($class in Get-ClassEngines $text) {
+                $name = $class.Class
+                if ($class.Ida -and -not $class.Ghidra) { continue }
+                $of = if ($folder -eq 'Live') { 'live' } elseif ($class.Ghidra) { 'ghidra' } elseif ($folder -notin $script:EngineFolders) { 'sweep' } else { continue }
+                if (-not ($name -in $script:HostClasses -or ($name -notin $script:LocalClasses -and ($of -ne 'sweep' -or ($script:RemotePatterns | Where-Object { $name -like $_ }))))) { continue }
+                [pscustomobject]@{ Class = $name; Group = $(if ($name -in $script:HostClasses) { $script:HostGroup } else { $of }); Mixed = $class.Ida; Variables = @() }
+            }
         }
     }
 }
