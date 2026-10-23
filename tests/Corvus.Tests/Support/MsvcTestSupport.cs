@@ -201,9 +201,52 @@ internal static class VisualStudio
         return output.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).Where(Directory.Exists).ToList();
     }
 
-    /// <summary>vcvarsall.bat of the newest installation that has one.</summary>
-    public static string? VcVarsAll() =>
-        Installations().Select(i => Path.Combine(i, "VC", "Auxiliary", "Build", "vcvarsall.bat")).FirstOrDefault(File.Exists);
+    /// <summary>
+    /// A stand-in for vcvarsall.bat of the newest installation that has one, or null without one: it applies the
+    /// environment vcvarsall set for x64 or x86, read once per run, and calls vcvarsall itself for other targets.
+    /// </summary>
+    public static string? VcVarsAll() => SavedVcVars.Value;
+
+    // A vcvarsall call took minutes on a loaded machine, and parallel sample builds that each made one passed their
+    // 300 s limit; one call per target per run keeps that cost out of every build.
+    private static readonly Lazy<string?> SavedVcVars = new(() =>
+    {
+        var vcvarsall = Installations().Select(i => Path.Combine(i, "VC", "Auxiliary", "Build", "vcvarsall.bat")).FirstOrDefault(File.Exists);
+        if (vcvarsall == null) return null;
+        var dir = LeakGuard.DeleteAtEnd(Directory.CreateTempSubdirectory("corvus-test-vcvars-").FullName);
+        Parallel.ForEach(["x64", "x86"], arch => SaveEnvironment(vcvarsall, arch, Path.Combine(dir, arch + ".env")));
+        var standIn = Path.Combine(dir, "vcvarsall.bat");
+        File.WriteAllText(standIn, "@echo off\r\n"
+            + "if not exist \"%~dp0%~1.env\" goto vcvarsall\r\n"
+            + "for /f \"usebackq delims=\" %%v in (\"%~dp0%~1.env\") do set \"%%v\"\r\n"
+            + "exit /b 0\r\n"
+            + ":vcvarsall\r\n"
+            + $"call \"{vcvarsall}\" %*\r\n");
+        return standIn;
+    });
+
+    // Writes the variables vcvarsall sets for arch as name=value lines. Writes nothing when it fails or a line is too
+    // long for cmd's for /f, so that target calls vcvarsall itself.
+    private static void SaveEnvironment(string vcvarsall, string arch, string path)
+    {
+        var psi = new ProcessStartInfo("cmd.exe", $"/s /c \"\"{vcvarsall}\" {arch} >nul && set\"");
+        psi.Environment["VSCMD_SKIP_SENDTELEMETRY"] = "1";
+        var (code, output) = Tools.Run(psi, 900_000);
+        if (code != 0) return;
+        var before = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase);
+        foreach (System.Collections.DictionaryEntry e in Environment.GetEnvironmentVariables()) before[(string)e.Key] = e.Value as string;
+        var changed = new List<string>();
+        foreach (var line in output.Split('\n').Select(l => l.TrimEnd('\r')))
+        {
+            var eq = line.IndexOf('=');
+            // Not a variable: stderr lines vcvarsall wrote, and cmd's per-drive "=C:" entries.
+            if (eq <= 0 || line[..eq].Any(char.IsWhiteSpace) || line.Contains('"')) continue;
+            if (before.TryGetValue(line[..eq], out var old) && old == line[(eq + 1)..]) continue;
+            if (line.Length > 8000) return;
+            changed.Add(line);
+        }
+        File.WriteAllLines(path, changed);
+    }
 }
 
 /// <summary>
