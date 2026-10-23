@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Text.Json.Nodes;
 using Corvus.Core;
+using Corvus.Native.Providers;
 using Corvus.Native.Providers.Worker;
 using Xunit.Abstractions;
 
@@ -51,6 +52,22 @@ public sealed class WorkerHostTests(ITestOutputHelper output)
         Assert.Contains("test worker exited with code", e.Message);
         Assert.Contains("'fixture_exit'", e.Message);
         Assert.NotEqual(first, await Ping(pool));
+    }
+
+    [Fact]
+    public async Task A_worker_start_is_stopped_on_idle_time_not_on_wall_time()
+    {
+        // The command spins for 600 ms of CPU time and then waits without ever sending the ready event.
+        using var pool = new WorkerPool(new WorkerPoolOptions
+        {
+            Enabled = true,
+            MemoryLimitBytes = 0,
+            StartTimeout = TimeSpan.FromMilliseconds(300),
+            Start = new ChildProcessStart(FakeTool.Executable, ["spin", "600"]),
+        });
+        var e = await Assert.ThrowsAsync<ToolError>(() => pool.RunAsync("test", "ping", null, Limit, CancellationToken.None));
+        Assert.Equal(ErrorCode.Timeout, e.Code);
+        Assert.Matches("while starting|its overall limit of 0.9 s", e.Message);
     }
 
     // Native allocation passes no GC limit: on macOS only the footprint watchdog stops it.

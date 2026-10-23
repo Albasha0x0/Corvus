@@ -14,6 +14,7 @@ public sealed record WorkerPoolOptions
     public long? MemoryLimitBytes { get; init; }
     /// <summary>The worker command; null: this program's own <c>corvus worker</c>.</summary>
     public ChildProcessStart? Start { get; init; }
+    /// <summary>How long a starting worker may use no CPU; the whole start is bounded at three times this.</summary>
     public TimeSpan StartTimeout { get; init; } = TimeSpan.FromSeconds(30);
 }
 
@@ -183,7 +184,8 @@ public sealed class WorkerPool(WorkerPoolOptions? options = null) : IDisposable
             var connection = WorkerConnection.Start($"{kind} worker", start,
                 options: new WorkerConnectionOptions { MemoryLimitVariable = MemoryVariable, Concurrent = true, CancelGrace = CancelGrace });
             connection.EventReceived += e => { if (e.Name == WorkerHost.OutOfMemoryEvent) slot.OutOfMemory = true; };
-            try { await connection.WaitReadyAsync(_options.StartTimeout, cancellationToken).ConfigureAwait(false); }
+            // A busy machine stretches a start that keeps using CPU, so the start limit counts idle time only.
+            try { await connection.WaitReadyAsync(_options.StartTimeout * 3, cancellationToken, idle: _options.StartTimeout).ConfigureAwait(false); }
             catch
             {
                 connection.Dispose();
