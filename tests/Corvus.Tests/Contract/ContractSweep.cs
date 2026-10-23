@@ -289,6 +289,7 @@ public static partial class ContractSweep
         var shared = tools.Where(t => readOnly.Contains(t.Name) || t.ProtocolTool.InputSchema.GetProperty("properties").TryGetProperty("dryRun", out _))
             .Select(t => t.Name).ToHashSet();
         var all = new List<Result>();
+        await WarmAsync(client, cases);
         foreach (var group in cases.GroupBy(c => byTool ? c.Tool : shared.Contains(c.Tool) ? "shared" : "exclusive").OrderBy(g => g.Key != "shared"))
         {
             bool watch = observe != null && byTool && readOnly.Contains(group.Key);
@@ -308,6 +309,28 @@ public static partial class ContractSweep
             await RestoreAsync(client);
         }
         return all;
+    }
+
+    /// <summary>
+    /// Tools whose first call in a server JIT-compiles a large library (the decompiler, the PDB type reader): alone in a
+    /// fresh test server it took 5 s on an idle machine and 22 s on a loaded one, over <see cref="CallLimit"/>; warm, 0.1 s.
+    /// </summary>
+    private static readonly string[] Warmed = ["decompile_member", "get_native_type"];
+
+    /// <summary>
+    /// Calls each <see cref="Warmed"/> tool's plausible case once, untimed and unjudged, then unloads an image it loaded,
+    /// so the timed calls see a warm server and the same workspace; a warm call that hangs is left to its timed call.
+    /// </summary>
+    private static async Task WarmAsync(McpClient client, List<Case> cases)
+    {
+        await Task.WhenAll(cases.Where(c => c.Label == "plausible" && Warmed.Contains(c.Tool)).Select(async c =>
+        {
+            using var cts = new CancellationTokenSource(TimeSpan.FromMinutes(2));
+            try { await client.CallToolAsync(c.Tool, c.Args, cancellationToken: cts.Token); }
+            catch (OperationCanceledException) when (cts.IsCancellationRequested) { return; }
+            if (c.Args.GetValueOrDefault("image") is string image)
+                await client.CallToolAsync("unload_assembly", new Dictionary<string, object?> { ["assembly"] = Path.GetFileName(image) });
+        }));
     }
 
     /// <summary>Files under <paramref name="root"/> (path, size, write time) and the fixtures' edit lists.</summary>
