@@ -480,6 +480,13 @@
 - **Worker request limits:** a silent worker request stopped by its quiet limit is named as such; it could be reported
   as stopped by its overall limit (once in 3,200 requests under load), so a worker that went silent read like one that
   ran out of time. [5678530f](https://github.com/Albasha0x0/Corvus/commit/5678530f)
+- **Frida install:** `--live-install-frida` makes its private Python environment without copying pip into it when the
+  base Python's pip is 22.3 or later, so the environment is ready in seconds (4.4-18.9 s) instead of running past its
+  2-minute limit on a loaded machine. Verified with Frida 17.24.3 on Windows Server 2025 x64, Windows 11 arm64,
+  Ubuntu 24.04 x64 and macOS 26 arm64. [dae54009](https://github.com/Albasha0x0/Corvus/commit/dae54009)
+- **Device calls:** a device tool runs adb as soon as it finds it, without first waiting for an `adb version` check, so
+  the first device calls of a server no longer wait on that extra program run under load; a missing adb is still named
+  with the reason. [5fe21a55](https://github.com/Albasha0x0/Corvus/commit/5fe21a55)
 
 ## 2.4.0
 
