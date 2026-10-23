@@ -67,7 +67,7 @@ internal sealed class LiveTarget
         // emulation.
         if ((Arm64 || !Windows) && Arm64 != (RuntimeInformation.OSArchitecture == Architecture.Arm64)) return $"{Name} programs run on {(Arm64 ? "an arm64" : "an x64")} machine.";
         if (new FridaBackend().Unavailable() is { } frida) return frida.Reason;
-        if (Windows) return VisualStudio.VcVarsAll() == null ? "No Visual Studio C++ toolset." : null;
+        if (Windows) return !VisualStudio.HasVcVars ? "No Visual Studio C++ toolset." : null;
         using var dir = new TempDir();
         File.WriteAllText(dir.File("probe.c"), "#include <pthread.h>\nint main(void){return 0;}\n");
         var (code, log) = Tools.Run(Gcc(dir, "probe"));

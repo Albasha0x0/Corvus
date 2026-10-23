@@ -13,7 +13,7 @@ public sealed class FridaFactAttribute : FactAttribute
     private static readonly Lazy<string?> Missing = new(() =>
         !OperatingSystem.IsWindows() ? "Windows only (the fixture is built with MSVC)."
         : new FridaBackend().Unavailable() is { } f ? f.Reason
-        : VisualStudio.VcVarsAll() == null ? "No Visual Studio C++ toolset." : null);
+        : !VisualStudio.HasVcVars ? "No Visual Studio C++ toolset." : null);
 
     public FridaFactAttribute(bool elevated = false)
     {

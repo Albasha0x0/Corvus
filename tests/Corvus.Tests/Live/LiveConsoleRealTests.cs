@@ -12,7 +12,7 @@ public sealed class ConsoleFactAttribute : FactAttribute
     private static readonly Lazy<string?> Missing = new(() =>
         !OperatingSystem.IsWindows() ? "Windows only (the pseudoconsole; the fixture is built with MSVC)."
         : new PseudoConsoleHost().Unavailable() is { } c ? c.Reason
-        : VisualStudio.VcVarsAll() == null ? "No Visual Studio C++ toolset." : null);
+        : !VisualStudio.HasVcVars ? "No Visual Studio C++ toolset." : null);
 
     public ConsoleFactAttribute()
     {

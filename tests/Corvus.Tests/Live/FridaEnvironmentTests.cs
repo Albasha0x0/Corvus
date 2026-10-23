@@ -124,7 +124,7 @@ public sealed class FridaDownloadFactAttribute : FactAttribute
     {
         if (Environment.GetEnvironmentVariable("CORVUS_ALL_TESTS") != "1") return "Downloads Frida (set CORVUS_ALL_TESTS=1).";
         if (!OperatingSystem.IsWindows()) return "Windows only (the fixture is built with MSVC).";
-        if (VisualStudio.VcVarsAll() == null) return "No Visual Studio C++ toolset.";
+        if (!VisualStudio.HasVcVars) return "No Visual Studio C++ toolset.";
         if (PythonLocator.Find([], []) == null) return "No 64-bit Python 3.";
         try
         {

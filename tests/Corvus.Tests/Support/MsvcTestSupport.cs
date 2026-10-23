@@ -207,12 +207,17 @@ internal static class VisualStudio
     /// </summary>
     public static string? VcVarsAll() => SavedVcVars.Value;
 
+    /// <summary>True when an installation has vcvarsall.bat; reads vswhere only, so a skip check stays cheap.</summary>
+    public static bool HasVcVars => FoundVcVars.Value != null;
+
+    private static readonly Lazy<string?> FoundVcVars = new(() =>
+        Installations().Select(i => Path.Combine(i, "VC", "Auxiliary", "Build", "vcvarsall.bat")).FirstOrDefault(File.Exists));
+
     // A vcvarsall call took minutes on a loaded machine, and parallel sample builds that each made one passed their
     // 300 s limit; one call per target per run keeps that cost out of every build.
     private static readonly Lazy<string?> SavedVcVars = new(() =>
     {
-        var vcvarsall = Installations().Select(i => Path.Combine(i, "VC", "Auxiliary", "Build", "vcvarsall.bat")).FirstOrDefault(File.Exists);
-        if (vcvarsall == null) return null;
+        if (FoundVcVars.Value is not { } vcvarsall) return null;
         var dir = LeakGuard.DeleteAtEnd(Directory.CreateTempSubdirectory("corvus-test-vcvars-").FullName);
         Parallel.ForEach(["x64", "x86"], arch => SaveEnvironment(vcvarsall, arch, Path.Combine(dir, arch + ".env")));
         var standIn = Path.Combine(dir, "vcvarsall.bat");
