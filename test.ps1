@@ -809,6 +809,12 @@ if ($offload) {
         $candidates = @($candidates + $idaThere | Sort-Object -Unique); $mixed = @($mixed | Where-Object { $_ -notin $idaThere })
         Write-Host "IDA classes split: $($idaThere.Count) run on $($offload.Name), the rest here."
     }
+    # And keeps about half the Ghidra classes here, where the Ghidra permits are otherwise idle.
+    $ghidraHere = if ($offload.Kind -eq 'ssh') { @(Get-GhidraLocalClasses $tests (Get-FastestClassSeconds $timeHistory)) } else { @() }
+    if ($ghidraHere) {
+        $candidates = @($candidates | Where-Object { $_ -notin $ghidraHere })
+        Write-Host "Ghidra classes split: $($ghidraHere.Count) run here, the rest on $($offload.Name)."
+    }
     $candidates = @($candidates | Where-Object { $_ -notin $tierSkip })
     $held = if ($offload.Kind -eq 'ssh' -and -not $Filter) { @(Get-HeldClasses $tests $offload.Variables) } else { @() }
     if ($held) { Write-Host "Kept here, their real-data variables not set on $($offload.Name): $($held -join '; ')." }

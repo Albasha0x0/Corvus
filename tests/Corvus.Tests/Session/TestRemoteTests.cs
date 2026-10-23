@@ -162,6 +162,30 @@ public sealed class TestRemoteTests : IDisposable
 
     [Fact]
     [Trait("Speed", "Slow")]
+    public void About_half_the_ghidra_classes_by_recorded_time_stay_here()
+    {
+        var tests = Path.Combine(_dir.Path, "ghidra-tests");
+        void Source(string text, string file)
+        {
+            Directory.CreateDirectory(Path.Combine(tests, "Engines"));
+            File.WriteAllText(Path.Combine(tests, "Engines", file), text);
+        }
+        Source("public class GhidraLongTests { [GhidraFact] public void M() { } }", "A.cs");
+        Source("public class GhidraMidTests { [GhidraFact] public void M() { } }", "B.cs");
+        Source("public class GhidraNewTests { [GhidraFact] public void M() { } }", "C.cs");
+        Source("public class EngineMixTests { [IdaFact] public void A() { } [GhidraFact] public void B() { } }", "D.cs");
+        var lines = TestReuseTests.Run($$"""
+            Import-Module {{Module}}
+            'here=' + ((Get-GhidraLocalClasses {{Quote(tests)}} @{ GhidraLongTests = 100; GhidraMidTests = 40; EngineMixTests = 500 }) -join ',')
+            """);
+        if (lines is ["skip"]) return;
+        // Longest first, each to the machine with less so far: 100 there, 40 and the unrecorded 1 s here; a mixed class
+        // is split by test instead.
+        Assert.Contains("here=GhidraMidTests,GhidraNewTests", lines);
+    }
+
+    [Fact]
+    [Trait("Speed", "Slow")]
     public void Offload_shards_take_the_classes_by_the_seconds_recorded_on_their_platform_and_the_record_keeps_the_median()
     {
         var a = Path.Combine(_dir.Path, "a.trx");

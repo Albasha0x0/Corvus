@@ -305,7 +305,21 @@ function Get-RemoteClasses([string]$testsDir, [string]$Group = '', [switch]$Cros
 # Sorted; empty when the host has no IDA.
 function Get-IdaHostClasses([string]$testsDir, [hashtable]$seconds = @{}, [string[]]$hostVariables = @()) {
     if ($script:IdaVariable -notin $hostVariables) { return @() }
-    $classes = @(Get-RemoteEntries $testsDir | Where-Object { $_.Group -eq $script:IdaGroup -or $_.Mixed } | ForEach-Object Class | Sort-Object -Unique)
+    Get-HostShare @(Get-RemoteEntries $testsDir | Where-Object { $_.Group -eq $script:IdaGroup -or $_.Mixed } | ForEach-Object Class | Sort-Object -Unique) $seconds
+}
+
+# The Ghidra classes of $testsDir that stay here when a test host takes the rest: of the classes with Ghidra facts
+# alone (a mixed class's Ghidra tests go there already), those not dealt to the host as Get-HostShare deals them, so
+# the Ghidra chain runs on both machines. Sorted.
+function Get-GhidraLocalClasses([string]$testsDir, [hashtable]$seconds = @{}) {
+    $classes = @(Get-RemoteEntries $testsDir | Where-Object { $_.Group -eq 'ghidra' -and -not $_.Mixed } | ForEach-Object Class | Sort-Object -Unique)
+    $there = @(Get-HostShare $classes $seconds)
+    @($classes | Where-Object { $_ -notin $there })
+}
+
+# The host's share of $classes: each, longest first by $seconds (class name to recorded seconds; an unrecorded class
+# counts 1 s), goes to the machine with less so far, the host first. Sorted.
+function Get-HostShare([string[]]$classes, [hashtable]$seconds) {
     $weight = @{}; foreach ($class in $classes) { $weight[$class] = if ($seconds.ContainsKey($class) -and $seconds[$class] -gt 0) { [double]$seconds[$class] } else { 1.0 } }
     $here = 0.0; $there = 0.0
     @(foreach ($class in $classes | Sort-Object @{ Expression = { $weight[$_] }; Descending = $true }, @{ Expression = { $_ } }) {
@@ -1002,4 +1016,4 @@ function Receive-GitHubRun($state, [string]$folder, [string]$group = '') {
     $result
 }
 
-Export-ModuleMember -Function Invoke-Transport, Test-RemoteHost, Get-RemoteRunScript, Invoke-RemoteRun, Receive-RemoteRun, New-RemoteSnapshot, Invoke-RemoteFilter, Invoke-Gh, Wait-GitHubRun, Receive-GitHubRun, Get-GitHubTarget, Receive-GitHubLive, Get-RemoteClasses, Get-IdaHostClasses, Get-HeldClasses, Get-HostVariables, Get-RealDataVariables, Get-RemoteShard, Read-OffloadSeconds, Save-OffloadSeconds, Get-LocalFilter, Get-ClassFilter, Get-ClassOutcomes, Get-TestOutcomes, Get-SkippedOnHost, Get-FastestClassSeconds, Get-SkippedOnBoth, Get-RerunClasses, Get-MixedClasses, Get-FailedThereNote, Join-TrxFiles, Get-TargetFileName, Save-RemoteRecord, Get-RemoteStatus, Get-TierFamilies, Get-TierClasses, Get-TierFilter, Get-TierFamiliesOf, Get-TierReturned, Get-TierHostClasses, Get-TierPasses, Save-TierRecord, Get-TierStatus, Get-DeferredClasses, Get-UndeferredFamilies, Save-DeferredClasses, Get-DeferredStatus, Get-OffloadTarget, Start-Offload, Receive-Offload
+Export-ModuleMember -Function Invoke-Transport, Test-RemoteHost, Get-RemoteRunScript, Invoke-RemoteRun, Receive-RemoteRun, New-RemoteSnapshot, Invoke-RemoteFilter, Invoke-Gh, Wait-GitHubRun, Receive-GitHubRun, Get-GitHubTarget, Receive-GitHubLive, Get-RemoteClasses, Get-IdaHostClasses, Get-GhidraLocalClasses, Get-HeldClasses, Get-HostVariables, Get-RealDataVariables, Get-RemoteShard, Read-OffloadSeconds, Save-OffloadSeconds, Get-LocalFilter, Get-ClassFilter, Get-ClassOutcomes, Get-TestOutcomes, Get-SkippedOnHost, Get-FastestClassSeconds, Get-SkippedOnBoth, Get-RerunClasses, Get-MixedClasses, Get-FailedThereNote, Join-TrxFiles, Get-TargetFileName, Save-RemoteRecord, Get-RemoteStatus, Get-TierFamilies, Get-TierClasses, Get-TierFilter, Get-TierFamiliesOf, Get-TierReturned, Get-TierHostClasses, Get-TierPasses, Save-TierRecord, Get-TierStatus, Get-DeferredClasses, Get-UndeferredFamilies, Save-DeferredClasses, Get-DeferredStatus, Get-OffloadTarget, Start-Offload, Receive-Offload
