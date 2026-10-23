@@ -511,6 +511,10 @@
   only after it spends 15 s under 0.1% of a core, within 45 s overall, instead of after 15 s of wall time, so a loaded
   machine no longer reads IDA as unavailable or finds no Python 3; the candidate log names the limit that stopped a
   probe. [f0035bbb](https://github.com/Albasha0x0/Corvus/commit/f0035bbb)
+- **IDA decompiler licenses:** a native decompile the IDA license cannot run, because it lacks the Hex-Rays decompiler
+  for that processor, fails as `unsupported`, names the missing decompiler and its bitness, and suggests `engine=ghidra`
+  or `disassemble`, instead of a failure whose Next: line asked to start IDA and accept the license terms. Verified with
+  IDA 9.3 on Windows 11 x64. [b5a5c246](https://github.com/Albasha0x0/Corvus/commit/b5a5c246)
 
 ## 2.4.0
 
