@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Runtime.CompilerServices;
 using System.Text.Json;
 using ModelContextProtocol;
 using ModelContextProtocol.Client;
@@ -60,7 +61,7 @@ public static partial class ContractSweep
     public enum Depth { Quick, Core, Full }
 
     /// <summary>Starts a server with the fixtures loaded, working in <paramref name="dir"/> so relative paths resolve inside it.</summary>
-    public static Task<McpClient> StartAsync(TempDir dir)
+    public static async Task<McpClient> StartAsync(TempDir dir)
     {
         var cwd = dir.File("cwd");
         Directory.CreateDirectory(cwd);
@@ -71,8 +72,15 @@ public static partial class ContractSweep
             [Corvus.Native.Providers.Ida.IdaInstallation.DirectoryVariable] = dir.File("no-ida"),
             [Corvus.Native.Providers.Ghidra.GhidraOptions.DirectoryVariable] = dir.File("no-ghidra"),
         };
-        return McpProtocolTests.StartServerAsync(cwd, null, ["--load", Env.FixturePath, "--load", Env.ConsumerPath], noEngines);
+        var started = DateTime.Now;
+        var client = await McpProtocolTests.StartServerAsync(cwd, null, ["--load", Env.FixturePath, "--load", Env.ConsumerPath], noEngines);
+        // The earliest server started since then; another test's server started in the same moment may be taken instead.
+        if (ServerDump.Servers(started) is [var pid, ..]) Servers.AddOrUpdate(client, new StrongBox<int>(pid));
+        return client;
     }
+
+    // The server process behind each sweep client, so a hang names the stacks the call runs or waits in.
+    private static readonly ConditionalWeakTable<McpClient, StrongBox<int>> Servers = new();
 
     private static JsonElement Json(string json) => JsonDocument.Parse(json).RootElement.Clone();
 
@@ -404,7 +412,8 @@ public static partial class ContractSweep
         }
         catch (OperationCanceledException) when (cts.IsCancellationRequested)
         {
-            return Fail("hang", $"no answer within {CallLimit.TotalSeconds:0} s");
+            var stacks = Servers.TryGetValue(client, out var server) ? "; server " + ThreadPoolSnapshot.StacksOf(server.Value) : "";
+            return Fail("hang", $"no answer within {CallLimit.TotalSeconds:0} s{stacks}");
         }
         catch (McpProtocolException ex)
         {

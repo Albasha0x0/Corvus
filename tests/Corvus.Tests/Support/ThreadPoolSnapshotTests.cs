@@ -17,4 +17,18 @@ public class ThreadPoolSnapshotTests(ITestOutputHelper output)
         Assert.DoesNotContain(Process.GetCurrentProcess().Modules.Cast<ProcessModule>(),
             m => m.ModuleName.Equals("mscordaccore.dll", StringComparison.OrdinalIgnoreCase));
     }
+
+    [Fact]
+    public async Task A_server_this_process_started_is_found_and_its_stacks_are_read()
+    {
+        if (!OperatingSystem.IsWindows()) return;
+        var started = DateTime.Now;
+        await using var client = await McpProtocolTests.StartServerAsync();
+        // Another test's server started in the same moment is found too; either is a server this process started.
+        var pid = ServerDump.Servers(started).FirstOrDefault(-1);
+        Assert.True(pid > 0);
+        var stacks = ThreadPoolSnapshot.StacksOf(pid);
+        Assert.StartsWith($"process {pid}, ", stacks);
+        Assert.DoesNotContain("unknown", stacks);
+    }
 }

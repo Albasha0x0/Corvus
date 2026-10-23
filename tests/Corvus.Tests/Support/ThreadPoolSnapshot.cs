@@ -27,10 +27,13 @@ internal static class ThreadPoolSnapshot
     /// </summary>
     public static string ProductStacks(int frames = 16) => Counts() + Read("product", frames, "stacks");
 
+    /// <summary>The stacks of <paramref name="pid"/>'s threads with a Corvus frame, as <see cref="ProductStacks"/> reads them; never throws.</summary>
+    public static string StacksOf(int pid, int frames = 16) => $"process {pid}" + Read("product", frames, "stacks", pid);
+
     private static string Counts() => $"thread pool: {ThreadPool.ThreadCount} threads, {ThreadPool.PendingWorkItemCount} pending";
 
-    /// <summary>The <paramref name="mode"/> read of this process's stacks, done in a child process within <see cref="ReadLimit"/>.</summary>
-    private static string Read(string mode, int frames, string what)
+    /// <summary>The <paramref name="mode"/> read of <paramref name="pid"/>'s stacks (this process's when null), done in a child process within <see cref="ReadLimit"/>.</summary>
+    private static string Read(string mode, int frames, string what, int? pid = null)
     {
         // Off Windows the snapshot is a dump written through the diagnostics port, which a changed TMPDIR cannot reach.
         if (!OperatingSystem.IsWindows()) return $", {what} unknown (read on Windows only)";
@@ -43,7 +46,7 @@ internal static class ThreadPoolSnapshot
                 UseShellExecute = false,
             };
             foreach (var a in new[] { "exec", typeof(ThreadPoolSnapshot).Assembly.Location, Flag, mode,
-                         Environment.ProcessId.ToString(CultureInfo.InvariantCulture), frames.ToString(CultureInfo.InvariantCulture) })
+                         (pid ?? Environment.ProcessId).ToString(CultureInfo.InvariantCulture), frames.ToString(CultureInfo.InvariantCulture) })
                 info.ArgumentList.Add(a);
             using var child = Process.Start(info)!;
             var output = child.StandardOutput.ReadToEndAsync();

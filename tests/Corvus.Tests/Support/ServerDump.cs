@@ -29,24 +29,41 @@ internal static class ServerDump
             if (!OperatingSystem.IsWindows()) return written;
             Directory.CreateDirectory(folder);
             int room = MaxDumps - Directory.GetFiles(folder, "server-start-*.dmp").Length;
-            foreach (var server in Process.GetProcessesByName("dotnet"))
+            foreach (var (pid, cmd, _) in Started(started))
             {
-                using (server)
-                {
-                    if (room <= 0) break;
-                    try
-                    {
-                        if (server.StartTime < started.AddSeconds(-1) || ParentOf(server.Id) is not { } cmd) continue;
-                        if (shell is { } only ? cmd != only : ParentOf(cmd) != Environment.ProcessId) continue;
-                        var file = Path.Combine(folder, $"server-start-{server.Id}-{DateTime.Now:yyyyMMdd-HHmmss}.dmp");
-                        if (Dump(server.Id, file)) { written.Add(file); room--; }
-                    }
-                    catch (Exception e) when (e is InvalidOperationException or System.ComponentModel.Win32Exception) { }
-                }
+                if (room <= 0) break;
+                if (shell is { } only ? cmd != only : ParentOf(cmd) != Environment.ProcessId) continue;
+                var file = Path.Combine(folder, $"server-start-{pid}-{DateTime.Now:yyyyMMdd-HHmmss}.dmp");
+                if (Dump(pid, file)) { written.Add(file); room--; }
             }
         }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException) { }
         return written;
+    }
+
+    /// <summary>
+    /// The process ids of the servers this process started (dotnet under cmd /c, as the SDK starts it) from
+    /// <paramref name="started"/> on and still running, earliest first; empty off Windows. Never throws.
+    /// </summary>
+    internal static IReadOnlyList<int> Servers(DateTime started) => !OperatingSystem.IsWindows() ? []
+        : [.. Started(started).Where(s => ParentOf(s.Cmd) == Environment.ProcessId).OrderBy(s => s.Start).Select(s => s.Pid)];
+
+    // Each dotnet process started from then on under a parent process (the cmd /c the SDK starts it with).
+    private static List<(int Pid, int Cmd, DateTime Start)> Started(DateTime started)
+    {
+        var found = new List<(int, int, DateTime)>();
+        foreach (var server in Process.GetProcessesByName("dotnet"))
+        {
+            using (server)
+            {
+                try
+                {
+                    if (server.StartTime >= started.AddSeconds(-1) && ParentOf(server.Id) is { } cmd) found.Add((server.Id, cmd, server.StartTime));
+                }
+                catch (Exception e) when (e is InvalidOperationException or System.ComponentModel.Win32Exception) { }
+            }
+        }
+        return found;
     }
 
     // The runtime's createdump no longer takes another process's id, so dbghelp writes it: private memory, data segments,
