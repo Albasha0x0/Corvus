@@ -298,7 +298,9 @@ public sealed class WorkerConnection : IDisposable
             if (tcs.Task.IsCompleted) return Result(tcs.Task.Result);
             if (_closed.Task.IsCompleted && !timer.IsCancellationRequested) throw await DiedAsync(op).ConfigureAwait(false);
             var cancelled = cancellationToken.IsCancellationRequested;
-            var limit = wentQuiet.IsCompletedSuccessfully && wentQuiet.Result
+            // The quiet wait cancels the timer before it returns, so this code can run first: wait for its answer,
+            // which comes at once now that the timer is cancelled.
+            var limit = await wentQuiet.ConfigureAwait(false)
                 ? $"reported no progress on '{op}' for {Seconds(quiet!.Value)}"
                 : $"did not finish '{op}' within {Seconds(timeout)}";
             // Read the worker at the timeout, before the cancel, so the state shows the request still running or lost.
