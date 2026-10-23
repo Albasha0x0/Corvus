@@ -55,6 +55,8 @@ public abstract class ResultBoundsTests : IAsyncLifetime
         public async Task HugeResultsComeBackPaged()
         {
             var problems = new List<string>();
+            // Untimed warm-up: the test claims bounded pages, not cold-start time, so the decompiler is JIT-compiled first.
+            await _client.CallToolAsync("decompile_member", new Dictionary<string, object?> { ["member"] = "Newtonsoft.Json.JsonConvert" });
             foreach (var (tool, args) in Unbounded())
             {
                 using var cts = new CancellationTokenSource(ContractSweep.CallLimit);
