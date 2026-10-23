@@ -533,11 +533,11 @@ internal sealed class GhidraSession(GhidraProvider provider, GhidraInstallation 
     public async Task<NativeCallTargets> GetCallTargetsAsync(IReadOnlyList<uint> functions, IReadOnlyList<uint> sites, double seconds,
         CancellationToken cancellationToken = default)
     {
-        // the budget stays under the request timeout so a slow decompilation ends the batch instead of the request
+        // A decompilation a loaded machine slows past the budget ends the batch instead of the request.
         double budget = Math.Clamp(seconds, 1, Math.Max(1, RequestTimeout.TotalSeconds * 0.6));
         var args = WorkerRows.Args(("functions", new JsonArray(functions.Select(f => (JsonNode)f).ToArray())),
             ("sites", new JsonArray(sites.Select(s => (JsonNode)s).ToArray())), ("seconds", budget));
-        return WorkerRows.CallTargets(await CallAsync("virtual_targets", args, cancellationToken).ConfigureAwait(false));
+        return WorkerRows.CallTargets(await CallBatchAsync("virtual_targets", args, budget, cancellationToken).ConfigureAwait(false));
     }
 
     public async Task<UserTypeResult> ApplyUserTypesAsync(NativeUserTypeBatch batch, string? stampKey = null, string? stamp = null, bool save = false,

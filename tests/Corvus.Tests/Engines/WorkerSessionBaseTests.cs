@@ -81,6 +81,16 @@ public sealed class WorkerSessionBaseTests : IDisposable
         Assert.Null(EngineRequestLimit.Current);
     }
 
+    // Reproduces the 47be8db0 push run: a virtual_targets batch with a 72 s budget stopped at 2 min in one decompilation.
+    [Fact]
+    public async Task A_batch_s_last_item_gets_a_request_limit_past_its_budget()
+    {
+        await using var s = await Open();
+        Assert.Equal(192, (await s.CallBatchAsync("timeout", new JsonObject(), 72, default)).GetProperty("timeout").GetDouble());
+        using (EngineRequestLimit.Use(TimeSpan.FromSeconds(7)))
+            Assert.Equal(10, (await s.CallBatchAsync("timeout", new JsonObject(), 3, default)).GetProperty("timeout").GetDouble());
+    }
+
     [Fact]
     public async Task State_shows_the_running_request_the_queue_and_restarts_without_asking_the_worker()
     {

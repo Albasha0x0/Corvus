@@ -342,11 +342,11 @@ internal sealed class IdaSession(IdaProvider provider, IdaInstallation ida, Pyth
     public async Task<NativeCallTargets> GetCallTargetsAsync(IReadOnlyList<uint> functions, IReadOnlyList<uint> sites, double seconds,
         CancellationToken cancellationToken = default)
     {
-        // the budget stays under the request timeout so a slow decompilation ends the batch instead of the worker
+        // A decompilation a loaded machine slows past the budget ends the batch instead of the worker.
         double budget = Math.Clamp(seconds, 1, Math.Max(1, RequestTimeout.TotalSeconds * 0.6));
         var args = IdaProvider.Args(("functions", new JsonArray(functions.Select(f => (JsonNode)f).ToArray())),
             ("sites", new JsonArray(sites.Select(s => (JsonNode)s).ToArray())), ("seconds", budget));
-        var r = await CallAsync("virtual_targets", args, cancellationToken).ConfigureAwait(false);
+        var r = await CallBatchAsync("virtual_targets", args, budget, cancellationToken).ConfigureAwait(false);
         var targets = new List<NativeCallTarget>();
         foreach (var row in r.GetProperty("rows").EnumerateArray())
         {

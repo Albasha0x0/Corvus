@@ -584,6 +584,13 @@ internal abstract class WorkerSessionBase(NativeOpenOptions options) : IAsyncDis
         { RetryAfter = TimeSpan.FromSeconds(Math.Clamp((job.Budget - elapsed).TotalSeconds, 2, 30)), Retryable = true };
     }
 
+    /// <summary>
+    /// Runs a batch request whose worker starts no item after <paramref name="budget"/> seconds (its "seconds" argument);
+    /// the request ends one request limit later, so the item still running when the budget ends gets a request's own limit.
+    /// </summary>
+    internal Task<JsonElement> CallBatchAsync(string op, JsonObject args, double budget, CancellationToken cancellationToken) =>
+        CallAsync(op, args, cancellationToken, timeout: TimeSpan.FromSeconds(budget) + RequestTimeout);
+
     /// <summary>Runs one request, restarting the worker first when it is gone.</summary>
     internal async Task<JsonElement> CallAsync(string op, JsonObject args, CancellationToken cancellationToken, bool journal = false, bool saves = false,
         TimeSpan? timeout = null)
