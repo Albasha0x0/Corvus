@@ -40,11 +40,13 @@ public abstract class FileIsolationTestBase : IDisposable
     private protected string Noted(string text) =>
         _load == 1 ? text : $"{text}\n(machine load x{_load:0.00}, worker start limit {new WorkerPoolOptions().StartTimeout * _load})";
 
-    private protected static async Task<ToolSession> Session(bool inProcess, params string[] args)
+    private protected static Task<ToolSession> Session(bool inProcess, params string[] args) => Session(inProcess, null, args);
+
+    private protected static async Task<ToolSession> Session(bool inProcess, TimeProvider? time, params string[] args)
     {
         var options = ServerOptions.Parse(["--no-index", "--no-watch", .. args]);
         options.InProcessParsing = inProcess;
-        return await ToolSession.StartAsync(options, CancellationToken.None);
+        return await ToolSession.StartAsync(options, CancellationToken.None, time);
     }
 
     private protected static async Task<CallToolResult> Call(ToolSession session, string tool, Dictionary<string, object?> args) =>
@@ -242,10 +244,15 @@ public sealed class FileIsolationTests(ITestOutputHelper output) : FileIsolation
             var (zip, _, _, _) = Inputs();
             using var pool = Pool();
             using var shared = WorkerPool.UseShared(pool);
-            // The next read starts a new worker within the same call deadline, so the deadline scales with the load too.
-            await using var session = await Session(false, "--timeout", Math.Ceiling(5 * _load).ToString(System.Globalization.CultureInfo.InvariantCulture));
-            var text = Whole(await Call(session, "summarize_file", new() { ["path"] = Fixture("loop.txt", Corvus.Tools.FileOps.FixtureMarker + "loop") }));
+            var clock = new ArmedClock();
+            await using var session = await Session(false, clock);
+            var reading = Call(session, "summarize_file", new() { ["path"] = Fixture("loop.txt", Corvus.Tools.FileOps.FixtureMarker + "loop") });
+            // The deadline must find the read looping in the worker, not still starting it.
+            await Task.Run(async () => { while (pool.RunningRequests == 0 && !reading.IsCompleted) await Task.Delay(5); }).WaitAsync(TimeSpan.FromMinutes(1));
+            await clock.RunUntilAsync(reading);
+            var text = Whole(await reading);
             Assert.True(text.Contains("Error (timeout"), Noted(text));
+            // The clock stands still from here, so the next read's deadline cannot end it while a new worker starts.
             await ReadsAsync(session, zip);
         }
     }

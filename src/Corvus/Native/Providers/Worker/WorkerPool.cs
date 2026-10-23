@@ -69,6 +69,12 @@ public sealed class WorkerPool(WorkerPoolOptions? options = null) : IDisposable
         public volatile bool OutOfMemory;
     }
 
+    /// <summary>Tests: the requests the workers of every kind are running now.</summary>
+    internal int RunningRequests
+    {
+        get { lock (_slots) return _slots.Values.Sum(s => s.Connection?.Running.Count ?? 0); }
+    }
+
     public bool Enabled => _options.Enabled ?? Environment.GetEnvironmentVariable(EnableVariable)?.Trim() is not ("0" or "false" or "off");
 
     /// <summary>The memory limit each worker gets, in bytes, or null for none.</summary>

@@ -29,7 +29,8 @@ internal sealed class ToolSession : IAsyncDisposable
 
     public SdkClient Client { get; }
 
-    public static async Task<ToolSession> StartAsync(ServerOptions options, CancellationToken cancellationToken)
+    /// <summary>Starts the server and connects the client; <paramref name="time"/> times call deadlines (null: the system clock).</summary>
+    public static async Task<ToolSession> StartAsync(ServerOptions options, CancellationToken cancellationToken, TimeProvider? time = null)
     {
         Pipe toServer = new(), toClient = new();
         var host = ServerHost.Build(options, Guide.Core, server =>
@@ -37,6 +38,7 @@ internal sealed class ToolSession : IAsyncDisposable
             server.WithStreamServerTransport(toServer.Reader.AsStream(), toClient.Writer.AsStream());
             // The CLI owns Ctrl+C: it cancels the call in flight instead of stopping the server under it.
             server.Services.AddSingleton<IHostLifetime, NoLifetime>();
+            if (time != null) server.Services.AddSingleton(time);
         });
         try
         {
