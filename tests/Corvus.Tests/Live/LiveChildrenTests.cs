@@ -7,6 +7,8 @@ namespace Corvus.Tests;
 /// <summary>Child processes on a scripted backend: held at their start, listed, attached as a session of their own, let go, resumed at close.</summary>
 public sealed class LiveChildrenTests : IDisposable
 {
+    // The scripted children's ids are above Linux's PID_MAX_LIMIT (2^22) and
+    // not multiples of 4, so no real process (this server among them) has one.
     private const ulong Base = 0x7ff6_1000_0000;
     private static readonly string Sqlite = RealPackages.File("SQLitePCLRaw.lib.e_sqlite3", "2.1.11", "runtimes", "win-x64", "native", "e_sqlite3.dll");
     private readonly AssemblyWorkspace _workspace = new();
@@ -41,31 +43,31 @@ public sealed class LiveChildrenTests : IDisposable
         await _tools.LiveSession("spawn", program: Sqlite, childNames: ["child.exe"]);
         Assert.Equal("child.exe", (string?)_backend.LastOpen!["children"]!["names"]![0]);
         var parent = _backend.Worker!;
-        _backend.Child(parent, 5001, @"C:\app\child.exe", held: true);
-        _backend.Child(parent, 5002, @"C:\app\helper.exe", held: false);
-        _backend.Child(parent, 5003, @"C:\app\child.exe", held: true);
+        _backend.Child(parent, 4194305, @"C:\app\child.exe", held: true);
+        _backend.Child(parent, 4194306, @"C:\app\helper.exe", held: false);
+        _backend.Child(parent, 4194307, @"C:\app\child.exe", held: true);
 
-        var children = await Until(() => _tools.LiveSession("children", session: "live-1"), "pid 5003");
+        var children = await Until(() => _tools.LiveSession("children", session: "live-1"), "pid 4194307");
         Assert.Contains("follows child processes named child.exe: 3 started, 2 held", children);
-        Assert.Contains(@"pid 5001 held: C:\app\child.exe --role ""two words""", children);
-        Assert.Contains("pid 5002 resumed:", children);
-        Assert.Contains("held at its start: live_session action=attach_child or release_child program=5001",
+        Assert.Contains(@"pid 4194305 held: C:\app\child.exe --role ""two words""", children);
+        Assert.Contains("pid 4194306 resumed:", children);
+        Assert.Contains("held at its start: live_session action=attach_child or release_child program=4194305",
             await _tools.LiveEvents("live-1", kind: "child"));
 
-        var child = await _tools.LiveSession("attach_child", session: "live-1", program: "5001");
-        Assert.Contains("live-2 (scripted): 5001 pid 5001, suspended", child);
+        var child = await _tools.LiveSession("attach_child", session: "live-1", program: "4194305");
+        Assert.Contains("live-2 (scripted): 4194305 pid 4194305, suspended", child);
         Assert.Contains("(held by live-1)", child);
-        Assert.Contains("is attached in live-2", (await Refused(() => _tools.LiveSession("release_child", session: "live-1", program: "5001"))).Message);
+        Assert.Contains("is attached in live-2", (await Refused(() => _tools.LiveSession("release_child", session: "live-1", program: "4194305"))).Message);
         Assert.Empty(_backend.ChildResumes);
 
         Assert.Contains("program started", await _tools.LiveBreak("live-2", "continue"));
-        Assert.Equal([5001], _backend.ChildResumes);
-        Assert.Contains("live-2 (scripted): 5001 pid 5001, running", await _tools.LiveSession("status", session: "live-2"));
-        Assert.Contains("pid 5001 attached in live-2", await _tools.LiveSession("children", session: "live-1"));
+        Assert.Equal([4194305], _backend.ChildResumes);
+        Assert.Contains("live-2 (scripted): 4194305 pid 4194305, running", await _tools.LiveSession("status", session: "live-2"));
+        Assert.Contains("pid 4194305 attached in live-2", await _tools.LiveSession("children", session: "live-1"));
 
         await _tools.LiveSession("close", session: "live-1");
-        Assert.Equal([5001, 5003], _backend.ChildResumes);
-        Assert.Contains("live-2 (scripted): 5001 pid 5001, running", await _tools.LiveSession("status", session: "live-2"));
+        Assert.Equal([4194305, 4194307], _backend.ChildResumes);
+        Assert.Contains("live-2 (scripted): 4194305 pid 4194305, running", await _tools.LiveSession("status", session: "live-2"));
     }
 
     [Fact]
@@ -74,18 +76,18 @@ public sealed class LiveChildrenTests : IDisposable
         await _tools.LiveSession("spawn", program: Sqlite, childNames: ["*"]);
         Assert.Empty(_backend.LastOpen!["children"]!["names"]!.AsArray());
         var parent = _backend.Worker!;
-        _backend.Child(parent, 5001, @"C:\app\child.exe", held: true);
-        _backend.Child(parent, 5004, @"C:\app\worker.exe", held: true);
-        await Until(() => _tools.LiveSession("children", session: "live-1"), "pid 5004");
+        _backend.Child(parent, 4194305, @"C:\app\child.exe", held: true);
+        _backend.Child(parent, 4194309, @"C:\app\worker.exe", held: true);
+        await Until(() => _tools.LiveSession("children", session: "live-1"), "pid 4194309");
 
-        Assert.Contains("follows child processes: 2 started, 1 held", await _tools.LiveSession("release_child", session: "live-1", program: "5004"));
-        Assert.Equal([5004], _backend.ChildResumes);
+        Assert.Contains("follows child processes: 2 started, 1 held", await _tools.LiveSession("release_child", session: "live-1", program: "4194309"));
+        Assert.Equal([4194309], _backend.ChildResumes);
         Assert.Contains("holds no child process 77", (await Refused(() => _tools.LiveSession("attach_child", session: "live-1", program: "77"))).Message);
 
-        await _tools.LiveSession("attach_child", session: "live-1", program: "5001");
+        await _tools.LiveSession("attach_child", session: "live-1", program: "4194305");
         await _tools.LiveSession("close", session: "live-2");
-        Assert.Contains("pid 5001 held:", await _tools.LiveSession("children", session: "live-1"));
-        Assert.Equal([5004], _backend.ChildResumes);
+        Assert.Contains("pid 4194305 held:", await _tools.LiveSession("children", session: "live-1"));
+        Assert.Equal([4194309], _backend.ChildResumes);
     }
 
     [Fact]
@@ -95,25 +97,25 @@ public sealed class LiveChildrenTests : IDisposable
         using var service = new LiveSessionService(_workspace, new NativeCodeService(_workspace, SharedCodeIndex.Options())) { Backend = backend };
         var tools = new LiveSessionTools(new ServerOptions { AllowLive = true, AllowLiveSpawn = true }, service);
         await tools.LiveSession("spawn", program: Sqlite, childNames: ["*"]);
-        backend.Child(backend.Worker!, 5001, "/app/child", held: true);
-        backend.Child(backend.Worker!, 5002, "/app/child", held: true);
-        await Until(() => tools.LiveSession("children", session: "live-1"), "pid 5002 held");
+        backend.Child(backend.Worker!, 4194305, "/app/child", held: true);
+        backend.Child(backend.Worker!, 4194306, "/app/child", held: true);
+        await Until(() => tools.LiveSession("children", session: "live-1"), "pid 4194306 held");
 
-        Assert.Contains("live-2 (scripted): 5001 pid 5001, suspended", await tools.LiveSession("attach_child", session: "live-1", program: "5001"));
-        Assert.Equal([-5001], backend.ChildResumes);
+        Assert.Contains("live-2 (scripted): 4194305 pid 4194305, suspended", await tools.LiveSession("attach_child", session: "live-1", program: "4194305"));
+        Assert.Equal([-4194305], backend.ChildResumes);
         Assert.Null(backend.LastOpen!["stopped"]);
         Assert.Contains("No events.", await tools.LiveEvents("live-2", kind: "child"));
         Assert.Contains("program started", await tools.LiveBreak("live-2", "continue"));
-        Assert.Equal([-5001, 5001], backend.ChildResumes);
+        Assert.Equal([-4194305, 4194305], backend.ChildResumes);
         Assert.Empty(backend.ChildDrops);
         await tools.LiveSession("close", session: "live-2");
-        Assert.Equal([5001], backend.ChildDrops);
+        Assert.Equal([4194305], backend.ChildDrops);
 
         backend.ChildHoldReached = false;
-        await tools.LiveSession("attach_child", session: "live-1", program: "5002");
-        Assert.Contains("child process 5002 reached none of its code within 5 s of its start: it runs unheld", await tools.LiveEvents("live-3", kind: "child"));
+        await tools.LiveSession("attach_child", session: "live-1", program: "4194306");
+        Assert.Contains("child process 4194306 reached none of its code within 5 s of its start: it runs unheld", await tools.LiveEvents("live-3", kind: "child"));
         await tools.LiveSession("close", session: "live-1");
-        Assert.Equal([-5001, 5001, -5002, 5002], backend.ChildResumes);
+        Assert.Equal([-4194305, 4194305, -4194306, 4194306], backend.ChildResumes);
     }
 
     [Fact]
