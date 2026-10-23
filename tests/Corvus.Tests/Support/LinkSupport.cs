@@ -58,20 +58,16 @@ public static class Links
     }
 }
 
-/// <summary>A fact skipped, with the reason, where the OS refuses to create directory links.</summary>
-public sealed class DirectoryLinkFactAttribute : FactAttribute
+/// <summary>A fact skipped, with the reason, where the OS refuses to create directory links; the probe (mklink /J) runs when a test runs.</summary>
+[Xunit.Sdk.XunitTestCaseDiscoverer(RunTimeSkips.FactDiscoverer, RunTimeSkips.Assembly)]
+public sealed class DirectoryLinkFactAttribute : FactAttribute, IRunTimeSkip
 {
-    public DirectoryLinkFactAttribute()
-    {
-        if (Links.DirectoryLinkUnavailable is { } reason) Skip = reason;
-    }
+    public string? RunTimeSkip() => Links.DirectoryLinkUnavailable;
 }
 
-/// <summary>A fact skipped, with the reason, where the OS refuses to create hard links.</summary>
-public sealed class HardLinkFactAttribute : FactAttribute
+/// <summary>A fact skipped, with the reason, where the OS refuses to create hard links; the probe (mklink /H, ln) runs when a test runs.</summary>
+[Xunit.Sdk.XunitTestCaseDiscoverer(RunTimeSkips.FactDiscoverer, RunTimeSkips.Assembly)]
+public sealed class HardLinkFactAttribute : FactAttribute, IRunTimeSkip
 {
-    public HardLinkFactAttribute()
-    {
-        if (Links.HardLinkUnavailable is { } reason) Skip = reason;
-    }
+    public string? RunTimeSkip() => Links.HardLinkUnavailable;
 }

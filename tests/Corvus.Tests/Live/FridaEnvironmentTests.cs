@@ -146,8 +146,9 @@ public sealed class FridaEnvironmentTests : IDisposable
     }
 }
 
-/// <summary>Runs where Frida sessions can (see <see cref="FridaFactAttribute"/>) and pypi.org answers.</summary>
-public sealed class FridaDownloadFactAttribute : FactAttribute
+/// <summary>Runs where Frida sessions can (see <see cref="FridaFactAttribute"/>) and pypi.org answers, checked when a test runs.</summary>
+[Xunit.Sdk.XunitTestCaseDiscoverer(RunTimeSkips.FactDiscoverer, RunTimeSkips.Assembly)]
+public sealed class FridaDownloadFactAttribute : FactAttribute, IRunTimeSkip
 {
     private static readonly Lazy<string?> Missing = new(() =>
     {
@@ -163,10 +164,7 @@ public sealed class FridaDownloadFactAttribute : FactAttribute
         return null;
     });
 
-    public FridaDownloadFactAttribute()
-    {
-        if (Missing.Value is { } reason) Skip = reason;
-    }
+    public string? RunTimeSkip() => Missing.Value;
 }
 
 /// <summary>The private environment made from the network in a test folder, and a session opened on its Frida.</summary>

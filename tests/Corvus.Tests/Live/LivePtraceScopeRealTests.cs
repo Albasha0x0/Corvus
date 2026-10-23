@@ -81,17 +81,17 @@ public sealed class LivePtraceScopeRealTests(ITestOutputHelper output) : LiveToo
 [CollectionDefinition(nameof(LivePtraceScopeRealTests), DisableParallelization = true)]
 public sealed class LivePtraceScopeCollection;
 
-/// <summary>Runs on Linux as a user without CAP_SYS_PTRACE that may set ptrace_scope with <c>sudo -n tee</c>.</summary>
-public sealed class PtraceScopeFactAttribute : FactAttribute
+/// <summary>Runs on Linux as a user without CAP_SYS_PTRACE that may set ptrace_scope with <c>sudo -n tee</c>, checked when a test runs.</summary>
+[Xunit.Sdk.XunitTestCaseDiscoverer(RunTimeSkips.FactDiscoverer, RunTimeSkips.Assembly)]
+public sealed class PtraceScopeFactAttribute : FactAttribute, IRunTimeSkip
 {
-    public PtraceScopeFactAttribute()
-    {
-        if (LiveTarget.LinuxX64.Missing is { } reason) Skip = reason;
-        else if (Environment.IsPrivilegedProcess) Skip = "Runs as a user without CAP_SYS_PTRACE (not root).";
-        else if (!File.Exists(PtraceScope.SettingPath)) Skip = "The kernel has no Yama ptrace_scope.";
-        else if (Tools.Run(Sudo("-n", "-l", "tee", PtraceScope.SettingPath), 30_000).ExitCode != 0)
-            Skip = $"This user may not set ptrace_scope (a sudoers entry for: tee {PtraceScope.SettingPath}).";
-    }
+    public string? RunTimeSkip() =>
+        LiveTarget.LinuxX64.Missing is { } reason ? reason
+        : Environment.IsPrivilegedProcess ? "Runs as a user without CAP_SYS_PTRACE (not root)."
+        : !File.Exists(PtraceScope.SettingPath) ? "The kernel has no Yama ptrace_scope."
+        : Tools.Run(Sudo("-n", "-l", "tee", PtraceScope.SettingPath), 30_000).ExitCode != 0
+            ? $"This user may not set ptrace_scope (a sudoers entry for: tee {PtraceScope.SettingPath})."
+            : null;
 
     private static ProcessStartInfo Sudo(params string[] args)
     {

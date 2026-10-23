@@ -4,15 +4,15 @@ using Xunit.Abstractions;
 
 namespace Corvus.Tests;
 
-/// <summary>Runs when programs for the target can be observed here and every variable is set (to a path that exists, or to 1).</summary>
-public sealed class LiveRealDataFactAttribute : FactAttribute
+/// <summary>
+/// Runs when programs for the target can be observed here and every variable is set (to a path that exists, or to 1),
+/// checked when a test runs.
+/// </summary>
+[Xunit.Sdk.XunitTestCaseDiscoverer(RunTimeSkips.FactDiscoverer, RunTimeSkips.Assembly)]
+public sealed class LiveRealDataFactAttribute(string target, params string[] variables) : FactAttribute, IRunTimeSkip
 {
-    public LiveRealDataFactAttribute(string target, params string[] variables)
-    {
-        if (LiveTarget.Of(target).Missing is { } reason) { Skip = reason; return; }
-        foreach (var v in variables)
-            if (RealData.Get(v) is not { } value || value != "1" && !Path.Exists(value)) { Skip = $"Set {v} to run this real-data session test."; return; }
-    }
+    public string? RunTimeSkip() => LiveTarget.Of(target).Missing
+        ?? variables.Where(v => RealData.Get(v) is not { } value || value != "1" && !Path.Exists(value)).Select(v => $"Set {v} to run this real-data session test.").FirstOrDefault();
 }
 
 /// <summary>

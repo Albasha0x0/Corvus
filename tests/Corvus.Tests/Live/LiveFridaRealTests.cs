@@ -7,19 +7,24 @@ using Xunit.Abstractions;
 
 namespace Corvus.Tests;
 
-/// <summary>Runs on Windows when Frida's Python bindings and the MSVC toolset are found, and the run is elevated when <paramref name="elevated"/>.</summary>
-public sealed class FridaFactAttribute : FactAttribute
+/// <summary>
+/// Runs on Windows when Frida's Python bindings and the MSVC toolset are found (checked when a test runs), and the run
+/// is elevated when <paramref name="elevated"/>.
+/// </summary>
+[Xunit.Sdk.XunitTestCaseDiscoverer(RunTimeSkips.FactDiscoverer, RunTimeSkips.Assembly)]
+public sealed class FridaFactAttribute : FactAttribute, IRunTimeSkip
 {
     private static readonly Lazy<string?> Missing = new(() =>
         !OperatingSystem.IsWindows() ? "Windows only (the fixture is built with MSVC)."
         : new FridaBackend().Unavailable() is { } f ? f.Reason
         : !VisualStudio.HasVcVars ? "No Visual Studio C++ toolset." : null);
 
-    public FridaFactAttribute(bool elevated = false)
-    {
-        if (Missing.Value is { } reason) Skip = reason;
-        else if (elevated && !Environment.IsPrivilegedProcess) Skip = "An event tracing session needs an elevated test run.";
-    }
+    private readonly bool _elevated;
+
+    public FridaFactAttribute(bool elevated = false) => _elevated = elevated;
+
+    public string? RunTimeSkip() =>
+        Missing.Value ?? (_elevated && !Environment.IsPrivilegedProcess ? "An event tracing session needs an elevated test run." : null);
 }
 
 /// <summary>

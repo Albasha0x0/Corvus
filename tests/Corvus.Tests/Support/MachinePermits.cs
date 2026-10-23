@@ -51,12 +51,13 @@ public static class MachinePermits
 
     /// <summary>
     /// The resources a test collection's runnable cases need, in name order; empty when none does or every case is
-    /// skipped. Throws for a resource without a count.
+    /// skipped, at discovery or by its IRunTimeSkip attribute. Throws for a resource without a count.
     /// </summary>
     public static IReadOnlyList<string> Needed(IEnumerable<IXunitTestCase> testCases)
     {
         var needed = new SortedSet<string>(StringComparer.Ordinal);
-        foreach (var testCase in testCases.Where(t => string.IsNullOrEmpty(t.SkipReason)))
+        // A case its attribute skips when it runs takes no permit either, so a missing tool queues nothing.
+        foreach (var testCase in testCases.Where(t => string.IsNullOrEmpty(t.SkipReason) && RunTimeSkips.Of(t.TestMethod) == null))
         {
             var method = testCase.Method.ToRuntimeMethod();
             if (method.IsDefined(typeof(IdaFactAttribute))) needed.Add("engine-ida");

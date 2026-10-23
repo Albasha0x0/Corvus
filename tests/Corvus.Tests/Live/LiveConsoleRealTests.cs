@@ -6,18 +6,16 @@ using Xunit.Abstractions;
 
 namespace Corvus.Tests;
 
-/// <summary>Needs the pseudoconsole and a Visual Studio C++ toolset for the fixture.</summary>
-public sealed class ConsoleFactAttribute : FactAttribute
+/// <summary>Needs the pseudoconsole and a Visual Studio C++ toolset for the fixture, checked when a test runs (vswhere).</summary>
+[Xunit.Sdk.XunitTestCaseDiscoverer(RunTimeSkips.FactDiscoverer, RunTimeSkips.Assembly)]
+public sealed class ConsoleFactAttribute : FactAttribute, IRunTimeSkip
 {
     private static readonly Lazy<string?> Missing = new(() =>
         !OperatingSystem.IsWindows() ? "Windows only (the pseudoconsole; the fixture is built with MSVC)."
         : new PseudoConsoleHost().Unavailable() is { } c ? c.Reason
         : !VisualStudio.HasVcVars ? "No Visual Studio C++ toolset." : null);
 
-    public ConsoleFactAttribute()
-    {
-        if (Missing.Value is { } reason) Skip = reason;
-    }
+    public string? RunTimeSkip() => Missing.Value;
 }
 
 /// <summary>A console run through the pseudoconsole of a program built here: the script waits for its prompt, types a line, and the transcript shows the echo.</summary>

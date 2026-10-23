@@ -77,14 +77,12 @@ public class GhidraWorkerBuildTests
     }
 }
 
-/// <summary>Runs when a JDK 21+ is found the way the Ghidra provider looks for one.</summary>
-public sealed class JdkFactAttribute : FactAttribute
+/// <summary>Runs when a JDK 21+ is found the way the Ghidra provider looks for one, checked when a test runs (java -version).</summary>
+[Xunit.Sdk.XunitTestCaseDiscoverer(RunTimeSkips.FactDiscoverer, RunTimeSkips.Assembly)]
+public sealed class JdkFactAttribute : FactAttribute, IRunTimeSkip
 {
     public static JavaRuntime? Jdk => Found.Value;
     private static readonly Lazy<JavaRuntime?> Found = new(() => JavaRuntime.Locate(null, 21, null, []));
 
-    public JdkFactAttribute()
-    {
-        if (Jdk == null) Skip = $"No JDK 21+ ({GhidraOptions.JavaVariable}, JAVA_HOME or PATH).";
-    }
+    public string? RunTimeSkip() => Jdk == null ? $"No JDK 21+ ({GhidraOptions.JavaVariable}, JAVA_HOME or PATH)." : null;
 }

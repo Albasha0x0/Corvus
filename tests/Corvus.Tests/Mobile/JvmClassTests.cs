@@ -337,14 +337,15 @@ internal static class JavapOracle
     }
 }
 
-/// <summary>Runs when a JDK 23+ is found (JAVA_HOME, PATH); its javap reads through the ClassFile API, the layout matched.</summary>
-public sealed class JavapTheoryAttribute : TheoryAttribute
+/// <summary>
+/// Runs when a JDK 23+ is found (JAVA_HOME, PATH), checked when a test runs (java -version); its javap reads through
+/// the ClassFile API, the layout matched.
+/// </summary>
+[Xunit.Sdk.XunitTestCaseDiscoverer(RunTimeSkips.TheoryDiscoverer, RunTimeSkips.Assembly)]
+public sealed class JavapTheoryAttribute : TheoryAttribute, IRunTimeSkip
 {
     public static Native.Providers.Ghidra.JavaRuntime? Jdk => Found.Value;
     private static readonly Lazy<Native.Providers.Ghidra.JavaRuntime?> Found = new(() => Native.Providers.Ghidra.JavaRuntime.Locate(null, 23, null, []));
 
-    public JavapTheoryAttribute()
-    {
-        if (Jdk == null) Skip = "No JDK 23+ (JAVA_HOME or PATH).";
-    }
+    public string? RunTimeSkip() => Jdk == null ? "No JDK 23+ (JAVA_HOME or PATH)." : null;
 }

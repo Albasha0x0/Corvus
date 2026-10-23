@@ -137,24 +137,21 @@ internal sealed class LiveTarget
     public override string ToString() => Name;
 }
 
-/// <summary>Runs when programs for the target can be built and observed on this machine (started by the session, unless <paramref name="attaches"/>).</summary>
-public sealed class LiveTargetFactAttribute : FactAttribute
+/// <summary>
+/// Runs when programs for the target can be built and observed on this machine (started by the session, unless
+/// <paramref name="attaches"/>), checked when a test runs.
+/// </summary>
+[Xunit.Sdk.XunitTestCaseDiscoverer(RunTimeSkips.FactDiscoverer, RunTimeSkips.Assembly)]
+public sealed class LiveTargetFactAttribute(string target, bool attaches = false) : FactAttribute, IRunTimeSkip
 {
-    public LiveTargetFactAttribute(string target, bool attaches = false)
-    {
-        if (LiveTarget.Of(target).Missing is { } reason) Skip = reason;
-        else if (!attaches && LiveTarget.Musl) Skip = LiveTarget.MuslStart;
-    }
+    public string? RunTimeSkip() => LiveTarget.Of(target).Missing ?? (!attaches && LiveTarget.Musl ? LiveTarget.MuslStart : null);
 }
 
-/// <summary>Runs where the C library is musl and Linux x64 programs can be built and observed.</summary>
-public sealed class MuslFactAttribute : FactAttribute
+/// <summary>Runs where the C library is musl and Linux x64 programs can be built and observed, checked when a test runs.</summary>
+[Xunit.Sdk.XunitTestCaseDiscoverer(RunTimeSkips.FactDiscoverer, RunTimeSkips.Assembly)]
+public sealed class MuslFactAttribute : FactAttribute, IRunTimeSkip
 {
-    public MuslFactAttribute()
-    {
-        if (LiveTarget.LinuxX64.Missing is { } reason) Skip = reason;
-        else if (!LiveTarget.Musl) Skip = "The C library here is not musl.";
-    }
+    public string? RunTimeSkip() => LiveTarget.LinuxX64.Missing ?? (!LiveTarget.Musl ? "The C library here is not musl." : null);
 }
 
 /// <summary>Programs the session tests observe, in C that builds with MSVC and gcc.</summary>

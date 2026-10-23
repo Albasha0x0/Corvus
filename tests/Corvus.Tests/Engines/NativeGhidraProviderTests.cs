@@ -756,9 +756,13 @@ public sealed class NativeGhidraTypeTests(ITestOutputHelper output, GhidraCacheF
     }
 }
 
-/// <summary>Runs when Ghidra (CORVUS_GHIDRA_DIR or GHIDRA_INSTALL_DIR) and a JDK for it are present, on Windows (system DLL samples).</summary>
+/// <summary>
+/// Runs when Ghidra (CORVUS_GHIDRA_DIR or GHIDRA_INSTALL_DIR) and a JDK for it are present, on Windows (system DLL
+/// samples); checked when a test runs, as the JDK and PyGhidra probes start java and Python.
+/// </summary>
 [TraitDiscoverer(EngineTraitDiscoverer.TypeName, EngineTraitDiscoverer.AssemblyName)]
-public sealed class GhidraFactAttribute : FactAttribute, ITraitAttribute
+[Xunit.Sdk.XunitTestCaseDiscoverer(RunTimeSkips.FactDiscoverer, RunTimeSkips.Assembly)]
+public sealed class GhidraFactAttribute : FactAttribute, ITraitAttribute, IRunTimeSkip
 {
     private static readonly Lazy<string?> SkipReason = new(() =>
     {
@@ -768,8 +772,5 @@ public sealed class GhidraFactAttribute : FactAttribute, ITraitAttribute
         return a.IsAvailable ? null : $"Ghidra provider unavailable: {a.Reason}";
     });
 
-    public GhidraFactAttribute()
-    {
-        if (SkipReason.Value is { } r) Skip = r;
-    }
+    public string? RunTimeSkip() => SkipReason.Value;
 }

@@ -114,35 +114,38 @@ internal sealed class DotnetTarget
     public override string ToString() => Name;
 }
 
-/// <summary>Runs when the target's .NET program can be built and observed on this machine.</summary>
-public sealed class DotnetTargetFactAttribute : FactAttribute
+/// <summary>Runs when the target's .NET program can be built and observed on this machine, checked when a test runs (dotnet, Python).</summary>
+[Xunit.Sdk.XunitTestCaseDiscoverer(RunTimeSkips.FactDiscoverer, RunTimeSkips.Assembly)]
+public sealed class DotnetTargetFactAttribute(string target) : FactAttribute, IRunTimeSkip
 {
-    public DotnetTargetFactAttribute(string target)
-    {
-        if (DotnetTarget.Of(target).Missing is { } reason) Skip = reason;
-    }
+    public string? RunTimeSkip() => DotnetTarget.Of(target).Missing;
 }
 
-/// <summary>Runs when the target's program can be built and observed and CORVUS_SNAPSHOT_RUNS is set.</summary>
-public sealed class SnapshotRunsFactAttribute : FactAttribute
+/// <summary>Runs when the target's program can be built and observed and CORVUS_SNAPSHOT_RUNS is set, checked when a test runs.</summary>
+[Xunit.Sdk.XunitTestCaseDiscoverer(RunTimeSkips.FactDiscoverer, RunTimeSkips.Assembly)]
+public sealed class SnapshotRunsFactAttribute(string target) : FactAttribute, IRunTimeSkip
 {
-    public SnapshotRunsFactAttribute(string target)
-    {
-        if (DotnetTarget.Of(target).Missing is { } reason) Skip = reason;
-        else if (LiveDotnetRealTests.SnapshotRuns == 0) Skip = "Set CORVUS_SNAPSHOT_RUNS to the number of runs.";
-    }
+    public string? RunTimeSkip() =>
+        DotnetTarget.Of(target).Missing ?? (LiveDotnetRealTests.SnapshotRuns == 0 ? "Set CORVUS_SNAPSHOT_RUNS to the number of runs." : null);
 }
 
-/// <summary>Runs on Windows x64 with Frida, the .NET Framework 4.8 reference assemblies and a native image (NGEN) of System.dll.</summary>
-public sealed class FrameworkNativeImageFactAttribute : FactAttribute
+/// <summary>
+/// Runs on Windows x64 with Frida, the .NET Framework 4.8 reference assemblies and a native image (NGEN) of System.dll;
+/// Frida is looked for when a test runs, once per run.
+/// </summary>
+[Xunit.Sdk.XunitTestCaseDiscoverer(RunTimeSkips.FactDiscoverer, RunTimeSkips.Assembly)]
+public sealed class FrameworkNativeImageFactAttribute : FactAttribute, IRunTimeSkip
 {
+    private static readonly Lazy<string?> Frida = new(() => new FridaBackend().Unavailable()?.Reason);
+
     public FrameworkNativeImageFactAttribute()
     {
         if (!OperatingSystem.IsWindows() || System.Runtime.InteropServices.RuntimeInformation.OSArchitecture != System.Runtime.InteropServices.Architecture.X64) Skip = "Windows x64 only.";
-        else if (new FridaBackend().Unavailable() is { } frida) Skip = frida.Reason;
-        else if (!Directory.Exists(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Windows), "assembly", "NativeImages_v4.0.30319_64", "System")))
-            Skip = "No native image of System.dll.";
     }
+
+    public string? RunTimeSkip() =>
+        Frida.Value ?? (!Directory.Exists(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Windows), "assembly", "NativeImages_v4.0.30319_64", "System"))
+            ? "No native image of System.dll." : null);
 }
 
 /// <summary>

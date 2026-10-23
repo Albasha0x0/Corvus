@@ -893,9 +893,13 @@ internal static class WorkerKill
     }
 }
 
-/// <summary>Runs only when an IDA install with idalib and a usable 64-bit Python are present (checked once per run).</summary>
+/// <summary>
+/// Runs only when an IDA install with idalib and a usable 64-bit Python are present: the install is found at discovery,
+/// the Python probe runs when a test runs (once per run).
+/// </summary>
 [TraitDiscoverer(EngineTraitDiscoverer.TypeName, EngineTraitDiscoverer.AssemblyName)]
-public sealed class IdaFactAttribute : FactAttribute, ITraitAttribute
+[Xunit.Sdk.XunitTestCaseDiscoverer(RunTimeSkips.FactDiscoverer, RunTimeSkips.Assembly)]
+public sealed class IdaFactAttribute : FactAttribute, ITraitAttribute, IRunTimeSkip
 {
     private static readonly Lazy<string?> SkipReason = new(() =>
     {
@@ -909,6 +913,7 @@ public sealed class IdaFactAttribute : FactAttribute, ITraitAttribute
     {
         if (Environment.GetEnvironmentVariable("CORVUS_TEST_ENGINE") == "ghidra") Skip = "IDA tests are left out of the second-Ghidra pass.";
         else if (IdaInstallation.Locate(null, out var reason, out _) == null) Skip = reason;
-        else if (SkipReason.Value is { } r) Skip = r;
     }
+
+    public string? RunTimeSkip() => SkipReason.Value;
 }
