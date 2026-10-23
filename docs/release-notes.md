@@ -445,6 +445,18 @@
   listed, and the next call reads the finished result; a cache folder's first count runs on a thread of its own, so a
   small folder answers within its 2 s wait on a busy machine. Verified on Windows 11 x64, including a contract sweep
   limited to two cores. [2efbd420](https://github.com/Albasha0x0/Corvus/commit/2efbd420) [91f7a047](https://github.com/Albasha0x0/Corvus/commit/91f7a047)
+- **Result hashes:** a result's `resultSha256` leaves out workspace notices, so a recorded note call reruns to the
+  same hash when a one-time notice (such as one about unsaved edits a stopped session left) is attached; results
+  without a notice hash as in 2.4.0. [b4715960](https://github.com/Albasha0x0/Corvus/commit/b4715960) [d1cfc7d3](https://github.com/Albasha0x0/Corvus/commit/d1cfc7d3)
+- **Kept results:** a kept-result folder past its size limit is trimmed to 75% of it, so writes walk the folder at most
+  once per quarter of the limit instead of on every write; a 100,000-character `comment_native` on a folder of 48,000
+  files took 2.2-6.0 s per call before and about 0.5 s now. [276b5687](https://github.com/Albasha0x0/Corvus/commit/276b5687)
+- **Call log:** passwords in URLs are masked in time linear in the text, so a long string argument (a comment, a
+  script, a pattern) no longer takes seconds to log; 400,000 letters took 4.3 s before, and the 100,000-character
+  `comment_native` call takes 0.12 s with both fixes. [70e4fc70](https://github.com/Albasha0x0/Corvus/commit/70e4fc70)
+- **IDA starts:** an open's start (loading idalib) is stopped after 60 s without progress from the worker, within the
+  open's own limit, instead of after 60 s in all; the error names the quiet limit. Verified with IDA 9.3 on
+  Windows 11 x64; the stop under a slow start was not reproduced on demand. [c72de6da](https://github.com/Albasha0x0/Corvus/commit/c72de6da)
 
 ## 2.4.0
 
