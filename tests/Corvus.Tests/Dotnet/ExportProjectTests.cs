@@ -73,7 +73,8 @@ public sealed class ExportProjectTests
         using var env = new Env();
         using var dir = new TempDir();
         var options = new ServerOptions { ClientTimeoutSeconds = 10 };
-        using var services = new ServiceCollection().AddSingleton(options).AddSingleton<ResultStore>().BuildServiceProvider();
+        var clock = new ArmedClock();
+        using var services = new ServiceCollection().AddSingleton(options).AddSingleton<ResultStore>().AddSingleton<TimeProvider>(clock).BuildServiceProvider();
         var tools = new Corvus.Tools.DecompileTools(env.Workspace, env.Decompiler, env.Pager, options: options);
         var output = dir.File("out");
         // A writer holds the workspace, so the export cannot take its snapshot before the deadline.
@@ -81,12 +82,14 @@ public sealed class ExportProjectTests
         using var held = new ManualResetEventSlim();
         var writer = Task.Factory.StartNew(() => env.Workspace.Write(() => { held.Set(); release.Wait(); return 0; }), TaskCreationOptions.LongRunning);
         held.Wait();
-        var clock = Stopwatch.StartNew();
-        var result = await CallFilter.Run(new CallToolRequestParams { Name = "export_project" }, null, services,
-            ct => new ValueTask<CallToolResult>(Call(ct)), default, null);
+        var calling = CallFilter.Run(new CallToolRequestParams { Name = "export_project" }, null, services,
+            ct => new ValueTask<CallToolResult>(Call(ct)), default, null).AsTask();
         async Task<CallToolResult> Call(CancellationToken ct) =>
             new() { Content = [new TextContentBlock { Text = await tools.ExportProject("TestFixture", output, cancellationToken: ct) }] };
-        Assert.True(clock.Elapsed < TimeSpan.FromSeconds(5), $"answered after {clock.Elapsed}");
+        var deadline = TimeSpan.FromSeconds(options.ClientTimeoutSeconds.Value) - Deadlines.ClientMargin;
+        var answered = await clock.RunUntilAsync(calling, within: deadline);
+        Assert.True(answered <= deadline, $"answered after {answered}");
+        var result = await calling;
         var error = McpProtocolTests.ErrorJson(result);
         Assert.Equal("timeout", error.GetProperty("code").GetString());
         Assert.True(error.GetProperty("details").GetProperty("stillRunning").GetBoolean());
