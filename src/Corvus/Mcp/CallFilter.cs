@@ -143,9 +143,10 @@ internal static partial class CallFilter
         var leftovers = serverOptions != null ? LeftoverWork.For(serverOptions) : null;
         var joinKey = serverOptions != null ? CallJoin.Key(tool, effects.ReadOnly, request?.Arguments) : null;
         var joins = joinKey != null ? CallJoin.For(serverOptions!) : null;
-        using var call = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        var time = services?.GetService<TimeProvider>() ?? TimeProvider.System;
         // Stopped one grace period early, so even work that ignores its token is answered for by the deadline.
-        if (deadline is { } limit) call.CancelAfter(Early(limit));
+        using var expiry = deadline is { } limit ? new CancellationTokenSource(Early(limit), time) : null;
+        using var call = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, expiry?.Token ?? CancellationToken.None);
         // at the cap a call with a deadline waits for room until that deadline; session tools (server_status) and joins never wait
         if (leftovers != null && deadline != null && tool != null && Toolsets.FamilyOf(tool) != Toolsets.Session && joins?.IsRunning(joinKey!) != true
             && !await leftovers.WaitForRoom(call.Token))
@@ -184,14 +185,14 @@ internal static partial class CallFilter
                 {
                     // The shared run keeps the server's deadline only, so a caller that left at the client's deadline can pick it up again.
                     var joined = joins.Run(joinKey!, Work, cancellationToken, Deadline(tool, serverOptions!) is { } server ? Early(server) : null,
-                        o => (Copy(o.Result), o.Output));
+                        o => (Copy(o.Result), o.Output), time);
                     joinStopped = joined.Stopped;
-                    outcome = await WithinDeadline(joined.Result, joined.Work, call.Token, deadline, cancellationToken, leftovers);
+                    outcome = await WithinDeadline(joined.Result, joined.Work, call.Token, deadline, cancellationToken, leftovers, time);
                 }
                 else
                 {
                     var work = Work(call.Token);
-                    outcome = await WithinDeadline(work, work, call.Token, deadline, cancellationToken, leftovers);
+                    outcome = await WithinDeadline(work, work, call.Token, deadline, cancellationToken, leftovers, time);
                 }
                 var result = outcome.Result;
                 output = outcome.Output;
@@ -269,7 +270,7 @@ internal static partial class CallFilter
     private static readonly TimeSpan AnswerSlack = TimeSpan.FromMilliseconds(500);
 
     /// <summary>When work is told to stop: grace and slack before <paramref name="deadline"/>, or halfway for a short one.</summary>
-    private static TimeSpan Early(TimeSpan deadline) => deadline - DeadlineGrace - AnswerSlack > deadline / 2 ? deadline - DeadlineGrace - AnswerSlack : deadline / 2;
+    internal static TimeSpan Early(TimeSpan deadline) => deadline - DeadlineGrace - AnswerSlack > deadline / 2 ? deadline - DeadlineGrace - AnswerSlack : deadline / 2;
 
     /// <summary>How long stopped work is waited for before the call answers without it, so the answer lands before <paramref name="deadline"/>.</summary>
     private static TimeSpan Grace(TimeSpan deadline)
@@ -293,13 +294,13 @@ internal static partial class CallFilter
     /// counted in <paramref name="leftovers"/>.
     /// </summary>
     private static async Task<T> WithinDeadline<T>(Task<T> work, Task shared, CancellationToken call, TimeSpan? deadline, CancellationToken client,
-        LeftoverWork? leftovers)
+        LeftoverWork? leftovers, TimeProvider time)
     {
         var stopped = new TaskCompletionSource();
         using (call.Register(() => stopped.TrySetResult()))
             if (await Task.WhenAny(work, stopped.Task) == work) return await work;
         var grace = !client.IsCancellationRequested && deadline is { } d ? Grace(d) : DeadlineGrace;
-        if (await Task.WhenAny(work, Task.Delay(grace, CancellationToken.None)) == work) return await work;
+        if (await Task.WhenAny(work, Task.Delay(grace, time, CancellationToken.None)) == work) return await work;
         leftovers?.Track(shared);
         _ = work.ContinueWith(t => t.Exception, TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously);
         client.ThrowIfCancellationRequested();

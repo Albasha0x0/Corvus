@@ -83,9 +83,11 @@ public sealed class CallJoin
     /// <summary>
     /// Runs <paramref name="work"/> under <paramref name="key"/>, or attaches to the run already under it. The work's token
     /// is cancelled when every attached caller's <paramref name="clientToken"/> is cancelled, or after <paramref name="limit"/>
-    /// from its start. <paramref name="copy"/> gives each caller its own result to change.
+    /// from its start, measured by <paramref name="time"/> (the system clock when null). <paramref name="copy"/> gives each
+    /// caller its own result to change.
     /// </summary>
-    public Joined<T> Run<T>(string key, Func<CancellationToken, Task<T>> work, CancellationToken clientToken, TimeSpan? limit, Func<T, T> copy)
+    public Joined<T> Run<T>(string key, Func<CancellationToken, Task<T>> work, CancellationToken clientToken, TimeSpan? limit, Func<T, T> copy,
+        TimeProvider? time = null)
     {
         Entry entry;
         bool wasRunning;
@@ -96,8 +98,7 @@ public sealed class CallJoin
             if (wasRunning) { entry.Attached++; }
             else
             {
-                var stop = new CancellationTokenSource();
-                if (limit is { } l) stop.CancelAfter(l);
+                var stop = limit is { } l ? new CancellationTokenSource(l, time ?? TimeProvider.System) : new CancellationTokenSource();
                 // Started after the lock; the placeholder keeps a second caller from starting its own copy meanwhile.
                 var start = new TaskCompletionSource<Task<T>>(TaskCreationOptions.RunContinuationsAsynchronously);
                 var shared = start.Task.Unwrap();
