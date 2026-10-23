@@ -103,6 +103,8 @@ public sealed class SessionTools(AssemblyWorkspace workspace, IndexingService in
         // The engines are checked beside the external programs, each check in parallel (see ExternalToolCapabilities).
         var deadline = DateTime.UtcNow + Native.Providers.ExternalTools.StatusWait;
         var external = OwnThread(() => ExternalToolCapabilities(Native.Providers.ExternalTools.StatusWait).ToList());
+        // The sections' own waits (cache folder counts) run beside the checks rather than after them.
+        var sections = context?.Services is { } services ? OwnThread(() => StatusSections.Collect(services)) : null;
         var providers = engines?.Providers ?? [];
         var checks = providers.Select(provider => OwnThread(provider.CheckAvailability)).ToList();
         var availability = new List<Native.Providers.ProviderAvailability>();
@@ -166,7 +168,7 @@ public sealed class SessionTools(AssemblyWorkspace workspace, IndexingService in
                 e.State.BusySeconds, e.State.Stage, e.State.Queued, e.State.Unsaved, e.State.Restarts, e.State.Database, e.State.ReusedDatabase, e.State.Note)
                     { Analysis = e.State.Analysis }).ToList(),
             new CatalogFilter(options.ToolAllowList != null ? options.ToolAllowListSource ?? "(set)" : null, options.ToolAllowList?.Count, options.TracePath),
-            context?.Services is { } services ? StatusSections.Collect(services) : []);
+            sections?.GetAwaiter().GetResult() ?? []);
     }
 
     private const string Pending = "its check is still running; call server_status again";

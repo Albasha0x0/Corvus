@@ -30,14 +30,23 @@ public static class StatusSections
 
     /// <summary>Every section, in order; a section that throws reports the problem as its one field.</summary>
     public static IReadOnlyList<StatusSection> Collect(IServiceProvider services) =>
-        [.. Types.Value.Select(t => (IStatusSection)Activator.CreateInstance(t, nonPublic: true)!)
-            .OrderBy(s => s.Order).ThenBy(s => s.Name, StringComparer.Ordinal)
-            .Select(s =>
+        Collect(services, Types.Value.Select(t => (IStatusSection)Activator.CreateInstance(t, nonPublic: true)!));
+
+    /// <summary>
+    /// <paramref name="sections"/> by order then name, each read on a thread of its own, so a status call waits for the
+    /// slowest section rather than for all of them in turn (a cache folder count waits up to 2 s).
+    /// </summary>
+    internal static IReadOnlyList<StatusSection> Collect(IServiceProvider services, IEnumerable<IStatusSection> sections)
+    {
+        var reads = sections.OrderBy(s => s.Order).ThenBy(s => s.Name, StringComparer.Ordinal)
+            .Select(s => Task.Factory.StartNew(() =>
             {
                 try { return new StatusSection(s.Name, [.. s.Fields(services)]); }
                 catch (Exception ex) when (ex is not OutOfMemoryException)
                 {
                     return new StatusSection(s.Name, [new StatusField("error", ex.Message)]);
                 }
-            })];
+            }, CancellationToken.None, TaskCreationOptions.LongRunning, TaskScheduler.Default)).ToList();
+        return [.. reads.Select(r => r.GetAwaiter().GetResult())];
+    }
 }

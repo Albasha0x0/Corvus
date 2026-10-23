@@ -78,6 +78,28 @@ public class ServerStatusTests
 
     /// <summary>Without IDA or Ghidra the default status still fits: an engine value missing on many tools is one entry.</summary>
     [Fact]
+    public void Status_sections_are_read_side_by_side_and_kept_in_order()
+    {
+        // Each section waits for all three to start: read one after another, the first gives up and reports an error.
+        using var started = new Barrier(3);
+        var sections = new[] { "c", "a", "b" }.Select(name => new WaitingSection(name, started)).ToList();
+        var collected = Corvus.Core.StatusSections.Collect(null!, sections);
+        Assert.Equal(["a", "b", "c"], collected.Select(s => s.Name));
+        Assert.All(collected, s => Assert.Equal("met", Assert.Single(s.Fields).Value));
+    }
+
+    private sealed class WaitingSection(string name, Barrier started) : Corvus.Core.IStatusSection
+    {
+        public string Name => name;
+
+        public IEnumerable<Corvus.Core.StatusField> Fields(IServiceProvider services)
+        {
+            if (!started.SignalAndWait(TimeSpan.FromSeconds(60))) throw new TimeoutException("the other sections did not start");
+            yield return new("barrier", "met");
+        }
+    }
+
+    [Fact]
     public void AMissingEngineValueOnManyToolsIsOneEntry()
     {
         var rows = new[] { "disassemble", "find_xrefs", "get_cfg", "list_functions" }
