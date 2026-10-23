@@ -502,8 +502,16 @@ public sealed class LiveDotnetRealTests(ITestOutputHelper output) : LiveToolCall
         await Spawn(server, exe, "live-1", input, "1", "100000", "20");
         await Ok(server, "live_break", new() { ["session"] = "live-1", ["action"] = "set", ["at"] = "readers.dll!Readers::ReadOnce" });
         for (int round = 0; round < 2; round++)
-            Assert.Matches(@"stopped at s1 \(readers\.dll!Readers\.ReadOnce\(System\.String\)\)",
-                await Ok(server, "live_break", new() { ["session"] = "live-1", ["action"] = "continue", ["wait"] = true, ["waitSeconds"] = 60 }));
+        {
+            var stop = await Ok(server, "live_break", new() { ["session"] = "live-1", ["action"] = "continue", ["wait"] = true, ["waitSeconds"] = 60 });
+            // A missed stop logs the deferred point's state and the session's events.
+            if (!Regex.IsMatch(stop, @"stopped at s1 \(readers\.dll!Readers\.ReadOnce\(System\.String\)\)"))
+            {
+                await Call(server, "live_break", new() { ["session"] = "live-1", ["action"] = "list" });
+                await Call(server, "live_session", new() { ["action"] = "status", ["session"] = "live-1" });
+                Assert.Fail($"round {round}: {stop}\nevents:\n{await Events(server, "live-1", log: false)}");
+            }
+        }
         Assert.Contains("cleared", await Ok(server, "live_break", new() { ["session"] = "live-1", ["action"] = "clear", ["stopPoint"] = "s1" }));
         await Ok(server, "live_watch", new() { ["session"] = "live-1", ["action"] = "set", ["at"] = "readers.dll!Readers::ReadOnce" });
         await Ok(server, "live_break", new() { ["session"] = "live-1", ["action"] = "continue" });
@@ -549,7 +557,15 @@ public sealed class LiveDotnetRealTests(ITestOutputHelper output) : LiveToolCall
         await using var server = await Server();
         var pid = await Spawn(server, exe, "live-1");
         await Ok(server, "live_break", new() { ["session"] = "live-1", ["action"] = "set", ["at"] = "readers.dll!Compiled::Once" });
-        Assert.Contains("stopped at s1", await Ok(server, "live_break", new() { ["session"] = "live-1", ["action"] = "continue", ["wait"] = true, ["waitSeconds"] = 60 }));
+        var first = await Ok(server, "live_break", new() { ["session"] = "live-1", ["action"] = "continue", ["wait"] = true, ["waitSeconds"] = 60 });
+        // A missed stop logs whether readers.dll's load reached the server (events, status) and where the main thread waits.
+        if (!first.Contains("stopped at s1", StringComparison.Ordinal))
+        {
+            await Call(server, "live_session", new() { ["action"] = "status", ["session"] = "live-1" });
+            await Call(server, "inspect_process", new() { ["process"] = pid.ToString(CultureInfo.InvariantCulture), ["view"] = "stacks" });
+            await Call(server, "inspect_process", new() { ["process"] = pid.ToString(CultureInfo.InvariantCulture), ["view"] = "modules", ["limit"] = 200 });
+            Assert.Fail($"{first}\nevents:\n{await Events(server, "live-1", log: false)}");
+        }
         await Ok(server, "live_break", new() { ["session"] = "live-1", ["action"] = "clear", ["stopPoint"] = "s1" });
         await Ok(server, "live_break", new() { ["session"] = "live-1", ["action"] = "continue" });
         Assert.Matches(@"exit code 0(?![0-9xX])", await Exited(server, "live-1", pid));
