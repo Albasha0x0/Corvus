@@ -1,5 +1,15 @@
 # Release notes
 
+## 2.5.1
+
+165 tools and 15 prompts, as in 2.5.0.
+
+### Fixes
+
+- **Native imports:** a forwarder in a kernel-mode image that names the kernel without an extension
+  (`hal.dll`: `ntoskrnl.KeStallExecutionProcessor`) binds to `ntoskrnl.exe` instead of reading as `forwarder_broken`;
+  user-mode forwarders still name DLLs only. [a2a29687](https://github.com/Albasha0x0/Corvus/commit/a2a29687)
+
 ## 2.5.0
 
 165 tools and 15 prompts, as in 2.4.0: everything new is a parameter, an action, a view or a kind of an existing tool.
