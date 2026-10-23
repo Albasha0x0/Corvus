@@ -12,6 +12,10 @@
           "sequence": {
             "type": "integer"
           },
+          "time": {
+            "description": "UTC, ISO 8601.",
+            "type": "string"
+          },
           "kind": {
             "type": "string"
           },
@@ -30,6 +34,7 @@
         },
         "required": [
           "sequence",
+          "time",
           "kind",
           "text"
         ]

@@ -60,8 +60,11 @@ internal sealed record LiveJitBinding(string Id, bool Watch, string Name, IReadO
 /// <summary>A thread held at a stop point until it is resumed: its general registers and return addresses.</summary>
 public sealed record LiveHeldStop(long Sequence, long Thread, string Point, IReadOnlyDictionary<string, string> Registers, IReadOnlyList<ulong> Frames);
 
-/// <summary>An event; <see cref="Source"/> is the watch or user script it came from.</summary>
-public sealed record LiveRingEvent(long Sequence, string Kind, long? Thread, ulong? Address, string Text, string? Source = null);
+/// <summary>
+/// An event; <see cref="Time"/> is when the server recorded it (UTC), later than the program reached it by the worker and
+/// pipe latency. <see cref="Source"/> is the watch or user script it came from.
+/// </summary>
+public sealed record LiveRingEvent(long Sequence, DateTime Time, string Kind, long? Thread, ulong? Address, string Text, string? Source = null);
 
 /// <summary>
 /// An address joined to the static model: its module, the loaded image and RVA, the containing function's name and offset,
@@ -115,6 +118,8 @@ public sealed class LiveSession
     public string Backend { get; }
     public string Program { get; }
     public bool Spawned { get; }
+    /// <summary>When the session opened (UTC).</summary>
+    public DateTime Opened { get; } = DateTime.UtcNow;
     public int ProcessId { get; internal set; }
     public string Arch { get; internal set; } = "";
     /// <summary>windows, linux or darwin (Frida's names).</summary>
@@ -243,7 +248,7 @@ public sealed class LiveSession
         {
             var seq = ++_sequence;
             if (kind == "exception") Exceptions++;
-            (kind == "call" ? _calls : _others).Add(new LiveRingEvent(seq, kind, thread, address, text, source));
+            (kind == "call" ? _calls : _others).Add(new LiveRingEvent(seq, DateTime.UtcNow, kind, thread, address, text, source));
             if (held != null && thread is { } t) _held[t] = held(seq);
             Signal();
             return seq;

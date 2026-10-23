@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text.RegularExpressions;
 using System.Diagnostics;
 using System.Text.Json.Nodes;
@@ -338,6 +339,33 @@ public sealed class LiveSessionTests : LiveSessionTestBase
         Assert.Equal(2, Resumes());
         Assert.Equal("running", s.State);
         Assert.Contains("stop point s1 hit after it was cleared: thread released", await _tools.LiveEvents("live-1", kind: "stop"));
+    }
+
+    [Fact]
+    public async Task Event_rows_carry_the_time_they_were_recorded_and_the_text_stays_as_it_was()
+    {
+        await _tools.LiveSession("spawn", program: Sqlite);
+        await _tools.LiveBreak("live-1", "set", at: "e_sqlite3!sqlite3_open");
+        await _tools.LiveBreak("live-1", "continue");
+        _backend.Hit("s1", 77, Base + 0x1010);
+        Assert.Contains("thread 77 stopped at s1", await _tools.LiveBreak("live-1", wait: true, waitSeconds: 10));
+        _backend.Hit("s1", 78, Base + 0x1010);
+        Assert.Contains("thread 78 stopped at s1", await _tools.LiveBreak("live-1", wait: true, waitSeconds: 10));
+        var s = _service.Get("live-1");
+        var events = s.Page(0, null, null, 100).Events;
+        Assert.NotEmpty(events);
+        Assert.All(events, e => Assert.InRange(e.Time, s.Opened, DateTime.UtcNow));
+        Assert.All(events.Zip(events.Skip(1)), p => Assert.True(p.First.Time <= p.Second.Time));
+        using var pipeline = new OutputPipeline();
+        var record = await pipeline.Record("live_events", 4_000, ct => _tools.LiveEvents("live-1", cancellationToken: ct));
+        var times = record.GetProperty("items").EnumerateArray()
+            .Select(r => DateTime.Parse(r.GetProperty("time").GetString()!, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind)).ToList();
+        Assert.Equal(events.Count, times.Count);
+        Assert.All(times, t => Assert.Equal(DateTimeKind.Utc, t.Kind));
+        // Text lines end at the event's text, as callers parse them.
+        var text = await _tools.LiveEvents("live-1");
+        Assert.Matches(@"(?m)^#\d+ stop thread 78 ", text);
+        Assert.DoesNotMatch(@"(?m)\(\+[0-9.]+s\)\r?$", text);
     }
 
     [Fact]

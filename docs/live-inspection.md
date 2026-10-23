@@ -110,7 +110,7 @@ an `error` event naming the version and the range, and a Frida older than 17.0 i
 | Record every call of a function | `live_watch action=set at=AddLine` (or `kernelbase!CreateFileA`, an address) |
 | Collect code coverage of a run | `live_coverage action=start` before `continue`, then `action=report` (`format=dot` for the call graph); two runs: `action=diff run=cov-1 other=cov-2` |
 | Trace the files, registry keys and endpoints it opens | `live_timeline action=start` before `continue`, then `action=list run=tl-1` (`cursor=`) or `action=report`; two runs: `action=diff a=tl-1 b=tl-2` |
-| Page what happened | `live_events cursor=<from the last page> kind=stop`; one watch's calls: `live_events from=w1`; calls keep a ring of their own (10,000), so a call flood never pushes out the program's output, stops or exit, and a page counts the calls dropped between its cursor and its end |
+| Page what happened | `live_events cursor=<from the last page> kind=stop`; one watch's calls: `live_events from=w1`; calls keep a ring of their own (10,000), so a call flood never pushes out the program's output, stops or exit, and a page counts the calls dropped between its cursor and its end; each event row carries the time the server recorded it (UTC) |
 | Run a console program from a script | `live_console action=start program=app.exe script=["wait name?", "send Ada\r", "wait echo: Ada"]`, then `action=transcript run=con-1` (`cursor=`) |
 | Load your own script | `live_script action=load path=trace.js` (needs `--live-scripting`) |
 | Save the process as a dump | `live_session action=snapshot` (then `dump_stack`, `read_dump_memory` on the dump id) |

@@ -129,6 +129,7 @@ public sealed partial class LiveSessionTools
     /// <summary>Seconds since the timeline started, as the text shows each entry.</summary>
     private static string Since(LiveTimelineRun r, DateTime t) => $"+{Math.Max(0, (t - r.Started).TotalSeconds):0.000}s";
 
+
     private static string TimelinePage(LiveTimelineRun r, string? category, string? match, string? cursor, int limit)
     {
         long start = 0;

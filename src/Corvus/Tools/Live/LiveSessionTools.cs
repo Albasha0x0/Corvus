@@ -101,6 +101,7 @@ public sealed partial class LiveSessionTools(ServerOptions options, LiveSessionS
     }
 
     public sealed record LiveEvent(long Sequence,
+        [property: Description("UTC, ISO 8601.")] string Time,
         string Kind,
         string? Thread, string? Address, string? Name, string Text);
 
@@ -685,7 +686,7 @@ public sealed partial class LiveSessionTools(ServerOptions options, LiveSessionS
                     name = at.Module != null ? at.Display : null;
                     if (at.Named is { } n) named.Add(n);
                 }
-                rows.Add(new LiveEvent(e.Sequence, e.Kind, e.Thread?.ToString(CultureInfo.InvariantCulture), e.Address is { } x ? Hex(x) : null, name, e.Text));
+                rows.Add(new LiveEvent(e.Sequence, Iso(e.Time), e.Kind, e.Thread?.ToString(CultureInfo.InvariantCulture), e.Address is { } x ? Hex(x) : null, name, e.Text));
                 lines.Add($"#{e.Sequence} {e.Kind}{(e.Thread != null ? " thread " + e.Thread : "")}{(e.Address is { } y ? " " + Hex(y) : "")}{(name != null ? " " + name : "")}: {e.Text}");
             }
             (string, object) Render(int count)
