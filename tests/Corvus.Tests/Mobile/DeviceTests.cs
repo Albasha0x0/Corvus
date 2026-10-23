@@ -19,8 +19,12 @@ public abstract class DeviceTests : IDisposable
         _dir.Dispose();
     }
 
+    // Each fake adb call starts a .NET process: a saturated quick set delayed some past the 30 s quick-call limit,
+    // which these tests do not measure.
+    internal static readonly TimeSpan AdbLimit = TimeSpan.FromMinutes(2);
+
     private protected DeviceService Service(bool allowChanges = false) =>
-        new(new ServerOptions { AllowDeviceChanges = allowChanges }) { Environment = _fake.Environment, AdbOverride = FakeTool.Executable };
+        new(new ServerOptions { AllowDeviceChanges = allowChanges }) { Environment = _fake.Environment, AdbOverride = FakeTool.Executable, Short = AdbLimit };
 
     private protected static Dictionary<string, string> Facts(AndroidDeviceInfo info) => info.Properties.ToDictionary(p => p.Name, p => p.Value);
 
@@ -83,7 +87,7 @@ public abstract class DeviceTests : IDisposable
         {
             var apk = AndroidSamples.Save(_dir, "app.apk", AndroidSamples.Apk(30, ("classes.dex", AndroidSamples.Dex())));
             var dex = new DexService();
-            var service = new DeviceService(new ServerOptions(), dex) { Environment = _fake.Environment, AdbOverride = FakeTool.Executable };
+            var service = new DeviceService(new ServerOptions(), dex) { Environment = _fake.Environment, AdbOverride = FakeTool.Executable, Short = AdbLimit };
             var unread = Facts(service.DeviceInfo(null, null, 0, 100, default, "window"));
             Assert.Equal(("com.example.app", "com.example.app.Main"), (unread["package"], unread["activity"]));
             Assert.StartsWith("no package read", unread["dex class"]);
@@ -123,7 +127,7 @@ public abstract class DeviceTests : IDisposable
             var over = Assert.Throws<ToolError>(() => Old(1024).DeviceInfo(null, null, 0, 100, default, "bugreport", _dir.File("br-over")));
             Assert.Equal(ErrorCode.LimitExceeded, over.Code);
             Assert.Contains("pull_android_file", over.Remediation);
-            var small = new DeviceService(new ServerOptions()) { Environment = _fake.Environment, AdbOverride = FakeTool.Executable, MaxBugreportBytes = 16 };
+            var small = new DeviceService(new ServerOptions()) { Environment = _fake.Environment, AdbOverride = FakeTool.Executable, MaxBugreportBytes = 16, Short = AdbLimit };
             var cut = Assert.Throws<ToolError>(() => small.DeviceInfo(null, null, 0, 100, default, "bugreport", _dir.File("br-cut")));
             Assert.Equal(ErrorCode.LimitExceeded, cut.Code);
             Assert.Empty(Directory.EnumerateFileSystemEntries(_dir.File("br-cut")));
@@ -250,7 +254,7 @@ public sealed class DeviceEnvironmentTests : IDisposable
         _dir.Dispose();
     }
 
-    private DeviceService Service() => new(new ServerOptions()) { Environment = _fake.Environment };
+    private DeviceService Service() => new(new ServerOptions()) { Environment = _fake.Environment, Short = DeviceTests.AdbLimit };
 
     /// <summary>A 1 MB log reads newest first in pages within the report budget; nextOffset walks to older lines.</summary>
     [Trait("Speed", "Slow")]

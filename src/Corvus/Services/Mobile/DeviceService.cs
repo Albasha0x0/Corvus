@@ -59,7 +59,10 @@ public sealed record PulledPackage(string Serial, string Package, IReadOnlyList<
 /// </summary>
 public sealed partial class DeviceService(ServerOptions options, DexService? dex = null)
 {
-    private static readonly TimeSpan Short = TimeSpan.FromSeconds(30), Long = TimeSpan.FromMinutes(10);
+    private static readonly TimeSpan Long = TimeSpan.FromMinutes(10);
+
+    /// <summary>The time limit of a quick adb call (a list, a read or a check); tests raise it under load.</summary>
+    internal TimeSpan Short { get; init; } = TimeSpan.FromSeconds(30);
     private const long MaxTextBytes = 16L << 20;
 
     /// <summary>Extra environment for adb (tests).</summary>
