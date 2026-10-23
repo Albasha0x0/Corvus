@@ -16,8 +16,8 @@ namespace Corvus.Tests;
 /// saved by the product's writer; the original, processed and simplified builds are executed and must give the same exit
 /// code and output. A processed build that already misbehaves is the tool's fault and is reported, not counted.
 /// Then, over the whole module, what simplifying took back of what the pipeline added (instructions), checked against a
-/// floor pinned per option and sample, so a regression fails the test. The sample and option pairs are dealt to
-/// <see cref="Parts"/> classes that run side by side within the reference-tool permits.
+/// floor pinned per option and sample, so a regression fails the test. The sample and option pairs are taken one at a
+/// time by the <see cref="Parts"/> classes in the run, side by side within the reference-tool permits.
 /// </summary>
 /// <remarks>
 /// The pipeline is a command-line tool that reads a crproj project (CORVUS_PIPELINE_TOOL: its executable; the first
@@ -44,6 +44,22 @@ public abstract class PipelineRoundTripTests(ITestOutputHelper output, int part)
     public sealed class Part2(ITestOutputHelper output) : PipelineRoundTripTests(output, 1);
     public sealed class Part3(ITestOutputHelper output) : PipelineRoundTripTests(output, 2);
     public sealed class Part4(ITestOutputHelper output) : PipelineRoundTripTests(output, 3);
+
+    /// <summary>
+    /// The sample and option pairs no part has taken yet, per pair list: a part takes the next one whenever it is free, so
+    /// a part that waited for its permit takes fewer and the parts end together.
+    /// </summary>
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, System.Collections.Concurrent.ConcurrentQueue<int>> Pending = new(StringComparer.Ordinal);
+
+    /// <summary>The parts (0-based) whose classes this run executes, always including <paramref name="part"/>.</summary>
+    private static SortedSet<int> PartsInRun(int part)
+    {
+        var parts = new SortedSet<int> { part };
+        foreach (var type in typeof(PipelineRoundTripTests).GetNestedTypes())
+            if (type.IsSubclassOf(typeof(PipelineRoundTripTests)) && LeakGuardFramework.RunClasses.Contains(type.FullName!))
+                parts.Add(int.Parse(type.Name["Part".Length..]) - 1);
+        return parts;
+    }
 
     private readonly TempDir _dir = new();
     private bool _keep;
@@ -229,28 +245,36 @@ public abstract class PipelineRoundTripTests(ITestOutputHelper output, int part)
             built.Add(new Built(sample.Name, original, expected.Output, Measure(File.ReadAllBytes(original))));
         }
 
-        // A part takes every Parts-th sample and option pair with all its seeds, as each floor is the least over the seeds.
-        var runs = (from b in built from o in options select (Built: b, Option: o)).Where((_, i) => i % Parts == part)
-            .SelectMany(r => seeds.Select(seed => (r.Built, r.Option, Seed: seed))).ToList();
-        var slots = new Row?[runs.Count];
+        // A part takes a sample and option pair with all its seeds, as each floor is the least over the seeds.
+        var pairs = (from b in built from o in options select (Built: b, Option: o)).ToList();
+        // The queue holds the pairs dealt to the parts in this run, so a part
+        // run without the others takes only its own share.
+        var inRun = PartsInRun(part);
+        var pending = Pending.GetOrAdd(string.Join("|", pairs.Select(r => $"{r.Built.Name} / {r.Option.Name}").Append(string.Join(",", seeds)).Append(string.Join(",", inRun))),
+            _ => new(Enumerable.Range(0, pairs.Count).Where(i => inRun.Contains(i % Parts))));
+        var share = Enumerable.Range(0, pairs.Count).Count(i => inRun.Contains(i % Parts));
+        var taken = new System.Collections.Concurrent.ConcurrentBag<(int Pair, int Seed, Row Row)>();
         var failures = new System.Collections.Concurrent.ConcurrentQueue<string>();
         SigningKey();
-        // Round trips are not started once the budget is spent; the test then
+        // Pairs are not started once the budget is spent; the test then
         // fails naming the slowest.
         var budget = TimeSpan.FromMinutes(double.TryParse(Environment.GetEnvironmentVariable("CORVUS_PIPELINE_BUDGET_MINUTES"), out var minutes) ? minutes : SweepScope.Exhaustive ? 90 : 45);
         var clock = Stopwatch.StartNew();
-        Parallel.For(0, runs.Count, new ParallelOptions { MaxDegreeOfParallelism = parallel }, i =>
+        Parallel.For(0, parallel, new ParallelOptions { MaxDegreeOfParallelism = parallel }, _ =>
         {
-            if (clock.Elapsed > budget) return;
-            var started = clock.Elapsed;
-            var row = RoundTrip(tool, runs[i].Built, runs[i].Option, runs[i].Option.Floor?.For(runs[i].Built.Name), runs[i].Seed, failures);
-            slots[i] = row with { Seconds = (clock.Elapsed - started).TotalSeconds };
+            while (clock.Elapsed <= budget && pending.TryDequeue(out var i))
+                foreach (var seed in seeds)
+                {
+                    var started = clock.Elapsed;
+                    var row = RoundTrip(tool, pairs[i].Built, pairs[i].Option, pairs[i].Option.Floor?.For(pairs[i].Built.Name), seed, failures);
+                    taken.Add((i, seed, row with { Seconds = (clock.Elapsed - started).TotalSeconds }));
+                }
         });
-        var rows = slots.OfType<Row>().ToArray();
+        var rows = taken.OrderBy(t => t.Pair).ThenBy(t => t.Seed).Select(t => t.Row).ToArray();
         foreach (var row in rows) output.WriteLine(Line(row));
-        output.WriteLine($"{rows.Length} round trips in {clock.Elapsed.TotalMinutes:0.0} min, median {Median(rows.Select(r => r.Seconds)):0.0} s");
-        if (rows.Length < runs.Count)
-            failures.Enqueue($"{runs.Count - rows.Length} of {runs.Count} round trips not run within the {budget.TotalMinutes:0} min budget " +
+        output.WriteLine($"part {part + 1}: {rows.Length} round trips ({taken.Select(t => t.Pair).Distinct().Count()} of the {share} pairs of parts {string.Join(", ", inRun.Select(p => p + 1))}) in {clock.Elapsed.TotalMinutes:0.0} min, median {Median(rows.Select(r => r.Seconds)):0.0} s");
+        if (!pending.IsEmpty)
+            failures.Enqueue($"{pending.Count} of {share} sample and option pairs left when this part's {budget.TotalMinutes:0} min budget ran out " +
                              $"(CORVUS_PIPELINE_BUDGET_MINUTES; CORVUS_PIPELINE_SEEDS, _ONLY and _SAMPLE narrow the run); slowest: " +
                              string.Join(", ", rows.OrderByDescending(r => r.Seconds).Take(5).Select(r => $"{r.Sample} / {r.Option} seed {r.Seed} {r.Seconds:0} s")));
 

@@ -258,6 +258,9 @@ internal static class LeakGuard
 /// <summary>The xUnit framework with <see cref="LeakGuard"/> run once every test has finished.</summary>
 public sealed class LeakGuardFramework(IMessageSink messageSink) : XunitTestFramework(messageSink)
 {
+    /// <summary>Full names of the test classes this run executes (nested ones with '+'); empty before the run starts.</summary>
+    public static IReadOnlySet<string> RunClasses { get; private set; } = new HashSet<string>();
+
     protected override ITestFrameworkExecutor CreateExecutor(AssemblyName assemblyName) =>
         new Executor(assemblyName, SourceInformationProvider, DiagnosticMessageSink);
 
@@ -266,6 +269,7 @@ public sealed class LeakGuardFramework(IMessageSink messageSink) : XunitTestFram
     {
         protected override async void RunTestCases(IEnumerable<IXunitTestCase> testCases, IMessageSink executionMessageSink, ITestFrameworkExecutionOptions executionOptions)
         {
+            RunClasses = testCases.Select(t => t.TestMethod.TestClass.Class.Name).ToHashSet(StringComparer.Ordinal);
             using var runner = new Runner(TestAssembly, testCases, DiagnosticMessageSink, executionMessageSink, executionOptions);
             await runner.RunAsync();
         }
