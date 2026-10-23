@@ -119,6 +119,20 @@ public sealed class TestRemoteTests : IDisposable
     }
 
     [Fact]
+    public void The_ISA_sweep_stays_here_where_the_IDA_license_covers_every_decompiler_it_reads()
+    {
+        // Regression: the push run on 2fce80f1, where the test host's IDA refused RISC-V (license not available (HEXRV)).
+        var lines = TestReuseTests.Run($$"""
+            Import-Module {{Module}}
+            # The heaviest IDA class is the first a test host with IDA takes.
+            $ida = @(Get-IdaHostClasses {{Quote(Path.Combine(DocsTests.RepoRoot(), "tests", "Corvus.Tests"))}} @{ IsaEngineTests = 1000000 } @('CORVUS_IDA_DIR'))
+            'ida=' + ($ida.Count -gt 0) + ',' + ($ida -contains 'IsaEngineTests')
+            """);
+        if (lines is ["skip"]) return;
+        Assert.Contains("ida=True,False", lines);
+    }
+
+    [Fact]
     [Trait("Speed", "Slow")]
     public void A_test_host_with_ida_takes_about_half_the_ida_classes_by_recorded_time()
     {

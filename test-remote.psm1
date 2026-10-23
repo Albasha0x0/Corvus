@@ -44,10 +44,10 @@ $script:ToolVariables = 'CORVUS_TSHARK', 'CORVUS_WASM_TO_TEXT', 'CORVUS_WASM_VAL
 # The file that names the real-data variables (RealData.Name constants).
 $script:RealDataSource = 'Support/TestEnv.cs'
 # Classes whose inputs are this machine's own: every System32 import binding holds on a client edition only (a server
-# image lacks some DLLs), the crash dump sweep reads this machine's dumps, and the comparisons over local data folders
-# pass empty elsewhere.
+# image lacks some DLLs), the crash dump sweep reads this machine's dumps, the comparisons over local data folders
+# pass empty elsewhere, and the ISA sweep decompiles RISC-V, which the test host's IDA license lacks.
 $script:LocalClasses = 'NativeLinkSweepTests', 'MinidumpSweepTests', 'FirmwareComparisonTests', 'InstallerComparisonTests',
-    'DependencyListerComparisonTests'
+    'DependencyListerComparisonTests', 'IsaEngineTests'
 # A class that took under this share of its last local time, when that was at least the given seconds, proved less
 # there (a test that returns early without its inputs) and runs here.
 $script:ShortShare = 0.2
