@@ -485,8 +485,11 @@ public abstract class PipelineRoundTripTests(ITestOutputHelper output, int part)
     {
         if (int.TryParse(Environment.GetEnvironmentVariable("CORVUS_PIPELINE_SEED"), out int one)) return [one];
         if (int.TryParse(Environment.GetEnvironmentVariable("CORVUS_PIPELINE_SEEDS"), out int n)) return [.. Enumerable.Range(1, n)];
-        return SweepScope.Exhaustive ? [1, 2, 3] : [DateOnly.FromDateTime(DateTime.UtcNow).DayNumber % 3 + 1];
+        return SweepScope.Exhaustive ? [1, 2, 3] : [RunDay.DayNumber % 3 + 1];
     }
+
+    // Read once per test process: parts that start on either side of midnight UTC keep one seed, and so one queue.
+    private static readonly DateOnly RunDay = DateOnly.FromDateTime(DateTime.UtcNow);
 
     private static double Median(IEnumerable<double> values)
     {
