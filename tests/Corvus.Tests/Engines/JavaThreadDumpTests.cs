@@ -70,6 +70,8 @@ public sealed class JavaThreadDumpTests
             var (report, _, _) = Take(java, [Environment.ProcessId, jvm.Id], dir, Answered);
             Assert.StartsWith("heap: ", report);
             Assert.Contains($"worker-{jvm.Id}-", report);
+            // Each worker process is named with its CPU time, the JVM's child processes included.
+            Assert.Matches($@"processes: \S+ {Environment.ProcessId}, \d+\.\d s CPU in \d+ s; java {jvm.Id}, ", report);
         }
         finally { jvm.Kill(); }
     }

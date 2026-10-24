@@ -27,7 +27,9 @@ internal static partial class JavaThreadDump
         var bin = Path.GetDirectoryName(java) ?? "";
         var jcmd = Path.Combine(bin, OperatingSystem.IsWindows() ? "jcmd.exe" : "jcmd");
         var jhsdb = Path.Combine(bin, OperatingSystem.IsWindows() ? "jhsdb.exe" : "jhsdb");
-        if (!File.Exists(jcmd) && !File.Exists(jhsdb)) return WorkerConnection.StateUnknown + $"the JDK in {bin} has neither jcmd nor jhsdb";
+        // Read before the dump tools add their own CPU time; the native decompiler shows here, not in a thread dump.
+        var processes = Processes(pids);
+        if (!File.Exists(jcmd) && !File.Exists(jhsdb)) return WorkerConnection.StateUnknown + $"the JDK in {bin} has neither jcmd nor jhsdb\n{processes}";
         var notes = new List<string>();
         string? threads = null, heap = "";
         int pid = pids.Count > 0 ? pids[0] : 0;
@@ -56,12 +58,35 @@ internal static partial class JavaThreadDump
         {
             Directory.CreateDirectory(folder);
             file = Path.Combine(folder, $"worker-{pid}-{DateTime.UtcNow:yyyyMMddTHHmmss}.txt");
-            File.WriteAllText(file, string.Join('\n', new[] { string.Join('\n', notes), heap, threads ?? "" }.Where(t => t.Length > 0)));
+            File.WriteAllText(file, string.Join('\n', new[] { processes, string.Join('\n', notes), heap, threads ?? "" }.Where(t => t.Length > 0)));
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { file = null; }
         var summary = threads != null ? Summary(threads, heap) : "";
-        var text = string.Join('\n', new[] { summary, note, file != null ? $"full dump: {file}" : "" }.Where(t => t.Length > 0));
+        var text = string.Join('\n', new[] { summary, processes, note, file != null ? $"full dump: {file}" : "" }.Where(t => t.Length > 0));
         return threads == null ? WorkerConnection.StateUnknown + text : text;
+    }
+
+    /// <summary>
+    /// "processes: name pid, X s CPU in Y s; ..." for each of <paramref name="pids"/> still running; a process that exited
+    /// or cannot be read is named with "not read".
+    /// </summary>
+    internal static string Processes(IReadOnlyList<int> pids)
+    {
+        var rows = new List<string>();
+        foreach (var id in pids)
+        {
+            try
+            {
+                using var p = System.Diagnostics.Process.GetProcessById(id);
+                var age = DateTime.Now - p.StartTime;
+                rows.Add(string.Create(CultureInfo.InvariantCulture, $"{p.ProcessName} {id}, {p.TotalProcessorTime.TotalSeconds:0.0} s CPU in {age.TotalSeconds:0} s"));
+            }
+            catch (Exception ex) when (ex is ArgumentException or InvalidOperationException or System.ComponentModel.Win32Exception or NotSupportedException)
+            {
+                rows.Add(string.Create(CultureInfo.InvariantCulture, $"{id} not read"));
+            }
+        }
+        return rows.Count == 0 ? "" : "processes: " + string.Join("; ", rows);
     }
 
     /// <summary>The heap line and up to three running or blocked threads with a Ghidra frame, eight frames each.</summary>
