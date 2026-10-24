@@ -36,6 +36,49 @@ public class FrameworkResolutionTests : IDisposable
             Directory.EnumerateFiles(folder, "*", SearchOption.AllDirectories).Select(f => Path.GetRelativePath(folder, f).Replace('\\', '/')).Order(StringComparer.Ordinal));
     }
 
+    private sealed class FakeFeed(Func<string, byte[]?> answer) : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct) =>
+            Task.FromResult(answer(request.RequestUri!.ToString()) is { } body
+                ? new HttpResponseMessage(System.Net.HttpStatusCode.OK) { Content = new ByteArrayContent(body) }
+                : new HttpResponseMessage(System.Net.HttpStatusCode.NotFound));
+    }
+
+    [Fact]
+    public void A_pack_is_extracted_only_when_it_matches_the_catalog_hash()
+    {
+        var package = new MemoryStream();
+        using (var zip = new System.IO.Compression.ZipArchive(package, System.IO.Compression.ZipArchiveMode.Create, leaveOpen: true))
+            using (var w = new StreamWriter(zip.CreateEntry("ref/net6.0/System.Runtime.dll").Open())) w.Write("dll");
+        var good = package.ToArray();
+        var hash = Convert.ToBase64String(System.Security.Cryptography.SHA512.HashData(good));
+        (string? Dir, string? Problem) Download(byte[] served, string root)
+        {
+            using var http = new HttpClient(new FakeFeed(url => url switch
+            {
+                "https://api.nuget.org/v3-flatcontainer/test.app.ref/index.json" => """{"versions":["6.0.1","7.0.0"]}"""u8.ToArray(),
+                "https://api.nuget.org/v3/registration5-semver1/test.app.ref/6.0.1.json" =>
+                    """{"catalogEntry":"https://api.nuget.org/v3/catalog0/data/2024.01.01/test.app.ref.6.0.1.json"}"""u8.ToArray(),
+                "https://api.nuget.org/v3/catalog0/data/2024.01.01/test.app.ref.6.0.1.json" =>
+                    System.Text.Encoding.UTF8.GetBytes($$"""{"packageHash":"{{hash}}","packageHashAlgorithm":"SHA512"}"""),
+                "https://api.nuget.org/v3-flatcontainer/test.app.ref/6.0.1/test.app.ref.6.0.1.nupkg" => served,
+                _ => null,
+            }));
+            return ReferencePacks.Download(http, "Test.App.Ref", 6, Folder(root));
+        }
+
+        var accepted = Download(good, "good");
+        Assert.Null(accepted.Problem);
+        Assert.True(File.Exists(Path.Combine(accepted.Dir!, "System.Runtime.dll")));
+
+        var tampered = (byte[])good.Clone();
+        tampered[^1] ^= 1;
+        var refused = Download(tampered, "tampered");
+        Assert.Null(refused.Dir);
+        Assert.Equal("reference pack test.app.ref 6.0.1 refused: its SHA-512 does not match nuget.org's package hash", refused.Problem);
+        Assert.Empty(Directory.EnumerateFileSystemEntries(Folder("tampered")));
+    }
+
     [Fact]
     public void AnOlderMajorVersion_ResolvesToThatFramework_WhenInstalled()
     {

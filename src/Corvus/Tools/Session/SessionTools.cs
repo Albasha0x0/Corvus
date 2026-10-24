@@ -97,7 +97,8 @@ public sealed class SessionTools(AssemblyWorkspace workspace, IndexingService in
             new(".NET decompilation, search, navigation, editing", true, "built in", null),
             ReferencePacks.Offline
                 ? new("reference pack download", false, "CORVUS_OFFLINE is set: assemblies targeting an uninstalled .NET version resolve fewer references", "unset CORVUS_OFFLINE")
-                : new("reference pack download", true, "on demand, for an uninstalled target framework", null),
+                : new("reference pack download", true, "on demand, for an uninstalled target framework, SHA-512 checked against nuget.org" +
+                    (ReferencePacks.LastProblem is { } problem ? $"; last: {problem}" : ""), null),
         ];
         capabilities.Add(new("native PE analysis", true, "built in", null));
         // The engines are checked beside the external programs, each check in parallel (see ExternalToolCapabilities).

@@ -212,7 +212,7 @@ The server goes online only when a call or command asks for it ([SECURITY.md](..
 
 | What | Goes to | Turned off by |
 |---|---|---|
-| Reference packs, when an assembly targets a .NET version that is not installed | nuget.org; not hash-checked | `CORVUS_OFFLINE` |
+| Reference packs, when an assembly targets a .NET version that is not installed | nuget.org; SHA-512 checked against nuget.org's catalog | `CORVUS_OFFLINE` |
 | `load_pdb download=true` | Symbol server (default `https://msdl.microsoft.com/download/symbols`); debuginfod for ELF | `CORVUS_OFFLINE` |
 | `open_minidump downloadDac=true` | Symbol server; the DAC is signature-checked | `CORVUS_OFFLINE` |
 | `--live-install-frida` | pip; hash-checked wheels | `CORVUS_OFFLINE` |

@@ -119,8 +119,8 @@ Off by default; each needs a server option or environment variable chosen by the
 
 The server reaches the network only:
 
-- for a .NET reference pack from nuget.org when analyzed code targets an uninstalled .NET version (the package is not
-  hash-checked);
+- for a .NET reference pack from nuget.org when analyzed code targets an uninstalled .NET version (the package's SHA-512
+  must match nuget.org's catalog entry, else it is refused and `server_status` names why);
 - with `load_pdb download=true` (a symbol server for a PDB, debuginfod for an ELF; `server` names another) or
   `open_minidump downloadDac=true` (the DAC from Microsoft's symbol server);
 - for `--live-install-frida` (pip, hash-checked wheels);

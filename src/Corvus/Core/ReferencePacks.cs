@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using System.IO.Compression;
+using System.Security.Cryptography;
 using System.Text.Json;
 
 namespace Corvus.Core;
@@ -12,12 +13,17 @@ namespace Corvus.Core;
 internal static class ReferencePacks
 {
     private const string FeedBase = "https://api.nuget.org/v3-flatcontainer/";
+    private const string RegistrationBase = "https://api.nuget.org/v3/registration5-semver1/";
+    private const string CatalogBase = "https://api.nuget.org/v3/catalog0/";
     /// <summary>One download per pack; a waiting call stops when it is cancelled, the download goes on for the next.</summary>
     private static readonly ConcurrentDictionary<string, Lazy<Task<string?>>> Fetched = new(StringComparer.OrdinalIgnoreCase);
 
     public static string CacheRoot { get; } = Corvus.Native.Providers.DataFolder.Combine("packs");
 
     public static bool Offline => Environment.GetEnvironmentVariable("CORVUS_OFFLINE") is "1" or "true";
+
+    /// <summary>Why the most recent failed download in this process gave no pack (network, or the hash check); null when none failed.</summary>
+    public static string? LastProblem { get; private set; }
 
     /// <summary>The cached <c>ref/net{major}.0</c> directory of the pack, downloading it once per process if needed.</summary>
     public static string? Get(string packId, int major)
@@ -64,23 +70,45 @@ internal static class ReferencePacks
 
     private static string? Download(string packId, int major)
     {
+        // Calls wait on this download: a network that never answers costs seconds, not minutes.
+        using var http = new HttpClient(new SocketsHttpHandler { ConnectTimeout = TimeSpan.FromSeconds(10) }) { Timeout = TimeSpan.FromSeconds(30) };
+        http.DefaultRequestHeaders.UserAgent.ParseAdd("Corvus/" + (typeof(ReferencePacks).Assembly.GetName().Version?.ToString(3) ?? "0"));
+        var (dir, problem) = Download(http, packId, major, CacheRoot);
+        if (problem != null) LastProblem = problem;
+        return dir;
+    }
+
+    /// <summary>
+    /// Downloads the newest release of the pack for <paramref name="major"/> through <paramref name="http"/> and extracts it
+    /// under <paramref name="root"/> once its SHA-512 matches nuget.org's catalog entry. Dir is null when no pack is
+    /// available; Problem then names why (download failed, hash missing or mismatched), or is null when nuget.org lists
+    /// no release of that major.
+    /// </summary>
+    internal static (string? Dir, string? Problem) Download(HttpClient http, string packId, int major, string root)
+    {
         var id = packId.ToLowerInvariant();
+        string? version = null;
+        // Four requests share one bound, as the two before the hash check did.
+        using var bound = new CancellationTokenSource(TimeSpan.FromSeconds(60));
+        var ct = bound.Token;
         try
         {
-            // Calls wait on this download: a network that never answers costs seconds, not minutes.
-            using var http = new HttpClient(new SocketsHttpHandler { ConnectTimeout = TimeSpan.FromSeconds(10) }) { Timeout = TimeSpan.FromSeconds(30) };
-            http.DefaultRequestHeaders.UserAgent.ParseAdd("Corvus/" + (typeof(ReferencePacks).Assembly.GetName().Version?.ToString(3) ?? "0"));
-            using var index = JsonDocument.Parse(http.GetStringAsync($"{FeedBase}{id}/index.json").GetAwaiter().GetResult());
-            var version = index.RootElement.GetProperty("versions").EnumerateArray()
-                .Select(v => v.GetString()!)
-                .Where(v => !v.Contains('-'))
-                .Select(v => (Text: v, Version: Version.TryParse(v, out var parsed) ? parsed : null))
-                .Where(x => x.Version?.Major == major)
-                .OrderByDescending(x => x.Version).Select(x => x.Text).FirstOrDefault();
-            if (version == null) return null;
+            using (var index = JsonDocument.Parse(http.GetStringAsync($"{FeedBase}{id}/index.json", ct).GetAwaiter().GetResult()))
+                version = index.RootElement.GetProperty("versions").EnumerateArray()
+                    .Select(v => v.GetString()!)
+                    .Where(v => !v.Contains('-'))
+                    .Select(v => (Text: v, Version: Version.TryParse(v, out var parsed) ? parsed : null))
+                    .Where(x => x.Version?.Major == major)
+                    .OrderByDescending(x => x.Version).Select(x => x.Text).FirstOrDefault();
+            if (version == null) return (null, null);
 
-            var bytes = http.GetByteArrayAsync($"{FeedBase}{id}/{version}/{id}.{version}.nupkg").GetAwaiter().GetResult();
-            var target = Path.Combine(CacheRoot, id, version);
+            var expected = PackageHash(http, id, version, ct);
+            if (expected == null) return (null, Refused(id, version, "nuget.org lists no SHA-512 package hash for it"));
+            var bytes = http.GetByteArrayAsync($"{FeedBase}{id}/{version}/{id}.{version}.nupkg", ct).GetAwaiter().GetResult();
+            if (!CryptographicOperations.FixedTimeEquals(SHA512.HashData(bytes), expected))
+                return (null, Refused(id, version, "its SHA-512 does not match nuget.org's package hash"));
+
+            var target = Path.Combine(root, id, version);
             var staging = target + ".tmp-" + Guid.NewGuid().ToString("N");
             using (var zip = new ZipArchive(new MemoryStream(bytes), ZipArchiveMode.Read))
                 Extract(zip, staging);
@@ -88,12 +116,31 @@ internal static class ReferencePacks
             try { SafeFile.WhenReleased(() => Directory.Move(staging, target), lost: () => Directory.Exists(target)); }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException && Directory.Exists(target)) { Directory.Delete(staging, recursive: true); } // another process finished first
             var dir = Path.Combine(target, "ref", $"net{major}.0");
-            return Directory.Exists(dir) ? dir : null;
+            return Directory.Exists(dir) ? (dir, null) : (null, null);
         }
-        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or IOException or UnauthorizedAccessException
-                                       or JsonException or InvalidDataException or KeyNotFoundException or InvalidOperationException)
+        catch (Exception ex) when (ex is HttpRequestException or OperationCanceledException or IOException or UnauthorizedAccessException
+                                       or JsonException or InvalidDataException or KeyNotFoundException or InvalidOperationException or FormatException)
         {
-            return null;
+            return (null, $"reference pack {id} {version ?? $"{major}.x"} not downloaded: {ex.Message}");
         }
+    }
+
+    private static string Refused(string id, string version, string reason) => $"reference pack {id} {version} refused: {reason}";
+
+    /// <summary>
+    /// The SHA-512 nuget.org's catalog records for the package (registration leaf, then its catalog entry); null when the
+    /// entry names no SHA-512 hash or lies outside nuget.org.
+    /// </summary>
+    private static byte[]? PackageHash(HttpClient http, string id, string version, CancellationToken ct)
+    {
+        using var leaf = JsonDocument.Parse(http.GetStringAsync($"{RegistrationBase}{id}/{version.ToLowerInvariant()}.json", ct).GetAwaiter().GetResult());
+        if (leaf.RootElement.GetProperty("catalogEntry").GetString() is not { } entry
+            || !entry.StartsWith(CatalogBase, StringComparison.OrdinalIgnoreCase)) return null;
+        using var catalog = JsonDocument.Parse(http.GetStringAsync(entry, ct).GetAwaiter().GetResult());
+        var root = catalog.RootElement;
+        if (!root.TryGetProperty("packageHashAlgorithm", out var algorithm) || !string.Equals(algorithm.GetString(), "SHA512", StringComparison.OrdinalIgnoreCase)
+            || !root.TryGetProperty("packageHash", out var hash) || hash.GetString() is not { Length: > 0 } text) return null;
+        var bytes = Convert.FromBase64String(text);
+        return bytes.Length == SHA512.HashSizeInBytes ? bytes : null;
     }
 }
