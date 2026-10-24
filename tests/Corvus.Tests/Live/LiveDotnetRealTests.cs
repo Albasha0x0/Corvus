@@ -826,7 +826,8 @@ public sealed class LiveDotnetRealTests(ITestOutputHelper output) : LiveToolCall
             }
             File.WriteAllText(gate, "");
             var stop = await Ok(server, "live_break", new() { ["session"] = "live-1", ["action"] = "list", ["wait"] = true, ["waitSeconds"] = 60 });
-            Assert.Matches(@"thread \d+ stopped at s1", stop);
+            if (!Regex.IsMatch(stop, @"thread \d+ stopped at s1"))
+                Assert.Fail($"{stop}\nevents:\n{await Events(server, "live-1", log: false)}");
             await Ok(server, "live_break", new() { ["session"] = "live-1", ["action"] = "clear", ["stopPoint"] = "s1" });
             await Ok(server, "live_break", new() { ["session"] = "live-1", ["action"] = "continue" });
             await UntilExited(server, "live-1");
