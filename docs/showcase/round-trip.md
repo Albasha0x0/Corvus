@@ -60,6 +60,7 @@ Types: 0 renamed, 2 with member changes, 0 removed, 0 added (8 matched of 8 old)
 Members (each change of a member counted): 0 renamed, 0 moved, 0 signature, 2 body, 0 metadata, 0 type, 0 offset, 0 address, 0 added, 0 removed, 0 ambiguous, 0 unknown
 Member matches: 32 exact, 41 strong, 0 structural, 0 ambiguous (by tier: type match + name + signature 32, full name + signature 24, type match + name 9, full name 8).
 Hidden: 1 compiler-generated type change(s) and 0 member change(s) (closures, state machines, backing fields, array data; includeCompilerGenerated=true shows them).
+Capabilities (survey_features rules and kept capa labels): 0 added, 0 removed.
 
 2 changes (showing 1-2):
   Notes.NoteStore
