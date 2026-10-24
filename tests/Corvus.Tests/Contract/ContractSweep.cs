@@ -1,5 +1,4 @@
 using System.Diagnostics;
-using System.Runtime.CompilerServices;
 using System.Text.Json;
 using ModelContextProtocol;
 using ModelContextProtocol.Client;
@@ -72,15 +71,8 @@ public static partial class ContractSweep
             [Corvus.Native.Providers.Ida.IdaInstallation.DirectoryVariable] = dir.File("no-ida"),
             [Corvus.Native.Providers.Ghidra.GhidraOptions.DirectoryVariable] = dir.File("no-ghidra"),
         };
-        var started = DateTime.Now;
-        var client = await McpProtocolTests.StartServerAsync(cwd, null, ["--load", Env.FixturePath, "--load", Env.ConsumerPath], noEngines);
-        // The earliest server started since then; another test's server started in the same moment may be taken instead.
-        if (ServerDump.Servers(started) is [var pid, ..]) Servers.AddOrUpdate(client, new StrongBox<int>(pid));
-        return client;
+        return await McpProtocolTests.StartServerAsync(cwd, null, ["--load", Env.FixturePath, "--load", Env.ConsumerPath], noEngines);
     }
-
-    // The server process behind each sweep client, so a hang names the stacks the call runs or waits in.
-    private static readonly ConditionalWeakTable<McpClient, StrongBox<int>> Servers = new();
 
     private static JsonElement Json(string json) => JsonDocument.Parse(json).RootElement.Clone();
 
@@ -412,7 +404,7 @@ public static partial class ContractSweep
         }
         catch (OperationCanceledException) when (cts.IsCancellationRequested)
         {
-            var stacks = Servers.TryGetValue(client, out var server) ? "; server " + ThreadPoolSnapshot.StacksOf(server.Value) : "";
+            var stacks = McpProtocolTests.ServerProcessId(client) is int server and > 0 ? "; server " + ThreadPoolSnapshot.StacksOf(server) : "";
             return Fail("hang", $"no answer within {CallLimit.TotalSeconds:0} s{stacks}");
         }
         catch (McpProtocolException ex)

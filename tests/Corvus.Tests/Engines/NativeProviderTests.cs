@@ -349,6 +349,30 @@ public class NativeProviderTests(ITestOutputHelper output)
         Assert.NotNull(running.ExitCode);
     }
 
+    [Fact, Trait("Speed", "Slow")]
+    public async Task A_disposed_worker_has_no_process_of_its_tree_running_when_Dispose_returns()
+    {
+        // The worker's child holds 256 MB, so its exit after the kill takes measurable time: a Dispose that waited for the
+        // worker alone returned while the child still ran. The fake tool's script variable is unset, as above.
+        var child = ChildProcess.Start(new ChildProcessStart(FakeTool.Executable, ["job-parent", FakeTool.Executable, "hold", "256"])
+        {
+            Environment = new Dictionary<string, string?> { [FakeTool.ScriptVariable] = null },
+        });
+        using var reader = new StreamReader(child.StandardOutput);
+        var read = Task.Run(() => (string[])[reader.ReadLine()?.Trim() ?? "", reader.ReadLine()?.Trim() ?? ""]);
+        if (await Task.WhenAny(read, Task.Delay(TimeSpan.FromMinutes(1))) != read) child.Dispose();
+        var lines = await read;
+        Assert.Contains("held", lines);
+        var holder = int.Parse(lines.Single(l => l != "held"), System.Globalization.CultureInfo.InvariantCulture);
+        using var handle = TryOpen(holder);
+        var worker = WorkerConnection.Attach(child, "test worker");
+        var clock = Stopwatch.StartNew();
+        worker.Dispose();
+        var running = Running(holder);
+        output.WriteLine($"Dispose took {clock.ElapsedMilliseconds} ms; the child was {(running ? "still running" : "gone")}");
+        Assert.False(running, "the worker's child was still running when Dispose returned");
+    }
+
     [WindowsFact]
     public void Job_close_kills_the_whole_tree()
     {

@@ -65,7 +65,15 @@ public abstract class ChildProcess : IDisposable
         return read ? total : null;
     }
 
+    /// <summary>Kills the process tree and waits up to <see cref="TreeExitWait"/> for every process of it to exit.</summary>
     public abstract void Dispose();
+
+    /// <summary>How long <see cref="Dispose"/> waits for the killed tree; a tree still running then is reported on stderr.</summary>
+    internal static readonly TimeSpan TreeExitWait = TimeSpan.FromSeconds(10);
+
+    /// <summary>Writes the stderr warning for a tree still running <paramref name="waited"/> after it was killed.</summary>
+    private protected static void ReportTreeRunning(int id, TimeSpan waited) =>
+        Console.Error.WriteLine($"The process tree of {id} was still running {waited.TotalSeconds:0.0} s after it was killed; files it holds may stay open.");
 
     public static ChildProcess Start(ChildProcessStart start)
     {
@@ -269,6 +277,34 @@ internal sealed class PosixGroupProcess : ChildProcess
         try { _process.Kill(entireProcessTree: true); } catch (Exception ex) when (ex is InvalidOperationException or Win32Exception) { }
     }
 
+    /// <summary>
+    /// True while a process of the worker's group is running; false when none is or it cannot be checked. Linux skips
+    /// zombies, which a container without an init process never reaps; elsewhere they count until reaped.
+    /// </summary>
+    private bool GroupRunning()
+    {
+        if (OperatingSystem.IsLinux())
+        {
+            try
+            {
+                foreach (var dir in Directory.EnumerateDirectories("/proc"))
+                {
+                    if (!int.TryParse(Path.GetFileName(dir), out _)) continue;
+                    string stat;
+                    try { stat = File.ReadAllText(Path.Combine(dir, "stat")); }
+                    catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { continue; }
+                    // Fields after the command: state, parent, process group.
+                    var fields = stat[(stat.LastIndexOf(')') + 2)..].Split(' ');
+                    if (fields.Length > 2 && fields[0] != "Z" && fields[2] == _workerId.ToString(System.Globalization.CultureInfo.InvariantCulture)) return true;
+                }
+                return false;
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { return false; }
+        }
+        try { return SysKill(-_workerId, 0) == 0; }
+        catch (Exception ex) when (ex is DllNotFoundException or EntryPointNotFoundException) { return false; }
+    }
+
     public override void Dispose()
     {
         Kill();
@@ -276,7 +312,11 @@ internal sealed class PosixGroupProcess : ChildProcess
         {
             if (_disposed) return;
             // Process throws once disposed; the exit is kept, as WindowsJobProcess keeps it, for callers that still ask.
-            _disposedExited = _process.WaitForExit(2000);
+            var clock = Stopwatch.StartNew();
+            _disposedExited = _process.WaitForExit(TreeExitWait);
+            // The group's other members die with the same signal but exit on their own time; kill -0 sees the group while one remains.
+            while (GroupRunning() && clock.Elapsed < TreeExitWait) Thread.Sleep(20);
+            if (!_disposedExited || GroupRunning()) ReportTreeRunning(_workerId, clock.Elapsed);
             _disposedExitCode = _disposedExited ? _process.ExitCode : null;
             _disposed = true;
             _process.Dispose();
@@ -403,15 +443,30 @@ internal sealed class WindowsJobProcess : ChildProcess
     {
         if (Interlocked.Exchange(ref _disposed, 1) != 0) return;
         Kill();
+        // Termination is asynchronous: wait for the whole job before Dispose returns, so the files its processes held
+        // are closed when the caller deletes or reuses them.
+        var clock = Stopwatch.StartNew();
+        var exited = _waitHandle.WaitOne(TreeExitWait);
+        if (exited) _exited.TrySetResult();
+        while (exited && ActiveProcesses() > 0 && clock.Elapsed < TreeExitWait) Thread.Sleep(20);
+        if (!exited || ActiveProcesses() > 0) ReportTreeRunning(_id, clock.Elapsed);
         _job.Dispose(); // KILL_ON_JOB_CLOSE: anything left in the job dies here
         if (_port != null) lock (_port) _port.Dispose();
         foreach (var s in new Stream[] { _stdin, _stdout, _stderr })
         {
             try { s.Dispose(); } catch (IOException) { }
         }
-        // Termination is asynchronous; observe the exit before Dispose returns.
-        if (_waitHandle.WaitOne(2000)) _exited.TrySetResult();
         ReleaseHandles();
+    }
+
+    /// <summary>Processes of the job not yet exited (JOBOBJECT_BASIC_ACCOUNTING_INFORMATION.ActiveProcesses); 0 when it cannot be read.</summary>
+    private int ActiveProcesses()
+    {
+        if (_job.IsClosed) return 0;
+        const int size = 48;
+        var buffer = Marshal.AllocHGlobal(size);
+        try { return QueryInformationJobObject(_job, JobObjectBasicAccountingInformation, buffer, size, out _) ? Marshal.ReadInt32(buffer, 40) : 0; }
+        finally { Marshal.FreeHGlobal(buffer); }
     }
 
     private void ReleaseHandles()

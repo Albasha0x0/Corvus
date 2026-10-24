@@ -1,4 +1,3 @@
-using System.Diagnostics;
 using System.Runtime.InteropServices;
 
 namespace Corvus.Tests;
@@ -13,87 +12,55 @@ internal static class ServerDump
     private const int MaxDumps = 3;
 
     /// <summary>
-    /// Writes a dump of each server this process started (dotnet under cmd /c, as the SDK starts it) from
-    /// <paramref name="started"/> on and still running; returns the files written, empty when the folder is unset, holds
-    /// <see cref="MaxDumps"/> server dumps already, or no server matched. Never throws.
+    /// Writes a dump of the server process <paramref name="pid"/>; returns the file, or null when the folder is unset, holds
+    /// <see cref="MaxDumps"/> server dumps already, the process cannot be read or this is not Windows. Never throws.
     /// </summary>
-    public static IReadOnlyList<string> Write(DateTime started) =>
-        Environment.GetEnvironmentVariable(FolderVariable) is { Length: > 0 } folder ? Write(started, folder) : [];
+    public static string? Write(int pid) =>
+        Environment.GetEnvironmentVariable(FolderVariable) is { Length: > 0 } folder ? Write(pid, folder) : null;
 
-    /// <summary>As above, into <paramref name="folder"/>; <paramref name="shell"/> limits it to the server under that cmd process.</summary>
-    internal static IReadOnlyList<string> Write(DateTime started, string folder, int? shell = null)
+    /// <summary>As above, into <paramref name="folder"/>.</summary>
+    internal static string? Write(int pid, string folder) => Write(pid, folder, out _);
+
+    /// <summary>As above; <paramref name="error"/> is the Win32 error of the last failed attempt, 0 when none failed.</summary>
+    internal static string? Write(int pid, string folder, out int error)
     {
-        var written = new List<string>();
+        error = 0;
         try
         {
-            if (!OperatingSystem.IsWindows()) return written;
+            if (!OperatingSystem.IsWindows()) return null;
             Directory.CreateDirectory(folder);
-            int room = MaxDumps - Directory.GetFiles(folder, "server-start-*.dmp").Length;
-            foreach (var (pid, cmd, _) in Started(started))
+            if (Directory.GetFiles(folder, "server-start-*.dmp").Length >= MaxDumps) return null;
+            var file = Path.Combine(folder, $"server-start-{pid}-{DateTime.Now:yyyyMMdd-HHmmss}.dmp");
+            // A process still starting can fail a read (ERROR_PARTIAL_COPY); a few tries over about 1 s keep the dump of
+            // a server that failed to start.
+            for (int attempt = 0; attempt < DumpAttempts; attempt++)
             {
-                if (room <= 0) break;
-                if (shell is { } only ? cmd != only : ParentOf(cmd) != Environment.ProcessId) continue;
-                var file = Path.Combine(folder, $"server-start-{pid}-{DateTime.Now:yyyyMMdd-HHmmss}.dmp");
-                if (Dump(pid, file)) { written.Add(file); room--; }
+                if (attempt > 0) Thread.Sleep(DumpRetryDelay);
+                if ((error = Dump(pid, file)) == 0) return file;
             }
+            return null;
         }
-        catch (Exception e) when (e is IOException or UnauthorizedAccessException) { }
-        return written;
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException) { return null; }
     }
 
-    /// <summary>
-    /// The process ids of the servers this process started (dotnet under cmd /c, as the SDK starts it) from
-    /// <paramref name="started"/> on and still running, earliest first; empty off Windows. Never throws.
-    /// </summary>
-    internal static IReadOnlyList<int> Servers(DateTime started) => !OperatingSystem.IsWindows() ? []
-        : [.. Started(started).Where(s => ParentOf(s.Cmd) == Environment.ProcessId).OrderBy(s => s.Start).Select(s => s.Pid)];
-
-    // Each dotnet process started from then on under a parent process (the cmd /c the SDK starts it with).
-    private static List<(int Pid, int Cmd, DateTime Start)> Started(DateTime started)
-    {
-        var found = new List<(int, int, DateTime)>();
-        foreach (var server in Process.GetProcessesByName("dotnet"))
-        {
-            using (server)
-            {
-                try
-                {
-                    if (server.StartTime >= started.AddSeconds(-1) && ParentOf(server.Id) is { } cmd) found.Add((server.Id, cmd, server.StartTime));
-                }
-                catch (Exception e) when (e is InvalidOperationException or System.ComponentModel.Win32Exception) { }
-            }
-        }
-        return found;
-    }
+    private const int DumpAttempts = 3;
+    private static readonly TimeSpan DumpRetryDelay = TimeSpan.FromMilliseconds(500);
 
     // The runtime's createdump no longer takes another process's id, so dbghelp writes it: private memory, data segments,
     // handles, memory info and thread info, as a heap dump holds for reading .NET stacks.
     private const int HeapDump = 0x200 | 0x1 | 0x4 | 0x800 | 0x1000;
 
-    private static bool Dump(int pid, string file)
+    // Returns 0, or the Win32 error of the open or the dump.
+    private static int Dump(int pid, string file)
     {
         using var process = OpenProcess(0x0400 | 0x0010 | 0x0040 /* QUERY_INFORMATION | VM_READ | DUP_HANDLE */, false, pid);
-        if (process.IsInvalid) return false;
-        bool done;
+        if (process.IsInvalid) return Marshal.GetLastPInvokeError();
+        int error = 0;
         using (var stream = new FileStream(file, FileMode.Create, FileAccess.ReadWrite))
-            done = MiniDumpWriteDump(process, pid, stream.SafeFileHandle, HeapDump, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
-        if (!done) File.Delete(file);
-        return done;
-    }
-
-    /// <summary>The parent process id of <paramref name="pid"/>, or null when it cannot be read.</summary>
-    private static int? ParentOf(int pid)
-    {
-        using var process = OpenProcess(0x1000 /* PROCESS_QUERY_LIMITED_INFORMATION */, false, pid);
-        if (process.IsInvalid) return null;
-        var info = new ProcessBasicInformation();
-        return NtQueryInformationProcess(process, 0, ref info, Marshal.SizeOf<ProcessBasicInformation>(), out _) == 0 ? (int)info.InheritedFromUniqueProcessId : null;
-    }
-
-    [StructLayout(LayoutKind.Sequential)]
-    private struct ProcessBasicInformation
-    {
-        public nint ExitStatus, PebBaseAddress, AffinityMask, BasePriority, UniqueProcessId, InheritedFromUniqueProcessId;
+            if (!MiniDumpWriteDump(process, pid, stream.SafeFileHandle, HeapDump, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero))
+                error = Marshal.GetLastPInvokeError() is var e and not 0 ? e : -1;
+        if (error != 0) File.Delete(file);
+        return error;
     }
 
     [DllImport("kernel32.dll", SetLastError = true)]
@@ -102,7 +69,4 @@ internal static class ServerDump
     [DllImport("dbghelp.dll", SetLastError = true)]
     private static extern bool MiniDumpWriteDump(Microsoft.Win32.SafeHandles.SafeProcessHandle process, int processId, Microsoft.Win32.SafeHandles.SafeFileHandle file, int type,
         IntPtr exception, IntPtr user, IntPtr callback);
-
-    [DllImport("ntdll.dll")]
-    private static extern int NtQueryInformationProcess(Microsoft.Win32.SafeHandles.SafeProcessHandle process, int infoClass, ref ProcessBasicInformation info, int size, out int returned);
 }

@@ -46,52 +46,141 @@ public abstract class McpProtocolTests : IAsyncLifetime
     {
         // The server's last error output lines, timed, name the start phase it reached when initialize times out.
         var stderr = new System.Collections.Concurrent.ConcurrentQueue<string>();
-        var transport = new StdioClientTransport(new StdioClientTransportOptions
+        var psi = new System.Diagnostics.ProcessStartInfo("dotnet")
         {
-            Name = "corvus",
-            StandardErrorLines = line =>
-            {
-                stderr.Enqueue($"{DateTime.Now:HH:mm:ss.fff} {line}");
-                while (stderr.Count > 40) stderr.TryDequeue(out _);
-            },
-            Command = "dotnet",
-            Arguments = [ServerDll, .. args],
-            WorkingDirectory = workingDirectory,
-            // Annotation sidecars and edit journals stay out of the real per-user folder, one folder per server so one test's
-            // renames or unsaved-edit journal never reach another test's server; a working directory keeps its own folder
-            // (a restart there finds the first server's sidecars).
-            EnvironmentVariables = new Dictionary<string, string?>(FakeDevice.ServerEnvironment)
-            {
-                ["CORVUS_ANNOTATIONS_DIR"] = workingDirectory != null
-                    ? Path.Combine(workingDirectory, ".corvus-annotations")
-                    : Path.Combine(AnnotationsDir, Guid.NewGuid().ToString("N")),
-                // the dump bucketing cache is private: outside the working directory the contract sweep watches
-                [Corvus.Services.MinidumpService.BucketCacheVariable] = Path.Combine(AnnotationsDir, ".corvus-dumpbuckets"),
-                ["PATH"] = Corvus.Tests.Tools.CmdPath(), // the SDK starts the server through cmd /c on Windows
-            }.Concat(environment ?? new Dictionary<string, string?>()).GroupBy(v => v.Key).ToDictionary(g => g.Key, g => g.Last().Value),
-            // The SDK waits this long for the server to exit before it closes the server's input, then ends it; the
-            // server exits on end of input (ServerExitsWhenItsInputCloses), so waiting longer only delays each test.
-            ShutdownTimeout = TimeSpan.FromMilliseconds(200),
-        });
+            RedirectStandardInput = true,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false,
+            WorkingDirectory = workingDirectory ?? "",
+        };
+        foreach (var arg in (string[])[ServerDll, .. args]) psi.ArgumentList.Add(arg);
+        // Annotation sidecars and edit journals stay out of the real per-user folder, one folder per server so one test's
+        // renames or unsaved-edit journal never reach another test's server; a working directory keeps its own folder
+        // (a restart there finds the first server's sidecars).
+        var variables = new Dictionary<string, string?>(FakeDevice.ServerEnvironment)
+        {
+            ["CORVUS_ANNOTATIONS_DIR"] = workingDirectory != null
+                ? Path.Combine(workingDirectory, ".corvus-annotations")
+                : Path.Combine(AnnotationsDir, Guid.NewGuid().ToString("N")),
+            // the dump bucketing cache is private: outside the working directory the contract sweep watches
+            [Corvus.Services.MinidumpService.BucketCacheVariable] = Path.Combine(AnnotationsDir, ".corvus-dumpbuckets"),
+            // The server starts some tools through cmd /c, which expands no variable over 8,191 characters.
+            ["PATH"] = Corvus.Tests.Tools.CmdPath(),
+        }.Concat(environment ?? new Dictionary<string, string?>()).GroupBy(v => v.Key).ToDictionary(g => g.Key, g => g.Last().Value);
+        foreach (var (name, value) in variables)
+        {
+            if (value == null) psi.Environment.Remove(name);
+            else psi.Environment[name] = value;
+        }
+        var server = System.Diagnostics.Process.Start(psi) ?? throw new InvalidOperationException("dotnet did not start");
+        server.ErrorDataReceived += (sender, e) =>
+        {
+            if (e.Data == null) return;
+            stderr.Enqueue($"{DateTime.Now:HH:mm:ss.fff} {e.Data}");
+            while (stderr.Count > 40) stderr.TryDequeue(out _);
+        };
+        server.BeginErrorReadLine();
+        var transport = new ServerTransport(server, new StreamClientTransport(server.StandardInput.BaseStream, server.StandardOutput.BaseStream));
         // No separate probe limit: a server/discover answered late on a busy machine must not turn into an initialize fallback;
         // initialize gets 3 min, since a stdio server starts slowly on small CI runners.
         var started = DateTime.Now;
         var limit = TimeSpan.FromMinutes(3);
         // The dump is taken before the limit, since a timed-out start disposes the transport and ends the server.
         using var answered = new CancellationTokenSource();
-        var dumps = Task.Delay(limit - TimeSpan.FromSeconds(20), answered.Token)
-            .ContinueWith(t => t.IsCanceled ? [] : ServerDump.Write(started), TaskScheduler.Default);
+        var dump = Task.Delay(limit - TimeSpan.FromSeconds(20), answered.Token)
+            .ContinueWith(t => t.IsCanceled ? null : ServerDump.Write(server.Id), TaskScheduler.Default);
         try
         {
-            return await McpClient.CreateAsync(transport, new McpClientOptions { ProtocolVersion = protocolVersion, DiscoverProbeTimeout = Timeout.InfiniteTimeSpan, InitializationTimeout = limit });
+            var client = await McpClient.CreateAsync(transport, new McpClientOptions { ProtocolVersion = protocolVersion, DiscoverProbeTimeout = Timeout.InfiniteTimeSpan, InitializationTimeout = limit });
+            ServerIds.AddOrUpdate(client, new System.Runtime.CompilerServices.StrongBox<int>(server.Id));
+            return client;
         }
-        catch (TimeoutException ex)
+        catch (Exception ex)
         {
-            var files = await dumps;
+            answered.Cancel();
+            // A failed start may leave no session to end the server.
+            await transport.EndAsync();
+            if (ex is not TimeoutException) throw;
+            var file = await dump;
             throw new TimeoutException($"{ex.Message} (server started {started:HH:mm:ss.fff}); its last error output:\n{string.Join("\n", stderr)}" +
-                (files.Count > 0 ? $"\nserver dumps: {string.Join(", ", files)}" : ""), ex);
+                (file != null ? $"\nserver dump: {file}" : ""), ex);
         }
         finally { answered.Cancel(); }
+    }
+
+    private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<McpClient, System.Runtime.CompilerServices.StrongBox<int>> ServerIds = new();
+
+    /// <summary>The process id of the server behind <paramref name="client"/>, or -1 for a client this class did not start.</summary>
+    internal static int ServerProcessId(McpClient client) => ServerIds.TryGetValue(client, out var id) ? id.Value : -1;
+
+    /// <summary>
+    /// How long a server gets to exit on end of input before its tree is killed; it exits on end of input
+    /// (ServerExitsWhenItsInputCloses), so waiting longer only delays each test.
+    /// </summary>
+    private static readonly TimeSpan ServerExitGrace = TimeSpan.FromMilliseconds(200);
+
+    /// <summary>How long the killed tree of a server gets to exit, so a test folder is deleted after the files it held are closed.</summary>
+    private static readonly TimeSpan ServerTreeExitWait = TimeSpan.FromSeconds(10);
+
+    /// <summary>
+    /// Ends <paramref name="server"/>: closes its input, kills its process tree after <see cref="ServerExitGrace"/> and waits
+    /// up to <see cref="ServerTreeExitWait"/> for every process of it to exit. Never throws.
+    /// </summary>
+    internal static async Task EndServerAsync(System.Diagnostics.Process server)
+    {
+        // Take the tree first: a server that exits on its own leaves its children to its job, which ends them unawaited.
+        var tree = LeakGuard.Descendants(server);
+        try
+        {
+            try { server.StandardInput.Close(); }
+            catch (Exception ex) when (ex is IOException or ObjectDisposedException) { }
+            using (var grace = new CancellationTokenSource(ServerExitGrace))
+            {
+                try { await server.WaitForExitAsync(grace.Token); }
+                catch (OperationCanceledException) { }
+            }
+            try { server.Kill(entireProcessTree: true); }
+            catch (Exception ex) when (ex is InvalidOperationException or System.ComponentModel.Win32Exception) { }
+            using var wait = new CancellationTokenSource(ServerTreeExitWait);
+            foreach (var p in (System.Diagnostics.Process[])[server, .. tree])
+            {
+                try { await p.WaitForExitAsync(wait.Token); }
+                catch (Exception ex) when (ex is OperationCanceledException or InvalidOperationException or System.ComponentModel.Win32Exception) { }
+            }
+        }
+        finally
+        {
+            foreach (var p in tree) p.Dispose();
+            server.Dispose();
+        }
+    }
+
+    /// <summary>A client transport over a started server whose session, once disposed, ends the server with <see cref="EndServerAsync"/>.</summary>
+    private sealed class ServerTransport(System.Diagnostics.Process server, IClientTransport inner) : IClientTransport
+    {
+        private int _ended;
+
+        public string Name => "corvus";
+
+        public async Task<ITransport> ConnectAsync(CancellationToken cancellationToken = default) =>
+            new Session(this, await inner.ConnectAsync(cancellationToken));
+
+        /// <summary>Ends the server once; later calls return at once.</summary>
+        public Task EndAsync() => Interlocked.Exchange(ref _ended, 1) == 0 ? EndServerAsync(server) : Task.CompletedTask;
+
+        private sealed class Session(ServerTransport owner, ITransport inner) : ITransport
+        {
+            public string? SessionId => inner.SessionId;
+            public System.Threading.Channels.ChannelReader<JsonRpcMessage> MessageReader => inner.MessageReader;
+            public Task SendMessageAsync(JsonRpcMessage message, CancellationToken cancellationToken = default) => inner.SendMessageAsync(message, cancellationToken);
+
+            public async ValueTask DisposeAsync()
+            {
+                await inner.DisposeAsync();
+                await owner.EndAsync();
+            }
+        }
     }
 
     private static string Text(CallToolResult r) => string.Join("\n", r.Content.OfType<TextContentBlock>().Select(c => c.Text));

@@ -58,6 +58,20 @@ if (args is ["spin", var spinMs])
     Console.ReadLine();
     return 0;
 }
+// "hold <MB>" writes that much memory, prints "held" and waits to be ended: a large address space makes its exit after a
+// kill take measurable time.
+if (args is ["hold", var holdMb])
+{
+    var held = new byte[int.Parse(holdMb)][];
+    for (int i = 0; i < held.Length; i++)
+    {
+        held[i] = new byte[1 << 20];
+        Array.Fill(held[i], (byte)1);
+    }
+    Console.WriteLine("held");
+    Thread.Sleep(Timeout.Infinite);
+    GC.KeepAlive(held);
+}
 if (args is ["version"])
 {
     Console.WriteLine("Android Debug Bridge version 1.0.41");

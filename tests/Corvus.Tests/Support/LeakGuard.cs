@@ -186,6 +186,36 @@ internal static class LeakGuard
         return found;
     }
 
+    /// <summary>
+    /// Running processes descended from <paramref name="root"/> and started after it, nearest first; empty when the root
+    /// has exited or the links cannot be read. The caller disposes them.
+    /// </summary>
+    internal static List<Process> Descendants(Process root)
+    {
+        var found = new List<Process>();
+        DateTime started;
+        try { started = root.StartTime; }
+        catch (Exception ex) when (ex is InvalidOperationException or System.ComponentModel.Win32Exception) { return found; }
+        var children = ParentLinks().ToLookup(l => l.Parent, l => l.Pid);
+        var queue = new Queue<int>([root.Id]);
+        var seen = new HashSet<int> { root.Id };
+        while (queue.TryDequeue(out var parent))
+            foreach (var pid in children[parent])
+            {
+                if (!seen.Add(pid)) continue;
+                try
+                {
+                    var p = Process.GetProcessById(pid);
+                    // A reused id keeps a stale parent link: only processes started after the root count.
+                    if (p.StartTime < started) { p.Dispose(); continue; }
+                    found.Add(p);
+                    queue.Enqueue(pid);
+                }
+                catch (Exception ex) when (ex is ArgumentException or InvalidOperationException or System.ComponentModel.Win32Exception) { }
+            }
+        return found;
+    }
+
     private static IEnumerable<(int Pid, int Parent)> ParentLinks()
     {
         if (OperatingSystem.IsWindows()) return WindowsLinks();
