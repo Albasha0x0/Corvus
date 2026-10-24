@@ -195,9 +195,10 @@ public sealed class LiveStopPointRealTests(ITestOutputHelper output) : LiveToolC
             return;
         }
         var stop = await Ok(server, "live_break", new() { ["session"] = "live-1", ["action"] = "continue", ["wait"] = true, ["waitSeconds"] = 60 });
-        // A missed stop logs whether plugin.dll's load reached the server and how its entry point was followed.
+        // A missed stop logs whether plugin.dll's load reached the server and how its entry point was followed, and the
+        // system ntdll's version, which maps a crash's ntdll offset to its function.
         if (!stop.Contains("stopped at s1 (plugin.dll!PluginWork)", StringComparison.Ordinal))
-            Assert.Fail($"{stop}\nevents:\n{await Events(server, "live-1", log: false)}");
+            Assert.Fail($"{stop}\nevents:\n{await Events(server, "live-1", log: false)}\nntdll.dll {NtdllVersion()}");
         Assert.Equal(0UL, await FirstArgument(server, target));
         Assert.Contains("deferred stop point s1 set at plugin.dll!PluginWork (plugin.dll loaded; its entry point writes its code, so set once that returned)",
             await Events(server, "live-1", kind: "module"));
@@ -208,6 +209,19 @@ public sealed class LiveStopPointRealTests(ITestOutputHelper output) : LiveToolC
         Assert.Contains("plugin 12", await Events(server, "live-1", kind: "output"));
         await Ok(server, "live_session", new() { ["action"] = "close", ["session"] = "live-1" });
         Ended(pid);
+    }
+
+    // The file version and SHA-256 of the system ntdll.dll; "unknown" off Windows or when it cannot be read.
+    private static string NtdllVersion()
+    {
+        if (!OperatingSystem.IsWindows()) return "unknown";
+        var path = Path.Combine(Environment.SystemDirectory, "ntdll.dll");
+        try
+        {
+            using var file = File.OpenRead(path);
+            return $"{System.Diagnostics.FileVersionInfo.GetVersionInfo(path).FileVersion}, sha256 {Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(file))}";
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException) { return $"unknown ({e.GetType().Name})"; }
     }
 
     // ---- a DLL mapped through a delay-load import before a stop: listed at the stop, though its load event comes later
