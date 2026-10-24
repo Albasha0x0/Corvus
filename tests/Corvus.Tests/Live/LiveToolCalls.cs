@@ -69,6 +69,15 @@ public abstract class LiveToolCalls(ITestOutputHelper output)
         return "";
     }
 
+    /// <summary>Writes the stack of each of the first <paramref name="threads"/> threads of <paramref name="pid"/> to the test output.</summary>
+    private protected async Task AllStacks(InProcessServer server, int pid, int threads = 32)
+    {
+        var process = pid.ToString(CultureInfo.InvariantCulture);
+        var (list, _) = await Call(server, "inspect_process", new() { ["process"] = process, ["view"] = "threads", ["limit"] = threads });
+        foreach (Match m in Regex.Matches(list, @"^\s*(\d+)(?: ""[^""]*"")?: ", RegexOptions.Multiline))
+            await Call(server, "inspect_process", new() { ["process"] = process, ["view"] = "stacks", ["thread"] = m.Groups[1].Value });
+    }
+
     /// <summary>All events of one kind, every page.</summary>
     private protected async Task<string> Events(InProcessServer server, string session, string? kind = null, string? from = null, bool log = true)
     {

@@ -558,11 +558,12 @@ public sealed class LiveDotnetRealTests(ITestOutputHelper output) : LiveToolCall
         var pid = await Spawn(server, exe, "live-1");
         await Ok(server, "live_break", new() { ["session"] = "live-1", ["action"] = "set", ["at"] = "readers.dll!Compiled::Once" });
         var first = await Ok(server, "live_break", new() { ["session"] = "live-1", ["action"] = "continue", ["wait"] = true, ["waitSeconds"] = 60 });
-        // A missed stop logs whether readers.dll's load reached the server (events, status) and where the main thread waits.
+        // A missed stop logs whether readers.dll's load reached the server (events, status) and where each thread waits:
+        // a start-up stall (CI on eacaf14a) showed only a new thread waiting in the loader, not the loader lock's holder.
         if (!first.Contains("stopped at s1", StringComparison.Ordinal))
         {
             await Call(server, "live_session", new() { ["action"] = "status", ["session"] = "live-1" });
-            await Call(server, "inspect_process", new() { ["process"] = pid.ToString(CultureInfo.InvariantCulture), ["view"] = "stacks" });
+            await AllStacks(server, pid);
             await Call(server, "inspect_process", new() { ["process"] = pid.ToString(CultureInfo.InvariantCulture), ["view"] = "modules", ["limit"] = 200 });
             Assert.Fail($"{first}\nevents:\n{await Events(server, "live-1", log: false)}");
         }
