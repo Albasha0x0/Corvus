@@ -406,8 +406,13 @@ public sealed class LiveSessionTests : LiveSessionTestBase
         // another build under the same name is not that assembly
         File.WriteAllBytes(copy, [.. File.ReadAllBytes(original).Take(0x400), .. new byte[16]]);
         _backend.Load("Newtonsoft.Json.dll", copy, 0x7ff7_1000_0000, size);
-        await Task.Delay(300);
-        Assert.Contains("0x7FF710000000 Newtonsoft.Json.dll\n", (await _tools.LiveSession("status", session: "live-1")).ReplaceLineEndings("\n"));
+        // The load event is read in the background: wait for its row as above rather than for a fixed time.
+        for (int i = 0; i < 50 && !status.Contains("0x7FF710000000", StringComparison.Ordinal); i++)
+        {
+            await Task.Delay(100);
+            status = (await _tools.LiveSession("status", session: "live-1")).ReplaceLineEndings("\n");
+        }
+        Assert.Contains("0x7FF710000000 Newtonsoft.Json.dll\n", status);
     }
 
     [Fact]
