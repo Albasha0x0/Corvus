@@ -46,14 +46,14 @@ public sealed partial class LiveSessionTools
         int OnlyInRunTotal, int OnlyInOtherTotal, int InBoth, int InNeither);
 
     [McpServerTool(Name = "live_coverage", Title = "Code coverage of a session", UseStructuredContent = true, OutputSchemaType = typeof(LiveCoverageReport))]
-    [Description("Collect code coverage in a session: which functions of an image ran and how often, drawn on the static call graph; diff compares two runs.")]
+    [Description("Collect code coverage in a session: which functions of an image ran and how often, on the static call graph; diff compares two runs.")]
     public Task<string> LiveCoverage(
         [Description("Session id; start only.")] string? session = null,
         [Description("What to do.")] string action = "list",
-        [Description("Coverage run id (cov-1; omitted: the only run); diff: the first run.")] string? run = null,
+        [Description("Run id (cov-1; omitted: the only run); diff: the first run.")] string? run = null,
         [Description("diff: the run compared with.")] string? other = null,
-        [Description("Only functions whose name contains this; start: module!part for another module.")] string? match = null,
-        [Description("start: stops counted per function before its point is cleared.")] int hitLimit = 100,
+        [Description("Only function names containing this; start: module!part for another module.")] string? match = null,
+        [Description("start: stops per function before its point is cleared.")] int hitLimit = 100,
         [Description("report: ran, missed or all.")] string show = "ran",
         [Description("report: text, or dot (call graph; offset counts characters).")] string format = "text",
         [Description(ToolSupport.RowOffsetDescription)] int offset = 0,

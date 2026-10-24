@@ -2,7 +2,7 @@
 
 Ops: hello; open {attach, stopped | spawn, arguments, cwd, temp, tmp, children}; info; set {id, address}; clear {id}; watch {id, address, args,
 perSecond}; unwatch {id}; defer_module {name}; undefer_module {name}; release_load {thread}; load_script {id, source} (replies with its top-level exception);
-unload_script {id}; read {address, length}; resume {thread}; resume_child {pid, stopped | hold | keep}; drop_child {pid};
+unload_script {id}; read {address, length}; capture_memory {path, protection, limit}; resume {thread}; resume_child {pid, stopped | hold | keep}; drop_child {pid};
 close {end, keep_handed}.
 Events: ready, stop (with stack: the bytes from the stack pointer up, outside Windows), calls, module, thread, exception, exit_status, output, exit, script_error, user_script, child.
 A program started here stays suspended until the first resume; close resumes every held thread, and ends the
@@ -49,6 +49,7 @@ MemoryAccessMonitor.enable(ranges.map(r => ({ base: r.base, size: r.size })), { 
 } });
 """
 HOLD_WAIT = 5  # seconds a hold waits for the child to reach its code; one that never does runs on unheld
+CAPTURE_CHUNK = 1 << 20  # bytes of one read while memory is saved
 
 
 def parent_of(pid):
@@ -492,6 +493,39 @@ class Session:
             raise Failure("invalid_argument", "no session is open")
         return self.script.exports_sync
 
+    def capture_memory(self, args):
+        """Saves the ranges with args protection to args path, at most args limit bytes, while the program runs.
+
+        Returns each stretch saved (base, size, offset in the file), the ranges listed and left out past the limit, the
+        bytes saved and the bytes that could not be read. The file is readable by this user only.
+        """
+        agent = self.require()
+        limit = int(args["limit"])
+        listed = agent.ranges(args.get("protection", "rw-"))
+        saved, offset, unread, left = [], 0, 0, 0
+        fd = os.open(args["path"], os.O_WRONLY | os.O_CREAT | os.O_TRUNC | getattr(os, "O_BINARY", 0), 0o600)
+        with os.fdopen(fd, "wb") as out:
+            for r in listed:
+                base, size = int(r["base"], 16), int(r["size"])
+                if offset + size > limit:
+                    left += 1
+                    continue
+                piece = None
+                for at in range(0, size, CAPTURE_CHUNK):
+                    n = min(CAPTURE_CHUNK, size - at)
+                    data = agent.read_block("0x%x" % (base + at), n)
+                    if data is None or len(data) != n:
+                        unread += n
+                        piece = None
+                        continue
+                    out.write(data)
+                    if piece is None:
+                        piece = {"base": "0x%x" % (base + at), "size": 0, "offset": offset}
+                        saved.append(piece)
+                    piece["size"] += n
+                    offset += n
+        return {"ranges": saved, "listed": len(listed), "left": left, "bytes": offset, "unread": unread}
+
     def resume(self, args):
         self.require()
         thread = args.get("thread")
@@ -653,6 +687,8 @@ def handle(state, op, args):
     if op == "read":
         data = state.require().read(args["address"], int(args["length"]))
         return {"bytes": None if data is None else bytes(data).hex()}
+    if op == "capture_memory":
+        return state.capture_memory(args)
     if op == "resume":
         return state.resume(args)
     if op == "resume_child":

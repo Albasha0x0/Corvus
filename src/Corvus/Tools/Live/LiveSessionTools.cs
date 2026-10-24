@@ -113,7 +113,7 @@ public sealed partial class LiveSessionTools(ServerOptions options, LiveSessionS
     }
 
     [McpServerTool(Name = "live_session", Title = "Session on a local program", UseStructuredContent = true, OutputSchemaType = typeof(LiveSessionReport))]
-    [Description("Open, list, inspect or close a session on a program: its id, backend and modules matched to images; snapshot saves the process as a dump.")]
+    [Description("Open, list, inspect or close a session on a program: its id, backend and modules matched to images; snapshot saves a dump.")]
     public Task<string> LiveSession(
         [Description("What to do.")] string action = "list",
         [Description("attach: pid or name; spawn: program path (started suspended); processes: name filter; *_child: child pid.")] string? program = null,
@@ -278,7 +278,7 @@ public sealed partial class LiveSessionTools(ServerOptions options, LiveSessionS
     public Task<string> LiveBreak(
         [Description(SessionDescription)] string session,
         [Description("What to do.")] string action = "list",
-        [Description("set: a name, module!export, address or file:line.")] string? at = null,
+        [Description("set: name, module!export, address or file:line.")] string? at = null,
         [Description("clear: stop point id.")] string? stopPoint = null,
         [Description("continue: thread id; default all.")] string? thread = null,
         [Description("Wait for the next stop.")] bool wait = false,
@@ -365,7 +365,7 @@ public sealed partial class LiveSessionTools(ServerOptions options, LiveSessionS
     }
 
     [McpServerTool(Name = "live_watch", Title = "Record calls in a session", UseStructuredContent = true, OutputSchemaType = typeof(LiveWatchReport))]
-    [Description("Record every call of a function with arguments and return value, decoded by prototype (PDB, DWARF) or known API, as events (live_events from=<watch>).")]
+    [Description("Record every call of a function with arguments and result, decoded by prototype (PDB, DWARF) or known API, as events (live_events from=<watch>).")]
     public Task<string> LiveWatchCalls(
         [Description(SessionDescription)] string session,
         [Description("What to do.")] string action = "list",
@@ -430,7 +430,7 @@ public sealed partial class LiveSessionTools(ServerOptions options, LiveSessionS
         }, cancellationToken);
 
     [McpServerTool(Name = "live_script", Title = "User script in a session", UseStructuredContent = true, OutputSchemaType = typeof(LiveScriptReport))]
-    [Description("Load, list or unload your own Frida script in a session's program; its messages become events (live_events from=<script>). Needs --live-scripting.")]
+    [Description("Load, list or unload your own Frida script in a session's program; its messages are events (live_events from=<script>). Needs --live-scripting.")]
     public Task<string> LiveScriptCalls(
         [Description(SessionDescription)] string session,
         [Description("What to do.")] string action = "list",
@@ -493,12 +493,20 @@ public sealed partial class LiveSessionTools(ServerOptions options, LiveSessionS
         [Description("An address, register or name to read.")] string? memory = null,
         [Description("memory: int8..uint64, float, double, pointer, cstring, utf16; [n] for arrays.")] string? type = null,
         [Description("memory: untyped bytes, or a string's limit (max 4096).")] int? length = null,
+        [Description(RulesDescription)] string? rules = null,
         CancellationToken cancellationToken = default) =>
         Task.Run(async () =>
         {
             Require(spawn: false);
             var s = live.Get(session);
             LiveSessionService.Live(s);
+            if (rules != null)
+            {
+                if (thread != null || registers != null || memory != null || type != null || length != null)
+                    throw new ToolError(ErrorCode.InvalidArgument, "rules scans the whole program's writable memory; it takes no thread, registers, memory, type or length.",
+                        "live_read session=<id> rules=<rules>");
+                return await ScanAsync(s, rules, cancellationToken).ConfigureAwait(false);
+            }
             var heldAll = s.Held;
             var tid = ThreadId(thread);
             var held = tid == null ? heldAll.FirstOrDefault() : heldAll.FirstOrDefault(h => h.Thread == tid);
@@ -565,6 +573,40 @@ public sealed partial class LiveSessionTools(ServerOptions options, LiveSessionS
         }, cancellationToken);
 
     private const int BytesPerRow = 256;
+
+    private const string RulesDescription = "YARA rules (text, file, folder, pack:name) to scan writable memory.";
+
+    /// <summary>Rule matches listed by a live scan; the count covers them all.</summary>
+    private const int MaxScanRows = 500;
+
+    /// <summary>live_read rules=: each rule that matched, at its first match's address named through the images, its patterns' matches in the value.</summary>
+    private async Task<string> ScanAsync(Services.LiveSession s, string rules, CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(rules)) throw new ToolError(ErrorCode.InvalidArgument, "rules is empty.", "pass rule text, a .yar file or folder, or pack:<name>");
+        var scan = await live.ScanMemoryAsync(s, rules, ct).ConfigureAwait(false);
+        var matches = scan.Result.Hits.SelectMany(h => h.Rules.Select(r => (h.Path, Rule: r))).ToList();
+        var text = new StringBuilder($"{s.Id}: {matches.Count:N0} rule match(es) in {scan.Result.Regions:N0} memory regions\n");
+        var rows = new List<LiveValue>();
+        var named = new List<EvidenceName>();
+        foreach (var (path, rule) in matches.Take(MaxScanRows))
+        {
+            var name = rule.Namespace is "default" or "" ? rule.Rule : $"{rule.Namespace}:{rule.Rule}";
+            var detail = Services.Analysis.YaraSearchKind.Detail(rule) ?? "";
+            string? where = path;
+            if (rule.Patterns.Count > 0)
+            {
+                var at = (ulong)rule.Patterns.Min(p => p.Offset);
+                var place = live.Name(s, at, ct: ct);
+                if (place.Named is { } n) named.Add(n);
+                where = Hex(at) + (place.Module != null ? " " + place.Display : "");
+            }
+            rows.Add(new LiveValue(name, "yara", detail, where));
+            text.AppendLine($"  {name} at {where}{(detail.Length > 0 ? ": " + detail : "")}");
+        }
+        if (matches.Count > MaxScanRows) text.AppendLine($"{matches.Count - MaxScanRows:N0} more matches not listed (at most {MaxScanRows:N0}).");
+        foreach (var note in Services.Analysis.YaraSearchKind.Notes(scan.Result, scan.FromQuery).Concat(scan.Notes)) text.AppendLine("Note: " + note);
+        return ToolOutput.With(text.ToString(), new LiveReadReport(s.Id, "", [], rows) { NamedAddresses = Named(named) });
+    }
 
     private static readonly Dictionary<string, int> Sizes = new(StringComparer.Ordinal)
     {
@@ -650,10 +692,10 @@ public sealed partial class LiveSessionTools(ServerOptions options, LiveSessionS
     private static string Quote(string s) => "\"" + s.Replace("\\", "\\\\").Replace("\"", "\\\"").Replace("\n", "\\n").Replace("\r", "\\r") + "\"";
 
     [McpServerTool(Name = "live_events", Title = "Session events", UseStructuredContent = true, OutputSchemaType = typeof(LiveEventPage))]
-    [Description("Page a session's event ring with a cursor and filters, so polling never re-sends earlier events.")]
+    [Description("Page a session's events with a cursor and filters; polling never re-sends earlier ones.")]
     public Task<string> LiveEvents(
         [Description(SessionDescription)] string session,
-        [Description("Cursor from an earlier page; default the oldest event kept.")] string? cursor = null,
+        [Description("Cursor of an earlier page; default the oldest event kept.")] string? cursor = null,
         [Description("Only this kind.")] string? kind = null,
         [Description("Only this thread id.")] string? thread = null,
         [Description("Only events of this watch or script id.")] string? from = null,

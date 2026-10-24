@@ -48,16 +48,16 @@ public sealed partial class LiveSessionTools
     private sealed record TimelineDiffRow(int Index, bool InA, string Category, string Name);
 
     [McpServerTool(Name = "live_timeline", Title = "Activity trace of a session", UseStructuredContent = true, OutputSchemaType = typeof(LiveTimelinePage))]
-    [Description("Collect a timestamped trace of the files, registry keys, endpoints and child processes a session's program opens, from the OS diagnostics channel (event tracing on Windows); entries page with a cursor, report counts each name, diff lists the names unique to each of two traces.")]
+    [Description("Trace the files, registry keys, endpoints and child processes a session's program opens, with times (event tracing on Windows); entries page with a cursor, report counts each name, diff lists names unique to each of two traces.")]
     public Task<string> LiveTimeline(
         [Description("Session id; start only.")] string? session = null,
         [Description("What to do.")] string action = "list",
-        [Description("Timeline id (tl-1; omitted: the only one); list without it or a filter shows the timelines.")] string? run = null,
+        [Description("Run id (tl-1; omitted: the only one); list without it or a filter lists them.")] string? run = null,
         [Description("diff: the first timeline.")] string? a = null,
         [Description("diff: the second timeline.")] string? b = null,
         [Description("Only file, registry, network or process.")] string? category = null,
         [Description("Only names containing this.")] string? match = null,
-        [Description("list: cursor from an earlier page; default the oldest entry kept.")] string? cursor = null,
+        [Description("list: cursor of an earlier page; default the oldest entry kept.")] string? cursor = null,
         [Description(ToolSupport.RowOffsetDescription + " (report).")] int offset = 0,
         [Description(ToolSupport.LimitDescription)] int limit = 100,
         CancellationToken cancellationToken = default) =>

@@ -39,15 +39,15 @@ public sealed partial class LiveSessionTools
     }
 
     [McpServerTool(Name = "live_console", Title = "Scripted console run", UseStructuredContent = true, OutputSchemaType = typeof(LiveConsolePage))]
-    [Description("Run a program under a console host (the pseudoconsole on Windows) driven by a script of send, wait, resize and delay steps; reports each step's outcome and pages the transcript with a cursor.")]
+    [Description("Run a program under a console host (the pseudoconsole on Windows) driven by send, wait, resize and delay steps; reports each step and pages the transcript with a cursor.")]
     public Task<string> LiveConsole(
         [Description("What to do.")] string action = "list",
         [Description("start: program path.")] string? program = null,
         [Description("start: program arguments.")] string[]? arguments = null,
         [Description("start: steps, one per line: send TEXT, wait TEXT (output contains it), resize COLUMNS ROWS, delay MS; TEXT takes \\r (Enter), \\n, \\t, \\e, \\xHH.")] string[]? script = null,
-        [Description("Console run id (con-1; omitted: the only one).")] string? run = null,
+        [Description("Run id (con-1; omitted: the only one).")] string? run = null,
         [Description("Seconds each wait step waits (1-300).")] int timeoutSeconds = 10,
-        [Description("transcript: cursor from an earlier page; default the oldest line kept.")] string? cursor = null,
+        [Description("transcript: cursor of an earlier page; default the oldest line kept.")] string? cursor = null,
         [Description(ToolSupport.LimitDescription)] int limit = 100,
         CancellationToken cancellationToken = default) =>
         Task.Run(async () =>

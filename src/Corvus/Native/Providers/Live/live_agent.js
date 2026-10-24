@@ -683,4 +683,16 @@ rpc.exports = {
       return null;
     }
   },
+  // Ranges with at least this protection ('rw-'); Frida leaves out its own (cloaked) memory.
+  ranges(protection) {
+    return Process.enumerateRanges({ protection, coalesce: false }).map(r => ({ base: r.base.toString(), size: r.size }));
+  },
+  // Bytes as binary data, which the RPC sends without a JSON array; null where unreadable.
+  readBlock(address, length) {
+    try {
+      return ptr(address).readByteArray(length);
+    } catch (e) {
+      return null;
+    }
+  },
 };

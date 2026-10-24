@@ -2841,7 +2841,7 @@ Structured output: `processId`, `name`, `view`, `path`, `architecture`, `wow64`,
 
 **Session on a local program** (edit, open-world)
 
-Open, list, inspect or close a session on a program: its id, backend and modules matched to images; snapshot saves the process as a dump.
+Open, list, inspect or close a session on a program: its id, backend and modules matched to images; snapshot saves a dump.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -2867,7 +2867,7 @@ Set, list or clear stop points (name, module!export, file:line, address); contin
 |---|---|---|---|---|
 | `session` | string | yes |  | Session id from live_session. |
 | `action` | string |  | `list` | What to do. Values: list, set, clear, continue. |
-| `at` | string |  |  | set: a name, module!export, address or file:line. |
+| `at` | string |  |  | set: name, module!export, address or file:line. |
 | `stopPoint` | string |  |  | clear: stop point id. |
 | `thread` | string |  |  | continue: thread id; default all. |
 | `wait` | boolean |  |  | Wait for the next stop. |
@@ -2879,7 +2879,7 @@ Structured output: `session`, `stopPoints`, `stop`, `namedAddresses`.
 
 **Record calls in a session** (edit, open-world)
 
-Record every call of a function with arguments and return value, decoded by prototype (PDB, DWARF) or known API, as events (live_events from=<watch>).
+Record every call of a function with arguments and result, decoded by prototype (PDB, DWARF) or known API, as events (live_events from=<watch>).
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -2906,6 +2906,7 @@ Read a held thread's registers and program memory as typed values, named through
 | `memory` | string |  |  | An address, register or name to read. |
 | `type` | string |  |  | memory: int8..uint64, float, double, pointer, cstring, utf16; [n] for arrays. |
 | `length` | integer |  |  | memory: untyped bytes, or a string's limit (max 4096). |
+| `rules` | string |  |  | YARA rules (text, file, folder, pack:name) to scan writable memory. |
 
 Structured output: `session`, `thread`, `registers`, `memory`, `namedAddresses`, `code`, `offset`, `nextOffset`, `totalChars`.
 
@@ -2913,12 +2914,12 @@ Structured output: `session`, `thread`, `registers`, `memory`, `namedAddresses`,
 
 **Session events** (read-only, idempotent, open-world)
 
-Page a session's event ring with a cursor and filters, so polling never re-sends earlier events.
+Page a session's events with a cursor and filters; polling never re-sends earlier ones.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `session` | string | yes |  | Session id from live_session. |
-| `cursor` | string |  |  | Cursor from an earlier page; default the oldest event kept. |
+| `cursor` | string |  |  | Cursor of an earlier page; default the oldest event kept. |
 | `kind` | string |  |  | Only this kind. Values: stop, call, script, exception, module, thread, child, output, error, exit. |
 | `thread` | string |  |  | Only this thread id. |
 | `from` | string |  |  | Only events of this watch or script id. |
@@ -2931,7 +2932,7 @@ Structured output: `session`, `items`, `cursor`, `dropped`, `namedAddresses`.
 
 **User script in a session** (destructive, open-world)
 
-Load, list or unload your own Frida script in a session's program; its messages become events (live_events from=<script>). Needs --live-scripting.
+Load, list or unload your own Frida script in a session's program; its messages are events (live_events from=<script>). Needs --live-scripting.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -2947,16 +2948,16 @@ Structured output: `session`, `scripts`.
 
 **Code coverage of a session** (edit, open-world)
 
-Collect code coverage in a session: which functions of an image ran and how often, drawn on the static call graph; diff compares two runs.
+Collect code coverage in a session: which functions of an image ran and how often, on the static call graph; diff compares two runs.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `session` | string |  |  | Session id; start only. |
 | `action` | string |  | `list` | What to do. Values: start, stop, list, report, diff. |
-| `run` | string |  |  | Coverage run id (cov-1; omitted: the only run); diff: the first run. |
+| `run` | string |  |  | Run id (cov-1; omitted: the only run); diff: the first run. |
 | `other` | string |  |  | diff: the run compared with. |
-| `match` | string |  |  | Only functions whose name contains this; start: module!part for another module. |
-| `hitLimit` | integer |  | `100` | start: stops counted per function before its point is cleared. |
+| `match` | string |  |  | Only function names containing this; start: module!part for another module. |
+| `hitLimit` | integer |  | `100` | start: stops per function before its point is cleared. |
 | `show` | string |  | `ran` | report: ran, missed or all. Values: ran, missed, all. |
 | `format` | string |  | `text` | report: text, or dot (call graph; offset counts characters). Values: text, dot. |
 | `offset` | integer |  |  |  |
@@ -2968,18 +2969,18 @@ Structured output: `run`, `items`, `offset`, `total`, `runs`, `namedAddresses`, 
 
 **Activity trace of a session** (edit, open-world)
 
-Collect a timestamped trace of the files, registry keys, endpoints and child processes a session's program opens, from the OS diagnostics channel (event tracing on Windows); entries page with a cursor, report counts each name, diff lists the names unique to each of two traces.
+Trace the files, registry keys, endpoints and child processes a session's program opens, with times (event tracing on Windows); entries page with a cursor, report counts each name, diff lists names unique to each of two traces.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `session` | string |  |  | Session id; start only. |
 | `action` | string |  | `list` | What to do. Values: start, stop, list, report, diff. |
-| `run` | string |  |  | Timeline id (tl-1; omitted: the only one); list without it or a filter shows the timelines. |
+| `run` | string |  |  | Run id (tl-1; omitted: the only one); list without it or a filter lists them. |
 | `a` | string |  |  | diff: the first timeline. |
 | `b` | string |  |  | diff: the second timeline. |
 | `category` | string |  |  | Only file, registry, network or process. Values: file, registry, network, process. |
 | `match` | string |  |  | Only names containing this. |
-| `cursor` | string |  |  | list: cursor from an earlier page; default the oldest entry kept. |
+| `cursor` | string |  |  | list: cursor of an earlier page; default the oldest entry kept. |
 | `offset` | integer |  |  | Rows to skip. (report). |
 | `limit` | integer |  | `100` |  |
 
@@ -2989,7 +2990,7 @@ Structured output: `run`, `items`, `cursor`, `runs`, `dropped`, `names`, `diff`.
 
 **Scripted console run** (edit, open-world)
 
-Run a program under a console host (the pseudoconsole on Windows) driven by a script of send, wait, resize and delay steps; reports each step's outcome and pages the transcript with a cursor.
+Run a program under a console host (the pseudoconsole on Windows) driven by send, wait, resize and delay steps; reports each step and pages the transcript with a cursor.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -2997,9 +2998,9 @@ Run a program under a console host (the pseudoconsole on Windows) driven by a sc
 | `program` | string |  |  | start: program path. |
 | `arguments` | string[] |  |  | start: program arguments. |
 | `script` | string[] |  |  | start: steps, one per line: send TEXT, wait TEXT (output contains it), resize COLUMNS ROWS, delay MS; TEXT takes \r (Enter), \n, \t, \e, \xHH. |
-| `run` | string |  |  | Console run id (con-1; omitted: the only one). |
+| `run` | string |  |  | Run id (con-1; omitted: the only one). |
 | `timeoutSeconds` | integer |  | `10` | Seconds each wait step waits (1-300). |
-| `cursor` | string |  |  | transcript: cursor from an earlier page; default the oldest line kept. |
+| `cursor` | string |  |  | transcript: cursor of an earlier page; default the oldest line kept. |
 | `limit` | integer |  | `100` |  |
 
 Structured output: `run`, `items`, `cursor`, `runs`, `steps`, `dropped`.

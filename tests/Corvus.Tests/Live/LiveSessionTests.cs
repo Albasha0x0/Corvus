@@ -63,6 +63,8 @@ internal sealed class ScriptedLiveBackend(string mainPath, ulong mainBase, uint 
     public bool Batches { get; init; } = true;
     /// <summary>The version the hello reply names.</summary>
     public string FridaVersion { get; init; } = FridaVersions.TestedFrom.ToString();
+    /// <summary>Whether capture_memory is known; false answers it as an unknown op, as a worker without it.</summary>
+    public bool Captures { get; init; } = true;
 
     public string Name => "scripted";
     public (string Reason, string Remediation)? Unavailable() => Missing == null ? null : (Missing, "install it");
@@ -227,6 +229,20 @@ internal sealed class ScriptedLiveBackend(string mainPath, ulong mainBase, uint 
                 return new JsonObject { ["bytes"] = Convert.ToHexStringLower(bytes) };
             case "export":
                 return new JsonObject { ["address"] = Exports.TryGetValue($"{args["module"]}!{args["name"]}", out var export) ? $"0x{export:x}" : null };
+            case "capture_memory" when Captures:
+            {
+                // as the worker: each block of Memory is one writable range, saved in address order
+                var saved = new JsonArray();
+                long offset = 0;
+                using (var file = File.Create((string)args["path"]!))
+                    foreach (var (start, block) in Memory.OrderBy(m => m.Key))
+                    {
+                        file.Write(block);
+                        saved.Add(new JsonObject { ["base"] = $"0x{start:x}", ["size"] = block.Length, ["offset"] = offset });
+                        offset += block.Length;
+                    }
+                return new JsonObject { ["ranges"] = saved, ["listed"] = Memory.Count, ["left"] = 0, ["bytes"] = offset, ["unread"] = 0 };
+            }
             default: return null;
         }
     }

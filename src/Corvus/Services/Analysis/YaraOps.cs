@@ -40,7 +40,8 @@ internal sealed class YaraOps : IWorkerOps
     /// <summary>
     /// Scans the file <c>path</c> with the rules at <c>rules</c> (a file or folder) or the rule text <c>source</c>, then each member of the container it
     /// is, nested containers opened and compressed members decompressed; a folder (a Blazor or ClickOnce deployment) is
-    /// scanned by its members only, and a dump file by its captured memory (<see cref="YaraMemoryScan"/>).
+    /// scanned by its members only, and a dump file by its captured memory (<see cref="YaraMemoryScan"/>). With
+    /// <c>capture</c> (a memory capture's index), <c>path</c> is the capture's bytes and is scanned as process memory.
     /// </summary>
     public static Task<JsonNode?> Scan(JsonObject args, CancellationToken cancellationToken)
     {
@@ -54,9 +55,12 @@ internal sealed class YaraOps : IWorkerOps
         var hits = new List<YaraHit>();
         var notes = new List<string>(rules.Notes);
         var folder = Directory.Exists(target);
-        if (!folder && YaraMemoryScan.IsDump(target))
+        var capture = args["capture"]?.GetValueKind() == JsonValueKind.String ? args["capture"]!.GetValue<string>() : null;
+        if (capture != null || !folder && YaraMemoryScan.IsDump(target))
         {
-            var (regionHits, regions, memoryNotes) = YaraMemoryScan.Scan(rules, target, TimeSpan.FromMinutes(10), cancellationToken);
+            var (regionHits, regions, memoryNotes) = capture != null
+                ? YaraMemoryScan.ScanCapture(rules, target, capture, TimeSpan.FromMinutes(10), cancellationToken)
+                : YaraMemoryScan.Scan(rules, target, TimeSpan.FromMinutes(10), cancellationToken);
             notes.AddRange(memoryNotes);
             var dump = new YaraScanResult(rules.Count, rules.Files, rules.Errors, regionHits, notes, started.ElapsedMilliseconds) { Regions = regions };
             return Task.FromResult(JsonSerializer.SerializeToNode(dump, Json));

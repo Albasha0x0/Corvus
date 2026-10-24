@@ -130,6 +130,7 @@ older than 17.0 is refused with `provider_unavailable` (the session script needs
 | Set stop points before it runs | `live_break action=set at=Orders::AddLine` (or `module!export`, `AddLine+0x1B`, `orders.c:42`, an image or live address) |
 | Run to the next stop | `live_break action=continue wait=true` |
 | Read the held thread | `live_read registers=rcx,rdx memory=rcx type=int32[2]` |
+| Scan its memory with YARA rules | `live_read rules=rules.yar` (rule text, a folder or `pack:<name>`; heap, stacks and data sections, while it runs; Windows and Linux) |
 | Record every call of a function | `live_watch action=set at=AddLine` (or `kernelbase!CreateFileA`, an address) |
 | Collect code coverage of a run | `live_coverage action=start` before `continue`, then `action=report` (`format=dot` for the call graph); two runs: `action=diff run=cov-1 other=cov-2` |
 | Trace the files, registry keys and endpoints it opens | `live_timeline action=start` before `continue`, then `action=list run=tl-1` (`cursor=`) or `action=report`; two runs: `action=diff a=tl-1 b=tl-2` |
