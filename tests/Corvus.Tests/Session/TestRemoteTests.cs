@@ -678,7 +678,9 @@ public sealed class TestRemoteTests : IDisposable
             $env:CORVUS_TEST_OFFLOAD = '0'
             'off=' + ($null -eq (Get-OffloadTarget {{Quote(DocsTests.RepoRoot())}} $false))
             Remove-Item Env:CORVUS_TEST_OFFLOAD
+            $env:CORVUS_TEST_REMOTE = ''
             'release=' + ($null -eq (Get-OffloadTarget {{Quote(DocsTests.RepoRoot())}} $true))
+            'sweep=' + ((Get-RemoteRunScript 'abc' 'X' 'id' -Exhaustive) -match "CORVUS_SWEEP = 'exhaustive'") + ',' + ((Get-RemoteRunScript 'abc' 'X' 'id') -match 'CORVUS_SWEEP = \$null')
             """);
         if (lines is ["skip"]) return;
         // Both Windows shards joined, the Linux shard's failure named; the failed quick-set job is not an offload job.
@@ -686,7 +688,9 @@ public sealed class TestRemoteTests : IDisposable
         Assert.Contains("failed=True,offload (sweep windows-latest 0/2) ended failure in run 42", lines);
         Assert.Contains("none=False,no CI run for the commit after 0 s", lines);
         Assert.Contains("off=True", lines);
+        // Without a test host, a release-strength run has no target: GitHub runs at routine strength.
         Assert.Contains("release=True", lines);
+        Assert.Contains("sweep=True,True", lines);
     }
 
     [Fact]

@@ -101,7 +101,8 @@
   authorized keys; its engine and live permits are its own. With `CORVUS_TEST_REMOTE` naming such a host (`user@host`)
   and the host answering over ssh, a whole-suite run sends its offloaded classes there instead of waiting for GitHub:
   one `dotnet test` run, one at a time, at below-normal priority in a worktree of the host's clone, with the TRX results
-  copied back by scp and joined as above. A commit origin does not have yet (a push run starts before its push lands)
+  copied back by scp and joined as above. A release-strength run (`-Exhaustive`, `-Whole`, the nightly run) sends them
+  to the host at that strength; without a host it runs them here, since GitHub runs routine strength. A commit origin does not have yet (a push run starts before its push lands)
   goes to the host as a git bundle with the run, and `-Status` says so; only when that fails too do the classes run
   here. A run that finds another one going on the host says it waits (`-Remote` prints it as it comes), and the
   offload note, the host tier's record and `-Status` name how long it waited. A test host also takes the host group, which never goes to GitHub: the
@@ -320,7 +321,7 @@ read, or a "Read by" cell that differs from the classes and scripts that read it
 | `CORVUS_SNAPSHOT_RUNS` | Repetitions of the .NET snapshot run (such as 30). | LiveDotnetRealTests |
 | `CORVUS_STRYKER` | The Stryker.NET executable for `./test.ps1 -Mutation` (default: dotnet-stryker on PATH). | test.ps1 |
 | `CORVUS_STUB_APPS` | `;`-separated `assembly path\|member token\|method token\|type token` entries: applications with missing references, whose first resolutions build stubs. | StubAppsRealDataTests |
-| `CORVUS_SWEEP` | `exhaustive` sweeps every input of the real-image sweeps (`./test.ps1 -Full -Exhaustive` sets it); `full` runs the whole simplify sweep. | SimplifySweepTests, SweepScope, test-reuse.psm1, test.ps1 |
+| `CORVUS_SWEEP` | `exhaustive` sweeps every input of the real-image sweeps (`./test.ps1 -Full -Exhaustive` sets it); `full` runs the whole simplify sweep. | SimplifySweepTests, SweepScope, test-remote.psm1, test-reuse.psm1, test.ps1 |
 | `CORVUS_TEST_OFFLOAD` | `0` keeps the offloaded classes in the local run. | test-remote.psm1 |
 | `CORVUS_TEST_PRIORITY` | `normal` keeps a test run at normal priority. | test-reuse.psm1 |
 | `CORVUS_TEST_YARA_X` | The folder fetch-yara-x.ps1 fills with the YARA-X builds the tests use. | YaraTestTools, tests/Corvus.Tests/Support/fetch-yara-x.ps1 |

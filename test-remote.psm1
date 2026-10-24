@@ -639,18 +639,18 @@ function Get-RemoteStatus([string]$gitDir) {
 
 # The target a whole-suite run offloads to, as @{ Name; Kind; ... }, or $null when none is usable: a routine run on a
 # commit on origin's main (or the background push run's commit) offloads to the test host CORVUS_TEST_REMOTE names when
-# it answers over ssh, else to GitHub when ci.yml has the offload job and the gh command line is present.
+# it answers over ssh, else to GitHub when ci.yml has the offload job and the gh command line is present. A run at
+# release strength offloads to the test host only: GitHub runs its offload job at routine strength.
 # CORVUS_TEST_OFFLOAD=0 turns it off.
 function Get-OffloadTarget([string]$repo, [bool]$releaseTier) {
     if ([Environment]::GetEnvironmentVariable($script:OffloadVariable) -in '0', 'false', 'off') { return $null }
-    if ($releaseTier) { return $null }
     if ([Environment]::GetEnvironmentVariable($script:PushRunVariable) -ne '1') {
         git -C $repo merge-base --is-ancestor HEAD origin/main 2>$null
         if ($LASTEXITCODE -ne 0) { return $null }
     }
     $remote = "$([Environment]::GetEnvironmentVariable($script:HostVariable))".Trim()
     if ($remote -and (Test-RemoteHost $remote)) { return @{ Name = $remote; Kind = 'ssh'; Host = $remote; Variables = @(Get-HostVariables $remote); Processors = Get-HostProcessors $remote } }
-    Get-GitHubTarget $repo
+    if (-not $releaseTier) { Get-GitHubTarget $repo }
 }
 
 # The GitHub target of $repo, @{ Name; Kind; Repository }, or $null without the gh command line, without the offload
@@ -696,7 +696,7 @@ function Start-Offload($target, [string]$commit, [string[]]$classes, [bool]$rele
             # A push run starts before its push lands: a commit origin lacks travels with the script as a bundle.
             # A bundle that fails leaves the wait for origin, and then the run here, as before.
             $bundle = try { New-CommitBundle (Split-Path $module -Parent) $commit $id } catch { '' }
-            $script = Get-RemoteRunScript $commit (Get-ClassFilter $classes $releaseTier $mixed) $id -Bundle:([bool]$bundle)
+            $script = Get-RemoteRunScript $commit (Get-ClassFilter $classes $releaseTier $mixed) $id -Bundle:([bool]$bundle) -Exhaustive:$releaseTier
             $job = Start-ThreadJob -ArgumentList $module, $target.Host, $script, $id, $bundle -ScriptBlock {
                 param($module, $remoteHost, $script, $id, $bundle)
                 Import-Module $module
@@ -786,8 +786,8 @@ function Get-HostProcessors([string]$remoteHost) {
 # time. Its output names a wait for another script ("corvus-remote: waiting for another run on the host", then
 # "corvus-remote-waited <seconds>"), the start ("corvus-remote: started"), each run ("corvus-remote-run <n> <exit code>") and the
 # end ("corvus-remote-exit <worst exit code>"); a script that never starts a run names why. Results go to
-# results/<id>/run-<n>.trx under the host folder.
-function Get-RemoteRunScript([string]$commit, [string]$filter, [string]$id, [int]$repeat = 1, [switch]$Bundle) {
+# results/<id>/run-<n>.trx under the host folder. -Exhaustive runs every sweep input, as a release-strength run here.
+function Get-RemoteRunScript([string]$commit, [string]$filter, [string]$id, [int]$repeat = 1, [switch]$Bundle, [switch]$Exhaustive) {
     $quoted = $filter.Replace("'", "''")
     @"
 `$ErrorActionPreference = 'Continue'
@@ -837,6 +837,7 @@ try {
     }
     'corvus-remote: started'
     `$env:CORVUS_ALL_TESTS = '1'
+    `$env:CORVUS_SWEEP = $(if ($Exhaustive) { "'exhaustive'" } else { '$null' })
     `$worst = 0
     for (`$n = 1; `$n -le $repeat; `$n++) {
         & dotnet test (Join-Path `$tree 'tests/Corvus.Tests') --nologo --no-build -c Release --filter '$quoted' --logger "trx;LogFileName=run-`$n.trx" ``
