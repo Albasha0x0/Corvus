@@ -46,12 +46,12 @@ public class CatalogTimingTests(Xunit.Abstractions.ITestOutputHelper output)
         PerfBudget.AtMost("catalog/tools-list-p50", p50, 50, "ms", output, load);
         if (exe != null) PerfBudget.Time("catalog/initialize", initialize, TimeSpan.FromSeconds(1), output, load);
 
-        // tools/list is answered from one serialized listing built at start, not from the tools on each request.
+        // tools/list is answered from one serialized listing, not from the tools on each request. The start-up task or
+        // the first request builds it: under load the task can start after the first read (push run on 6bc63376).
         await using var server = await InProcessServer.StartAsync();
         var mcp = server.Services.GetRequiredService<Microsoft.Extensions.Options.IOptions<ModelContextProtocol.Server.McpServerOptions>>().Value;
-        var (built, served) = Corvus.Mcp.ToolListCache.Counts(mcp);
+        var (_, served) = Corvus.Mcp.ToolListCache.Counts(mcp);
         for (int i = 0; i < 21; i++) Assert.NotEmpty(await server.Client.ListToolsAsync());
-        Assert.Equal((built, served + 21), Corvus.Mcp.ToolListCache.Counts(mcp));
-        Assert.Equal(1, built);
+        Assert.Equal((1, served + 21), Corvus.Mcp.ToolListCache.Counts(mcp));
     }
 }
