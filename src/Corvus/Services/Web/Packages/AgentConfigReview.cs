@@ -10,31 +10,24 @@ namespace Corvus.Services.Web.Packages;
 /// <param name="Kind">instruction file, hook, mcp server, or folder-open task.</param>
 public sealed record AgentEntry(string Kind, string Name, string? Command, string Path, int? Line = null);
 
-public static partial class PackageReview
+// Kept apart from PackageReview, whose regex tables every file read would otherwise build: summarize_file asks
+// whether a path is an agent file before it knows the input is a package.
+/// <summary>Names agent configuration files by path; no file is read.</summary>
+internal static class AgentFiles
 {
-    internal sealed record AgentReview(List<PackageFinding> Findings, List<AgentEntry> Entries, List<string> Notes);
-
     private static readonly HashSet<string> InstructionNames = new(StringComparer.Ordinal)
     {
         "CLAUDE.md", "CLAUDE.local.md", "AGENTS.md", "GEMINI.md", ".cursorrules", ".windsurfrules", ".clinerules",
     };
 
     /// <summary>Folders whose files configure an agent or editor; a path inside one is rooted at the folder's parent.</summary>
-    internal static readonly string[] AgentFolders = [".claude", ".cursor", ".vscode", ".github", ".windsurf", ".clinerules"];
-
-    // Claude Code runs these without a tool call: at session start and end, on a prompt, at a stop or a notification.
-    private static readonly HashSet<string> UnpromptedEvents = new(StringComparer.Ordinal)
-    {
-        "SessionStart", "SessionEnd", "UserPromptSubmit", "Stop", "SubagentStop", "Notification", "PreCompact",
-    };
-
-    private const int MaxHiddenLines = 20, MaxAgentFiles = 500;
+    internal static readonly string[] Folders = [".claude", ".cursor", ".vscode", ".github", ".windsurf", ".clinerules"];
 
     /// <summary>
     /// What an agent configuration file is (instructions, settings, mcp, tasks, editor settings) by its path with '/'
     /// separators, or null when it is none of them.
     /// </summary>
-    internal static string? AgentFileKind(string path)
+    internal static string? Kind(string path)
     {
         var slashed = "/" + path;
         var name = path[(path.LastIndexOf('/') + 1)..];
@@ -53,6 +46,19 @@ public static partial class PackageReview
             _ => null,
         };
     }
+}
+
+public static partial class PackageReview
+{
+    internal sealed record AgentReview(List<PackageFinding> Findings, List<AgentEntry> Entries, List<string> Notes);
+
+    // Claude Code runs these without a tool call: at session start and end, on a prompt, at a stop or a notification.
+    private static readonly HashSet<string> UnpromptedEvents = new(StringComparer.Ordinal)
+    {
+        "SessionStart", "SessionEnd", "UserPromptSubmit", "Stop", "SubagentStop", "Notification", "PreCompact",
+    };
+
+    private const int MaxHiddenLines = 20, MaxAgentFiles = 500;
 
     /// <summary>
     /// The agent configuration in <paramref name="files"/>: hidden characters in instruction files, hooks, MCP servers and
@@ -61,14 +67,14 @@ public static partial class PackageReview
     internal static AgentReview? AgentConfig(PackageFiles files, bool standalone, CancellationToken ct)
     {
         var agent = files.Paths.Where(p => !p.Contains("node_modules/", StringComparison.Ordinal))
-            .Select(p => (Path: p, Kind: AgentFileKind(p))).Where(f => f.Kind != null)
+            .Select(p => (Path: p, Kind: AgentFiles.Kind(p))).Where(f => f.Kind != null)
             .OrderBy(f => f.Path.Count(c => c == '/')).ThenBy(f => f.Path, StringComparer.Ordinal).Take(MaxAgentFiles).ToList();
         if (standalone && agent.Count == 0) return null;
         var roots = new HashSet<string>(StringComparer.Ordinal) { "" };
         var tops = files.Paths.Select(p => p.IndexOf('/') is var i and > 0 ? p[..(i + 1)] : "").Distinct().Take(2).ToList();
         if (tops is [{ Length: > 0 } top]) roots.Add(top);
         if (files.Has("extension/package.json")) roots.Add("extension/");
-        var rootMarkdown = files.Paths.Where(p => p.EndsWith(".md", StringComparison.OrdinalIgnoreCase) && roots.Contains(Folder(p)) && AgentFileKind(p) == null)
+        var rootMarkdown = files.Paths.Where(p => p.EndsWith(".md", StringComparison.OrdinalIgnoreCase) && roots.Contains(Folder(p)) && AgentFiles.Kind(p) == null)
             .Order(StringComparer.Ordinal).Take(MaxAgentFiles);
         var review = new AgentReview([], [], []);
         var editor = agent.Where(f => f.Kind == "editor settings").Select(f => Tree(files, f.Path, review.Notes)).ToList();

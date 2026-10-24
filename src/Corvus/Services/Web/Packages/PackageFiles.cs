@@ -102,8 +102,8 @@ internal sealed class PackageFiles
     internal static string? AgentRoot(string path)
     {
         var parts = Path.GetFullPath(path).Replace('\\', '/').Split('/');
-        if (PackageReview.AgentFileKind(string.Join('/', parts[Math.Max(0, parts.Length - 3)..])) == null) return null;
-        int folder = Array.FindLastIndex(parts, parts.Length - 1, Math.Min(3, parts.Length), p => PackageReview.AgentFolders.Contains(p, StringComparer.Ordinal));
+        if (AgentFiles.Kind(string.Join('/', parts[Math.Max(0, parts.Length - 3)..])) == null) return null;
+        int folder = Array.FindLastIndex(parts, parts.Length - 1, Math.Min(3, parts.Length), p => AgentFiles.Folders.Contains(p, StringComparer.Ordinal));
         return string.Join(Path.DirectorySeparatorChar, parts[..(folder > 0 ? folder : parts.Length - 1)]);
     }
 
@@ -113,16 +113,16 @@ internal sealed class PackageFiles
         var top = new EnumerationOptions { IgnoreInaccessible = true, AttributesToSkip = FileAttributes.ReparsePoint };
         var deep = new EnumerationOptions { IgnoreInaccessible = true, AttributesToSkip = FileAttributes.ReparsePoint, RecurseSubdirectories = true };
         var found = Directory.EnumerateFiles(root, "*", top).Select(f => (File: f, Rel: Path.GetFileName(f)))
-            .Where(f => f.Rel.EndsWith(".md", StringComparison.OrdinalIgnoreCase) || PackageReview.AgentFileKind(f.Rel) != null);
-        foreach (var dir in PackageReview.AgentFolders.Select(d => Path.Combine(root, d)).Where(Directory.Exists))
+            .Where(f => f.Rel.EndsWith(".md", StringComparison.OrdinalIgnoreCase) || AgentFiles.Kind(f.Rel) != null);
+        foreach (var dir in AgentFiles.Folders.Select(d => Path.Combine(root, d)).Where(Directory.Exists))
             found = found.Concat(Directory.EnumerateFiles(dir, "*", deep).Select(f => (File: f, Rel: Path.GetRelativePath(root, f).Replace('\\', '/')))
-                .Where(f => PackageReview.AgentFileKind(f.Rel) != null));
+                .Where(f => AgentFiles.Kind(f.Rel) != null));
         foreach (var (file, rel) in found)
         {
             ct.ThrowIfCancellationRequested();
             Add(rel, new FileInfo(file).Length, () => ReadFile(file));
         }
-        Notes.Add($"agent configuration read from {Path.GetFileName(root)}'s root files and its {string.Join(", ", PackageReview.AgentFolders)} folders; instruction files in other subfolders are not read");
+        Notes.Add($"agent configuration read from {Path.GetFileName(root)}'s root files and its {string.Join(", ", AgentFiles.Folders)} folders; instruction files in other subfolders are not read");
     }
 
     private void Add(string path, long size, Func<byte[]?> read)
