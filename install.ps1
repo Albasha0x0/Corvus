@@ -10,8 +10,10 @@
 # the tested Frida into a private Python environment for the session tools and turns that on.
 # Environment: CORVUS_VERSION (as -Version), CORVUS_YES=1 (as -Yes), CORVUS_REPO (owner/name), CORVUS_ARCHIVE (local release
 # archive), CORVUS_SHA256SUMS (manifest to verify CORVUS_ARCHIVE against; without it a local archive is trusted as is),
-# GITHUB_TOKEN (optional: a higher GitHub API rate limit).
-# Downloads are verified against the release's SHA256SUMS; a missing manifest or a mismatch stops the install.
+# GITHUB_TOKEN (optional: a higher GitHub API rate limit), CORVUS_REQUIRE_ATTESTATION (1: refuse a build whose provenance
+# was not checked; 0: skip the check, for a self-built archive).
+# Downloads are verified against the release's SHA256SUMS; a missing manifest or a mismatch stops the install. With gh
+# on PATH and signed in, the archive's build provenance must name this repository's release workflow.
 param([switch]$Uninstall, [switch]$PurgeData, [string]$Version, [switch]$DryRun, [switch]$Yes, [string[]]$Client, [switch]$WithLive)
 
 $ErrorActionPreference = 'Stop'
@@ -53,6 +55,31 @@ $sums = "$archive.sha256sums"
 $dryStaging = "$archive.staged"
 $unverified = 'refusing to install an unverified build'
 $release = if ($Version) { "v$Version" } else { 'the latest release' }
+$tag = if ($Version) { "v$Version" } else { $null }
+
+# The archive's SLSA build provenance through gh: the line to print, or a throw when gh finds the build was not made
+# by this repository's release workflow. Exit 1 with words other than these refuses: unrecognised is not a pass.
+function Test-Provenance([string]$file, [string]$tag) {
+    $ErrorActionPreference = 'Continue'
+    if ($env:CORVUS_REQUIRE_ATTESTATION -eq '0') { return 'Provenance not checked (CORVUS_REQUIRE_ATTESTATION=0).' }
+    if (-not (Get-Command gh -ErrorAction SilentlyContinue)) { $reason = 'gh is not on PATH' }
+    else {
+        $ghArgs = @('attestation', 'verify', $file, '--repo', $repo, '--signer-workflow', "$repo/.github/workflows/release.yml")
+        if ($tag) { $ghArgs += @('--source-ref', "refs/tags/$tag") }
+        # Windows PowerShell wraps each stderr line in an error record; an empty line's message is the type name.
+        $out = (& gh @ghArgs 2>&1 | ForEach-Object { if ($_ -is [Management.Automation.ErrorRecord]) { $_.Exception.Message } else { "$_" } } |
+            Where-Object { $_ -ne 'System.Management.Automation.RemoteException' }) -join "`n"
+        $code = $LASTEXITCODE
+        $first = @($out -split "`n" | ForEach-Object { $_.Trim() -replace '^Error: ' } | Where-Object { $_ }) | Select-Object -First 1
+        if ($code -eq 0) { return "Provenance verified: $asset was built by $repo's release workflow." }
+        # gh's exit code 4: authentication required.
+        if ($code -eq 4) { $reason = 'gh is not signed in: gh auth login, or set GH_TOKEN' }
+        elseif ($code -ne 1 -or $out -match 'unknown command|unknown flag|sigstore verifier|trusted root|dial tcp|no such host|connection refused|connection reset|i/o timeout|timed out|timeout exceeded|TLS handshake|proxyconnect|HTTP (401|403|429|5\d\d)') { $reason = "gh: $first" }
+        else { throw "Provenance check failed for $asset against $repo's release workflow: $first" }
+    }
+    if ($env:CORVUS_REQUIRE_ATTESTATION -eq '1') { throw "Provenance not checked ($reason) and CORVUS_REQUIRE_ATTESTATION=1; refusing to install." }
+    return "Provenance not checked ($reason)."
+}
 
 try {
     if ($env:CORVUS_ARCHIVE) {
@@ -71,6 +98,7 @@ try {
         Invoke-WebRequest $item.url -Headers $headers -OutFile $archive -UseBasicParsing
         Invoke-WebRequest $sumsItem.url -Headers $headers -OutFile $sums -UseBasicParsing
         $release = $info.tag_name
+        $tag = $info.tag_name
         $source = "SHA256SUMS of $($info.tag_name)"
     } else {
         $base = if ($Version) { "https://github.com/$repo/releases/download/v$Version" } else { "https://github.com/$repo/releases/latest/download" }
@@ -88,6 +116,7 @@ try {
         $actual = (Get-FileHash $archive -Algorithm SHA256).Hash
         if ($actual -ne $expected) { throw "Checksum mismatch for $asset (expected $expected, got $actual); the download is corrupt or was altered." }
     }
+    Write-Host (Test-Provenance $archive $tag)
 
     if ($DryRun) {
         # A staged copy outside the install root plans the registration for the program that would be installed.

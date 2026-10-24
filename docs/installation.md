@@ -21,7 +21,8 @@ curl -fsSL https://raw.githubusercontent.com/Albasha0x0/Corvus/main/install.sh |
 Then restart your MCP client. The script:
 
 1. Downloads the latest release for your system (Windows, Linux glibc / musl, macOS; x64 and arm64) and checks it
-   against the release's `SHA256SUMS`; a missing manifest or a mismatch stops the install.
+   against the release's `SHA256SUMS`; a missing manifest or a mismatch stops the install. With `gh` it also checks
+   the archive's build provenance ([Verifying a release](#install-script)).
 2. Extracts it into a per-user folder (`%LOCALAPPDATA%\Corvus` on Windows, `${XDG_DATA_HOME:-~/.local/share}/Corvus`
    elsewhere) as `versions/<version>/`, points `current` at it and puts `corvus` on PATH (`~/.local/bin` with sh).
 3. Starts the server once and checks that it answers (MCP handshake and tool list).
@@ -33,7 +34,7 @@ The scripts install 1.2.0 and later (the releases published as Corvus).
 | Script option (PowerShell / sh) | Environment | Effect |
 |---|---|---|
 | `-Version X` / `--version X` | `CORVUS_VERSION` | Install release X: pin a version or roll back. |
-| `-DryRun` / `--dry-run` | | Show the release, checksum source, install folder and every client file it would change; change nothing. |
+| `-DryRun` / `--dry-run` | | Show the release, checksum source, provenance check, install folder and every client file it would change; change nothing. |
 | `-Yes` / `--yes` | `CORVUS_YES=1` | Register new clients without asking (needed without a terminal). |
 | `-Client a,b` / `--client a,b` | | Register only these clients (ids from the table below). |
 | `-WithLive` / `--with-live` | | Install the tested Frida for the session tools into a private Python environment and turn on `--live-install-frida` ([live-inspection.md](live-inspection.md#frida)). |
@@ -42,6 +43,7 @@ The scripts install 1.2.0 and later (the releases published as Corvus).
 | | `GITHUB_TOKEN` | Optional token for GitHub API requests (higher rate limit). |
 | | `CORVUS_HOME` | Install folder (sh only). |
 | | `CORVUS_ARCHIVE`, `CORVUS_SHA256SUMS` | Offline install from a local archive, checked against a local manifest when one is given (without one the archive is trusted as is). |
+| | `CORVUS_REQUIRE_ATTESTATION` | `1`: refuse a build whose provenance was not checked; `0`: skip the check (a self-built archive). Also read by `corvus update`. |
 
 With options: `& ([scriptblock]::Create((irm <url>))) -DryRun` in PowerShell, `curl -fsSL <url> | sh -s -- --dry-run`
 with sh. Piped into `sh`, the confirmation is read from the terminal.
@@ -50,11 +52,22 @@ with sh. Piped into `sh`, the confirmation is read from the terminal.
 with `CORVUS_ARCHIVE=<archive>` and `CORVUS_SHA256SUMS=<manifest>`.
 
 **Verifying a release.** The `SHA256SUMS` check that the scripts and `corvus update` make comes from the same release
-as the archive, so it catches a corrupted download, not a tampered release. To check where an asset was built, verify
-its signed SLSA build provenance (Sigstore), made by the release workflow; the installer does not check it:
+as the archive, so it catches a corrupted download, not a tampered release. Every asset also carries signed SLSA build
+provenance (Sigstore) from the release workflow. When `gh` is on PATH and signed in (`gh auth login`, or `GH_TOKEN` /
+`GITHUB_TOKEN`), the scripts and `corvus update` verify the archive's provenance before installing: built by this
+repository's `release.yml`, from the requested tag when one is known.
+
+| Outcome | When | Result |
+|---|---|---|
+| `Provenance verified` | `gh` verified the attestation | installs |
+| `Provenance not checked (<reason>)` | no `gh`, `gh` not signed in or too old, GitHub or Sigstore unreachable | installs; `CORVUS_REQUIRE_ATTESTATION=1` refuses |
+| `Provenance check failed` | no attestation for this file from this repository's release workflow, another tag, or any other `gh` failure | refuses |
+
+A local archive (`CORVUS_ARCHIVE`) follows the same rules; one you built yourself has no attestation, so install it
+with `CORVUS_REQUIRE_ATTESTATION=0`. The same check by hand:
 
 ```sh
-gh attestation verify corvus-win-x64.zip --repo Albasha0x0/Corvus
+gh attestation verify corvus-win-x64.zip --repo Albasha0x0/Corvus --signer-workflow Albasha0x0/Corvus/.github/workflows/release.yml
 ```
 
 `corvus-sbom.cdx.json` is the release's CycloneDX SBOM (the server's NuGet package graph), attested against the

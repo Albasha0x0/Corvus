@@ -130,8 +130,11 @@ The server reaches the network only:
   `CORVUS_OFFLINE=1`);
 - for `corvus update` and the install scripts (GitHub releases): a build whose SHA-256 is not in the release's
   `SHA256SUMS` is refused. `SHA256SUMS` comes from the same release, so this catches corruption, not a tampered
-  release; `gh attestation verify <asset> --repo Albasha0x0/Corvus` checks the signed build provenance.
-  `GITHUB_TOKEN` is sent to GitHub hosts over HTTPS only and dropped on redirects;
+  release; with `gh` signed in, the archive's signed build provenance must name this repository's release workflow
+  (and the tag), else it is refused. Without `gh` the result says "provenance not checked" with the reason;
+  `CORVUS_REQUIRE_ATTESTATION=1` refuses then. `GITHUB_TOKEN` is sent to GitHub hosts over HTTPS only and dropped on redirects;
+- for `corvus rules fetch <pack>` (a rule pack's release archive from GitHub): an archive whose SHA-256 differs from the
+  one pinned in Corvus is refused and nothing is installed; refused with `CORVUS_OFFLINE=1`;
 - through IDA or Ghidra when their own configuration says so (for example IDA's symbol server).
 
 `CORVUS_OFFLINE=1` refuses the first three and keeps the fourth to cached data; updates and installs run only when

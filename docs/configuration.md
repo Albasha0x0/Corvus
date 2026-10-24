@@ -261,6 +261,7 @@ the call, while the server keeps answering.
 | `CORVUS_REPO` | Repository releases are downloaded from (`owner/name`). |
 | `CORVUS_VERSION`, `CORVUS_HOME`, `CORVUS_ARCHIVE`, `CORVUS_SHA256SUMS` | Install-script release, folder and offline archive ([installation.md](installation.md#install-script)). |
 | `CORVUS_RELAY_DIR` | Staged copies of the development reload relay ([installation.md](installation.md#development-reload)). |
+| `CORVUS_REQUIRE_ATTESTATION` | `1`: the install scripts and `update` refuse a build whose provenance `gh` could not check; `0`: skip the check (a self-built archive). |
 
 ### Diagnostics
 

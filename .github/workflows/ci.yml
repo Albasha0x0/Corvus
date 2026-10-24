@@ -283,6 +283,12 @@ jobs:
           try { Get-Content install.ps1 -Raw | Invoke-Expression } catch { $rejected = $_.Exception.Message -match 'Checksum mismatch' }
           if (-not $rejected) { throw 'a checksum mismatch was not rejected' }
           $env:CORVUS_SHA256SUMS = (Resolve-Path SHA256SUMS).Path
+          # The archive built above carries no attestation: strict mode refuses it.
+          $env:CORVUS_REQUIRE_ATTESTATION = '1'
+          $rejected = $false
+          try { Get-Content install.ps1 -Raw | Invoke-Expression } catch { $rejected = $_.Exception.Message -match 'Provenance' }
+          if (-not $rejected) { throw 'an unattested build was installed under CORVUS_REQUIRE_ATTESTATION=1' }
+          Remove-Item Env:CORVUS_REQUIRE_ATTESTATION
           $install = [scriptblock]::Create((Get-Content install.ps1 -Raw))
           # A dry run plans and changes nothing.
           $plan = & $install -DryRun -Yes *>&1 | Out-String
@@ -321,6 +327,9 @@ jobs:
           mkdir -p ~/.cursor
           if CORVUS_ARCHIVE="$PWD/package.tar.gz" CORVUS_SHA256SUMS="$PWD/SHA256SUMS.bad" sh < install.sh 2> err.txt; then exit 1; fi
           grep -q 'checksum mismatch' err.txt
+          # The archive built above carries no attestation: strict mode refuses it.
+          if CORVUS_REQUIRE_ATTESTATION=1 CORVUS_ARCHIVE="$PWD/package.tar.gz" CORVUS_SHA256SUMS="$PWD/SHA256SUMS" sh < install.sh 2> err.txt; then exit 1; fi
+          grep -q 'provenance' err.txt
           # A dry run plans and changes nothing.
           CORVUS_ARCHIVE="$PWD/package.tar.gz" CORVUS_SHA256SUMS="$PWD/SHA256SUMS" sh -s -- --dry-run --yes < install.sh > plan.txt
           grep -q 'Dry run: nothing was written' plan.txt

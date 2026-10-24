@@ -31,8 +31,8 @@ irm https://raw.githubusercontent.com/Albasha0x0/Corvus/main/install.ps1 | iex
 curl -fsSL https://raw.githubusercontent.com/Albasha0x0/Corvus/main/install.sh | sh
 ```
 
-The installer checks the download against the release's `SHA256SUMS` (this catches a corrupt download, not a tampered
-release; `gh attestation verify <archive> --repo Albasha0x0/Corvus` checks the signed build provenance) and registers
+The installer checks the download against the release's `SHA256SUMS` and, when `gh` is signed in, its signed build
+provenance from this repository's release workflow (without `gh` it says "provenance not checked") and registers
 Corvus with the MCP clients it finds. As a plugin (server and skill; needs the .NET 10 SDK): `/plugin install corvus --marketplace Albasha0x0/Corvus`
 in Claude Code, `codex plugin marketplace add Albasha0x0/Corvus` then `corvus` in `/plugins` in Codex
 ([installation](docs/installation.md#claude-code-and-codex-plugins)). Restart your client and ask:

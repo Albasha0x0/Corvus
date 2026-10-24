@@ -74,6 +74,80 @@ internal static class Installation
             : $"Checksum mismatch for {assetName} (expected {expected.ToLowerInvariant()}, got {actual}); the download is corrupt or was altered. Nothing was installed.";
     }
 
+    /// <summary>Set to 1 to refuse a build whose provenance could not be checked; 0 skips the check (a self-built archive).</summary>
+    public const string RequireAttestationVariable = "CORVUS_REQUIRE_ATTESTATION";
+
+    /// <summary>The workflow that builds and attests every release asset, as a path in the repository.</summary>
+    public const string ReleaseWorkflow = ".github/workflows/release.yml";
+
+    /// <summary>What a provenance check concluded: verified, not checked (the reason is in the message) or refused.</summary>
+    internal enum ProvenanceState { Verified, NotChecked, Refused }
+
+    /// <summary>A provenance check's conclusion and the line to print for it.</summary>
+    internal sealed record Provenance(ProvenanceState State, string Message);
+
+    /// <summary>gh's exit code and combined output for <paramref name="arguments"/>, or null when gh is not on PATH.</summary>
+    internal delegate (int ExitCode, string Output)? GhRunner(IReadOnlyList<string> arguments);
+
+    // gh's words for a check it could not make (offline, rate limited, too old for these flags), as opposed to a
+    // finding about the file. Anything else on exit 1 refuses: an unrecognised failure is not taken as a pass.
+    private static readonly System.Text.RegularExpressions.Regex GhUnavailable = new(
+        @"unknown command|unknown flag|sigstore verifier|trusted root|dial tcp|no such host|connection refused|connection reset|i/o timeout|timed out|timeout exceeded|TLS handshake|proxyconnect|HTTP (?:401|403|429|5\d\d)",
+        System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+
+    /// <summary>
+    /// Checks the SLSA build provenance of <paramref name="archivePath"/> with <c>gh attestation verify</c>: made by
+    /// <paramref name="repo"/>'s release workflow, from tag <paramref name="tag"/> when one is given. Verified on gh's
+    /// pass; not checked when gh is absent, not signed in or cannot reach GitHub; refused on any other failure, and on
+    /// not checked when <paramref name="require"/> is "1". <paramref name="require"/> "0" skips the check.
+    /// </summary>
+    internal static Provenance CheckProvenance(string archivePath, string assetName, string repo, string? tag, string? require, GhRunner gh)
+    {
+        if (require == "0") return new(ProvenanceState.NotChecked, $"Provenance not checked ({RequireAttestationVariable}=0).");
+        List<string> args = ["attestation", "verify", archivePath, "--repo", repo, "--signer-workflow", $"{repo}/{ReleaseWorkflow}"];
+        if (tag is { Length: > 0 }) args.AddRange(["--source-ref", $"refs/tags/{tag}"]);
+        string reason;
+        if (gh(args) is not { } run) reason = "gh is not on PATH";
+        else if (run.ExitCode == 0) return new(ProvenanceState.Verified, $"Provenance verified: {assetName} was built by {repo}'s release workflow.");
+        // gh's exit code 4: authentication required.
+        else if (run.ExitCode == 4) reason = "gh is not signed in: gh auth login, or set GH_TOKEN";
+        else if (run.ExitCode != 1 || GhUnavailable.IsMatch(run.Output)) reason = $"gh: {FirstLine(run.Output)}";
+        else return new(ProvenanceState.Refused, $"Provenance check failed for {assetName} against {repo}'s release workflow: " +
+            $"{FirstLine(run.Output)}. Nothing was installed.");
+        return require == "1"
+            ? new(ProvenanceState.Refused, $"Provenance not checked ({reason}) and {RequireAttestationVariable}=1; nothing was installed.")
+            : new(ProvenanceState.NotChecked, $"Provenance not checked ({reason}).");
+    }
+
+    private static string FirstLine(string text) =>
+        text.Split('\n').Select(l => l.Trim()).FirstOrDefault(l => l.Length > 0) is { } line
+            ? (line.StartsWith("Error: ", StringComparison.Ordinal) ? line[7..] : line) : "no output";
+
+    /// <summary>Runs gh from PATH with <paramref name="arguments"/> for at most 2 minutes; null when gh is not on PATH.</summary>
+    internal static (int ExitCode, string Output)? RunGh(IReadOnlyList<string> arguments)
+    {
+        var name = OperatingSystem.IsWindows() ? "gh.exe" : "gh";
+        var exe = (Environment.GetEnvironmentVariable("PATH") ?? "").Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries)
+            .Select(d => Path.Combine(d.Trim('"'), name)).FirstOrDefault(File.Exists);
+        if (exe == null) return null;
+        var start = new ProcessStartInfo(exe) { UseShellExecute = false, RedirectStandardOutput = true, RedirectStandardError = true, CreateNoWindow = true };
+        foreach (var a in arguments) start.ArgumentList.Add(a);
+        start.Environment["GH_PROMPT_DISABLED"] = "1";
+        start.Environment["GH_NO_UPDATE_NOTIFIER"] = "1";
+        Process p;
+        try { p = Process.Start(start)!; }
+        catch (System.ComponentModel.Win32Exception ex) { return (-1, $"could not start gh: {ex.Message}"); }
+        using var _ = p;
+        var stdout = p.StandardOutput.ReadToEndAsync();
+        var stderr = p.StandardError.ReadToEndAsync();
+        if (!p.WaitForExit(TimeSpan.FromMinutes(2)))
+        {
+            try { p.Kill(entireProcessTree: true); } catch (InvalidOperationException) { }
+            return (-1, "timed out after 2 minutes");
+        }
+        return (p.ExitCode, stderr.GetAwaiter().GetResult() + "\n" + stdout.GetAwaiter().GetResult());
+    }
+
     /// <summary>The NuGet package of the .NET tool (dotnet tool install -g, dotnet tool exec / dnx).</summary>
     public const string PackageId = "CorvusRE";
 
@@ -156,7 +230,7 @@ internal static class Installation
         }
         if (dryRun)
         {
-            output.WriteLine($"Would install {tag} ({AssetName}, verified against the release's {ChecksumManifest}) into {Path.Combine(root, "versions", latest)},");
+            output.WriteLine($"Would install {tag} ({AssetName}, verified against the release's {ChecksumManifest} and, when gh can, its build provenance) into {Path.Combine(root, "versions", latest)},");
             output.WriteLine($"point {Path.Combine(root, "current")} at it and refresh existing registrations (no clients are added).");
             output.WriteLine("Dry run: nothing was changed.");
             return 0;
@@ -188,6 +262,18 @@ internal static class Installation
             output.WriteLine(mismatch);
             return 1;
         }
+        // SHA256SUMS comes from the same release; the attestation ties the archive to this repository's workflow.
+        var check = Path.Combine(Path.GetTempPath(), "corvus-" + Guid.NewGuid().ToString("N")[..8], AssetName);
+        Provenance provenance;
+        try
+        {
+            Directory.CreateDirectory(Path.GetDirectoryName(check)!);
+            File.WriteAllBytes(check, archive);
+            provenance = CheckProvenance(check, AssetName, repo, tag, Environment.GetEnvironmentVariable(RequireAttestationVariable), RunGh);
+        }
+        finally { try { Directory.Delete(Path.GetDirectoryName(check)!, recursive: true); } catch (IOException) { } }
+        output.WriteLine(provenance.Message);
+        if (provenance.State == ProvenanceState.Refused) return 1;
 
         var versions = Path.Combine(root, "versions");
         var staging = Path.Combine(versions, ".new-" + Guid.NewGuid().ToString("N")[..8]);

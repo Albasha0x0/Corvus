@@ -12,8 +12,10 @@
 # The confirmation is read from the terminal (/dev/tty) even when the script itself arrives on stdin.
 # Environment: CORVUS_VERSION (as --version), CORVUS_YES=1 (as --yes), CORVUS_REPO (owner/name), CORVUS_HOME (install folder),
 # CORVUS_ARCHIVE (local release archive), CORVUS_SHA256SUMS (manifest to verify CORVUS_ARCHIVE against; without it a local
-# archive is trusted as is), GITHUB_TOKEN (optional: a higher GitHub API rate limit).
-# Downloads are verified against the release's SHA256SUMS; a missing manifest or a mismatch stops the install.
+# archive is trusted as is), GITHUB_TOKEN (optional: a higher GitHub API rate limit), CORVUS_REQUIRE_ATTESTATION (1: refuse a
+# build whose provenance was not checked; 0: skip the check, for a self-built archive).
+# Downloads are verified against the release's SHA256SUMS; a missing manifest or a mismatch stops the install. With gh
+# on PATH and signed in, the archive's build provenance must name this repository's release workflow.
 set -eu
 
 REPO="${CORVUS_REPO:-Albasha0x0/Corvus}"
@@ -74,7 +76,7 @@ archive="$tmp/$asset"
 
 sums="$tmp/SHA256SUMS"
 unverified="refusing to install an unverified build"
-if [ -n "$version" ]; then release="v$version"; else release="the latest release"; fi
+if [ -n "$version" ]; then release="v$version"; tag="v$version"; else release="the latest release"; tag=""; fi
 
 if [ -n "${CORVUS_ARCHIVE:-}" ]; then
     cp "$CORVUS_ARCHIVE" "$archive"
@@ -84,6 +86,7 @@ elif [ -n "${GITHUB_TOKEN:-}" ]; then
     auth="Authorization: Bearer $GITHUB_TOKEN"
     if [ -n "$version" ]; then api="https://api.github.com/repos/$REPO/releases/tags/v$version"; else api="https://api.github.com/repos/$REPO/releases/latest"; fi
     curl -fsSL -H "$auth" "$api" | tr -d '\r\n' | tr '{' '\n' > "$tmp/release"
+    tag=$(sed -n 's/.*"tag_name": *"\([^"]*\)".*/\1/p' "$tmp/release" | head -n 1)
     asset_url() {
         grep "\"name\": *\"$1\"" "$tmp/release" | sed -n 's/.*"url": *"\([^"]*\/releases\/assets\/[0-9]*\)".*/\1/p' | head -n 1
     }
@@ -113,6 +116,26 @@ if [ -n "$sums" ]; then
     else fail "sha256sum or shasum is required to verify the download"; fi
     [ "$expected" = "$actual" ] || fail "checksum mismatch for $asset (expected $expected, got $actual); the download is corrupt or was altered"
 fi
+
+# The archive's SLSA build provenance through gh. Exit 1 with words other than these refuses: unrecognised is not a pass.
+check_provenance() {
+    if [ "${CORVUS_REQUIRE_ATTESTATION:-}" = 0 ]; then echo "Provenance not checked (CORVUS_REQUIRE_ATTESTATION=0)."; return; fi
+    if ! command -v gh >/dev/null 2>&1; then reason="gh is not on PATH"
+    else
+        set -- attestation verify "$archive" --repo "$REPO" --signer-workflow "$REPO/.github/workflows/release.yml"
+        if [ -n "$tag" ]; then set -- "$@" --source-ref "refs/tags/$tag"; fi
+        gh "$@" > "$tmp/gh.out" 2>&1 && code=0 || code=$?
+        first=$(sed 's/^[[:space:]]*//; s/^Error: //' "$tmp/gh.out" | grep -v '^$' | head -n 1 || true)
+        if [ "$code" = 0 ]; then echo "Provenance verified: $asset was built by $REPO's release workflow."; return; fi
+        # gh's exit code 4: authentication required.
+        if [ "$code" = 4 ]; then reason="gh is not signed in: gh auth login, or set GH_TOKEN"
+        elif [ "$code" != 1 ] || grep -qiE 'unknown command|unknown flag|sigstore verifier|trusted root|dial tcp|no such host|connection refused|connection reset|i/o timeout|timed out|timeout exceeded|TLS handshake|proxyconnect|HTTP (401|403|429|5[0-9][0-9])' "$tmp/gh.out"; then reason="gh: $first"
+        else fail "provenance check failed for $asset against $REPO's release workflow: $first"; fi
+    fi
+    [ "${CORVUS_REQUIRE_ATTESTATION:-}" != 1 ] || fail "provenance not checked ($reason) and CORVUS_REQUIRE_ATTESTATION=1; refusing to install"
+    echo "Provenance not checked ($reason)."
+}
+check_provenance
 
 # Runs the program's install with the terminal as input when there is one: piped into sh, stdin is this script.
 register() {
