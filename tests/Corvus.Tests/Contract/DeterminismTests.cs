@@ -40,9 +40,15 @@ public class DeterminismTests
         int run = 0;
         async Task<List<string>> RunAsync()
         {
-            // a data folder of its own: the shared one changes under the full set's other classes
+            // A data folder and temporary folder of its own: the shared ones change under the full set's other classes,
+            // and the PDB search counts the symbol caches that exist under the temporary folder.
+            var temp = Directory.CreateDirectory(dir.File($"temp{++run}")).FullName;
             await using var client = await McpProtocolTests.StartServerAsync(null, null, ["--load", Env.FixturePath],
-                new Dictionary<string, string?> { [Corvus.Native.Providers.DataFolder.RootVariable] = dir.File($"data{++run}") });
+                new Dictionary<string, string?>
+                {
+                    [Corvus.Native.Providers.DataFolder.RootVariable] = dir.File($"data{run}"),
+                    ["TEMP"] = temp, ["TMP"] = temp, ["TMPDIR"] = temp,
+                });
             var answers = new List<string>();
             foreach (var (tool, args) in Calls(native))
             {
