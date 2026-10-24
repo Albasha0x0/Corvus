@@ -2,10 +2,16 @@ using System.Text.RegularExpressions;
 
 namespace Corvus.Tests;
 
-/// <summary>release.yml pins every action by commit SHA and attests the release: build provenance for every asset and a CycloneDX SBOM.</summary>
+/// <summary>Every workflow pins its actions by commit SHA and is read-only by default; release.yml attests the release: build provenance for every asset and a CycloneDX SBOM.</summary>
 public partial class ReleaseProvenanceTests
 {
     private static readonly string Workflow = File.ReadAllText(Path.Combine(DocsTests.RepoRoot(), ".github", "workflows", "release.yml"));
+
+    // Workflows and the repository's own composite actions.
+    private static IEnumerable<(string Name, string Text)> GitHubFiles() =>
+        Directory.EnumerateFiles(Path.Combine(DocsTests.RepoRoot(), ".github"), "*.yml", SearchOption.AllDirectories)
+            .Order(StringComparer.Ordinal)
+            .Select(f => (Path.GetRelativePath(DocsTests.RepoRoot(), f).Replace('\\', '/'), File.ReadAllText(f)));
 
     // A tag can be moved; a 40-digit commit SHA cannot. The comment names the version the SHA was taken from.
     [GeneratedRegex(@"^\s*(?:-\s+)?uses:\s*(\S+)(.*)$", RegexOptions.Multiline)]
@@ -17,17 +23,28 @@ public partial class ReleaseProvenanceTests
     [GeneratedRegex(@"^\s*# v\d+\.\d+\.\d+\s*$")]
     private static partial Regex VersionComment();
 
+    // Regression: ci.yml pinned actions by tag, the pattern the March 2026 trivy-action tag rewrite exploited.
     [Fact]
     public void EveryActionIsPinnedByCommitSha()
     {
-        var uses = Uses().Matches(Workflow).ToList();
-        Assert.NotEmpty(uses);
-        var unpinned = uses.Where(u => !Pinned().IsMatch(u.Groups[1].Value) || !VersionComment().IsMatch(u.Groups[2].Value.TrimEnd('\r')))
-            .Select(u => u.Value.Trim()).ToList();
+        var uses = GitHubFiles().SelectMany(f => Uses().Matches(f.Text).Select(u => (f.Name, Match: u)))
+            .Where(u => !u.Match.Groups[1].Value.StartsWith("./", StringComparison.Ordinal)).ToList();
+        Assert.Contains(uses, u => u.Name.EndsWith("ci.yml", StringComparison.Ordinal));
+        var unpinned = uses.Where(u => !Pinned().IsMatch(u.Match.Groups[1].Value) || !VersionComment().IsMatch(u.Match.Groups[2].Value.TrimEnd('\r')))
+            .Select(u => $"{u.Name}: {u.Match.Value.Trim()}").ToList();
         Assert.True(unpinned.Count == 0, "pin by commit SHA with '# vX.Y.Z' after it:\n" + string.Join("\n", unpinned));
-        // One action, one SHA: two pins of the same action at different commits would be a missed update.
-        var bySha = uses.Select(u => u.Groups[1].Value.Split('@')).GroupBy(p => p[0]).Where(g => g.Select(p => p[1]).Distinct().Count() > 1).Select(g => g.Key);
+        // One action, one SHA: two pins of the same action at different commits would be a missed update. Actions in
+        // one repository (actions/cache, actions/cache/restore) share its commit.
+        var bySha = uses.Select(u => u.Match.Groups[1].Value.Split('@')).GroupBy(p => string.Join('/', p[0].Split('/').Take(2)))
+            .Where(g => g.Select(p => p[1]).Distinct().Count() > 1).Select(g => g.Key);
         Assert.Empty(bySha);
+    }
+
+    [Fact]
+    public void Every_workflow_is_read_only_unless_a_job_asks_for_more()
+    {
+        foreach (var (name, text) in GitHubFiles().Where(f => f.Name.StartsWith(".github/workflows/", StringComparison.Ordinal)))
+            Assert.True(Regex.IsMatch(text, @"^permissions:\r?\n  contents: read\r?\n", RegexOptions.Multiline), $"{name}: no top-level 'permissions: contents: read'");
     }
 
     [Fact]

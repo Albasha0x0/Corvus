@@ -10,8 +10,9 @@ on:
         description: Release tag to publish (vX.Y.Z)
         required: true
 
+# Read-only by default; only the release job writes, and it says so.
 permissions:
-  contents: write
+  contents: read
 
 env:
   DOTNET_NOLOGO: "1"
@@ -76,7 +77,7 @@ jobs:
             [ -f "target/$TARGET/release-lto/$f" ] && cp "target/$TARGET/release-lto/$f" ../yarax/
           done
           ls ../yarax | grep -q yara_x_capi
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: yara-x-${{ matrix.rid }}
           path: yarax/*yara_x_capi*
@@ -136,7 +137,7 @@ jobs:
         run: |
           tar -czf corvus-${{ matrix.rid }}.tar.gz -C out .
 
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: package-${{ matrix.rid }}
           path: corvus-${{ matrix.rid }}.*
@@ -160,7 +161,7 @@ jobs:
           for d in yarax/yara-x-*; do rid=${d#yarax/yara-x-}; mkdir -p "native/$rid/native" && cp "$d"/* "native/$rid/native/"; done
           dotnet pack src/Corvus/Corvus.csproj -c Release -p:Version=${GITHUB_REF_NAME#v} -p:YaraXRuntimes="$PWD/native" -o .
           unzip -l CorvusRE.*.nupkg | grep runtimes/.*yara_x_capi
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: package-tool
           path: CorvusRE.*.nupkg
