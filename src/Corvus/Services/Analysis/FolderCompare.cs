@@ -78,7 +78,7 @@ public sealed class FolderCompare
         IReadOnlyList<string> Notes, double Seconds)
     {
         [Description("oldResult / newResult: inputs and counts.")] public EvidenceSummary? Evidence { get; init; }
-        [Description("oldResult / newResult: what differs.")] public IReadOnlyList<EvidenceChange>? Changes { get; init; }
+        [Description("Results or package findings that differ.")] public IReadOnlyList<EvidenceChange>? Changes { get; init; }
     }
 
     private sealed record Row(string Change, InventoryEntry? Old, InventoryEntry? New, IReadOnlyList<string>? Candidates = null, int? CandidateCount = null, string? Note = null)

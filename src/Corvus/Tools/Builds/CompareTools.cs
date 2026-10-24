@@ -14,7 +14,8 @@ using TypeChange = Corvus.Services.AssemblyComparer.TypeChange;
 namespace Corvus.Tools;
 
 [McpServerToolType]
-public sealed class CompareTools(AssemblyWorkspace workspace, AssemblyComparer comparer, DecompilerService decompiler, ResultStore? results = null)
+public sealed class CompareTools(AssemblyWorkspace workspace, AssemblyComparer comparer, DecompilerService decompiler, ResultStore? results = null,
+    Services.Analysis.InspectionService? inspection = null)
 {
     private static readonly string[] AllKinds = AssemblyComparer.ChangeKinds;
 
@@ -48,7 +49,7 @@ public sealed class CompareTools(AssemblyWorkspace workspace, AssemblyComparer c
         int TokenMapEntries)
     {
         [Description("oldResult / newResult: inputs and counts.")] public EvidenceSummary? Evidence { get; init; }
-        [Description("oldResult / newResult: what differs.")] public IReadOnlyList<EvidenceChange>? Changes { get; init; }
+        [Description("Results or capabilities that differ.")] public IReadOnlyList<EvidenceChange>? Changes { get; init; }
     }
 
     /// <summary>The token map file: both builds and every old type and member with its counterpart.</summary>
@@ -62,9 +63,9 @@ public sealed class CompareTools(AssemblyWorkspace workspace, AssemblyComparer c
     };
 
     [McpServerTool(Name = "compare_assemblies", Title = "Compare two builds", UseStructuredContent = true, OutputSchemaType = typeof(AssemblyComparison))]
-    [Description("Compare two builds of an assembly: renamed, moved, added and removed types and members (matched by content in tiers, unique-only; " +
-                 "else ambiguous) and how each matched member changed (signature, body by IL hash, metadata, Il2Cpp offset). oldResult / newResult " +
-                 "compare kept results.")]
+    [Description("Two builds of an assembly: renamed, moved, added and removed types and members (matched by content in tiers, unique, else " +
+                 "ambiguous), how matched members changed (signature, body by IL hash, metadata, Il2Cpp offset), capabilities added or removed. " +
+                 "oldResult / newResult: kept results.")]
     public Task<string> CompareAssemblies(
         [Description("Old build: id, name or path.")] string? oldAssembly = null,
         [Description("New build: id, name or path.")] string? newAssembly = null,
@@ -115,6 +116,13 @@ public sealed class CompareTools(AssemblyWorkspace workspace, AssemblyComparer c
         if (hiddenTypes + hiddenMembers > 0)
             sb.AppendLine($"Hidden: {hiddenTypes} compiler-generated type change(s) and {hiddenMembers} member change(s) " +
                           "(closures, state machines, backing fields, array data; includeCompilerGenerated=true shows them).");
+        // Capabilities are surveyed over the whole assembly, whatever the namespace filter.
+        IReadOnlyList<EvidenceChange>? capabilities = null;
+        if (inspection != null)
+        {
+            (capabilities, var capabilityText) = Services.Analysis.CapabilityChanges.Between(inspection, oldAsm.Id, newAsm.Id, cancellationToken);
+            sb.Append(capabilityText);
+        }
         foreach (var (side, asm, skipped) in new[] { ("old", oldAsm, cmp.OldSkippedBodies), ("new", newAsm, cmp.NewSkippedBodies) })
             if (skipped > 0)
                 sb.AppendLine($"Skipped: {skipped} method bodies of the {side} build ({asm.Id}) are not valid IL (encrypted?) and were not compared; " +
@@ -165,7 +173,7 @@ public sealed class CompareTools(AssemblyWorkspace workspace, AssemblyComparer c
             [.. Confidences.Select(c => new KindCount(c, matches.GetValueOrDefault(c)))],
             cmp.Ambiguous.Keys.Count(m => m is not TypeDef && (@namespace == null || (m.DeclaringType?.FullName.StartsWith(@namespace, StringComparison.Ordinal) ?? false))),
             cmp.OldSkippedBodies, cmp.NewSkippedBodies, hiddenTypes + hiddenMembers,
-            [], Math.Max(0, offset), rows.Count, mapId, mapEntries);
+            [], Math.Max(0, offset), rows.Count, mapId, mapEntries) { Changes = capabilities };
         string? group = null;
         string Row((ChangeItem Item, string Group, string? Line) r)
         {

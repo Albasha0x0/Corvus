@@ -16,7 +16,8 @@ namespace Corvus.Tools;
 
 /// <summary>Two builds of one native image: function matching, carrying names and addresses forward, and rebuild-stable code patterns.</summary>
 [McpServerToolType]
-public sealed class NativeDiffTools(AssemblyWorkspace workspace, NativeCodeService code, NativeEngineService? engines = null, NativeEditService? edits = null)
+public sealed class NativeDiffTools(AssemblyWorkspace workspace, NativeCodeService code, NativeEngineService? engines = null, NativeEditService? edits = null,
+    Services.Analysis.InspectionService? inspection = null)
 {
     private readonly NativeEditJournal journal = edits?.Journal ?? new NativeEditJournal(workspace, code, engines);
 
@@ -61,7 +62,7 @@ public sealed class NativeDiffTools(AssemblyWorkspace workspace, NativeCodeServi
         [property: Description("What was not covered (functions that did not decode, capped work).")] IReadOnlyList<string> Notes)
     {
         [Description("oldResult / newResult: inputs and counts.")] public EvidenceSummary? Evidence { get; init; }
-        [Description("oldResult / newResult: what differs.")] public IReadOnlyList<EvidenceChange>? Changes { get; init; }
+        [Description("Results or capabilities that differ.")] public IReadOnlyList<EvidenceChange>? Changes { get; init; }
     }
 
     public sealed record AddressMapping(
@@ -160,8 +161,8 @@ public sealed class NativeDiffTools(AssemblyWorkspace workspace, NativeCodeServi
 
     [McpServerTool(Name = "compare_native_images", Title = "Compare native builds", UseStructuredContent = true, OutputSchemaType = typeof(NativeComparison))]
     [Description("Match functions of two native builds (x86, x64, ARM64) in tiers: 1 same name, import or bytes; 2 control flow; 3 imports, " +
-                 "strings, constants; 4 call-graph neighbours; 5 fuzzy above minScore; unique pairs only. Per-tier counts, one view's rows by old " +
-                 "address. oldResult / newResult compare two kept results.")]
+                 "strings, constants; 4 call neighbours; 5 fuzzy over minScore; unique pairs only. Per-tier counts, rows by old address, " +
+                 "capabilities added or removed. oldResult / newResult: kept results.")]
     public Task<string> CompareNativeImages(
         [Description(OldDescription)] string? oldImage = null,
         [Description(NewDescription)] string? newImage = null,
@@ -222,6 +223,13 @@ public sealed class NativeDiffTools(AssemblyWorkspace workspace, NativeCodeServi
             $"({identical} identical, {record.Changed} changed); {record.UnmatchedOld} old and {record.UnmatchedNew} new unmatched, {record.Ambiguous} ambiguous. " +
             $"Tiers: {string.Join(", ", tiers.Select(t => $"{t.Tier} {t.Name} {t.Pairs}"))}.\n");
         foreach (var note in record.Notes) head.Append("Note: ").Append(note).Append('\n');
+        if (inspection != null)
+        {
+            var (capabilities, capabilityText) = await Task.Run(() => Services.Analysis.CapabilityChanges.Between(inspection, pair.Old.Id, pair.New.Id, cancellationToken),
+                cancellationToken);
+            record = record with { Changes = capabilities };
+            head.Append(capabilityText);
+        }
         head.Append($"View {v}{(tier > 0 && v is "pairs" or "changed" ? $", tier {tier}" : "")}:\n");
         return ToolOutput.List(rows.Skip(offset).ToList(), offset, limit, rows.Count, RowText, page => record with { Items = page },
             v is "pairs" or "changed" ? "pair" : "function", head.ToString());

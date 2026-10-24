@@ -7,7 +7,7 @@
   },
   "isError": false,
   "content": [
-    "sample-build-a.dll -> sample-build-b.dll: 2 of 2 old functions matched (2 identical, 0 changed); 0 old and 0 new unmatched, 0 ambiguous. Tiers: 1 name_or_bytes 2, 2 structure 0, 3 signature 0, 4 call_graph 0, 5 fuzzy 0.\nView pairs:\n2 pairs (showing 1-2):\n  0x140001000 -> 0x140001000 First  tier 1 name 1 identical\n  0x140001001 -> 0x140001001 Second  tier 1 name 1 identical\n[End: 2 pairs]\n",
+    "sample-build-a.dll -> sample-build-b.dll: 2 of 2 old functions matched (2 identical, 0 changed); 0 old and 0 new unmatched, 0 ambiguous. Tiers: 1 name_or_bytes 2, 2 structure 0, 3 signature 0, 4 call_graph 0, 5 fuzzy 0.\nCapabilities (survey_features rules and kept capa labels): 0 added, 0 removed.\nView pairs:\n2 pairs (showing 1-2):\n  0x140001000 -> 0x140001000 First  tier 1 name 1 identical\n  0x140001001 -> 0x140001001 Second  tier 1 name 1 identical\n[End: 2 pairs]\n",
     "[workspace] loaded sample-build-b.dll from <fixtures>/sample-build-b.dll"
   ],
   "structuredContent": {
@@ -78,6 +78,7 @@
     "offset": 0,
     "total": 2,
     "notes": [],
+    "changes": [],
     "limit": 3,
     "totalExact": true,
     "hasMore": false,

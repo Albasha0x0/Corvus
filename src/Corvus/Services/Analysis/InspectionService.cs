@@ -187,11 +187,47 @@ public sealed class InspectionService(AssemblyWorkspace workspace, NativeCodeSer
         catch (Exception ex) { throw new ToolError(ErrorCode.MalformedInput, $"{label}: unreadable .NET metadata ({ex.Message})."); }
     }
 
-    public FeatureReport SurveyFeatures(string? assembly, string? path, string? category, CancellationToken ct)
+    public FeatureReport SurveyFeatures(string? assembly, string? path, string? category, CancellationToken ct) => Survey(assembly, path, category, true, ct);
+
+    /// <summary>
+    /// The features two builds are compared by: the survey of a loaded assembly or native image with the capa labels kept
+    /// for its file, never running capa. CapaLabelled is false when capa has not labelled that file, so its labels are unknown.
+    /// </summary>
+    public (FeatureReport Report, bool CapaLabelled) BuildSurvey(string assembly, CancellationToken ct)
+    {
+        var (subject, file, generation) = workspace.Read(() =>
+        {
+            // A managed assembly of that name wins, as in the survey.
+            try { var asm = workspace.Get(assembly); return ((object)asm, asm.FilePath, workspace.Generation); }
+            catch (ToolError) when (workspace.FindNative(assembly) is { } n) { return (n, n.FilePath, workspace.Generation); }
+        });
+        if (subject is LoadedNative { Image: Native.MachO.MachOFile })
+            throw new ToolError(ErrorCode.Unsupported, "the comparison reads PE, ELF and .NET builds; survey_features lists a Mach-O build's");
+        bool capa = NativeCapa.Cached(file) is { State: "matched" };
+        // A native image's index is rebuilt by reanalysis without a workspace edit, so it is part of the key.
+        object? index = subject is LoadedNative native && code != null ? code.Index(native, null, ct).GetAwaiter().GetResult() : null;
+        if (_surveys.TryGetValue(subject, out var kept) && kept.Generation == generation && kept.Index == index && kept.Capa == capa) return (kept.Report, capa);
+        var report = Survey(assembly, null, null, false, ct);
+        Interlocked.Increment(ref _surveysRun);
+        _surveys.AddOrUpdate(subject, new KeptSurvey(generation, index, capa, report));
+        return (report, capa);
+    }
+
+    /// <summary>The last build survey of each loaded assembly or native image, valid while its key matches.</summary>
+    private readonly System.Runtime.CompilerServices.ConditionalWeakTable<object, KeptSurvey> _surveys = new();
+
+    private sealed record KeptSurvey(int Generation, object? Index, bool Capa, FeatureReport Report);
+
+    private int _surveysRun;
+
+    /// <summary>Build surveys run rather than reused (tests).</summary>
+    internal int SurveysRun => Volatile.Read(ref _surveysRun);
+
+    private FeatureReport Survey(string? assembly, string? path, string? category, bool runCapa, CancellationToken ct)
     {
         if (assembly == null && path != null && AppSurvey(path, ct) is { } app) return Filter(app, category);
         if (NativeSurvey(assembly, path, category, ct) is { } native) return Filter(native, category);
-        var il2cppCapa = assembly != null ? CapaSurvey(assembly, ct) : null;
+        var il2cppCapa = assembly != null && runCapa ? CapaSurvey(assembly, ct) : null;
         var file = il2cppCapa != null ? null : path != null ? Path.GetFullPath(path) : workspace.Read(() => workspace.Get(assembly!).FilePath);
         var labels = file != null ? CapaLabels(file, category, ct) : null;
         var report = WithAssembly(assembly, path, s =>

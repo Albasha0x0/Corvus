@@ -413,7 +413,7 @@
       ]
     },
     "changes": {
-      "description": "oldResult / newResult: what differs.",
+      "description": "Results or package findings that differ.",
       "type": "array",
       "items": {
         "type": "object",

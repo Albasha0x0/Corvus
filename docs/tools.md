@@ -1802,7 +1802,7 @@ Build-to-build comparison and carrying work to a new build.
 
 **Compare two builds** (read-only, idempotent, long-running)
 
-Compare two builds of an assembly: renamed, moved, added and removed types and members (matched by content in tiers, unique-only; else ambiguous) and how each matched member changed (signature, body by IL hash, metadata, Il2Cpp offset). oldResult / newResult compare kept results.
+Two builds of an assembly: renamed, moved, added and removed types and members (matched by content in tiers, unique, else ambiguous), how matched members changed (signature, body by IL hash, metadata, Il2Cpp offset), capabilities added or removed. oldResult / newResult: kept results.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -1845,7 +1845,7 @@ Structured output: `old`, `new`, `items`, `offset`, `total`, `limit`, `totalExac
 
 **Compare two folders or packages** (read-only, idempotent, long-running)
 
-Compare two folders, zip-family archives or files: modified, added, removed, moved, case-only renames, links, unreadable; changed binaries with MVID and version, text with a diff. oldResult / newResult compare kept results.
+Two folders, zip-family archives or files: modified, added, removed, moved, case renames, links, unreadable; binaries with MVID and version, text with a diff, package findings. oldResult / newResult: kept results.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -1867,7 +1867,7 @@ Structured output: `old`, `new`, `hashBasis`, `caseSensitive`, `counts`, `view`,
 
 **Compare native builds** (read-only, idempotent, long-running)
 
-Match functions of two native builds (x86, x64, ARM64) in tiers: 1 same name, import or bytes; 2 control flow; 3 imports, strings, constants; 4 call-graph neighbours; 5 fuzzy above minScore; unique pairs only. Per-tier counts, one view's rows by old address. oldResult / newResult compare two kept results.
+Match functions of two native builds (x86, x64, ARM64) in tiers: 1 same name, import or bytes; 2 control flow; 3 imports, strings, constants; 4 call neighbours; 5 fuzzy over minScore; unique pairs only. Per-tier counts, rows by old address, capabilities added or removed. oldResult / newResult: kept results.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|

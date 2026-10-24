@@ -273,7 +273,7 @@
       ]
     },
     "changes": {
-      "description": "oldResult / newResult: what differs.",
+      "description": "Results or capabilities that differ.",
       "type": "array",
       "items": {
         "type": "object",

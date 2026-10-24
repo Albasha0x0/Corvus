@@ -11,8 +11,8 @@ namespace Corvus.Tools;
 public sealed class FolderTools(FolderCompare folders)
 {
     [McpServerTool(Name = "compare_folders", Title = "Compare two folders or packages", UseStructuredContent = true)]
-    [Description("Compare two folders, zip-family archives or files: modified, added, removed, moved, case-only renames, links, unreadable; changed " +
-                 "binaries with MVID and version, text with a diff. oldResult / newResult compare kept results.")]
+    [Description("Two folders, zip-family archives or files: modified, added, removed, moved, case renames, links, unreadable; binaries with MVID " +
+                 "and version, text with a diff, package findings. oldResult / newResult: kept results.")]
     public Task<FolderCompare.Comparison> CompareFolders(
         [Description("Old folder, archive or file.")] string? oldPath = null,
         [Description("New folder, archive or file.")] string? newPath = null,
@@ -32,9 +32,34 @@ public sealed class FolderTools(FolderCompare folders)
             : string.IsNullOrWhiteSpace(oldPath) || string.IsNullOrWhiteSpace(newPath)
                 ? throw new ToolError(ErrorCode.InvalidArgument, $"{(string.IsNullOrWhiteSpace(oldPath) ? "oldPath" : "newPath")} is missing: compare_folders takes both paths.",
                     "pass oldPath and newPath, or oldResult and newResult")
-            : Task.Run(() => folders.Compare(oldPath, newPath, change, caseSensitive, exclude is { Length: > 0 } ? string.Join(";", exclude) : null, maxEntries, offset, limit,
-            (done, total) => progress.Report(new ProgressNotificationValue { Progress = done, Total = total, Message = $"{done} of {total} files hashed" }),
-            cancellationToken, !noDiffs), cancellationToken));
+            : Task.Run(() => WithPackageChanges(folders.Compare(oldPath, newPath, change, caseSensitive, exclude is { Length: > 0 } ? string.Join(";", exclude) : null, maxEntries,
+                offset, limit, (done, total) => progress.Report(new ProgressNotificationValue { Progress = done, Total = total, Message = $"{done} of {total} files hashed" }),
+                cancellationToken, !noDiffs), oldPath, newPath, cancellationToken), cancellationToken));
+
+    /// <summary>Finding changes repeated in the notes; Changes holds them all.</summary>
+    private const int MaxPackageRows = 50;
+
+    // Package archives only: a folder would be reviewed as a source tree, which reads every file in it.
+    private static readonly string[] PackageExtensions = [".tgz", ".tar.gz", ".whl", ".vsix", ".crx", ".xpi"];
+
+    /// <summary>
+    /// <paramref name="comparison"/> with the review findings added or removed as its changes when both paths are package
+    /// archives the review reads (npm, PyPI wheel, VS Code or browser extension); unchanged otherwise.
+    /// </summary>
+    private static FolderCompare.Comparison WithPackageChanges(FolderCompare.Comparison comparison, string oldPath, string newPath, CancellationToken ct)
+    {
+        static bool Package(string p) => File.Exists(p) && PackageExtensions.Any(e => p.EndsWith(e, StringComparison.OrdinalIgnoreCase));
+        if (!Package(oldPath) || !Package(newPath)) return comparison;
+        if (Services.Web.Packages.PackageReview.Review(oldPath, ct) is not { Ecosystem: not "repository" } old
+            || Services.Web.Packages.PackageReview.Review(newPath, ct) is not { Ecosystem: not "repository" } @new) return comparison;
+        var rows = CapabilityChanges.Of(old, @new);
+        return comparison with
+        {
+            Changes = rows,
+            Notes = [.. comparison.Notes, $"package review: {rows.Count(r => r.Kind == "added")} finding(s) added, {rows.Count(r => r.Kind == "removed")} removed " +
+                $"(review {old.Review} -> {@new.Review}); Changes lists them", .. rows.Take(MaxPackageRows).Select(r => $"{r.Kind} {r.Key}: {r.New ?? r.Old}")],
+        };
+    }
 
     /// <summary>Two kept results compared: the sides are the results, the rows their changes (unknown counts as unmatched).</summary>
     private static FolderCompare.Comparison Evidence(EvidenceSummary ev, IReadOnlyList<EvidenceChange> changes, int offset, int limit)
