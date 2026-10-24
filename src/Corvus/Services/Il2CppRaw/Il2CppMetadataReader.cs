@@ -10,14 +10,14 @@ using Corvus.Core;
 namespace Corvus.Services;
 
 /// <summary>
-/// The built-in Il2Cpp reader: reads global-metadata.dat (versions 24 to 39) with the game binary (GameAssembly.dll,
+/// The built-in Il2Cpp reader: reads global-metadata.dat (versions 24 to 39) with the native binary (GameAssembly.dll,
 /// libil2cpp.so, UnityFramework, GameAssembly.dylib/.so; see <see cref="Il2CppBinaryLayout"/>) through LibCpp2IL and
-/// produces what Il2CppDumper would: dummy assemblies (written to a folder) and the script.json / stringliteral.json data
-/// (<see cref="Il2CppGameModel"/>). A memory image of the binary (a process dump) is read with its sections at their
+/// produces dummy assemblies (written to a folder) and the script.json / stringliteral.json data
+/// (<see cref="Il2CppBuildModel"/>). A memory image of the binary (a process dump) is read with its sections at their
 /// RVAs; 32-bit ARM code pointers lose their Thumb bit. When the Unity version is not known from the player or the data folder, each
 /// sub-version of the metadata's version is tried and the first whose method pointers land in code is kept. Unreadable
 /// metadata is a typed error (encrypted or transformed header, unsupported version, mismatched binary); unreadable single
-/// items are listed in <see cref="Il2CppGameModel.Unreadables"/>. LibCpp2IL keeps one game in process-wide state, so
+/// items are listed in <see cref="Il2CppBuildModel.Unreadables"/>. LibCpp2IL keeps one build in process-wide state, so
 /// reads are serialized.
 /// </summary>
 public static class Il2CppMetadataReader
@@ -28,7 +28,7 @@ public static class Il2CppMetadataReader
     private const int MaxLibraryMessages = 50;
 
     /// <param name="BinaryIdentity">The binary's build id (ELF build-id, Mach-O UUID), else the SHA-256 of its file.</param>
-    public sealed record Output(Il2CppGameModel Model, IReadOnlyList<string> Notes, TimeSpan WriteTime, string BinaryIdentity);
+    public sealed record Output(Il2CppBuildModel Model, IReadOnlyList<string> Notes, TimeSpan WriteTime, string BinaryIdentity);
 
     /// <summary>The metadata header's magic and version; ToolError when the file is not readable metadata of a supported version.</summary>
     public static int CheckHeader(string metadataPath, byte[]? bytes = null)
@@ -52,22 +52,22 @@ public static class Il2CppMetadataReader
         int version = BitConverter.ToInt32(head[4..]);
         if (magic != Magic)
             throw new ToolError(ErrorCode.MalformedInput,
-                $"{metadataPath} does not start with the Il2Cpp metadata magic 0x{Magic:X8} (found 0x{magic:X8}): reason encrypted_or_transformed — the game encrypts or " +
+                $"{metadataPath} does not start with the Il2Cpp metadata magic 0x{Magic:X8} (found 0x{magic:X8}): reason encrypted_or_transformed — the build encrypts or " +
                 "obfuscates its metadata, or this is not a global-metadata.dat.",
-                "dump the decrypted metadata from the running game's memory (the runtime holds it decrypted, starting with AF 1B B1 FA) and load that file");
+                "dump the decrypted metadata from the running process (the runtime holds it decrypted, starting with AF 1B B1 FA) and load that file");
         if (version < MinVersion || version > MaxVersion)
             throw new ToolError(ErrorCode.Unsupported,
                 $"{metadataPath} is Il2Cpp metadata version {version}: reason unsupported_version — the built-in reader handles versions {MinVersion} to {MaxVersion}" +
                 (version is > 0 and < 1000 ? "" : " (a version this far off usually means a modified header)") + ".",
-                "use Il2CppDumper or Cpp2IL output (load_assembly the DummyDll folder) for this game");
+                "load dummy assemblies with [Address] attributes for this build instead");
         return version;
     }
 
     private static ToolError TooSmall(string path) =>
         new(ErrorCode.MalformedInput, $"{path} is too small to be Il2Cpp metadata: reason truncated.", "load the complete global-metadata.dat");
 
-    /// <summary>Reads the game and writes its dummy assemblies into <paramref name="dummyDirectory"/>.</summary>
-    public static Output Read(Il2CppGameFiles files, string dummyDirectory, Action<string>? progress, CancellationToken ct)
+    /// <summary>Reads the build and writes its dummy assemblies into <paramref name="dummyDirectory"/>.</summary>
+    public static Output Read(Il2CppBuildFiles files, string dummyDirectory, Action<string>? progress, CancellationToken ct)
     {
         var watch = Stopwatch.StartNew();
         byte[] metadata, binary;
@@ -76,7 +76,7 @@ public static class Il2CppMetadataReader
             metadata = File.ReadAllBytes(InputFiles.RequireRegularFile(files.Metadata, "metadata file"));
             binary = File.ReadAllBytes(InputFiles.RequireRegularFile(files.Binary, "binary file"));
         }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { throw new ToolError(ErrorCode.IoError, $"Cannot read the game files: {ex.Message}"); }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { throw new ToolError(ErrorCode.IoError, $"Cannot read the build files: {ex.Message}"); }
         int headerVersion = CheckHeader(files.Metadata, metadata);
         var sha = Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(binary));
         var opened = Il2CppBinaryLayout.Open(binary, files.Binary, files.Slice);
@@ -143,25 +143,25 @@ public static class Il2CppMetadataReader
                             (registration ? "registration_not_found_armv7 — LibCpp2IL did not find the code/metadata registration in this armeabi-v7a build"
                                           : "armv7_unreadable — LibCpp2IL failed on this armeabi-v7a build") +
                             $". Tried: {string.Join("; ", tried)}",
-                            "load the arm64-v8a build of the same game (the package with slice=arm64-v8a, or its lib/arm64-v8a/libil2cpp.so), or a memory dump of the library");
+                            "load the arm64-v8a build of the same application (the package with slice=arm64-v8a, or its lib/arm64-v8a/libil2cpp.so), or a memory dump of the library");
                     throw new ToolError(ErrorCode.MalformedInput,
                         $"The metadata (v{headerVersion}) could not be read with {Path.GetFileName(files.Binary)}: reason " +
                         (registration ? "binary_mismatch_or_transformed — the code/metadata registration was not found in the binary: it was built from other metadata, or it is packed/protected on disk"
                                       : "unreadable_structures — no Unity sub-version's layout reads it") +
                         $". Tried: {string.Join("; ", tried)}",
-                        registration ? "use the game binary of the same build, or a memory dump of it from the running game"
-                                     : "check that both files come from the same build; Il2CppDumper/Cpp2IL output (DummyDll folder) can still be loaded");
+                        registration ? "use the native binary of the same build, or a memory dump of it from the running process"
+                                     : "check that both files come from the same build; dummy assemblies with [Address] attributes can still be loaded");
                 }
                 if (tried.Count > 0) notes.Add($"Unity version {c.Version} ({c.Source}) after {tried.Count} other(s) failed: {string.Join("; ", tried)}");
                 if (searchNote != null) notes.Add(searchNote);
                 ct.ThrowIfCancellationRequested();
-                Il2CppGameModel model;
+                Il2CppBuildModel model;
                 TimeSpan writeTime;
                 try { model = Extract(files, binary, layout, mapped, headerVersion, c.Version.ToString(), c.Source, dummyDirectory, progress, notes, ct, out writeTime); }
                 catch (Exception ex) when (ex is not (OutOfMemoryException or OperationCanceledException or ToolError or IOException or UnauthorizedAccessException))
                 {
                     throw new ToolError(ErrorCode.MalformedInput, $"Reading the metadata (v{headerVersion}, Unity {c.Version}) failed: reason unreadable_structures — {ex.GetType().Name}: {Clip(ex.Message)} ({Where(ex)})",
-                        "check that both files come from the same build; Il2CppDumper/Cpp2IL output (DummyDll folder) can still be loaded");
+                        "check that both files come from the same build; dummy assemblies with [Address] attributes can still be loaded");
                 }
                 notes.AddRange(log.Messages.Take(10).Select(m => $"LibCpp2IL: {m}"));
                 model.ReadTime = watch.Elapsed;
@@ -356,16 +356,16 @@ public static class Il2CppMetadataReader
         public override void Error(string message) => Add(message);
     }
 
-    /// <summary>The Unity versions to read the metadata as: the game's own when found, else every sub-version layout of the header version.</summary>
-    internal static List<(UnityVersion, string)> UnityVersions(Il2CppGameFiles files, int headerVersion, List<string> notes)
+    /// <summary>The Unity versions to read the metadata as: the build's own when found, else every sub-version layout of the header version.</summary>
+    internal static List<(UnityVersion, string)> UnityVersions(Il2CppBuildFiles files, int headerVersion, List<string> notes)
     {
         var list = new List<(UnityVersion, string)>();
         try
         {
             var v = LibCpp2IlMain.DetermineUnityVersion(files.UnityPlayer, files.DataDirectory);
-            if (v.Major >= 2017) list.Add((v, files.DataDirectory != null ? "from the game data" : "from UnityPlayer.dll"));
+            if (v.Major >= 2017) list.Add((v, files.DataDirectory != null ? "from the data folder" : "from UnityPlayer.dll"));
         }
-        catch (Exception ex) when (ex is not OutOfMemoryException) { notes.Add($"Unity version not read from the game files: {Clip(ex.Message)}"); }
+        catch (Exception ex) when (ex is not OutOfMemoryException) { notes.Add($"Unity version not read from the build files: {Clip(ex.Message)}"); }
         string[] fallback = headerVersion switch
         {
             24 => ["2019.4.21f1", "2019.4.15f1", "2019.3.7f1", "2019.1.0f1", "2018.4.34f1", "2018.3.0f1", "2017.1.0f1", "2020.1.11f1", "2020.1.0f1"],
@@ -423,7 +423,7 @@ public static class Il2CppMetadataReader
     }
 
     /// <summary>
-    /// Metadata 27+: the slots are found as Il2CppDumper finds them, by scanning the initialized data sections for
+    /// Metadata 27+: the slots are found by scanning the initialized data sections for
     /// pointer-aligned values that encode a usage ((kind &lt;&lt; 29 | index &lt;&lt; 1) + 1) with an index in range for the kind.
     /// </summary>
     private static void ScanEncodedUsages(byte[] binary, Il2CppBinaryLayout layout, Il2CppMetadata meta, Il2CppBinary bin,
@@ -451,7 +451,7 @@ public static class Il2CppMetadataReader
     }
 
     /// <summary>
-    /// In a memory image of a running game, the runtime has replaced the type definition and generic parameter
+    /// In a memory image of a running process, the runtime has replaced the type definition and generic parameter
     /// indexes of the binary's Il2CppType entries with pointers into the metadata it loaded. The metadata's base in
     /// that process is found from the types that describe their own definition (a definition's by-value type points at
     /// it), and every such pointer is turned back into an index. Returns how many entries were repaired and how many
@@ -525,7 +525,7 @@ public static class Il2CppMetadataReader
     {
         public readonly Il2CppMetadata Meta = meta;
         public readonly Il2CppBinary Bin = bin;
-        public readonly List<Il2CppGameModel.Unreadable> Unreadables = [];
+        public readonly List<Il2CppBuildModel.Unreadable> Unreadables = [];
         public readonly Dictionary<string, ulong[]> Pointers = new(StringComparer.Ordinal);
 
         public void Unreadable(string item, string reason, string detail) => Unreadables.Add(new(item, reason, Clip(detail)));
@@ -541,7 +541,7 @@ public static class Il2CppMetadataReader
 
         public ulong ImageBase => layout.ImageBase;
 
-        /// <summary>A method definition's code pointer as Il2CppDumper takes it (codegen module table by token; no shared generic code).</summary>
+        /// <summary>A method definition's code pointer as script.json takes it (codegen module table by token; no shared generic code).</summary>
         public ulong Pointer(Il2CppMethodDefinition m, string imageName)
         {
             if (Meta.MetadataVersion >= 24.2f)
@@ -554,7 +554,7 @@ public static class Il2CppMetadataReader
         }
     }
 
-    private static Il2CppGameModel Extract(Il2CppGameFiles files, byte[] binary, Il2CppBinaryLayout layout, bool mapped, int headerVersion,
+    private static Il2CppBuildModel Extract(Il2CppBuildFiles files, byte[] binary, Il2CppBinaryLayout layout, bool mapped, int headerVersion,
         string unityVersion, string unitySource, string dummyDirectory, Action<string>? progress, List<string> notes, CancellationToken ct, out TimeSpan writeTime)
     {
         var meta = LibCpp2IlMain.TheMetadata!;
@@ -562,10 +562,10 @@ public static class Il2CppMetadataReader
         var s = new State(meta, bin, layout);
         var (repaired, unresolved, repairLayout) = RepairTypeHandles(meta, bin);
         if (repaired > 0)
-            notes.Add($"repaired {repaired} type entries the running game had turned into pointers to its loaded metadata (a memory image after start-up; {repairLayout})");
+            notes.Add($"repaired {repaired} type entries the running process had turned into pointers to its loaded metadata (a memory image after start-up; {repairLayout})");
         if (unresolved > 0)
             s.Unreadable($"{unresolved} type entries", "unresolved_type_handle", "pointers that are neither a type definition nor a generic parameter of this metadata");
-        var names = new Il2CppDumperNames(meta, bin);
+        var names = new Il2CppScriptNames(meta, bin);
         var imageOfType = new string[meta.typeDefs.Length];
         foreach (var image in meta.imageDefinitions)
             for (long t = image.firstTypeIndex.Value; t < image.firstTypeIndex.Value + image.typeCount && t < imageOfType.Length; t++)
@@ -573,7 +573,7 @@ public static class Il2CppMetadataReader
 
         // Method addresses, as the dummy assemblies carry them and as ScriptMethod entries.
         progress?.Invoke("method addresses");
-        var methods = new List<Il2CppGameModel.Entry>();
+        var methods = new List<Il2CppBuildModel.Entry>();
         var addressOf = new Dictionary<Il2CppMethodDefinition, (uint, ulong, ulong)?>(ReferenceEqualityComparer.Instance);
         for (int t = 0; t < meta.typeDefs.Length; t++)
         {
@@ -679,7 +679,7 @@ public static class Il2CppMetadataReader
                         var name = names.TypeName(type, true, false);
                         slots.Add(kind == 1
                             ? new ScriptMetadata(rva, name + "_TypeInfo", type.Type is Il2CppTypeEnum.IL2CPP_TYPE_CLASS or Il2CppTypeEnum.IL2CPP_TYPE_VALUETYPE or Il2CppTypeEnum.IL2CPP_TYPE_GENERICINST
-                                ? Il2CppDumperNames.StructName(name) + "_c*" : "Il2CppClass*")
+                                ? Il2CppScriptNames.StructName(name) + "_c*" : "Il2CppClass*")
                             : new ScriptMetadata(rva, name + "_var", "Il2CppType*"));
                         break;
                     case 3:
@@ -735,7 +735,7 @@ public static class Il2CppMetadataReader
         if (withoutSlot > 0)
             s.Unreadable($"{withoutSlot} of {literalValues.Length} string literals", "literal_slot_not_found",
                 (meta.MetadataVersion < 27f ? "no metadata usage names them"
-                    : mapped ? "no slot holds their encoded index: in a memory image, the slots the game had already used hold its string objects instead"
+                    : mapped ? "no slot holds their encoded index: in a memory image, the slots the process had already used hold its string objects instead"
                     : "no slot holds their encoded index (literals only reachable through generic or unused code have none)")
                 + "; they are not in the literal table (the metadata's full list is in the model)");
 
@@ -748,7 +748,7 @@ public static class Il2CppMetadataReader
         builder.Write(modules, dummyDirectory, ct);
         writeTime = write.Elapsed;
 
-        return new Il2CppGameModel
+        return new Il2CppBuildModel
         {
             BinaryPath = files.Binary, MetadataPath = files.Metadata, MetadataVersion = meta.MetadataVersion, HeaderVersion = headerVersion,
             UnityVersion = unityVersion, UnityVersionSource = unitySource, ImageBase = layout.ImageBase, MemoryImage = mapped,

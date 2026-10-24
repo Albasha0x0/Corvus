@@ -70,7 +70,7 @@ public sealed class Il2CppIdaTests(ITestOutputHelper output) : IDisposable
         using var provider = Provider();
         await using var session = await provider.OpenAsync(path, null, Offline);
         var items = Enumerable.Range(0, count)
-            .Select(i => new NativeNameItem(0x1000 + (uint)i * 16, $"Game_Ns_Type{i / 20}__Method{i}", $"Game.Ns.Type{i / 20}::Method{i}(int, string)", true))
+            .Select(i => new NativeNameItem(0x1000 + (uint)i * 16, $"App_Ns_Type{i / 20}__Method{i}", $"App.Ns.Type{i / 20}::Method{i}(int, string)", true))
             .ToList();
         var clock = Stopwatch.StartNew();
         int named = 0, created = 0;

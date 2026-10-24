@@ -275,7 +275,7 @@ public sealed class Il2CppStringTests : IDisposable
         Assert.Contains("""
               "other hello"
                   Il2Cpp literal, slot RVA 0x3010; loaded by 1 function:
-                  in function at RVA 0x1300 (no method name in the dump)
+                  in function at RVA 0x1300 (no method name in script.json)
             """.Replace("\r\n", "\n"), text);
         Assert.Contains("\"unused hello\"\n      Il2Cpp literal, slot RVA 0x3018; no code loads it", text);
 
@@ -310,9 +310,9 @@ public sealed class Il2CppStringTests : IDisposable
         using var env = LoadDummy();
         var (search, il2cpp, _) = Tools(env);
         var text = await search.SearchStrings("hello");
-        Assert.Contains("code references unknown: no game binary next to the dump", text);
+        Assert.Contains("code references unknown: no native binary next to the dump", text);
         Assert.Contains("Il2Cpp literal, slot RVA 0x3000\n", text);
-        Assert.Contains("string literals: unknown (no game binary next to the dump)", await il2cpp.GetIl2CppInfo("Fixture.Native.NativeThing::First"));
+        Assert.Contains("string literals: unknown (no native binary next to the dump)", await il2cpp.GetIl2CppInfo("Fixture.Native.NativeThing::First"));
     }
 
     [Fact]
@@ -338,13 +338,13 @@ public sealed class Il2CppStringTests : IDisposable
     {
         using var env = LoadDummy();
         var (search, _, _) = Tools(env);
-        Assert.Contains("put the dump's stringliteral.json", await search.SearchStrings("hello"));
+        Assert.Contains("put stringliteral.json and script.json in their folder", await search.SearchStrings("hello"));
         using var managed = new Env(Env.ConsumerPath);
         Assert.StartsWith("No string literals match 'zzz-none'.\n0 occurrences", await Tools(managed).Search.SearchStrings("zzz-none"));
     }
 
     /// <summary>
-    /// A real Il2CppDumper dump (CORVUS_IL2CPP_STRINGS_DIR: a DummyDll folder with stringliteral.json / script.json beside
+    /// A real Il2Cpp dump (CORVUS_IL2CPP_STRINGS_DIR: a DummyDll folder with stringliteral.json / script.json beside
     /// it, and optionally GameAssembly.dll): literal and reference counts, timings and retained memory.
     /// </summary>
     [RequiresRealDataFact(RealData.Il2CppStringsDir)]

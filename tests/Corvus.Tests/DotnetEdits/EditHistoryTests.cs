@@ -91,7 +91,7 @@ public class EditHistoryTests : IDisposable
         Stub("Secret::Validate", "true");
         _env.Edit(() => _env.Edits.Rename(_env.One("Shop::Describe"), "Summary"));
         _env.Edit(() => _env.Edits.PatchMethodCSharp(_env.One("Account::SumPositive"), "return values.Count(v => v > 0) * 1000;", false, default));
-        _env.Edit(() => _env.Edits.AddTypesCSharp(_env.Fixture, "namespace Mods { public static class M { public static int One() => 1; } }", false, default));
+        _env.Edit(() => _env.Edits.AddTypesCSharp(_env.Fixture, "namespace Extras { public static class M { public static int One() => 1; } }", false, default));
         using var dir = new TempDir();
         var script = dir.File("edits.json");
         _env.History.Export(_env.Fixture, script);
@@ -105,7 +105,7 @@ public class EditHistoryTests : IDisposable
             Assert.Contains(byName ? "resolving symbols by name" : "using recorded tokens", report);
             using var run = new Runner(fresh);
             Assert.Equal(3000, run.Call(run.New("Fixture.Model.Account", "p"), "SumPositive", new List<int> { 1, 2, -3, 4 }));
-            Assert.Equal(1, run.CallStatic("Mods.M", "One"));
+            Assert.Equal(1, run.CallStatic("Extras.M", "One"));
         }
     }
 

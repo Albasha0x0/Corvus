@@ -129,7 +129,7 @@ internal static class StackTextFormats
         // Unity native backtrace: 0x00007FFB12345678 (GameAssembly) [file:line] Symbol | (function-name not available)
         new("unity", R(@"^\s*(?:#\d+\s+)?\(?0x(?<addr>[0-9a-fA-F]{8,16})\)? \((?<module>[^)]+)\) (?<rest>.*)$"),
             (m, line, raw, into, _) => UnityNative(m, line, raw, into)),
-        // Unity module list (error.log): C:\Game\GameAssembly.dll:GameAssembly.dll (00007FFB0C3F0000), size: 81616896 (...), fileVersion: 1.2.3.4
+        // Unity module list (error.log): C:\App\GameAssembly.dll:GameAssembly.dll (00007FFB0C3F0000), size: 81616896 (...), fileVersion: 1.2.3.4
         new("unity", R(@"^(?<path>.*?):(?<name>[^:()\\/]+?) \((?<base>[0-9a-fA-F]{8,16})\), size: (?<size>\d+)(?:.*?fileVersion: (?<ver>[\d.]+))?"),
             (m, _, _, into, _) => Module(into, new TextModule(m.Groups["name"].Value.Trim(), Hex(m.Groups["base"]), ulong.Parse(m.Groups["size"].Value, CultureInfo.InvariantCulture),
                 m.Groups["ver"].Success ? m.Groups["ver"].Value : null, null))),

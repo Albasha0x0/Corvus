@@ -58,7 +58,7 @@
 
 ### Changes
 
-- **Upgrade:** the native code index is built again once (persist format 17), Il2Cpp games read by the built-in reader are
+- **Upgrade:** the native code index is built again once (persist format 17), Il2Cpp builds read by the built-in reader are
   read again once, and `bucket_minidumps` computes cached signatures again once. [2a6b25dd](https://github.com/Albasha0x0/Corvus/commit/2a6b25dd) [35de67ea](https://github.com/Albasha0x0/Corvus/commit/35de67ea) [99e838dc](https://github.com/Albasha0x0/Corvus/commit/99e838dc)
 - **Sessions, .NET:** stops name JIT-compiled and ReadyToRun frames through the runtime's DAC, `live_break` and
   `live_watch` take `Ns.Type::Method`, stopping at the first call (`Main` included) and following tiered recompiles, a
@@ -181,7 +181,7 @@
 - **Dependencies:** `summarize_file view=dependencies` lists the components a file ships with their evidence, and
   `sbomPath` writes them as a CycloneDX 1.6 SBOM, with package URLs only from package-level evidence: deps.json
   (`pkg:nuget` with the package SHA-512 and dependency edges), informational versions, Go build information, Rust
-  crates, the Unity version and assemblies of an Il2Cpp game, a frozen Python program's interpreter and distributions
+  crates, the Unity version and assemblies of an Il2Cpp build, a frozen Python program's interpreter and distributions
   (`pkg:pypi`), and an APK's Maven libraries (`pkg:maven`), AndroidX version files and native libraries with the
   OpenSSL, zlib, libpng, libcurl and libjpeg-turbo versions compiled into them (a split set read as one app); an
   assembly version alone leaves the package version unknown. SBOMs validated with CycloneDX.Core 12.1.2.
@@ -235,7 +235,7 @@
 - **Il2Cpp:** builds that fill the code registration at run time map their generic method bodies, builds before
   metadata 27 among them (read through their module array); the known limit "generic method bodies with
   runtime-filled registration are not mapped" is removed. Verified with constructed 32-bit ARM libraries and a Windows
-  game copied with its registration cleared; builds before metadata 27 not verified by a test.
+  build copied with its registration cleared; builds before metadata 27 not verified by a test.
   [c1a2a07e](https://github.com/Albasha0x0/Corvus/commit/c1a2a07e) [7f8ef5ba](https://github.com/Albasha0x0/Corvus/commit/7f8ef5ba)
 - **Engine opens:** IDA analyses an open within a budget and saves a partial analysis that the next open or
   `reanalyze_native` continues, a saved analysis an open's time limit cut short reads "partial" and names
@@ -680,7 +680,7 @@ breaking changes.
   `format=verify` runs them again and names what changed. The new prompts walk from a behaviour to the code behind it
   and check a reimplementation by emulation.
 - **Android and Unity.** `get_android_device_info` gains `view=processes|features|services|settings|files`.
-  `unity_overview` reads Mono APKs, zipped Windows and Linux titles in place, and WebGL builds.
+  `unity_overview` reads Mono APKs, zipped Windows and Linux builds in place, and WebGL builds.
 - **Release testing.** `test.ps1 -Full -Reuse` reruns only the test families whose inputs changed since their last
   pass; patch releases gate on it, minor releases still run the whole exhaustive suite.
 
@@ -1344,7 +1344,7 @@ work across the server and its engine workers.
   `read_bytes type=`), `export_engine_database` (`.i64` copy), `make_code_pattern` in IDA / x64dbg / mask formats.
 - **Worker control:** cancel and deadlines inside the IDA and Ghidra workers (partial results with a cursor; the worker
   is killed only past a grace period), `CORVUS_ENGINE_REQUEST_TIMEOUT` / `CORVUS_ENGINE_OPEN_TIMEOUT`,
-  `CORVUS_ENGINE_ANALYSIS=none` for huge or hostile inputs, a read-only snapshot when another server holds the
+  `CORVUS_ENGINE_ANALYSIS=none` for very large or malformed inputs, a read-only snapshot when another server holds the
   database, batch mode so no dialog waits, engine sessions and open-stage timings in `server_status`.
 
 ### Own engine: ELF, Mach-O, ARM64 and ARM32
@@ -1384,9 +1384,9 @@ work across the server and its engine workers.
 
 ### Il2Cpp and Unity
 
-- **Mobile and desktop layouts:** Android, iOS, macOS and Linux games, read from `.apk` / `.xapk` / `.apks` / `.aab` /
-  `.ipa`; ELF and Mach-O game binaries; metadata up to v39; builds that fill the code registration at run time.
-- 32-bit games get headers and prototypes pushed to IDA and Ghidra; Il2Cpp games and minidumps are kept in sessions;
+- **Mobile and desktop layouts:** Android, iOS, macOS and Linux builds, read from `.apk` / `.xapk` / `.apks` / `.aab` /
+  `.ipa`; ELF and Mach-O binaries; metadata up to v39; builds that fill the code registration at run time.
+- 32-bit builds get headers and prototypes pushed to IDA and Ghidra; Il2Cpp builds and minidumps are kept in sessions;
   `unity_overview` reads packages and iOS layouts.
 
 ### Android
@@ -1449,7 +1449,7 @@ build migration) and a batch of usability and analysis-depth work on top of it.
   1.8 s instead of 54 s). Changed, damaged or older-format entries are rebuilt; bounded by size (8 GB) and age (30 days),
   least recently used first. `--index-cache <dir|off>`, `--index-cache-mb`, `--index-cache-days`; shown in `server_status`.
 - **Imported names survive restarts.** Names from `load_pdb` and `apply_il2cpp_names` are saved beside user renames and
-  reapplied when the same file loads again, also with the PDB moved or deleted (434,680 names on an Il2Cpp title restored in 0.8 s).
+  reapplied when the same file loads again, also with the PDB moved or deleted (434,680 names on an Il2Cpp build restored in 0.8 s).
   `list_native_edits` lists each layer and whether it was restored; `clear=true` removes a layer.
 - **Engine preference** `engine=auto|ours|ida` (server default `--engine` / `CORVUS_ENGINE`): see above; `auto` never starts
   IDA and costs about 0.1 µs per call. With IDA, our names still win and RTTI virtual-call edges IDA lacks are added.
@@ -1460,14 +1460,14 @@ build migration) and a batch of usability and analysis-depth work on top of it.
 - **Virtual calls through RTTI.** `obj->vfunc()` sites are resolved from MSVC RTTI class hierarchies into
   `virtual_exact` / `virtual_possible` call-graph edges (+11,041 edges on Qt6Widgets.dll, +15,026 on Acrobat.dll).
   `find_virtual_calls` lists the sites; `crossCheck=true` compares with IDA (98-100% agreement on Qt6Widgets and
-  steamclient). `native_call_tree calls=direct|virtual`.
-- **Built-in Il2Cpp metadata reader.** `load_assembly` on an Il2Cpp game folder or `global-metadata.dat` reads metadata
-  versions 24-31 through LibCpp2IL, also from a memory dump of GameAssembly.dll; no external dumper. On a v31 title every method,
-  RVA, vtable slot, field and field offset matches Il2CppDumper's output. Unreadable metadata is an error with a reason;
+  a second large C++ DLL). `native_call_tree calls=direct|virtual`.
+- **Built-in Il2Cpp metadata reader.** `load_assembly` on an Il2Cpp build folder or `global-metadata.dat` reads metadata
+  versions 24-31, also from a memory dump of GameAssembly.dll; no external dumper. On a v31 build every method, RVA,
+  vtable slot, field and field offset matches a reference dump. Unreadable metadata is an error with a reason;
   unreadable items are listed by reason.
-- **`unity_overview`.** One call on a Unity title: engine version per source, Mono or Il2Cpp with evidence and metadata
+- **`unity_overview`.** One call on a Unity build: engine version per source, Mono or Il2Cpp with evidence and metadata
   state (readable, encrypted, header modified), toolchain and middleware markers (optional Detect
-  It Easy), and the next tool calls. Under 0.2 s on the titles tested.
+  It Easy), and the next tool calls. Under 0.2 s on the builds tested.
 - **`inspect_process`.** Read-only view of a running local process (Windows): modules, memory regions, threads and
   stacks, named through PE, PDB, Il2Cpp and user names. Opens only query and read handles, writes and suspends nothing,
   closes every handle before returning (docs/live-inspection.md).

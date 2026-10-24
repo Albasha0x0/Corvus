@@ -132,10 +132,10 @@ public sealed class ValueTraceImagesTests : IDisposable
         var host = CallAnalysis.For(index);
         var types = new NativeTraceTypes(ws, code);
         var helper = index.FunctionByStart(0x1040)!;
-        Assert.Equal("Player", types.ParameterType(host, helper, "rcx"));
+        Assert.Equal("Sensor", types.ParameterType(host, helper, "rcx"));
         Assert.Null(types.ParameterType(host, helper, "rdx"));
-        Assert.Equal("next", types.Member(host, "Player", 0x38));
-        Assert.Contains(types.Holders(host, "Player"), h => h.Function.Start == 0x1040 && h.Location == "rcx");
+        Assert.Equal("next", types.Member(host, "Sensor", 0x38));
+        Assert.Contains(types.Holders(host, "Sensor"), h => h.Function.Start == 0x1040 && h.Location == "rcx");
     }
 
     [Fact]

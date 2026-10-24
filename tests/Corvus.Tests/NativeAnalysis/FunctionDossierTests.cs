@@ -336,7 +336,7 @@ public sealed class FunctionDossierTests : IDisposable
         _ = new PdbService(code);
         var tools = new NativeFunctionTools(ws, code, new OutputPager(options));
         var text = await tools.AnalyzeNativeFunction(PdbTypeFixture.Image(_dir), "rva:0x1040", sections: "identity");
-        NativeLinkTests.Has(text, "prototype (pdb): int __cdecl helper(Player *, int)");
+        NativeLinkTests.Has(text, "prototype (pdb): int __cdecl helper(Sensor *, int)");
     }
 
     [Fact]

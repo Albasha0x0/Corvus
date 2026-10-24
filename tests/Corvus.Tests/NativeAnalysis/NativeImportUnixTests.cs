@@ -10,7 +10,7 @@ namespace Corvus.Tests;
 
 /// <summary>
 /// P/Invoke declarations checked against Linux, macOS and Android libraries on any host: target platform detection,
-/// .NET probing names and folders, ELF and Mach-O export matching, C++ mangled exports and __Internal in an Il2Cpp game.
+/// .NET probing names and folders, ELF and Mach-O export matching, C++ mangled exports and __Internal in an Il2Cpp build.
 /// </summary>
 public sealed class NativeImportUnixTests : IDisposable
 {
@@ -101,20 +101,20 @@ public sealed class NativeImportUnixTests : IDisposable
     }
 
     [Fact]
-    public void InternalBindsToTheIl2CppGameBinary()
+    public void InternalBindsToTheIl2CppBinary()
     {
-        // Dummy assemblies of an Android game with libil2cpp.so beside the dump.
-        var dummy = Put("game/DummyDll/Assembly-CSharp.dll", Roslyn.Compile("Assembly-CSharp", Source, new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary)));
-        Put("game/script.json", "{}"u8.ToArray());
-        Put("game/libil2cpp.so", Library("il2cpp_internal_fn", "il2cpp_init"));
-        Put("game/libcpp.so", Library("plain"));
+        // Dummy assemblies of an Android build with libil2cpp.so beside them.
+        var dummy = Put("app/DummyDll/Assembly-CSharp.dll", Roslyn.Compile("Assembly-CSharp", Source, new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary)));
+        Put("app/script.json", "{}"u8.ToArray());
+        Put("app/libil2cpp.so", Library("il2cpp_internal_fn", "il2cpp_init"));
+        Put("app/libcpp.so", Library("plain"));
         using var env = new Env();
         var checks = Verify(env, dummy, null, out var target);
         Assert.Equal(("android", "android-arm64"), (target.Os, target.Rid));
         Assert.Contains("libil2cpp.so", target.Source);
         Assert.Equal("verified", checks["il2cpp_internal_fn"].Status);
         Assert.Equal("internal", checks["il2cpp_internal_fn"].Reason);
-        Assert.Equal("verified", checks["plain"].Status); // the game binary's folder is probed too
+        Assert.Equal("verified", checks["plain"].Status); // the Il2Cpp binary's folder is probed too
     }
 
     [Fact]

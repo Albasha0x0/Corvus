@@ -37,7 +37,7 @@ public sealed class SearchTools(AssemblyWorkspace workspace, SearchService searc
 
     [McpServerTool(Name = "search_strings", Title = "Search string literals", UseStructuredContent = true, OutputSchemaType = typeof(StringList))]
     [Description("Find string literals (ldstr, string constants) by substring, wildcard or regex, with the method and IL offset using each. Il2Cpp " +
-                 "dummy DLLs: the game literals with slot RVAs and, with the binary, the functions loading them.")]
+                 "dummy assemblies: literals with slot RVAs and, with the binary, the functions loading them.")]
     public Task<string> SearchStrings(
         [Description("Substring, wildcard or regex.")] string query,
         [Description(AssemblyFilterDescription)] string? assembly = null,
@@ -85,7 +85,7 @@ public sealed class SearchTools(AssemblyWorkspace workspace, SearchService searc
         {
             header.Append($"No string literals match '{query}'.");
             if (il2cppStrings.DumpsFor(scope).Count == 0 && scope.Any(a => il2cpp.GetIndex(a).Count > 0))
-                header.Append($" Il2Cpp dummy DLLs have empty bodies: put the dump's {Il2CppDumpFiles.StringLiteralFileName} and {Il2CppDumpFiles.ScriptFileName} in the DummyDll folder or its parent to search the game's literals.");
+                header.Append($" Il2Cpp dummy assemblies have empty bodies: put {Il2CppDumpFiles.StringLiteralFileName} and {Il2CppDumpFiles.ScriptFileName} in their folder or its parent to search the build's literals.");
             header.Append('\n');
         }
         else if (literals.Count > 0)
@@ -123,7 +123,7 @@ public sealed class SearchTools(AssemblyWorkspace workspace, SearchService searc
             return;
         }
         var (first, names) = dump.Script?.MethodRange(function) ?? (0, 0);
-        if (names == 0) { sb.AppendLine($"{prefix}function at RVA 0x{function:X}{count} (no method name in the dump)"); return; }
+        if (names == 0) { sb.AppendLine($"{prefix}function at RVA 0x{function:X}{count} (no method name in script.json)"); return; }
         sb.AppendLine($"{prefix}{dump.Script!.MethodName(first)}  RVA 0x{function:X}{count} (script.json; no dummy method starts here)" +
                       (names > 1 ? $" and {names - 1} more names sharing this code" : ""));
     }

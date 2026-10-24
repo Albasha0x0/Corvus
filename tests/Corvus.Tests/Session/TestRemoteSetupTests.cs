@@ -53,7 +53,7 @@ public sealed class TestRemoteSetupTests : IDisposable
         Directory.CreateDirectory(bundles);
         File.WriteAllText(Path.Combine(assemblies, "a.dll"), "abc");
         File.WriteAllText(Path.Combine(bundles, "old.js"), "12345");
-        // Il2CppDumper's layout: a DummyDll folder with script.json beside it.
+        // A dump layout: a DummyDll folder with script.json beside it.
         var dummy = Path.Combine(_dir.Path, "dumper", "DummyDll");
         Directory.CreateDirectory(dummy);
         File.WriteAllText(Path.Combine(dummy, "A.dll"), "a");

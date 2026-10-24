@@ -1,4 +1,4 @@
-// Mimics the attributes Il2CppDumper injects into its DummyDll output.
+// The attributes Il2Cpp dummy assemblies carry.
 namespace Il2CppDummyDll
 {
     [AttributeUsage(AttributeTargets.All)]
@@ -39,7 +39,7 @@ namespace Fixture.Native
         [Address(RVA = "0x1100", Offset = "0x500", VA = "0x180001100", Slot = "4")]
         public virtual void Second() { }
 
-        // Il2CppDumper output for a generic method with no native body of its own.
+        // Dummy-assembly output for a generic method with no native body of its own.
         [Address(RVA = "0xA5399800A5350", Offset = "0x0", VA = "0xA539B000A5350")]
         public static T Shared<T>(T value) => value;
     }

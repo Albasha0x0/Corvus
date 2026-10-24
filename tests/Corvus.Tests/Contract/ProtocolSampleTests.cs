@@ -54,7 +54,7 @@ public partial class ProtocolSampleTests
         ["symbolize_stack_text"] = new() { ["text"] = "System.Exception: boom\n   at Fixture.Model.Account.Charge(Int32 amount)" },
         // Edits preview by default; stub_method applies, so undo_edit (recorded after it) has an edit to undo.
         ["add_members_csharp"] = new() { ["type"] = "Account", ["code"] = "public int Twice(int x) { return x * 2; }" },
-        ["add_types_csharp"] = new() { ["assembly"] = "TestFixture", ["code"] = "namespace Mods { public static class M { public static int One() { return 1; } } }" },
+        ["add_types_csharp"] = new() { ["assembly"] = "TestFixture", ["code"] = "namespace Extras { public static class M { public static int One() { return 1; } } }" },
         ["diff_edits"] = new() { ["assembly"] = "TestFixture" },
         ["list_edits"] = new() { ["assembly"] = "TestFixture" },
         ["patch_method_csharp"] = new() { ["method"] = "Secret::Validate", ["code"] = "return true;" },
@@ -96,7 +96,7 @@ public partial class ProtocolSampleTests
         // Containers and Android packages
         ["search_container"] = new() { ["path"] = In + "lz4.nupkg", ["query"] = "LZ4Codec", ["kind"] = "type" },
         ["unpack_container"] = new() { ["path"] = In + "lz4.nupkg", ["outputDirectory"] = In + "unpack", ["extractOnly"] = true, ["limit"] = 5 },
-        ["unity_overview"] = new() { ["path"] = In + "MonoGame" },
+        ["unity_overview"] = new() { ["path"] = In + "MonoApp" },
         ["analyze_js"] = new() { ["path"] = In + "bundle.js" },
         ["get_android_manifest"] = new() { ["path"] = In + "app.apk" },
         ["list_android_resources"] = new() { ["path"] = In + "app.apk", ["type"] = "string" },
@@ -154,7 +154,7 @@ public partial class ProtocolSampleTests
         ["verify_native_imports"] = new() { ["assembly"] = "TestFixture", ["platform"] = "windows" },
         ["load_pdb"] = new() { ["image"] = In + "tiny.dll" },
         ["search_pdb_symbols"] = new() { ["image"] = In + "tiny.dll", ["query"] = "Foo" },
-        ["get_native_type"] = new() { ["image"] = In + "typed.dll", ["name"] = "Game", ["at"] = "0xD8" },
+        ["get_native_type"] = new() { ["image"] = In + "typed.dll", ["name"] = "Team", ["at"] = "0xD8" },
         ["apply_il2cpp_names"] = new() { ["image"] = In + "il2cpp.dll", ["assembly"] = "TestFixture" },
         // Native edits (edit.dll has a fresh hash every run, so its sidecar starts empty)
         ["comment_native"] = new() { ["image"] = In + "edit.dll", ["address"] = "First", ["text"] = "entry", ["dryRun"] = false },

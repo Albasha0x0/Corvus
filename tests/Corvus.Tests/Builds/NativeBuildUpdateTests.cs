@@ -113,8 +113,8 @@ public class NativeBuildUpdateTests(ITestOutputHelper output)
         ann.SetMany([(F1, "ReadGlobal"), (F5, "Removed"), (F6, "Duplicated")], [(F1 + 6, "adds the bias")]);
         foreach (var (rva, name) in ann.Names()) oldIdx.SetUserName(rva, name);
         NativeNameLayers.Of(oldN).Set(new NativeNameLayers.Layer(NativeNameSource.Pdb, new Dictionary<uint, string> { [F2] = "pdb_f2" }, new Dictionary<uint, string>(), "old.pdb"), oldIdx);
-        NativeNameLayers.Of(oldN).Set(new NativeNameLayers.Layer(NativeNameSource.Il2Cpp, new Dictionary<uint, string> { [F3] = "Game_Thing__Update" },
-            new Dictionary<uint, string> { [F3] = "Game.Thing::Update()" }, "Il2Cpp metadata (test)"), oldIdx);
+        NativeNameLayers.Of(oldN).Set(new NativeNameLayers.Layer(NativeNameSource.Il2Cpp, new Dictionary<uint, string> { [F3] = "App_Thing__Update" },
+            new Dictionary<uint, string> { [F3] = "App.Thing::Update()" }, "Il2Cpp metadata (test)"), oldIdx);
 
         async Task Apply(Func<NativeCodeIndex, NativeEditService.PatchResult> make)
         {
@@ -242,7 +242,7 @@ public class NativeBuildUpdateTests(ITestOutputHelper output)
         Assert.Equal(("refused", "function_not_matched"), One(dry, "names", i => i.Value == "Removed") is var removed ? (removed.Outcome, removed.Reason) : default);
         Assert.Equal("ambiguous", One(dry, "names", i => i.Value == "Duplicated").Outcome);
         Assert.Equal(("not_applicable", "pdb_mismatch"), One(dry, "pdb", _ => true) is var p ? (p.Outcome, p.Reason) : default);
-        var il2 = One(dry, "il2cpp_names", i => i.Value == "Game_Thing__Update");
+        var il2 = One(dry, "il2cpp_names", i => i.Value == "App_Thing__Update");
         Assert.Equal(("would_carry", Va(F3 + Shift)), (il2.Outcome, il2.NewAddress));
 
         Assert.Equal(Va(F1 + Shift + 6), One(dry, "patches", i => i.OldAddress == Va(F1 + 6)).NewAddress);
@@ -292,7 +292,7 @@ public class NativeBuildUpdateTests(ITestOutputHelper output)
         Assert.Equal("ReadGlobal", h.Code.Annotations(newN).NameAt(F1 + Shift));
         var carried = NativeNameLayers.Of(newN).Get(NativeNameSource.Il2Cpp);
         Assert.StartsWith("carried by match from", carried!.Origin);
-        Assert.Equal("Game_Thing__Update", carried.Names[F3 + Shift]);
+        Assert.Equal("App_Thing__Update", carried.Names[F3 + Shift]);
         Assert.Contains("confidence", carried.Comments[F3 + Shift]);
 
         // ---- re-run: nothing applied twice ----
@@ -300,7 +300,7 @@ public class NativeBuildUpdateTests(ITestOutputHelper output)
         Assert.Equal(3, newN.Patches.Patches.Count);
         Assert.Equal(3, again.Categories.Single(c => c.Category == "patches").AlreadyPresent);
         Assert.Equal("already_present", One(again, "names", i => i.Value == "ReadGlobal").Outcome);
-        Assert.Equal("already_present", One(again, "il2cpp_names", i => i.Value == "Game_Thing__Update").Outcome);
+        Assert.Equal("already_present", One(again, "il2cpp_names", i => i.Value == "App_Thing__Update").Outcome);
     }
 
     [Fact]

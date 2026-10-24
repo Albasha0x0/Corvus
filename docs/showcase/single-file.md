@@ -35,10 +35,11 @@ Comparing Notes (samples/Notes/v1/bin/unpacked/Notes.dll; SHA-256 <sha256-1>, MV
 Types: 0 renamed, 0 with member changes, 0 removed, 0 added (8 matched of 8 old).
 Members (each change of a member counted): 0 renamed, 0 moved, 0 signature, 0 body, 0 metadata, 0 type, 0 offset, 0 address, 0 added, 0 removed, 0 ambiguous, 0 unknown
 Member matches: 76 exact, 0 strong, 0 structural, 0 ambiguous (by tier: full name + signature 56, full name 20).
+Capabilities (survey_features rules and kept capa labels): 0 added, 0 removed.
 
 0 changes:
 [End: 0 changes]
 ```
 
-Both builds of `Notes.dll` carry the same SHA-256 label: the extracted assembly is identical to the one the publish
-step left in the folder build, and the comparison finds no change.
+Both copies of `Notes.dll` have the same SHA-256: the extracted assembly is identical to the folder build's, and the
+comparison finds no change.

@@ -58,7 +58,7 @@ each leads its own process group, which a shell parent ends within a second of t
 is killed. `get_engine_status` shows the worker's process id. IDA runs with a private user directory and no user
 plugins; Ghidra with private home, settings, cache and temporary folders. Engine workers inherit the server's
 environment (Ghidra without the Java option variables); other external tools get a minimal one. These engines parse
-the input themselves; their own vulnerabilities are outside this boundary, but report a way through Corvus to reach
+the input themselves; their own vulnerabilities are outside this boundary, but report any way through Corvus to reach
 them with more than an input file.
 
 What starts a program outside Corvus:
@@ -74,7 +74,7 @@ What starts a program outside Corvus:
 | `emulate_native engine=speakeasy` | speakeasy |
 | a capture filter on a field the built-in decoder does not know | TShark |
 | `summarize_file` on Python bytecode; `summarize_file view=dependencies` (advisories) | pycdc; osv-scanner (offline) |
-| `survey_features` on an Il2Cpp game | capa |
+| `survey_features` on an Il2Cpp build | capa |
 | a snapshot of a running program on Linux; on macOS | gcore; lldb |
 | `ida_python`, `ghidra_script` (behind their opt-ins) | code in the engine workers |
 | the session tools (behind their opt-ins) | a Python worker with Frida's bindings; `live_timeline` an event tracing session; `live_session action=spawn` and `live_console action=start` the program they name |

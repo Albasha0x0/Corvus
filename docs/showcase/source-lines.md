@@ -132,9 +132,8 @@ Disassemble one method with `source=true`:
 } // end of method ModuleDefinition::ReadModule
 ```
 
-The PDB is used only because its id equals the one the image records; a PDB of another build is named and refused
-instead of putting wrong lines on the IL. Each sequence point stands at its IL offset as `// line start-end`, with the
-document where it changes, given as its SourceLink URL (the source file of that exact commit) when the PDB carries
-SourceLink. Hidden points (compiler-generated code such as the `finally` of a `using`) read `// hidden`, and the
-locals take their source names (`stream`, `memory`) from the PDB's local scopes. An embedded Portable PDB is read the
-same way.
+The PDB is used only because its id matches the one the image records. A PDB of another build is named and refused,
+not applied with wrong lines. Each sequence point stands at its IL offset as `// line start-end`, with the document
+where it changes. With SourceLink, the document is the URL of the source file at that exact commit. Hidden points
+(compiler-generated code such as the `finally` of a `using`) read `// hidden`. Locals take their source names
+(`stream`, `memory`) from the PDB's local scopes. An embedded Portable PDB is read the same way.

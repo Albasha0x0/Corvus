@@ -245,7 +245,7 @@ public sealed class JavaDotNetMapTests : IDisposable
                 public static System.IntPtr GetStaticMethodID(System.IntPtr clazz, string name, string sig) => default;
             }
         }
-        namespace Game
+        namespace App
         {
             using UnityEngine;
             public class Bridge
@@ -290,8 +290,8 @@ public sealed class JavaDotNetMapTests : IDisposable
         haptics.Method("vibrate", "V", ["J", "I"], 9, Asm.ReturnVoid()).Registers = 3;
         haptics.Method("vibrate", "V", ["J"], 9, Asm.ReturnVoid()).Registers = 2;
         b.Class("Lcom/example/plugin/Bridge$Callback;", 0x601).Method("onResult", "V", ["Ljava/lang/String;"], 0x401);
-        var game = Roslyn.Release("Assembly-CSharp", UnitySource);
-        return AndroidSamples.Save(_dir, "unity.apk", AndroidSamples.Apk(30, ("classes.dex", b.Build()), ("assets/bin/Data/Managed/Assembly-CSharp.dll", game)));
+        var scripts = Roslyn.Release("Assembly-CSharp", UnitySource);
+        return AndroidSamples.Save(_dir, "unity.apk", AndroidSamples.Apk(30, ("classes.dex", b.Build()), ("assets/bin/Data/Managed/Assembly-CSharp.dll", scripts)));
     }
 
     [Fact]
@@ -300,13 +300,13 @@ public sealed class JavaDotNetMapTests : IDisposable
         var map = new JavaDotNetMap(_workspace, new DexService());
         var apk = UnityApk();
         string Pairs(string symbol) => string.Join(" | ", map.Map(symbol, apk, default).Items.Select(i => $"{i.DotNet} {i.Basis} {i.Confidence}"));
-        Assert.Equal("Game.Bridge::Send(string) unity_call name_and_arity", Pairs("Lcom/example/plugin/Bridge;->send(Ljava/lang/String;)V"));
-        Assert.Equal("Game.Bridge::Count() unity_call name_and_arity", Pairs("Lcom/example/plugin/Bridge;->count()I"));
-        Assert.Equal("Game.Bridge::Vibrate() unity_call name_and_arity | Game.Bridge::Raw() unity_jni descriptor", Pairs("Lcom/example/plugin/Haptics;->vibrate(JI)V"));
+        Assert.Equal("App.Bridge::Send(string) unity_call name_and_arity", Pairs("Lcom/example/plugin/Bridge;->send(Ljava/lang/String;)V"));
+        Assert.Equal("App.Bridge::Count() unity_call name_and_arity", Pairs("Lcom/example/plugin/Bridge;->count()I"));
+        Assert.Equal("App.Bridge::Vibrate() unity_call name_and_arity | App.Bridge::Raw() unity_jni descriptor", Pairs("Lcom/example/plugin/Haptics;->vibrate(JI)V"));
         Assert.Equal(ErrorCode.NotFound, Assert.Throws<ToolError>(() => map.Map("Lcom/example/plugin/Haptics;->vibrate(J)V", apk, default)).Code);
-        Assert.Equal("Game.Listener::onResult(string) unity_proxy name_and_arity", Pairs("Lcom/example/plugin/Bridge$Callback;->onResult(Ljava/lang/String;)V"));
-        Assert.Equal("Game.Listener unity_proxy name_match", Pairs("Lcom/example/plugin/Bridge$Callback;"));
-        Assert.Contains("Game.Bridge::Init() unity_new", Pairs("Lcom/example/plugin/Bridge;"));
+        Assert.Equal("App.Listener::onResult(string) unity_proxy name_and_arity", Pairs("Lcom/example/plugin/Bridge$Callback;->onResult(Ljava/lang/String;)V"));
+        Assert.Equal("App.Listener unity_proxy name_match", Pairs("Lcom/example/plugin/Bridge$Callback;"));
+        Assert.Contains("App.Bridge::Init() unity_new", Pairs("Lcom/example/plugin/Bridge;"));
         Assert.Equal(Pairs("Lcom/unity3d/player/UnityPlayer;"), Pairs("com.unity3d.player.UnityPlayer")); // the dotted form
         Assert.Equal("assets/bin/Data/Managed/Assembly-CSharp.dll", map.Map("Lcom/example/plugin/Bridge;", apk, default).Items[0].Assembly);
     }
@@ -318,19 +318,19 @@ public sealed class JavaDotNetMapTests : IDisposable
         var apk = UnityApk();
         string Pairs(string symbol, string? path) => string.Join(" | ", map.Map(symbol, path, default).Items.Select(i => $"{i.Java} {i.Basis} {i.Confidence}"));
         Assert.Equal("Lcom/example/plugin/Haptics; unity_new name_match | Lcom/example/plugin/Haptics;->vibrate(JI)V unity_call name_and_arity",
-            Pairs("Game.Bridge::Vibrate", apk));
-        var init = Pairs("Game.Bridge::Init", apk);
+            Pairs("App.Bridge::Vibrate", apk));
+        var init = Pairs("App.Bridge::Init", apk);
         Assert.Contains("Lcom/unity3d/player/UnityPlayer; unity_new name_match", init);
         Assert.Contains("Lcom/unity3d/player/UnityPlayer;->currentActivity:Landroid/app/Activity; unity_call name_and_arity", init);
         Assert.Contains("Lcom/example/plugin/Bridge; unity_new name_match", init);
-        Assert.Equal("Lcom/example/plugin/Bridge$Callback;->onResult(Ljava/lang/String;)V unity_proxy name_and_arity", Pairs("Game.Listener::onResult", apk));
-        Assert.Contains("Lcom/example/plugin/Haptics;->vibrate(JI)V unity_jni descriptor", Pairs("Game.Bridge", apk));
+        Assert.Equal("Lcom/example/plugin/Bridge$Callback;->onResult(Ljava/lang/String;)V unity_proxy name_and_arity", Pairs("App.Listener::onResult", apk));
+        Assert.Contains("Lcom/example/plugin/Haptics;->vibrate(JI)V unity_jni descriptor", Pairs("App.Bridge", apk));
 
         // loaded without the package: names, not DEX ids
         File.WriteAllBytes(_dir.File("Assembly-CSharp.dll"), Roslyn.Release("Assembly-CSharp", UnitySource));
         _workspace.Load(_dir.File("Assembly-CSharp.dll"));
-        Assert.Equal("Lcom/example/plugin/Bridge;->send unity_call name_match", Pairs("Game.Bridge::Send", null));
-        Assert.True(map.Map("Game.Bridge::Send", null, default).Items.Single().Loaded);
+        Assert.Equal("Lcom/example/plugin/Bridge;->send unity_call name_match", Pairs("App.Bridge::Send", null));
+        Assert.True(map.Map("App.Bridge::Send", null, default).Items.Single().Loaded);
     }
 
     /// <summary>Not-found results speak of the app's bridge: AndroidJavaClass and friends for Unity, [Register] for .NET for Android; hints carry the package.</summary>
@@ -339,7 +339,7 @@ public sealed class JavaDotNetMapTests : IDisposable
     {
         var map = new JavaDotNetMap(_workspace, new DexService());
         var unity = UnityApk();
-        var plain = Assert.Throws<ToolError>(() => map.Map("Game.Score", unity, default));
+        var plain = Assert.Throws<ToolError>(() => map.Map("App.Score", unity, default));
         Assert.Contains("reaches no Java class or member: no AndroidJavaClass", plain.Message);
         Assert.DoesNotContain("[Register]", plain.Message);
         var java = Assert.Throws<ToolError>(() => map.Map("Lcom/example/Unused;", unity, default));

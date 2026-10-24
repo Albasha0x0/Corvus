@@ -3,9 +3,9 @@ using Corvus.Core;
 namespace Corvus.Services;
 
 /// <summary>
-/// String literals of an Il2Cpp game, which dummy DLLs do not carry (their bodies are empty): the literal table from
+/// String literals of an Il2Cpp build, which dummy DLLs do not carry (their bodies are empty): the literal table from
 /// stringliteral.json (or script.json's ScriptString), and the native functions that load each literal's slot, found by
-/// scanning the game binary's code and mapped to dummy-DLL methods through their [Address] RVAs, or to script.json names
+/// scanning the native binary's code and mapped to dummy-DLL methods through their [Address] RVAs, or to script.json names
 /// (generic instantiations) where no dummy method starts there. Built per dump on first use and kept until the dump's
 /// files change or its assemblies are unloaded.
 /// </summary>
@@ -212,7 +212,7 @@ public sealed class Il2CppStringService
 }
 
 /// <summary>
-/// The string literals of one Il2CppDumper dump and, when the game binary is present, the code that loads them; also
+/// The string literals of one dump and, when the native binary is present, the code that loads them; also
 /// the dump's script.json index and binary sections, which <see cref="Il2CppNavigator"/> uses.
 /// </summary>
 public sealed class Il2CppStringIndex
@@ -255,10 +255,10 @@ public sealed class Il2CppStringIndex
     /// <summary>script.json function starts and names; null without script.json.</summary>
     public Il2CppScript? Script => _script.Value;
 
-    /// <summary>Sections and preferred image base of the game binary; null without it or when it is not an x64 PE image.</summary>
+    /// <summary>Sections and preferred image base of the native binary; null without it or when it is not an x64 PE image.</summary>
     public (List<NativeCodeScanner.Section> Sections, ulong ImageBase)? Binary => _binary.Value;
 
-    /// <summary>Code references from the game binary; null when it, or script.json for the function starts, is missing.</summary>
+    /// <summary>Code references from the native binary; null when it, or script.json for the function starts, is missing.</summary>
     public NativeReferences? References => _references.Value;
 
     /// <summary>Why <see cref="References"/> is null, or a problem found while scanning.</summary>
@@ -305,7 +305,7 @@ public sealed class Il2CppStringIndex
 
     private NativeReferences? ScanReferences()
     {
-        if (Files.GameAssembly == null) { ReferenceProblem = "no game binary next to the dump"; return null; }
+        if (Files.GameAssembly == null) { ReferenceProblem = "no native binary next to the dump"; return null; }
         var watch = System.Diagnostics.Stopwatch.StartNew();
         Il2CppScript? script;
         try { script = Script; }
@@ -326,7 +326,7 @@ public sealed class Il2CppStringIndex
         ulong low = addresses[0], high = addresses[^1];
         if (high > uint.MaxValue || !sections.Any(s => !s.Executable && s.Contains(low)) || !sections.Any(s => !s.Executable && s.Contains(high)))
         {
-            ReferenceProblem = $"the literal slots (0x{low:X}-0x{high:X}) are outside the data sections of {Il2CppDumpFiles.GameAssemblyFileName}: another build of the game?";
+            ReferenceProblem = $"the literal slots (0x{low:X}-0x{high:X}) are outside the data sections of {Il2CppDumpFiles.GameAssemblyFileName}: another build?";
             return null;
         }
 
@@ -379,14 +379,14 @@ public sealed class Il2CppStringIndex
         for (int i = 0; i < functionKeys.Length; i++)
             if (i == 0 || functionKeys[i] != functionKeys[i - 1]) distinctFunctions++;
         if (sites.Length == 0)
-            ReferenceProblem = $"no code in {Il2CppDumpFiles.GameAssemblyFileName} loads a literal slot: packed or encrypted code, or another build of the game?";
+            ReferenceProblem = $"no code in {Il2CppDumpFiles.GameAssemblyFileName} loads a literal slot: packed or encrypted code, or another build?";
         return new NativeReferences(first, sites, functions, functionKeys, functionLiterals, distinctFunctions, referenced, watch.Elapsed);
     }
 
     /// <summary>One line on where the literals and their references come from.</summary>
     public string Describe()
     {
-        var source = Files.StringLiteralJson ?? Files.ScriptJson ?? (Files.Model != null ? $"the game's metadata (built-in reader, {Files.Model})" : null);
+        var source = Files.StringLiteralJson ?? Files.ScriptJson ?? (Files.Model != null ? $"the build's metadata (built-in reader, {Files.Model})" : null);
         var text = $"{Values.Length} literals from {source}";
         if (References is { } r)
             text += $"; code references from {Files.GameAssembly}: {r.Sites.Length} loads of {r.ReferencedLiterals} literals in {r.Functions} functions";

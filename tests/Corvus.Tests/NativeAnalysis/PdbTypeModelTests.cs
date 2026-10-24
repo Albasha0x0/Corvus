@@ -25,15 +25,15 @@ public sealed class PdbTypeModelTests(ITestOutputHelper output) : IDisposable
         var model = PdbTypeModel.Read(Fixture(), 8);
         Assert.DoesNotContain(model.Notes, n => n.Contains("TPI", StringComparison.Ordinal));
 
-        var player = Named(model, "Player");
-        Assert.Equal((PdbTypeKind.Struct, 0x40L, false), (player.Kind, player.Size, player.Forward));
-        Assert.Equal(["header +0x0 Header", "pos +0xC Vec", "val +0x18 Value", "scores +0x24 int[4]", "next +0x38 Player *"],
-            player.Members.Select(m => $"{m.Name} +0x{m.Offset:X} {model.Spell(m.Type)}"));
-        var scores = model.Node(player.Members[3].Type)!;
-        Assert.Equal((PdbTypeKind.Array, 4L, 16L, 0x74u), (scores.Kind, scores.Count, scores.Size, scores.Element));
+        var sensor = Named(model, "Sensor");
+        Assert.Equal((PdbTypeKind.Struct, 0x40L, false), (sensor.Kind, sensor.Size, sensor.Forward));
+        Assert.Equal(["header +0x0 Header", "pos +0xC Vec", "val +0x18 Value", "levels +0x24 int[4]", "next +0x38 Sensor *"],
+            sensor.Members.Select(m => $"{m.Name} +0x{m.Offset:X} {model.Spell(m.Type)}"));
+        var levels = model.Node(sensor.Members[3].Type)!;
+        Assert.Equal((PdbTypeKind.Array, 4L, 16L, 0x74u), (levels.Kind, levels.Count, levels.Size, levels.Element));
         // the pointer names the forward record, which resolves to the definition
-        var next = model.Node(player.Members[4].Type)!;
-        Assert.Equal(player.Index, model.DefinitionOf(next.Element));
+        var next = model.Node(sensor.Members[4].Type)!;
+        Assert.Equal(sensor.Index, model.DefinitionOf(next.Element));
 
         var header = Named(model, "Header");
         Assert.Equal([("urgent", 1, 0), ("retries", 3, 1)], header.Members.Where(m => m.BitLength >= 0).Select(m => (m.Name, m.BitLength, m.BitPosition)));
@@ -43,9 +43,9 @@ public sealed class PdbTypeModelTests(ITestOutputHelper output) : IDisposable
         Assert.Equal((PdbTypeKind.Enum, 4L), (color.Kind, color.Size));
         Assert.Equal(["Blue=4", "Red=1", "Green=2"], color.Enumerators.Select(e => $"{e.Name}={e.Value}"));
 
-        var game = Named(model, "Game");
-        Assert.Equal(PdbMemberKind.Static, game.Members.Single(m => m.Name == "instances").Kind);
-        Assert.Equal("Player[4]", model.Spell(game.Members[1].Type));
+        var team = Named(model, "Team");
+        Assert.Equal(PdbMemberKind.Static, team.Members.Single(m => m.Name == "instances").Kind);
+        Assert.Equal("Sensor[4]", model.Spell(team.Members[1].Type));
 
         var baseClass = Named(model, "Base");
         Assert.Equal(PdbTypeKind.Class, baseClass.Kind);
@@ -60,7 +60,7 @@ public sealed class PdbTypeModelTests(ITestOutputHelper output) : IDisposable
 
         var proc = model.Node(0x1001)!;
         Assert.Equal(PdbTypeKind.Procedure, proc.Kind);
-        Assert.Equal("int __cdecl(Player *, int)", proc.Name);
+        Assert.Equal("int __cdecl(Sensor *, int)", proc.Name);
         Assert.Equal((0x74u, 2, "__cdecl"), (proc.Function!.Return, proc.Function.Parameters.Count, proc.Function.Convention));
         var method = model.Node(model.FunctionTypeOf(Enumerable.Range(0x1000, model.Records).Select(i => (uint)i)
             .First(i => model.Node(i)?.Kind == PdbTypeKind.MemberFunction)))!;
@@ -90,14 +90,14 @@ public sealed class PdbTypeModelTests(ITestOutputHelper output) : IDisposable
         var decls = PdbTypes.Build(Fixture(), 8);
         output.WriteLine(decls.Declarations);
         Assert.Equal(Golden, decls.Declarations);
-        Assert.Equal(["int __cdecl f(struct Player *, int);", "int __cdecl f(struct Player *, int);"], decls.Prototypes.Select(p => p.Declaration));
+        Assert.Equal(["int __cdecl f(struct Sensor *, int);", "int __cdecl f(struct Sensor *, int);"], decls.Prototypes.Select(p => p.Declaration));
         Assert.Equal(["typedef_unwritable=1"], decls.Skipped.Select(k => $"{k.Key}={k.Value}")); // Opaque: forward only
     }
 
     private static readonly string Golden = """
         #pragma pack(push, 1)
-        struct Player;
-        struct Game;
+        struct Sensor;
+        struct Team;
         struct Derived;
         struct Dup;
         struct Dup_2;
@@ -133,20 +133,20 @@ public sealed class PdbTypeModelTests(ITestOutputHelper output) : IDisposable
           float f;
           struct Vec v;
         };
-        struct Player
+        struct Sensor
         {
           struct Header header;
           struct Vec pos;
           union Value val;
-          int scores[4];
+          int levels[4];
           unsigned char __pad0[4];
-          struct Player *next;
+          struct Sensor *next;
         };
-        struct Game
+        struct Team
         {
           int count;
           unsigned char __pad0[4];
-          struct Player players[4];
+          struct Sensor sensors[4];
         };
         struct Base
         {
@@ -168,7 +168,7 @@ public sealed class PdbTypeModelTests(ITestOutputHelper output) : IDisposable
         {
           __int64 b;
         };
-        typedef struct Player *PPlayer;
+        typedef struct Sensor *PSensor;
         #pragma pack(pop)
         """ + "\n";
 }

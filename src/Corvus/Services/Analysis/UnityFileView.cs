@@ -7,8 +7,8 @@ namespace Corvus.Services.Analysis;
 /// <summary>
 /// view=unity: a Unity serialized file (.assets, levelN, sharedassetsN, globalgamemanagers) or a UnityFS asset bundle,
 /// with its MonoBehaviour assets and their script fields as "field = value". Each asset names its layout source: the
-/// file's own type tree, the script's assembly from the Managed folder beside the file, or the Il2Cpp metadata a load
-/// of the game read. A layout is kept only when it reads exactly the object's size; a field that cannot be laid out is
+/// file's own type tree, the script's assembly from the Managed folder beside the file, or Il2Cpp metadata read by an
+/// earlier load. A layout is kept only when it reads exactly the object's size; a field that cannot be laid out is
 /// unknown with its reason. script= keeps one script class; offset= and limit= page the assets.
 /// </summary>
 internal sealed class UnityFileView : IFileSummaryView
@@ -128,7 +128,7 @@ internal sealed class UnityFileView : IFileSummaryView
 
     /// <summary>
     /// The files a view reads beside the one asked for: serialized files a script pointer names (other entries of the
-    /// bundle, or files in the same folder), and the Managed or Il2Cpp dummy assemblies of the game.
+    /// bundle, or files in the same folder), and the Managed or Il2Cpp dummy assemblies of the build.
     /// </summary>
     private sealed class Context(string path, IReadOnlyList<SerializedFile> files) : IDisposable
     {
@@ -274,7 +274,7 @@ internal sealed class UnityFileView : IFileSummaryView
             return lines.Count > MaxFields ? [.. lines.Take(MaxFields), $"... {lines.Count - MaxFields} more fields"] : lines;
         }
 
-        /// <summary>The script's class from the Managed folder beside the file, else from a cached Il2Cpp load of the game.</summary>
+        /// <summary>The script's class from the Managed folder beside the file, else from a cached Il2Cpp load of the build.</summary>
         private (TypeDef?, string Source, string? Problem) Type(UnityScriptClass script)
         {
             var key = $"{script.Assembly}|{script.FullName}";
@@ -282,7 +282,7 @@ internal sealed class UnityFileView : IFileSummaryView
             var (managed, dummies) = _assemblies ??= Assemblies();
             var assembly = script.Assembly.EndsWith(".dll", StringComparison.OrdinalIgnoreCase) ? script.Assembly : script.Assembly + ".dll";
             (TypeDef?, string, string?) result = (null, "none",
-                $"no assembly for {script.FullName}: {assembly} is not in a Managed folder beside the file, and no Il2Cpp metadata of the game was read (load_assembly the game folder reads it)");
+                $"no assembly for {script.FullName}: {assembly} is not in a Managed folder beside the file, and no Il2Cpp metadata was read (load_assembly the application folder reads it)");
             foreach (var (dir, source) in new[] { (managed, "assembly"), (dummies, "metadata") })
             {
                 if (dir == null || Module(Path.Combine(dir, assembly)) is not { } module) continue;
@@ -324,7 +324,7 @@ internal sealed class UnityFileView : IFileSummaryView
             return _modules[file] = module;
         }
 
-        /// <summary>The Managed folder in or above the file's folder, and the cached Il2Cpp dummy assemblies of the game there.</summary>
+        /// <summary>The Managed folder in or above the file's folder, and the cached Il2Cpp dummy assemblies of the build there.</summary>
         private (string?, string?) Assemblies()
         {
             string? managed = null, dummies = null;
@@ -337,7 +337,7 @@ internal sealed class UnityFileView : IFileSummaryView
                 {
                     try
                     {
-                        if (Il2CppGameFiles.Find(dir) is { } game) dummies = Il2CppRawLoader.CachedDummies(game);
+                        if (Il2CppBuildFiles.Find(dir) is { } build) dummies = Il2CppRawLoader.CachedDummies(build);
                     }
                     catch (ToolError) { }
                 }

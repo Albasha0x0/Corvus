@@ -7,8 +7,8 @@ using Corvus.Services;
 namespace Corvus.Tests;
 
 /// <summary>
-/// generate_cpp_binding for Il2Cpp games: the il2cpp style on a module shaped like a dumper's dummy DLL, and the
-/// projects that call the runtime's exports themselves (the shapes of real mod projects) choosing it.
+/// generate_cpp_binding for Il2Cpp builds: the il2cpp style on a module shaped like a dummy assembly, and the
+/// projects that call the runtime's exports themselves choosing it.
 /// </summary>
 public sealed class CppBindingIl2CppTests : IDisposable
 {
@@ -24,7 +24,7 @@ public sealed class CppBindingIl2CppTests : IDisposable
             public class TokenAttribute : Attribute { public string Token; }
             public class FieldOffsetAttribute : Attribute { public string Offset; }
         }
-        namespace Game
+        namespace App
         {
             using Il2CppDummyDll;
             public struct Vec { [FieldOffset(Offset = "0x0")] public float x; [FieldOffset(Offset = "0x4")] public float y; [FieldOffset(Offset = "0x8")] public float z; }
@@ -63,11 +63,11 @@ public sealed class CppBindingIl2CppTests : IDisposable
         }
         """;
 
-    private string Generate(string? projectDir = null, string? style = null, string type = "Game.Player")
+    private string Generate(string? projectDir = null, string? style = null, string type = "App.Player")
     {
-        var path = _dir.File("Game.dll");
+        var path = _dir.File("App.dll");
         if (!File.Exists(path))
-            File.WriteAllBytes(path, Roslyn.Compile("Game", Source, new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary)));
+            File.WriteAllBytes(path, Roslyn.Compile("App", Source, new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary)));
         using var ws = new AssemblyWorkspace(new ServerOptions { BackgroundIndexing = false, WatchFiles = false });
         var asm = ws.Load(path);
         return ws.Read(() =>
@@ -84,12 +84,12 @@ public sealed class CppBindingIl2CppTests : IDisposable
         var code = Generate();
         Assert.StartsWith("// Style il2cpp: Il2Cpp dummy assembly ([Address] attributes); no projectDir.", code);
         Assert.Contains("get(class_from_name, \"il2cpp_class_from_name\");", code);
-        Assert.Contains("klass = FindClass(api, \"Game\", \"Game\", \"Player\");", code);
+        Assert.Contains("klass = FindClass(api, \"App\", \"App\", \"Player\");", code);
         Assert.Contains("m_healthOff = FieldOffset(api, klass, \"health\");", code);
         Assert.Contains("void* PendingAddr(void* obj) const", code); // a generic value-type instance is embedded, not a pointer
         Assert.Contains("Il2CppObject* Local(const Il2CppApi& api) const { return ReadStatic<Il2CppObject*>(api, m_localField); }", code);
         Assert.Contains("bool SetCount(const Il2CppApi& api, int32_t value) const", code);
-        // Overloads are matched by the dumper's token, not the dummy's own.
+        // Overloads are matched by the [Token] attribute, not the dummy's own token.
         Assert.Contains("m_move = MethodByToken(api, klass, 0x06000103);", code);
         Assert.Contains("m_move2 = MethodByToken(api, klass, 0x06000104);", code);
         Assert.Contains("Damage(int amount, Player source)  [RVA 0x1100]", code);
@@ -106,7 +106,7 @@ public sealed class CppBindingIl2CppTests : IDisposable
         Assert.Contains("Il2CppObject* Magnitude2(const Il2CppApi& api, void* v, Il2CppObject** exception = nullptr) const", code);
     }
 
-    /// <summary>The two shapes of real mod projects that call Il2Cpp's exports, and one on Mono.</summary>
+    /// <summary>The two shapes of native projects that call Il2Cpp's exports, and one on Mono.</summary>
     [Theory]
     [InlineData("typedef void Il2CppClass;\ntypedef Il2CppClass* (*il2cpp_class_from_name_t)(const void* image, const char* ns, const char* name);\n" +
                 "namespace il2cpp { inline il2cpp_class_from_name_t class_from_name = nullptr; }\n", "il2cpp")]
@@ -126,9 +126,9 @@ public sealed class CppBindingIl2CppTests : IDisposable
     [Fact]
     public void GenericDefinitionBindsAsATemplateResolvedOnAnInstantiation()
     {
-        var code = Generate(type: "Game.Box`1");
+        var code = Generate(type: "App.Box`1");
         Assert.Contains("template <class T>\nstruct Box_1Binding {", code.ReplaceLineEndings("\n"));
-        Assert.Contains("static Il2CppClass* Definition(const Il2CppApi& api) { return FindClass(api, \"Game\", \"Game\", \"Box`1\"); }", code);
+        Assert.Contains("static Il2CppClass* Definition(const Il2CppApi& api) { return FindClass(api, \"App\", \"App\", \"Box`1\"); }", code);
         Assert.Contains("bool Resolve(const Il2CppApi& api, Il2CppClass* instance) {", code);
         Assert.Contains("T Value(const void* obj) const { return Read<T>(obj, m_valueOff); }", code);
         Assert.Contains("T Current(const Il2CppApi& api, void* obj) const { return Result<T>(api, Invoke(api, m_getCurrent, obj, nullptr)); }", code);
@@ -154,7 +154,7 @@ public sealed class CppBindingIl2CppTests : IDisposable
         if (!File.Exists(ClangPlusPlus)) return;
         foreach (var (style, ns) in new[] { ("il2cpp", "il2cppbind"), ("mono", "monobind") })
         {
-            File.WriteAllText(_dir.File($"Box_{style}.h"), Generate(style: style, type: "Game.Box`1"));
+            File.WriteAllText(_dir.File($"Box_{style}.h"), Generate(style: style, type: "App.Box`1"));
             var checks = style == "il2cpp"
                 ? "#include <cstddef>\n" +
                   "static_assert(offsetof(il2cppbind::Box_1Layout<int32_t>, first) == 0x14 && offsetof(il2cppbind::Box_1Layout<int32_t>, value) == 0x18, \"int\");\n" +

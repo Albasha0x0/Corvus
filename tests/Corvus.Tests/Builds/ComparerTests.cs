@@ -21,7 +21,7 @@ public class ComparerTests(ITestOutputHelper output)
             build.Edit(() => build.Edits.Rename(build.One("Shop::_credit"), "_coins"));
             build.Edit(() => build.Edits.StubMethod(build.One("Account::Score"), "5"));
             build.Edit(() => build.Edits.AddMembersCSharp(build.One("Shop", SymbolKind.Type), "public int Twice(int x) { return x * 2; }", false, default));
-            build.Edit(() => build.Edits.AddTypesCSharp(build.Fixture, "namespace Mods { public class Extra { public int V; } }", false, default));
+            build.Edit(() => build.Edits.AddTypesCSharp(build.Fixture, "namespace Extras { public class Extra { public int V; } }", false, default));
             build.Edits.Save(build.Fixture, v2, false);
         }
 
@@ -39,7 +39,7 @@ public class ComparerTests(ITestOutputHelper output)
         Assert.Contains(shop, m => m.Change == "renamed" && m.Old!.Name == "_credit" && m.New!.Name == "_coins");
         Assert.Contains(shop, m => m.Change == "added" && m.New!.Name == "Twice");
         Assert.Contains(cmp.Types.Single(t => t.Old?.Name == "Account").Members, m => m.Change == "body" && m.Old!.Name == "Score");
-        Assert.Contains(cmp.Types, t => t.Change == "added" && t.New!.FullName == "Mods.Extra");
+        Assert.Contains(cmp.Types, t => t.Change == "added" && t.New!.FullName == "Extras.Extra");
         Assert.DoesNotContain(cmp.Types, t => t.Change == "removed" && t.Old!.FullName.StartsWith("Fixture.Model"));
 
         var (match, how) = comparer.FindCounterpart(cmp, env.One("Shop::Describe").Member);

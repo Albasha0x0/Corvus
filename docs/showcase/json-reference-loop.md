@@ -110,7 +110,7 @@ samples/bin/json-reference-loop.json: 3 record(s), 3 verified, 0 differ (each ca
   outcome: the property's setting first, then the container's item setting, then the serializer's. `Error` throws,
   `Ignore` skips the value and `Serialize` writes it again.
 - **Callers:** every container writer calls the check: objects, lists, arrays, dictionaries, `ISerializable`, dynamic
-  objects and values written by a converter.
+  objects and converter-written values.
 - **Evidence:** step 5 writes the three calls to a bundle (not shown: its size and hash change with the build). The
-  bundle names the assembly each call read by its SHA-256 and keeps the SHA-256 of each result, so `format=verify`
-  reports a record as differing when its input or its result has changed.
+  bundle keeps the SHA-256 of each call's input assembly and of each result. `format=verify` reports a record as
+  differing when either has changed.

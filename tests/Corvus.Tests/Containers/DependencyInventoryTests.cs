@@ -79,13 +79,13 @@ public sealed class DependencyInventoryTests : IDisposable
     }
 
     [Fact]
-    public void An_il2cpp_game_names_Unity_with_its_class_libraries_and_leaves_package_versions_unknown()
+    public void An_il2cpp_build_names_Unity_with_its_class_libraries_and_leaves_package_versions_unknown()
     {
         Il2CppMetadataOnly.AssemblyIdentity Id(string name, string version) => new(name, new Version(version), null);
         var facts = DependencyInventory.OfIl2Cpp(
             [Id("mscorlib", "4.0.0.0"), Id("UnityEngine.CoreModule", "0.0.0.0"), Id("System.Core", "4.0.0.0"), Id("Assembly-CSharp", "0.0.0.0"),
-             Id("Newtonsoft.Json", "13.0.0.0"), Id("Unity.TextMeshPro", "0.0.0.0")], "2022.3.62f1", "Il2Cpp metadata", "Cell Game")!;
-        Assert.Equal("Cell Game", facts.Subject!.Name);
+             Id("Newtonsoft.Json", "13.0.0.0"), Id("Unity.TextMeshPro", "0.0.0.0")], "2022.3.62f1", "Il2Cpp metadata", "Cell App")!;
+        Assert.Equal("Cell App", facts.Subject!.Name);
         Assert.Equal(["Assembly-CSharp.dll"], facts.Subject.Locations);
         var unity = facts.All[0];
         Assert.Equal(("Unity", "2022.3.62f1", "pkg:generic/unity@2022.3.62f1"), (unity.Name, unity.Version, unity.Purl));
@@ -96,16 +96,16 @@ public sealed class DependencyInventoryTests : IDisposable
     }
 
     [Fact]
-    public void An_il2cpp_game_without_a_Unity_version_reports_it_unknown()
+    public void An_il2cpp_build_without_a_Unity_version_reports_it_unknown()
     {
         var unity = DependencyInventory.OfIl2Cpp([new("UnityEngine", new Version(0, 0, 0, 0), null)], null, "Il2Cpp metadata", null)!.All[0];
         Assert.Equal(("Unity", null, null), (unity.Name, unity.Version, unity.Purl));
     }
 
-    /// <summary>A game folder as a Windows Il2Cpp build lays it out, without the game binary; null leaves a file out.</summary>
-    private string Il2CppGame(string name, string? unityVersion, string? product)
+    /// <summary>A Windows Il2Cpp build folder, without its binary; null leaves a file out.</summary>
+    private string Il2CppBuild(string name, string? unityVersion, string? product)
     {
-        var data = Path.Combine(_dir.File(name), "Game_Data");
+        var data = Path.Combine(_dir.File(name), "App_Data");
         var metadata = Path.Combine(data, "il2cpp_data", "Metadata", "global-metadata.dat");
         Directory.CreateDirectory(Path.GetDirectoryName(metadata)!);
         File.WriteAllBytes(metadata, new Il2CppMetadataWriter().Assembly("Assembly-CSharp", "0.0.0.0").Assembly("mscorlib", "4.0.0.0", [0xB7, 0x7A, 0x5C, 0x56, 0x19, 0x34, 0xE0, 0x89])
@@ -117,11 +117,11 @@ public sealed class DependencyInventoryTests : IDisposable
     }
 
     [Fact]
-    public void An_il2cpp_games_metadata_lists_Unity_its_assemblies_and_the_product()
+    public void An_il2cpp_builds_metadata_lists_Unity_its_assemblies_and_the_product()
     {
-        var path = Il2CppGame("game", "2021.3.45f1", "Cell Game");
+        var path = Il2CppBuild("app", "2021.3.45f1", "Cell App");
         var facts = Facts(new InspectionService(_workspace).Summarize(null, path, default, new FileViewOptions("dependencies")));
-        Assert.Equal("Cell Game", facts.Subject!.Name);
+        Assert.Equal("Cell App", facts.Subject!.Name);
         Assert.Equal(["Assembly-CSharp.dll"], facts.Subject.Locations);
         var unity = facts.All[0];
         Assert.Equal(("Unity", "2021.3.45f1", "pkg:generic/unity@2021.3.45f1"), (unity.Name, unity.Version, unity.Purl));
@@ -132,9 +132,9 @@ public sealed class DependencyInventoryTests : IDisposable
     }
 
     [Fact]
-    public void An_il2cpp_game_without_globalgamemanagers_reads_with_the_Unity_version_unknown()
+    public void An_il2cpp_build_without_globalgamemanagers_reads_with_the_Unity_version_unknown()
     {
-        var path = Il2CppGame("bare", null, null);
+        var path = Il2CppBuild("bare", null, null);
         var facts = Facts(new InspectionService(_workspace).Summarize(null, path, default, new FileViewOptions("dependencies")));
         var unity = facts.All[0];
         Assert.Equal(("Unity", null, null), (unity.Name, unity.Version, unity.Purl));

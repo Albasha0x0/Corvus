@@ -83,9 +83,9 @@ internal static class ContainerText
 {
     public static string Unity(UnityOverview.Report r)
     {
-        var sb = new StringBuilder($"{Escape(r.Product ?? Path.GetFileName(r.GameDirectory))}{(r.Company != null ? " by " + Escape(r.Company) : "")}: Unity " +
+        var sb = new StringBuilder($"{Escape(r.Product ?? Path.GetFileName(r.AppDirectory))}{(r.Company != null ? " by " + Escape(r.Company) : "")}: Unity " +
                                    $"{r.Engine.Version ?? "version unknown"} ({r.Engine.Agreement}), {r.Platform} {r.Architecture}{(r.ArchitectureSource != null ? $" (from {Escape(r.ArchitectureSource)})" : "")}\n");
-        sb.Append($"Game: {r.GameDirectory}\n");
+        sb.Append($"Folder: {r.AppDirectory}\n");
         if (r.DataDirectory != null) sb.Append($"Data: {r.DataDirectory}\n");
         if (r.Executable != null) sb.Append($"Executable: {r.Executable}\n");
         foreach (var c in r.Engine.Claims) sb.Append($"  version {Escape(c.Version)} from {c.Source}: {Escape(c.File)}\n");

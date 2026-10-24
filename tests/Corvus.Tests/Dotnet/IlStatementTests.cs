@@ -17,7 +17,7 @@ public sealed class IlStatementTests : IDisposable
         using System;
         using System.Threading.Tasks;
 
-        namespace Game
+        namespace App
         {
             public class Player
             {
@@ -45,13 +45,13 @@ public sealed class IlStatementTests : IDisposable
     private readonly TempDir _dir = new();
     private readonly AssemblyWorkspace _ws = new();
     private readonly DecompilerService _decompiler;
-    private readonly LoadedAssembly _game;
+    private readonly LoadedAssembly _scripts;
 
     public IlStatementTests()
     {
         var path = _dir.File("Assembly-CSharp.dll");
         File.WriteAllBytes(path, Roslyn.Release("Assembly-CSharp", Source));
-        _game = _ws.Load(path);
+        _scripts = _ws.Load(path);
         _decompiler = new DecompilerService(_ws, new ServerOptions());
     }
 
@@ -61,7 +61,7 @@ public sealed class IlStatementTests : IDisposable
         _dir.Dispose();
     }
 
-    private MethodDef Method(string type, string name) => _game.Module.Find(type, true)!.Methods.Single(m => m.Name == name);
+    private MethodDef Method(string type, string name) => _scripts.Module.Find(type, true)!.Methods.Single(m => m.Name == name);
 
     /// <summary>The IL offset of the call to <paramref name="callee"/> in <paramref name="method"/>.</summary>
     private static int CallTo(MethodDef method, string callee) =>
@@ -70,33 +70,33 @@ public sealed class IlStatementTests : IDisposable
     [Fact]
     public void OffsetsMapToTheirStatement()
     {
-        var update = Method("Game.Player", "Update");
-        var damage = _decompiler.StatementAt(_game, update, CallTo(update, "Damage"), default)!;
+        var update = Method("App.Player", "Update");
+        var damage = _decompiler.StatementAt(_scripts, update, CallTo(update, "Damage"), default)!;
         Assert.Equal("int num = Damage(3);", damage.Text); // a release build keeps no local names
         Assert.True(damage.IlStart <= CallTo(update, "Damage") && CallTo(update, "Damage") < damage.IlEnd);
-        Assert.Equal("Die(num);", _decompiler.StatementAt(_game, update, CallTo(update, "Die"), default)!.Text);
-        Assert.True(damage.Line < _decompiler.StatementAt(_game, update, CallTo(update, "Die"), default)!.Line);
-        Assert.Null(_decompiler.StatementAt(_game, update, 0x7FFF, default));
+        Assert.Equal("Die(num);", _decompiler.StatementAt(_scripts, update, CallTo(update, "Die"), default)!.Text);
+        Assert.True(damage.Line < _decompiler.StatementAt(_scripts, update, CallTo(update, "Die"), default)!.Line);
+        Assert.Null(_decompiler.StatementAt(_scripts, update, 0x7FFF, default));
     }
 
     [Fact]
     public void AsyncMoveNextMapsThroughItsMethod()
     {
-        var machine = _game.Module.Find("Game.Player", true)!.NestedTypes.Single(t => t.Name.String.Contains("LoadAsync", StringComparison.Ordinal));
+        var machine = _scripts.Module.Find("App.Player", true)!.NestedTypes.Single(t => t.Name.String.Contains("LoadAsync", StringComparison.Ordinal));
         var moveNext = machine.Methods.Single(m => m.Name == "MoveNext");
-        var s = _decompiler.StatementAt(_game, moveNext, CallTo(moveNext, "Damage"), default);
+        var s = _decompiler.StatementAt(_scripts, moveNext, CallTo(moveNext, "Damage"), default);
         Assert.Equal("return Damage(id) + 1;", s?.Text);
     }
 
     [Fact]
     public async Task MonoCrashTextGetsTheStatement()
     {
-        var update = Method("Game.Player", "Update");
+        var update = Method("App.Player", "Update");
         var service = new StackTextService(_ws, decompiler: _decompiler);
         var r = await service.Symbolize($"""
             InvalidOperationException: dead 6
-              at Game.Player.Update () [0x{CallTo(update, "Die"):x5}] in <{_game.Module.Mvid:N}>:0
-              at Game.Player.Update () [0x{CallTo(update, "Die"):x5}] in <{Guid.NewGuid():N}>:0
+              at App.Player.Update () [0x{CallTo(update, "Die"):x5}] in <{_scripts.Module.Mvid:N}>:0
+              at App.Player.Update () [0x{CallTo(update, "Die"):x5}] in <{Guid.NewGuid():N}>:0
             """, null, "auto", null, null, 0, 50, default);
         Assert.Equal("Die(num);", r.Items[0].Statement);
         Assert.Null(r.Items[1].Statement); // another build: its IL offsets do not apply
@@ -106,10 +106,10 @@ public sealed class IlStatementTests : IDisposable
     [Fact]
     public async Task MonoDumpReadsTheRuntimesReportBesideIt()
     {
-        var update = Method("Game.Player", "Update");
+        var update = Method("App.Player", "Update");
         var folder = Directory.CreateDirectory(_dir.File("Crash_2026-10-11")).FullName;
         var b = SyntheticCrash.Builder();
-        b.Modules.Add(new MinidumpBuilder.Module(0x7FF7_0000_0000, 0x10000, 0x5F000000, @"C:\Game\MonoBleedingEdge\EmbedRuntime\mono-2.0-bdwgc.dll"));
+        b.Modules.Add(new MinidumpBuilder.Module(0x7FF7_0000_0000, 0x10000, 0x5F000000, @"C:\App\MonoBleedingEdge\EmbedRuntime\mono-2.0-bdwgc.dll"));
         b.Threads.Clear();
         b.Threads.Add(new MinidumpBuilder.Thread(103, SyntheticCrash.Stack, MinidumpBuilder.ContextX64(SyntheticCrash.JitCode, SyntheticCrash.Stack, rbp: SyntheticCrash.Stack + 0x50)));
         b.Exception = null;
@@ -118,11 +118,11 @@ public sealed class IlStatementTests : IDisposable
         File.WriteAllText(Path.Combine(folder, "Player.log"), $"""
             Initialize engine version: 2022.3.0f1
             InvalidOperationException: dead 6
-              at Game.Player.Update () [0x{CallTo(update, "Die"):x5}] in <{_game.Module.Mvid:N}>:0
+              at App.Player.Update () [0x{CallTo(update, "Die"):x5}] in <{_scripts.Module.Mvid:N}>:0
             """);
         File.WriteAllText(Path.Combine(folder, "error.log"), $"""
             ========== OUTPUTTING STACK TRACE ==================
-            0x{SyntheticCrash.JitCode:X16} (Mono JIT Code) [Player.cs:14] Game.Player:Update ()
+            0x{SyntheticCrash.JitCode:X16} (Mono JIT Code) [Player.cs:14] App.Player:Update ()
             ========== END OF STACKTRACE ===========
             """);
         using var service = new MinidumpService(_ws, decompiler: _decompiler, stacks: new StackTextService(_ws, decompiler: _decompiler));
@@ -132,12 +132,12 @@ public sealed class IlStatementTests : IDisposable
         Assert.Equal("unsupported_runtime", m.Dac.Status);
         Assert.Equal(("InvalidOperationException", "dead 6"), (m.Exception!.Type, m.Exception.Message));
         var frame = Assert.Single(m.Exception.Stack);
-        Assert.Equal((_game.Id, "match", "Die(num);"), (frame.Assembly, frame.BuildCheck, frame.Statement));
+        Assert.Equal((_scripts.Id, "match", "Die(num);"), (frame.Assembly, frame.BuildCheck, frame.Statement));
         Assert.Contains(m.Notes, n => n.Contains("Player.log beside the dump", StringComparison.Ordinal));
 
         var stack = await service.Stack(dump, null, true, 16, 0, 16, null, default);
         var top = stack.Items[0];
-        Assert.Equal(("mono_log", "managed", _game.Id), (top.SymbolSource, top.Kind, top.Assembly));
+        Assert.Equal(("mono_log", "managed", _scripts.Id), (top.SymbolSource, top.Kind, top.Assembly));
         Assert.Contains("Update", top.Function);
         Assert.Contains("error.log", top.Note);
     }

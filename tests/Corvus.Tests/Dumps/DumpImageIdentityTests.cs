@@ -121,13 +121,13 @@ public sealed class DumpImageIdentityTests : IDisposable
     public async Task LoadedImageUnderAnotherName()
     {
         var dump = Dump();
-        var copy = _dir.File("game_copy.bin");
+        var copy = _dir.File("app_copy.bin");
         System.IO.File.WriteAllBytes(copy, File());
         using var ws = new AssemblyWorkspace();
         ws.LoadAny(copy);
         var (module, stack) = await Open(new MinidumpService(ws), dump, null);
         Assert.Equal("matches", module.LocalImage);
-        Assert.Contains("a loaded image (game_copy.bin)", module.LocalDetail);
+        Assert.Contains("a loaded image (app_copy.bin)", module.LocalDetail);
         Assert.Equal("synth!Crash+0x5", stack.Items[0].Symbol);
     }
 }

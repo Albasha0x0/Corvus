@@ -21,8 +21,8 @@ public static class UnityOverview
 {
     public sealed record Report(
         [property: Description("The path as given.")] string Input,
-        [property: Description("The game folder (the one with the executable / UnityPlayer).")] string GameDirectory,
-        [property: Description("The data folder (<Game>_Data, assets/bin/Data, Contents/Resources/Data); null when absent.")] string? DataDirectory,
+        [property: Description("The application folder (the one with the executable / UnityPlayer).")] string AppDirectory,
+        [property: Description("The data folder (<Product>_Data, assets/bin/Data, Contents/Resources/Data); null when absent.")] string? DataDirectory,
         string? Executable,
         [property: Description("Company and product from <Data>/app.info; null when absent.")] string? Company,
         string? Product,
@@ -67,18 +67,18 @@ public static class UnityOverview
         [property: Description("Identifiers read for unreadableNameRatio.")] int NamesRead);
 
     public sealed record MarkerFact(
-        [property: Description("guard, transformer, packing, encryption, mod_loader, build, middleware or toolchain.")] string Category,
+        [property: Description("guard, transformer, packing, encryption, plugin_loader, build, middleware or toolchain.")] string Category,
         string Name, string Evidence,
         [property: Description("layout (file and folder names), pe_sections, assembly_markers, metadata_names or detect_it_easy.")] string Source);
 
     public sealed record FolderFact(
-        [property: Description("managed, il2cpp_data, streaming_assets, addressables, plugins, mono_runtime, mod_loader or other.")] string Kind,
+        [property: Description("managed, il2cpp_data, streaming_assets, addressables, plugins, mono_runtime, plugin_loader or other.")] string Kind,
         string Path,
         [property: Description("Entries directly inside (files and folders), counted up to 10000.")] int Entries,
         string? Note);
 
     public sealed record NextStep(
-        [property: Description("load_assembly, list_namespaces, apply_il2cpp_names, search_bytes, inspect_process, dump_from_memory, use_external_dumper or summarize_file.")] string Action,
+        [property: Description("load_assembly, list_namespaces, apply_il2cpp_names, search_bytes, inspect_process, dump_from_memory, load_dummy_assemblies or summarize_file.")] string Action,
         [property: Description("The tool to call; null when the step is outside this server.")] string? Tool,
         IReadOnlyDictionary<string, string> Arguments,
         string Reason);
@@ -96,14 +96,14 @@ public static class UnityOverview
     private static readonly string[] DataMarkers = ["globalgamemanagers", "data.unity3d", "mainData", "level0", "Managed", "il2cpp_data"];
 
     private static readonly string LookedFor =
-        "a <Game>_Data folder (with globalgamemanagers, data.unity3d, mainData, level0, Managed or il2cpp_data), UnityPlayer.dll / UnityPlayer.so, " +
+        "a <Product>_Data folder (with globalgamemanagers, data.unity3d, mainData, level0, Managed or il2cpp_data), UnityPlayer.dll / UnityPlayer.so, " +
         "GameAssembly.dll with global-metadata.dat, assets/bin/Data (extracted Android APK), Contents/Resources/Data (macOS .app) or Data (iOS .app), " +
         "in the path or up to 4 folders above it";
 
     /// <summary>The overview of the Unity title at <paramref name="path"/>; ToolError (unsupported, reason not_a_unity_title) otherwise.</summary>
     public static Report Inspect(string path, bool detectItEasy, CancellationToken ct)
     {
-        if (string.IsNullOrWhiteSpace(path)) throw new ToolError(ErrorCode.InvalidArgument, "path is empty.", "pass a game folder, its executable, its *_Data folder, UnityPlayer.dll or GameAssembly.dll");
+        if (string.IsNullOrWhiteSpace(path)) throw new ToolError(ErrorCode.InvalidArgument, "path is empty.", "pass an application folder, its executable, its *_Data folder, UnityPlayer.dll or GameAssembly.dll");
         string full;
         try { full = Path.GetFullPath(path.Trim().Trim('"')); }
         catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException)
@@ -126,21 +126,21 @@ public static class UnityOverview
         }
         else if (Il2CppPackages.IsUnityPackage(full))
         {
-            // Packages and zipped titles: the game files the overview reads (binaries, metadata or assemblies, version files), in a short cache path.
+            // Packages and zipped titles: the build files the overview reads (binaries, metadata or assemblies, version files), in a short cache path.
             package = full;
             full = Il2CppPackages.Extract(full, null, ct: ct, anyBackend: true) ?? throw new ToolError(ErrorCode.Unsupported,
-                $"{package} holds no Unity title (no Il2Cpp metadata, Managed assemblies or <Game>_Data folder): reason not_a_unity_title.",
+                $"{package} holds no Unity title (no Il2Cpp metadata, Managed assemblies or <Product>_Data folder): reason not_a_unity_title.",
                 "pass the title's package, zip or folder");
         }
         var layout = Resolve(full, ct) ?? throw new ToolError(ErrorCode.Unsupported,
             $"{full} is not a Unity title (no UnityPlayer, libunity, GameAssembly or data folder in it or 4 folders above): reason not_a_unity_title.",
-            "pass the game folder (the one with the executable), its <Game>_Data folder, UnityPlayer.dll or GameAssembly.dll")
+            "pass the application folder (the one with the executable), its <Product>_Data folder, UnityPlayer.dll or GameAssembly.dll")
         {
             Details = new { reason = "not_a_unity_title", path = full, lookedFor = LookedFor },
         };
         var notes = new List<string>(layout.Notes);
         notes.AddRange(webNotes);
-        if (package != null) notes.Add($"Read from the game files of {package}, extracted to {full} (binaries, metadata or assemblies, and the data folder's version files).");
+        if (package != null) notes.Add($"Read from the build files of {package}, extracted to {full} (binaries, metadata or assemblies, and the data folder's version files).");
         var markers = new List<MarkerFact>();
         ct.ThrowIfCancellationRequested();
         var engine = Engine(layout, ct);
@@ -157,11 +157,11 @@ public static class UnityOverview
         if (engine.Agreement == "disagree") notes.Add("The engine version sources disagree: the version resource is the player binary, the serialized files are the data; a patched or mixed install shows this.");
         var steps = NextSteps(layout, backend, markers);
         var (company, product) = AppInfo(layout.Data);
-        return new Report(path, layout.Game, layout.Data, layout.Exe, company, product, layout.Platform, arch, archSource, engine, backend,
+        return new Report(path, layout.Root, layout.Data, layout.Exe, company, product, layout.Platform, arch, archSource, engine, backend,
             markers, folders, steps, notes);
     }
 
-    private sealed record Layout(string Game, string? Data, string? Exe, string Platform, string? UnityPlayer, List<string> Notes);
+    private sealed record Layout(string Root, string? Data, string? Exe, string Platform, string? UnityPlayer, List<string> Notes);
 
     private static Layout? Resolve(string full, CancellationToken ct)
     {
@@ -208,24 +208,24 @@ public static class UnityOverview
             return Build(dir, chosen, exeHint, notes);
         }
         bool player = File.Exists(Path.Combine(dir, "UnityPlayer.dll")) || File.Exists(Path.Combine(dir, "UnityPlayer.so"));
-        bool il2cpp = File.Exists(Path.Combine(dir, "GameAssembly.dll")) && Il2CppGameFiles.MetadataIn(dir) != null;
+        bool il2cpp = File.Exists(Path.Combine(dir, "GameAssembly.dll")) && Il2CppBuildFiles.MetadataIn(dir) != null;
         if (player || il2cpp)
         {
-            notes.Add("No <Game>_Data folder: the overview is from the binaries alone.");
+            notes.Add("No <Product>_Data folder: the overview is from the binaries alone.");
             return Build(dir, null, exeHint, notes);
         }
         return null;
     }
 
-    private static Layout Build(string game, string? data, string? exeHint, List<string> notes)
+    private static Layout Build(string root, string? data, string? exeHint, List<string> notes)
     {
-        var exe = exeHint != null && Path.GetDirectoryName(exeHint) == game && !IsEngineFile(exeHint) ? exeHint : data != null ? ExecutableFor(game, data) : null;
-        exe ??= SafeList(() => Directory.EnumerateFiles(game, "*.exe").Where(f => !IsEngineFile(f)).Take(16).ToList()).FirstOrDefault();
-        var player = FirstExisting([Path.Combine(game, "UnityPlayer.dll"), Path.Combine(game, "UnityPlayer.so")]);
+        var exe = exeHint != null && Path.GetDirectoryName(exeHint) == root && !IsEngineFile(exeHint) ? exeHint : data != null ? ExecutableFor(root, data) : null;
+        exe ??= SafeList(() => Directory.EnumerateFiles(root, "*.exe").Where(f => !IsEngineFile(f)).Take(16).ToList()).FirstOrDefault();
+        var player = FirstExisting([Path.Combine(root, "UnityPlayer.dll"), Path.Combine(root, "UnityPlayer.so")]);
         string platform = player?.EndsWith(".so", StringComparison.OrdinalIgnoreCase) == true || (exe != null && IsElf(exe)) ? "linux"
-            : player != null || exe?.EndsWith(".exe", StringComparison.OrdinalIgnoreCase) == true || File.Exists(Path.Combine(game, "GameAssembly.dll")) ? "windows"
+            : player != null || exe?.EndsWith(".exe", StringComparison.OrdinalIgnoreCase) == true || File.Exists(Path.Combine(root, "GameAssembly.dll")) ? "windows"
             : "unknown";
-        return new Layout(game, data, exe, platform, player, notes);
+        return new Layout(root, data, exe, platform, player, notes);
     }
 
     private static bool IsDataFolder(string dir) =>
@@ -234,10 +234,10 @@ public static class UnityOverview
     private static bool HasSerializedHeader(string data) =>
         new[] { "globalgamemanagers", "data.unity3d", "mainData" }.Any(f => File.Exists(Path.Combine(data, f)));
 
-    private static string? ExecutableFor(string game, string data)
+    private static string? ExecutableFor(string root, string data)
     {
         var stem = Path.GetFileName(data)[..^"_Data".Length];
-        return FirstExisting([Path.Combine(game, stem + ".exe"), Path.Combine(game, stem + ".x86_64"), Path.Combine(game, stem + ".x86"), Path.Combine(game, stem)]);
+        return FirstExisting([Path.Combine(root, stem + ".exe"), Path.Combine(root, stem + ".x86_64"), Path.Combine(root, stem + ".x86"), Path.Combine(root, stem)]);
     }
 
     private static bool IsExecutableName(string path) =>
@@ -333,20 +333,20 @@ public static class UnityOverview
     private static BackendFacts Backend(Layout layout, List<MarkerFact> markers, List<string> notes, CancellationToken ct)
     {
         var evidence = new List<string>();
-        var game = layout.Game;
+        var root = layout.Root;
         var data = layout.Data;
-        var binary = FirstExisting([Path.Combine(game, "GameAssembly.dll"), Path.Combine(game, "GameAssembly.so"),
-            Path.Combine(game, "Contents", "Frameworks", "GameAssembly.dylib"), .. Libs(game, "libil2cpp.so"),
-            .. layout.Platform == "ios" ? [Path.Combine(game, "Frameworks", "UnityFramework.framework", "UnityFramework"), Path.Combine(game, Path.GetFileNameWithoutExtension(game))] : Array.Empty<string>()]);
+        var binary = FirstExisting([Path.Combine(root, "GameAssembly.dll"), Path.Combine(root, "GameAssembly.so"),
+            Path.Combine(root, "Contents", "Frameworks", "GameAssembly.dylib"), .. Libs(root, "libil2cpp.so"),
+            .. layout.Platform == "ios" ? [Path.Combine(root, "Frameworks", "UnityFramework.framework", "UnityFramework"), Path.Combine(root, Path.GetFileNameWithoutExtension(root))] : Array.Empty<string>()]);
         string? metadata = data != null
             ? FirstExisting([Path.Combine(data, "il2cpp_data", "Metadata", "global-metadata.dat"), Path.Combine(data, "Managed", "Metadata", "global-metadata.dat")])
-            : Il2CppGameFiles.MetadataIn(game);
+            : Il2CppBuildFiles.MetadataIn(root);
         var managed = data != null && Directory.Exists(Path.Combine(data, "Managed")) ? Path.Combine(data, "Managed") : null;
         var managedDlls = managed != null ? SafeList(() => Directory.EnumerateFiles(managed, "*.dll").Take(MaxEntries).ToList()) : [];
         bool scripts = managedDlls.Any(f => Path.GetFileName(f) is var n && (n.StartsWith("Assembly-CSharp", StringComparison.OrdinalIgnoreCase) || n.StartsWith("UnityEngine", StringComparison.OrdinalIgnoreCase)));
-        var mono = FirstExisting([Path.Combine(game, "MonoBleedingEdge", "EmbedRuntime", "mono-2.0-bdwgc.dll"), Path.Combine(game, "Mono", "EmbedRuntime", "mono.dll"),
-            Path.Combine(game, "Mono", "mono.dll"), .. data != null ? new[] { Path.Combine(data, "Mono", "mono.dll"), Path.Combine(data, "Mono", "EmbedRuntime", "mono.dll") } : [],
-            .. Libs(game, "libmonobdwgc-2.0.so"), .. Libs(game, "libmono.so")]);
+        var mono = FirstExisting([Path.Combine(root, "MonoBleedingEdge", "EmbedRuntime", "mono-2.0-bdwgc.dll"), Path.Combine(root, "Mono", "EmbedRuntime", "mono.dll"),
+            Path.Combine(root, "Mono", "mono.dll"), .. data != null ? new[] { Path.Combine(data, "Mono", "mono.dll"), Path.Combine(data, "Mono", "EmbedRuntime", "mono.dll") } : [],
+            .. Libs(root, "libmonobdwgc-2.0.so"), .. Libs(root, "libmono.so")]);
         int? scriptingAssemblies = data != null ? ScriptingAssemblyCount(Path.Combine(data, "ScriptingAssemblies.json")) : null;
 
         string kind = binary != null || metadata != null ? "il2cpp" : scripts || mono != null ? "mono" : "unknown";
@@ -390,7 +390,7 @@ public static class UnityOverview
                 if (state == "readable")
                 {
                     (ratio, namesRead) = MetadataNames(metadata, markers, ct);
-                    if (layout.Platform is "unknown" && binary == null) reason = "header readable; the built-in reader needs the game binary (GameAssembly, libil2cpp.so or UnityFramework) beside it";
+                    if (layout.Platform is "unknown" && binary == null) reason = "header readable; the built-in reader needs the native binary (GameAssembly, libil2cpp.so or UnityFramework) beside it";
                 }
                 else if (state is "encrypted" or "header_tampered")
                     markers.Add(new MarkerFact("encryption", "encrypted Il2Cpp metadata", $"{state}: {reason}", "metadata_names"));
@@ -415,7 +415,7 @@ public static class UnityOverview
         uint magic = BinaryPrimitives.ReadUInt32LittleEndian(head);
         int version = BinaryPrimitives.ReadInt32LittleEndian(head.AsSpan(4));
         if (magic != MetadataMagic)
-            return ("encrypted", $"starts with 0x{magic:X8}, not the metadata magic 0x{MetadataMagic:X8} (encrypted or transformed; the running game holds it decrypted)", null, size);
+            return ("encrypted", $"starts with 0x{magic:X8}, not the metadata magic 0x{MetadataMagic:X8} (encrypted or transformed; the running process holds it decrypted)", null, size);
         if (version is < 16 or > 64)
             return ("header_tampered", $"magic present but the version field is {version} (0x{version:X8}): the header after the magic is encrypted or scrambled", version, size);
         // The header is (offset, size) pairs, (offset, size, count) from version 38; the first section starts right after it.
@@ -538,18 +538,18 @@ public static class UnityOverview
         catch (Exception ex) when (ex is JsonException or IOException or UnauthorizedAccessException) { return null; }
     }
 
-    /// <summary>(category, name, file or folder names, matched case-insensitively in the game folder, the data folder and Plugins).</summary>
+    /// <summary>(category, name, file or folder names, matched case-insensitively in the application folder, the data folder and Plugins).</summary>
     private static readonly (string Category, string Name, string[] Files)[] LayoutSignatures =
     [
         ("guard", "EasyAntiCheat", ["EasyAntiCheat", "start_protected_game.exe", "EasyAntiCheat_EOS_Setup.exe", "EasyAntiCheat_x64.dll", "EasyAntiCheat_EOS.sys"]),
-        ("anti_cheat", "BattlEye", ["BattlEye", "BEService.exe", "BEService_x64.exe", "BEClient_x64.dll"]),
+        ("guard", "BattlEye", ["BattlEye", "BEService.exe", "BEService_x64.exe", "BEClient_x64.dll"]),
         ("guard", "GameGuard", ["GameGuard", "GameMon.des", "npggNT.des", "GameGuard.des"]),
-        ("anti_cheat", "XIGNCODE3", ["XIGNCODE", "x3.xem", "xhunter1.sys"]),
+        ("guard", "XIGNCODE3", ["XIGNCODE", "x3.xem", "xhunter1.sys"]),
         ("guard", "Tencent ACE", ["AntiCheatExpert", "ACE-Base64.dll", "SGuard64.exe", "ACE-BASE.sys"]),
         ("guard", "mhyprot", ["mhyprot2.sys", "mhyprot3.sys"]),
         ("guard", "Denuvo", ["denuvo-anti-cheat.sys", "denuvo-anti-cheat-update-service.exe"]),
-        ("mod_loader", "BepInEx", ["BepInEx", "winhttp.dll", "doorstop_config.ini"]),
-        ("mod_loader", "MelonLoader", ["MelonLoader", "version.dll"]),
+        ("plugin_loader", "BepInEx", ["BepInEx", "winhttp.dll", "doorstop_config.ini"]),
+        ("plugin_loader", "MelonLoader", ["MelonLoader", "version.dll"]),
         ("build", "Burst", ["lib_burst_generated.dll", "lib_burst_generated.so"]),
         ("middleware", "Steamworks", ["steam_api64.dll", "steam_api.dll", "libsteam_api.so"]),
         ("middleware", "Epic Online Services", ["EOSSDK-Win64-Shipping.dll", "EOSSDK-Win32-Shipping.dll"]),
@@ -570,14 +570,14 @@ public static class UnityOverview
         ("middleware", "Netcode for GameObjects", "Unity.Netcode.Runtime"),
         ("middleware", "Odin Inspector", "Sirenix."),
         ("transformer", "Beebyte Obfuscator", "Beebyte"),
-        ("mod_loader", "Harmony", "0Harmony"),
+        ("plugin_loader", "Harmony", "0Harmony"),
         ("toolchain", "xLua", "XLua"),
         ("toolchain", "HybridCLR (hot-update Il2Cpp interpreter)", "HybridCLR"),
     ];
 
     private static void LayoutMarkers(Layout layout, BackendFacts backend, List<MarkerFact> markers, CancellationToken ct)
     {
-        var places = new List<string> { layout.Game };
+        var places = new List<string> { layout.Root };
         if (layout.Data != null)
         {
             places.Add(layout.Data);
@@ -599,7 +599,7 @@ public static class UnityOverview
         {
             var hits = files.Where(entries.ContainsKey).Select(f => entries[f]).ToList();
             // winhttp.dll / version.dll alone are common proxies, not proof of a loader.
-            if (hits.Count == 0 || (category == "mod_loader" && hits.All(h => Path.GetExtension(h) is ".dll" or ".ini"))) continue;
+            if (hits.Count == 0 || (category == "plugin_loader" && hits.All(h => Path.GetExtension(h) is ".dll" or ".ini"))) continue;
             markers.Add(new MarkerFact(category, name, string.Join(", ", hits.Take(3)), "layout"));
         }
         var assemblies = new List<string>();
@@ -729,9 +729,9 @@ public static class UnityOverview
             if (MachOArchitecture(head) is { } macho) return (macho, file);
         }
         if (layout.Platform == "android")
-            foreach (var abi in SafeList(() => Directory.EnumerateDirectories(Path.Combine(layout.Game, "lib")).Select(Path.GetFileName).OfType<string>().ToList()))
+            foreach (var abi in SafeList(() => Directory.EnumerateDirectories(Path.Combine(layout.Root, "lib")).Select(Path.GetFileName).OfType<string>().ToList()))
                 if (abi switch { "arm64-v8a" => "arm64", "armeabi-v7a" => "arm", "x86_64" => "x64", "x86" => "x86", _ => null } is { } a)
-                    return (a, Path.Combine(layout.Game, "lib", abi));
+                    return (a, Path.Combine(layout.Root, "lib", abi));
         return ("unknown", null);
     }
 
@@ -771,11 +771,11 @@ public static class UnityOverview
             }
             Add("plugins", Path.Combine(data, "Plugins"));
         }
-        Add("mono_runtime", Path.Combine(layout.Game, "MonoBleedingEdge"));
-        Add("mono_runtime", Path.Combine(layout.Game, "Mono"));
-        Add("mod_loader", Path.Combine(layout.Game, "BepInEx"));
-        Add("mod_loader", Path.Combine(layout.Game, "MelonLoader"));
-        Add("other", Path.Combine(layout.Game, "Mods"));
+        Add("mono_runtime", Path.Combine(layout.Root, "MonoBleedingEdge"));
+        Add("mono_runtime", Path.Combine(layout.Root, "Mono"));
+        Add("plugin_loader", Path.Combine(layout.Root, "BepInEx"));
+        Add("plugin_loader", Path.Combine(layout.Root, "MelonLoader"));
+        Add("other", Path.Combine(layout.Root, "Mods"));
         return list;
     }
 
@@ -791,7 +791,7 @@ public static class UnityOverview
     private static List<NextStep> NextSteps(Layout layout, BackendFacts backend, List<MarkerFact> markers)
     {
         var steps = new List<NextStep>();
-        var process = layout.Exe != null ? Path.GetFileName(layout.Exe) : "<the game's process>";
+        var process = layout.Exe != null ? Path.GetFileName(layout.Exe) : "<the application's process>";
         Dictionary<string, string> Args(params (string Key, string Value)[] args) => args.ToDictionary(a => a.Key, a => a.Value);
         bool protectedBinary = markers.Any(m => m.Category == "packing" && backend.NativeBinary != null && m.Evidence.StartsWith(Path.GetFileName(backend.NativeBinary), StringComparison.OrdinalIgnoreCase));
         switch (backend.Kind)
@@ -799,16 +799,16 @@ public static class UnityOverview
             case "mono" when backend.ManagedState == "encrypted":
                 steps.Add(new NextStep("dump_from_memory", null, Args(("process", process)),
                     "Assembly-CSharp.dll is not a readable .NET image on disk (encrypted); the runtime decrypts it when loading. Dump the loaded image from the " +
-                    "running game (a memory dumper hooking mono_image_open_from_data), then load_assembly the dump with the Managed folder beside it."));
+                    "running process (a memory dumper hooking mono_image_open_from_data), then load_assembly the dump with the Managed folder beside it."));
                 steps.Add(new NextStep("inspect_process", "inspect_process", Args(("process", process), ("sections", "modules")),
-                    "Read-only view of the running game: confirms the Mono runtime module and where it is loaded."));
+                    "Read-only view of the running process: confirms the Mono runtime module and where it is loaded."));
                 break;
             case "mono" when backend.ManagedDirectory != null:
                 var transformersFound = markers.Where(m => m.Category == "transformer").Select(m => m.Name).ToList();
                 steps.Add(new NextStep("load_assembly", "load_assembly", Args(("path", backend.ManagedDirectory)),
-                    "Mono build: the game's C# is IL in the Managed folder; loading it decompiles directly" +
+                    "Mono build: the C# code is IL in the Managed folder; loading it decompiles directly" +
                     (transformersFound.Count > 0 ? $" (names transformed: {string.Join(", ", transformersFound)}; rename_symbol as you go)." : ".")));
-                steps.Add(new NextStep("list_namespaces", "list_namespaces", Args(("assembly", "Assembly-CSharp")), "The game's own code is in Assembly-CSharp (and Assembly-CSharp-firstpass)."));
+                steps.Add(new NextStep("list_namespaces", "list_namespaces", Args(("assembly", "Assembly-CSharp")), "The application's own code is in Assembly-CSharp (and Assembly-CSharp-firstpass)."));
                 break;
             case "il2cpp" when backend.MetadataState == "readable" && backend.NativeBinary != null && !protectedBinary:
                 steps.Add(new NextStep("load_assembly", "load_assembly", Args(("path", backend.Metadata!)),
@@ -818,29 +818,29 @@ public static class UnityOverview
                 break;
             case "il2cpp" when backend.MetadataState == "readable" && backend.NativeBinary != null && protectedBinary:
                 steps.Add(new NextStep("dump_from_memory", null, Args(("process", process), ("module", Path.GetFileName(backend.NativeBinary))),
-                    "GameAssembly.dll is packed or protected on disk (see markers): dump it from the running game, put the dump beside the metadata as GameAssembly.dll, then load_assembly the metadata."));
+                    "GameAssembly.dll is packed or protected on disk (see markers): dump it from the running process, put the dump beside the metadata as GameAssembly.dll, then load_assembly the metadata."));
                 steps.Add(new NextStep("load_assembly", "load_assembly", Args(("path", backend.Metadata!)),
                     "After the dump: the built-in reader takes a memory dump of GameAssembly.dll too."));
                 break;
             case "il2cpp" when backend.MetadataState is "readable" or "unsupported_version":
-                steps.Add(new NextStep("use_external_dumper", null, Args(("metadata", backend.Metadata!), ("binary", backend.NativeBinary ?? "")),
+                steps.Add(new NextStep("load_dummy_assemblies", null, Args(("metadata", backend.Metadata!), ("binary", backend.NativeBinary ?? "")),
                     backend.MetadataState == "readable"
-                        ? "The game binary was not found beside the metadata: put it there (GameAssembly, libil2cpp.so or UnityFramework), or run Il2CppDumper or Cpp2IL and load_assembly its DummyDll folder."
-                        : $"Metadata version {backend.MetadataVersion} is outside the built-in reader's 24-39: run Il2CppDumper or Cpp2IL, then load_assembly its DummyDll folder."));
+                        ? "The native binary was not found beside the metadata: put it there (GameAssembly, libil2cpp.so or UnityFramework), or load dummy assemblies with [Address] attributes."
+                        : $"Metadata version {backend.MetadataVersion} is outside the built-in reader's 24-39: load dummy assemblies with [Address] attributes instead."));
                 break;
             case "il2cpp" when backend.MetadataState is "encrypted" or "header_tampered":
                 steps.Add(new NextStep("dump_from_memory", null, Args(("process", process), ("magic", "AF 1B B1 FA")),
-                    $"Metadata {backend.MetadataState} ({backend.MetadataStateReason}). The running game holds it decrypted: dump the block starting with AF 1B B1 FA " +
+                    $"Metadata {backend.MetadataState} ({backend.MetadataStateReason}). The running process holds it decrypted: dump the block starting with AF 1B B1 FA " +
                     "(the metadata magic, followed by a version 24-39) from its memory, save it as global-metadata.dat beside GameAssembly.dll, then load_assembly that file."));
                 steps.Add(new NextStep("inspect_process", "inspect_process", Args(("process", process), ("sections", "regions"), ("regionFilter", "private")),
-                    "Read-only view of the running game's private memory regions: the decrypted metadata is in one of them (tens of MB)."));
+                    "Read-only view of the running process's private memory regions: the decrypted metadata is in one of them (tens of MB)."));
                 break;
             case "il2cpp" when backend.MetadataState == "missing" && backend.NativeBinary != null:
                 steps.Add(new NextStep("search_bytes", "search_bytes", Args(("image", backend.NativeBinary), ("pattern", "AF 1B B1 FA")),
-                    "No global-metadata.dat: look for the metadata magic inside the binary (embedded metadata); otherwise dump it from the running game's memory."));
+                    "No global-metadata.dat: look for the metadata magic inside the binary (embedded metadata); otherwise dump it from the running process."));
                 break;
             case "il2cpp" when backend.MetadataState == "truncated":
-                steps.Add(new NextStep("dump_from_memory", null, Args(("process", process)), $"The metadata file is truncated ({backend.MetadataStateReason}): reinstall or dump it from the running game."));
+                steps.Add(new NextStep("dump_from_memory", null, Args(("process", process)), $"The metadata file is truncated ({backend.MetadataStateReason}): reinstall or dump it from the running process."));
                 break;
             default:
                 if (layout.Exe != null)

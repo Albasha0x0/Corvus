@@ -20,7 +20,7 @@ public sealed class AndroidProjectExportTests : IDisposable
     }
 
     private string Apk() => AndroidSamples.Save(_dir, "app.apk", AndroidSamples.Apk(30, ("classes.dex", AndroidSamples.Dex()),
-        ("lib/arm64-v8a/libgame.so", [0x7F, (byte)'E', (byte)'L', (byte)'F']), ("META-INF/CERT.SF", "Signature-Version: 1.0\r\n"u8.ToArray()),
+        ("lib/arm64-v8a/libapp.so", [0x7F, (byte)'E', (byte)'L', (byte)'F']), ("META-INF/CERT.SF", "Signature-Version: 1.0\r\n"u8.ToArray()),
         ("okhttp3/publicsuffixes.gz", [1, 2, 3])));
 
     private string Read(string root, string relative) => File.ReadAllText(Path.Combine(root, relative.Replace('/', Path.DirectorySeparatorChar)));
@@ -53,7 +53,7 @@ public sealed class AndroidProjectExportTests : IDisposable
         Assert.Contains("<item>@string/app_name</item>", arrays);
         Assert.Contains("<item>7</item>", arrays);
         Assert.Contains("api.example.com", Read(root, "app/src/main/assets/config.json"));
-        Assert.True(File.Exists(Path.Combine(root, "app", "src", "main", "jniLibs", "arm64-v8a", "libgame.so")));
+        Assert.True(File.Exists(Path.Combine(root, "app", "src", "main", "jniLibs", "arm64-v8a", "libapp.so")));
         Assert.True(File.Exists(Path.Combine(root, "app", "src", "main", "resources", "okhttp3", "publicsuffixes.gz")));
         Assert.False(Directory.Exists(Path.Combine(root, "app", "src", "main", "resources", "META-INF")));
 

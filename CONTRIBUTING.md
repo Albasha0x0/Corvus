@@ -19,7 +19,7 @@ $env:CORVUS_ALL_TESTS=1; dotnet test   # everything (or dotnet test -p:CORVUS_AL
 ```
 
 Run the quick set while iterating and the full set before a pull request. Tests that need real-world data
-(application folders, Il2Cpp games, external tools) read their locations from `CORVUS_*` variables and skip when they
+(application folders, Il2Cpp builds, external tools) read their locations from `CORVUS_*` variables and skip when they
 are unset; see the [test data variables](docs/testing.md#test-data-variables). Real libraries come from
 `<PackageDownload>` items in the test project, never from paths on one machine. A new external tool is found through a
 variable with a neutral name. The full testing policy is `docs/testing.md`.
@@ -56,7 +56,7 @@ the regenerated files.
 - Plain compiler and engineering vocabulary in identifiers, comments, commit messages and docs.
 - Comments only where the code cannot speak for itself: the reason for a decision, an invariant, a workaround and its
   cause, units and limits. One line preferred; say a thing once.
-- No machine-specific paths and no product or game names in the tool itself.
+- No machine-specific paths and no product names in the tool itself.
 
 ## Commits and pull requests
 

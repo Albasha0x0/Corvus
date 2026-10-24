@@ -96,8 +96,8 @@ public abstract partial class OutputBudgetTests(Xunit.Abstractions.ITestOutputHe
 
     private static bool IsList(string tool) => ToolContract.Of(tool).Output == OutputClass.List;
 
-    /// <summary>An Il2Cpp game folder (GameAssembly + global-metadata.dat), loaded through the built-in metadata reader.</summary>
-    public const string Il2CppGame = "CORVUS_IL2CPP_GAME";
+    /// <summary>An Il2Cpp build folder (GameAssembly + global-metadata.dat), loaded through the built-in metadata reader.</summary>
+    public const string Il2CppBuild = "CORVUS_IL2CPP_BUILD";
 
     /// <summary>Default pages on CoreLib, and walks of its pages.</summary>
     [Trait("Speed", "Slow")]
@@ -227,7 +227,7 @@ public abstract partial class OutputBudgetTests(Xunit.Abstractions.ITestOutputHe
         }
     }
 
-    /// <summary>An Android package and an Il2Cpp game.</summary>
+    /// <summary>An Android package and an Il2Cpp build.</summary>
     [Trait("Speed", "Slow")]
     public sealed class Mobile(Xunit.Abstractions.ITestOutputHelper output) : OutputBudgetTests(output)
     {
@@ -249,10 +249,10 @@ public abstract partial class OutputBudgetTests(Xunit.Abstractions.ITestOutputHe
             Assert.True(JsonDocument.Parse(first.StructuredContent!.Value.GetRawText()).RootElement.GetProperty("nextOffset").GetInt32() > 0);
         }
 
-        [RequiresRealDataFact(Il2CppGame)]
+        [RequiresRealDataFact(Il2CppBuild)]
         public async Task Il2CppPagesFitTheirBudget()
         {
-            var load = await _client.CallToolAsync("load_assembly", new Dictionary<string, object?> { ["path"] = RealData.Path(Il2CppGame) });
+            var load = await _client.CallToolAsync("load_assembly", new Dictionary<string, object?> { ["path"] = RealData.Path(Il2CppBuild) });
             Assert.True(load.IsError != true, Text(load));
             var problems = await Run(
             [

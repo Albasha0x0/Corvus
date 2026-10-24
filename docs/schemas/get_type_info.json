@@ -60,7 +60,7 @@
             "type": "string"
           },
           "il2Cpp": {
-            "description": "Il2Cpp RVA / offset from the dummy DLL's attributes.",
+            "description": "Il2Cpp RVA / offset from the dummy assembly's attributes.",
             "type": "string"
           },
           "il": {

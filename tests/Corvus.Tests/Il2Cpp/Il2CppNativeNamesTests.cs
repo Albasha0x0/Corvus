@@ -109,7 +109,7 @@ public sealed class Il2CppNativeNamesTests : IDisposable
         return (native, await _code.Index(native, null, default));
     }
 
-    /// <summary>A 32-bit game gets prototypes and a header with 4-byte pointers (klass, monitor), not names alone.</summary>
+    /// <summary>A 32-bit build gets prototypes and a header with 4-byte pointers (klass, monitor), not names alone.</summary>
     [Fact]
     public async Task Types32BitGetPrototypesWithFourBytePointers()
     {

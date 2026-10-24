@@ -5,7 +5,7 @@ using Corvus.Tests.NativeFormats;
 
 namespace Corvus.Tests;
 
-/// <summary>The game-binary layout on damaged images: a layout, or a tool error naming why the binary is not read.</summary>
+/// <summary>The Il2Cpp binary layout on damaged images: a layout, or a tool error naming why the binary is not read.</summary>
 public sealed class Il2CppLayoutFuzzTests
 {
     /// <summary>The PE as a loaded module lays it out: headers, then every section at its RVA.</summary>
@@ -37,7 +37,7 @@ public sealed class Il2CppLayoutFuzzTests
 
     [Fact]
     [FuzzEntry(typeof(Il2CppBinaryLayout))]
-    public void Fuzzed_game_binaries_never_throw_past_a_tool_error()
+    public void Fuzzed_il2cpp_binaries_never_throw_past_a_tool_error()
     {
         var pe = NativePeTests.KitchenSink(true);
         var seeds = new[] { pe, Mapped(pe), FormatWriterTests.SampleElf().Build(), FormatWriterTests.SampleElf(false, ElfWriter.EmArm).Build(), FormatWriterTests.SampleMachO().Build() };

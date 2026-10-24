@@ -93,7 +93,7 @@ internal static partial class DependencyInventory
         if (views.ContainsKey("go") || views.ContainsKey("rust")) FromNative(b, input, views);
         if (views.GetValueOrDefault("python")?.Detail is PythonFileView.Facts { App: { } python }) FromPython(b, python, input.Path, ct);
         bool il2cppSplit = FromAndroid(b, input, views, ct);
-        // Reading Il2Cpp metadata takes seconds on a large game, so it waits until the view is asked for.
+        // Reading Il2Cpp metadata takes seconds on a large build, so it waits until the view is asked for.
         if (input.Options.Wants("dependencies"))
             FromIl2Cpp(b, input.Path, Il2CppPackages.IsPackage(input.Path) && input.Kind == "zip"
                 && (il2cppSplit || input.HasZipEntry(n => n.EndsWith("/global-metadata.dat", StringComparison.Ordinal))), ct);
@@ -290,22 +290,22 @@ internal static partial class DependencyInventory
 
     private static string FileName(string path) => path[(path.LastIndexOfAny(['/', '\\']) + 1)..];
 
-    /// <summary>An Il2Cpp game's metadata: the file itself or the one its binary names.</summary>
+    /// <summary>An Il2Cpp build's metadata: the file itself or the one its binary names.</summary>
     private static void FromIl2Cpp(Builder b, string path, bool package, CancellationToken ct)
     {
-        Il2CppGameFiles? files;
+        Il2CppBuildFiles? files;
         try
         {
-            // A package's game is read from the files the Il2Cpp tools extract from it (metadata and Unity version files).
+            // A package's build is read from the files the Il2Cpp tools extract from it (metadata and Unity version files).
             var at = package ? Il2CppPackages.Extract(path, null, ct: ct) : path;
-            files = at != null ? Il2CppGameFiles.Find(at, metadataOnly: true) : null;
+            files = at != null ? Il2CppBuildFiles.Find(at, metadataOnly: true) : null;
         }
         catch (Core.ToolError) { return; }
         if (files?.Metadata is not { Length: > 0 } || Il2CppMetadataOnly.Assemblies(files, ct) is not { } read) return;
         FromIl2CppAssemblies(b, read.Assemblies, read.UnityVersion, $"Il2Cpp metadata {files.Metadata} ({read.Source})", Product(files.DataDirectory));
     }
 
-    /// <summary>The inventory of an Il2Cpp game's assemblies; <paramref name="unityVersion"/> null means unknown.</summary>
+    /// <summary>The inventory of an Il2Cpp build's assemblies; <paramref name="unityVersion"/> null means unknown.</summary>
     internal static DependencyFacts? OfIl2Cpp(IReadOnlyList<Il2CppMetadataOnly.AssemblyIdentity> assemblies, string? unityVersion, string source, string? product)
     {
         var b = new Builder();
@@ -315,32 +315,32 @@ internal static partial class DependencyInventory
     }
 
     /// <summary>
-    /// The Unity engine with its class libraries as one component, the game's own assemblies as the subject, and the
+    /// The Unity engine with its class libraries as one component, the application's own assemblies as the subject, and the
     /// rest by name: Il2Cpp metadata keeps assembly versions only, so their package versions are unknown.
     /// </summary>
     private static void FromIl2CppAssemblies(Builder b, IReadOnlyList<Il2CppMetadataOnly.AssemblyIdentity> assemblies, string? unityVersion, string source, string? product)
     {
         b.Sources.Add(source);
         var engine = assemblies.Where(a => IsUnityEngine(a.Name)).ToList();
-        var game = assemblies.Where(a => a.Name.StartsWith("Assembly-CSharp", StringComparison.Ordinal) || a.Name.StartsWith("Assembly-UnityScript", StringComparison.Ordinal)).ToList();
-        if (b.Subject == null && game.Count > 0)
-            b.Subject = new DependencyComponent(b.NewRef("unity-game"), product ?? game[0].Name, null, "unity", "application", null, Manifest,
-                "manifest-analysis", "Il2Cpp metadata (the game's assemblies)") { Locations = [.. game.Select(a => a.Name + ".dll")] };
+        var own = assemblies.Where(a => a.Name.StartsWith("Assembly-CSharp", StringComparison.Ordinal) || a.Name.StartsWith("Assembly-UnityScript", StringComparison.Ordinal)).ToList();
+        if (b.Subject == null && own.Count > 0)
+            b.Subject = new DependencyComponent(b.NewRef("unity-app"), product ?? own[0].Name, null, "unity", "application", null, Manifest,
+                "manifest-analysis", "Il2Cpp metadata (the application's assemblies)") { Locations = [.. own.Select(a => a.Name + ".dll")] };
         var purl = unityVersion != null ? $"pkg:generic/unity@{Purl.Encode(unityVersion)}" : null;
         b.Components.Add(new DependencyComponent(b.NewRef(purl ?? "unity"), "Unity", unityVersion, "unity", "framework", purl, unityVersion != null ? Manifest : AssemblyVersionOnly,
-            "manifest-analysis", $"{(unityVersion != null ? "Unity version from the game files" : "Unity version unknown")}; engine and class library assemblies: {engine.Count}")
+            "manifest-analysis", $"{(unityVersion != null ? "Unity version from the build files" : "Unity version unknown")}; engine and class library assemblies: {engine.Count}")
         {
             Locations = [.. engine.Select(a => a.Name + ".dll")],
         });
         if (unityVersion == null) b.Notes.Add("the Unity version is unknown: only the metadata version suggests a range");
-        foreach (var a in assemblies.Except(engine).Except(game))
+        foreach (var a in assemblies.Except(engine).Except(own))
         {
             var assemblyVersion = a.Version == new Version(0, 0, 0, 0) ? null : a.Version.ToString();
             var c = new DependencyComponent(b.NewRef($"nuget:{a.Name}@{assemblyVersion}"), a.Name, null, "nuget", "library", null, AssemblyVersionOnly, "binary-analysis",
                 "Il2Cpp metadata assembly definition; the package version is unknown") { Locations = [a.Name + ".dll"], AssemblyVersion = assemblyVersion };
             if (!Merge(b, c, a.Name + ".dll")) b.Components.Add(c);
         }
-        if (assemblies.Count > engine.Count + game.Count)
+        if (assemblies.Count > engine.Count + own.Count)
             b.Notes.Add("Il2Cpp metadata keeps assembly names and versions, not informational versions: the package versions of its assemblies are unknown and they have no package URL");
     }
 

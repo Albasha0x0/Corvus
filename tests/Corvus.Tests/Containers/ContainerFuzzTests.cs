@@ -29,7 +29,7 @@ public sealed class ContainerFuzzTests
             ("host.dll", ContainerFixtures.Module("Host", ("costura.testfixture.dll.compressed", ContainerFixtures.Deflate(Fixture)))),
             ("app.dll", ContainerFixtures.Xalz(Fixture)),
             ("app.wasm", Webcil.FromPe(Fixture)),
-            ("game.data.gz", unity.ToArray()),
+            ("app.data.gz", unity.ToArray()),
         };
         var failures = new List<string>();
         foreach (var (name, bytes) in seeds)
@@ -44,7 +44,7 @@ public sealed class ContainerFuzzTests
         var seed = UnityWebDataTests.Build(("data.unity3d", "UnityFS\0\0\0\0"u8.ToArray()), ("Il2CppData/Metadata/global-metadata.dat", new byte[16]), ("../evil.txt", "x"u8.ToArray()));
         var failures = FormatFuzz.Run(seed, b =>
         {
-            try { UnityWebData.Open(b, "game.data", null, allFiles: true, AnalysisLimits.Default, default); }
+            try { UnityWebData.Open(b, "app.data", null, allFiles: true, AnalysisLimits.Default, default); }
             catch (ToolError) { }
         }, 1000);
         Assert.True(failures.Count == 0, string.Join("\n", failures.Take(10)));

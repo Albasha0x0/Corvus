@@ -6,12 +6,12 @@ using LibCpp2IL.Metadata;
 namespace Corvus.Services;
 
 /// <summary>
-/// Il2CppDumper's names for types and methods, so that names from the built-in reader equal those of script.json:
+/// script.json's names for types and methods, so that names from the built-in reader equal those of script.json:
 /// "Ns.Outer.Inner&lt;int, string&gt;" (namespace once, nested types joined with '.', arity suffixes dropped, generic
 /// arguments by simple name with C# keywords), "Ns.Type&lt;T&gt;" for a definition's own parameters, and "Type$$Method".
 /// Works on the LibCpp2IL state; caches what it reads from the binary.
 /// </summary>
-internal sealed class Il2CppDumperNames(Il2CppMetadata metadata, Il2CppBinary binary)
+internal sealed class Il2CppScriptNames(Il2CppMetadata metadata, Il2CppBinary binary)
 {
     private readonly Dictionary<ulong, Il2CppGenericClass> _classes = new();
     private readonly Dictionary<ulong, Il2CppType[]> _instances = new();
@@ -50,7 +50,7 @@ internal sealed class Il2CppDumperNames(Il2CppMetadata metadata, Il2CppBinary bi
 
     public Il2CppType[] Instance(int index) => index < 0 ? [] : binary.GetGenericInst(index).Types;
 
-    /// <summary>Il2CppDumper's GetTypeName(type, addNamespace, is_nested).</summary>
+    /// <summary>A type's script.json name; <paramref name="nested"/> leaves out generic arguments, as for a declaring type.</summary>
     public string TypeName(Il2CppType type, bool addNamespace, bool nested, int depth = 0)
     {
         if (depth > 32) return "?";
@@ -81,7 +81,7 @@ internal sealed class Il2CppDumperNames(Il2CppMetadata metadata, Il2CppBinary bi
         }
     }
 
-    /// <summary>Il2CppDumper's GetTypeDefName(typeDef, addNamespace, genericParameter).</summary>
+    /// <summary>A type definition's script.json name, with its own generic parameters when asked.</summary>
     public string TypeDefName(Il2CppTypeDefinition definition, bool addNamespace, bool genericParameters)
     {
         var sb = new StringBuilder();
@@ -97,7 +97,7 @@ internal sealed class Il2CppDumperNames(Il2CppMetadata metadata, Il2CppBinary bi
         return sb.ToString();
     }
 
-    /// <summary>Il2CppDumper's GetMethodSpecName: the type part (with class arguments) and the method part (with method arguments).</summary>
+    /// <summary>A method instantiation's script.json name: the type part (with class arguments) and the method part (with method arguments).</summary>
     public (string Type, string Method) MethodSpecName(Il2CppMethodSpec spec, bool addNamespace)
     {
         var method = metadata.methodDefs[spec.methodDefinitionIndex.Value];
@@ -116,7 +116,7 @@ internal sealed class Il2CppDumperNames(Il2CppMetadata metadata, Il2CppBinary bi
 
     public static string StripArity(string name) => name.IndexOf('`') is var i and >= 0 ? name[..i] : name;
 
-    /// <summary>Il2CppDumper's C struct name of a type name: every character other than a letter, digit or '_' becomes '_'.</summary>
+    /// <summary>The C struct name of a type name in script.json: every character other than a letter, digit or '_' becomes '_'.</summary>
     public static string StructName(string typeName)
     {
         var sb = new StringBuilder(typeName.Length);

@@ -7,11 +7,11 @@ using Corvus.Core;
 namespace Corvus.Services;
 
 /// <summary>
-/// Loads a raw Il2Cpp game (its binary + global-metadata.dat) without Il2CppDumper or Cpp2IL:
+/// Loads a raw Il2Cpp build (its binary + global-metadata.dat):
 /// <see cref="Il2CppMetadataReader"/> writes <c>root/&lt;key&gt;/DummyDll/*.dll</c>, <c>il2cpp-model.bin</c> and the
-/// marker <see cref="MarkerFileName"/> into a per-user cache (or <c>cacheRoot</c>), and the dummy assemblies load like an Il2CppDumper
-/// DummyDll folder. The key is the game files' paths, sizes and write times. The Il2Cpp tools find the model through the marker
-/// (<see cref="Il2CppDumpFiles.Locate"/>). At most <see cref="MaxEntries"/> games are kept, evicting the least recently
+/// marker <see cref="MarkerFileName"/> into a per-user cache (or <c>cacheRoot</c>), and the dummy assemblies load like any
+/// dummy assembly folder. The key is the build files' paths, sizes and write times. The Il2Cpp tools find the model through the marker
+/// (<see cref="Il2CppDumpFiles.Locate"/>). At most <see cref="MaxEntries"/> builds are kept, evicting the least recently
 /// used entry that is not loaded.
 /// </summary>
 public sealed class Il2CppRawLoader(AssemblyWorkspace workspace, string? cacheRoot = null)
@@ -34,56 +34,56 @@ public sealed class Il2CppRawLoader(AssemblyWorkspace workspace, string? cacheRo
     public sealed record Marker(string Binary, string Metadata, string BinaryStamp, string MetadataStamp, int Format, string Reader, DateTime Created,
         string? Slice = null, string? BinaryIdentity = null, string? Package = null);
 
-    public sealed record Result(Il2CppGameFiles Files, string CacheDirectory, string DummyDirectory, bool FromCache, Il2CppGameModel Model,
+    public sealed record Result(Il2CppBuildFiles Files, string CacheDirectory, string DummyDirectory, bool FromCache, Il2CppBuildModel Model,
         AssemblyWorkspace.LoadReport Load, LoadedNative? Binary, string? BinaryProblem, TimeSpan ReadTime, TimeSpan Elapsed, IReadOnlyList<string> Notes);
 
     private static readonly object CacheGate = new();
-    private static readonly Dictionary<string, WeakReference<Il2CppGameModel>> Models = new(StringComparer.OrdinalIgnoreCase);
+    private static readonly Dictionary<string, WeakReference<Il2CppBuildModel>> Models = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>The marker in <paramref name="directory"/>, or null when there is none or it cannot be read.</summary>
     public static Marker? ReadMarker(string directory)
     {
         var path = Path.Combine(directory, MarkerFileName);
-        if (!File.Exists(path) || !File.Exists(Path.Combine(directory, Il2CppGameModel.FileName))) return null;
+        if (!File.Exists(path) || !File.Exists(Path.Combine(directory, Il2CppBuildModel.FileName))) return null;
         try { return JsonSerializer.Deserialize<Marker>(File.ReadAllText(path)); }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException) { return null; }
     }
 
     /// <summary>The model at <paramref name="path"/>: the one just built when still in memory, else read from the file.</summary>
-    public static Il2CppGameModel Model(string path)
+    public static Il2CppBuildModel Model(string path)
     {
         var full = Path.GetFullPath(path);
         lock (Models)
             if (Models.TryGetValue(full, out var weak) && weak.TryGetTarget(out var model)) return model;
-        var read = Il2CppGameModel.Read(full);
-        lock (Models) Models[full] = new WeakReference<Il2CppGameModel>(read);
+        var read = Il2CppBuildModel.Read(full);
+        lock (Models) Models[full] = new WeakReference<Il2CppBuildModel>(read);
         return read;
     }
 
     /// <summary>The model of <paramref name="files"/> when a load already read it into the cache; null otherwise (nothing is read).</summary>
-    public Il2CppGameModel? Cached(Il2CppGameFiles files)
+    public Il2CppBuildModel? Cached(Il2CppBuildFiles files)
     {
         var dir = Path.Combine(Path.GetFullPath(cacheRoot ?? DefaultRoot), Key(files));
         if (!Current(dir, files)) return null;
-        try { return Model(Path.Combine(dir, Il2CppGameModel.FileName)); }
+        try { return Model(Path.Combine(dir, Il2CppBuildModel.FileName)); }
         catch (IOException) { return null; }
     }
 
     /// <summary>The dummy assembly folder of <paramref name="files"/> when a load already read it into the default cache; null otherwise (nothing is read).</summary>
-    public static string? CachedDummies(Il2CppGameFiles files)
+    public static string? CachedDummies(Il2CppBuildFiles files)
     {
         var dir = Path.Combine(Path.GetFullPath(DefaultRoot), Key(files));
         var dummy = Path.Combine(dir, DummyFolder);
         return Current(dir, files) && Directory.Exists(dummy) ? dummy : null;
     }
 
-    private static bool Current(string dir, Il2CppGameFiles files) =>
+    private static bool Current(string dir, Il2CppBuildFiles files) =>
         ReadMarker(dir) is { } marker && marker.Format == CacheFormat && marker.Reader == ReaderVersion
         && marker.BinaryStamp == Stamp(files.Binary) && marker.MetadataStamp == Stamp(files.Metadata);
 
     private static string Stamp(string path) => path.Length > 0 && new FileInfo(path) is { Exists: true } f ? $"{f.Length}:{f.LastWriteTimeUtc.Ticks}" : "-";
 
-    private static string Key(Il2CppGameFiles files)
+    private static string Key(Il2CppBuildFiles files)
     {
         var text = $"{CacheFormat}|{(files.Binary.Length > 0 ? Path.GetFullPath(files.Binary).ToLowerInvariant() : "")}|{Stamp(files.Binary)}|{Path.GetFullPath(files.Metadata).ToLowerInvariant()}|{Stamp(files.Metadata)}|{files.Slice}";
         return Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(text)))[..16];
@@ -92,17 +92,17 @@ public sealed class Il2CppRawLoader(AssemblyWorkspace workspace, string? cacheRo
     private static string ReaderVersion => typeof(LibCpp2IL.LibCpp2IlMain).Assembly.GetName().Version?.ToString() ?? "?";
 
     /// <summary>
-    /// Reads (or finds in the cache) the game at <paramref name="files"/>, loads its dummy assemblies and, with
+    /// Reads (or finds in the cache) the build at <paramref name="files"/>, loads its dummy assemblies and, with
     /// <paramref name="loadBinary"/>, GameAssembly.dll as a native image.
     /// </summary>
-    public Result Load(Il2CppGameFiles files, bool loadBinary, Action<string>? progress, CancellationToken ct, string? root = null)
+    public Result Load(Il2CppBuildFiles files, bool loadBinary, Action<string>? progress, CancellationToken ct, string? root = null)
     {
         var watch = Stopwatch.StartNew();
         var notes = new List<string>();
         var entries = Path.GetFullPath(root ?? cacheRoot ?? DefaultRoot);
         var dir = Path.Combine(entries, Key(files));
         var dummy = Path.Combine(dir, DummyFolder);
-        Il2CppGameModel model;
+        Il2CppBuildModel model;
         bool fromCache;
         TimeSpan readTime;
         using (AssemblyWorkspace.Lock(CacheGate))
@@ -113,7 +113,7 @@ public sealed class Il2CppRawLoader(AssemblyWorkspace workspace, string? cacheRo
             {
                 try
                 {
-                    model = Model(Path.Combine(dir, Il2CppGameModel.FileName));
+                    model = Model(Path.Combine(dir, Il2CppBuildModel.FileName));
                     fromCache = true;
                     readTime = model.ReadTime;
                     Touch(dir);
@@ -132,16 +132,16 @@ public sealed class Il2CppRawLoader(AssemblyWorkspace workspace, string? cacheRo
                 model = output.Model;
                 notes.AddRange(output.Notes);
                 progress?.Invoke("saving the model");
-                model.Write(Path.Combine(staging, Il2CppGameModel.FileName));
+                model.Write(Path.Combine(staging, Il2CppBuildModel.FileName));
                 var newMarker = new Marker(files.Binary, files.Metadata, Stamp(files.Binary), Stamp(files.Metadata), CacheFormat, ReaderVersion, DateTime.UtcNow,
                     files.Slice, output.BinaryIdentity, files.Package);
                 File.WriteAllText(Path.Combine(staging, MarkerFileName), JsonSerializer.Serialize(newMarker, IndentedJson));
                 if (Directory.Exists(dir))
                 {
                     if (workspace.Read(() => workspace.Assemblies.Any(a => a.FilePath.StartsWith(dir + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))))
-                        throw new ToolError(ErrorCode.Conflict, $"An older read of this game is loaded from {dir}.", "unload its assemblies first, then load the game again");
+                        throw new ToolError(ErrorCode.Conflict, $"An older read of this build is loaded from {dir}.", "unload its assemblies first, then load the build again");
                     if (CacheHolds.InUse(dir))
-                        throw new ToolError(ErrorCode.Conflict, $"An older read of this game in {dir} is in use by another workspace or server.", "unload it there, or set CORVUS_IL2CPP_CACHE to another folder for this server");
+                        throw new ToolError(ErrorCode.Conflict, $"An older read of this build in {dir} is in use by another workspace or server.", "unload it there, or set CORVUS_IL2CPP_CACHE to another folder for this server");
                     SafeFile.WhenReleased(() => Directory.Delete(dir, true));
                 }
                 SafeFile.WhenReleased(() => Directory.Move(staging, dir));
@@ -156,7 +156,7 @@ public sealed class Il2CppRawLoader(AssemblyWorkspace workspace, string? cacheRo
                 TryDelete(staging);
                 throw;
             }
-            lock (Models) Models[Path.Combine(dir, Il2CppGameModel.FileName)] = new WeakReference<Il2CppGameModel>(model);
+            lock (Models) Models[Path.Combine(dir, Il2CppBuildModel.FileName)] = new WeakReference<Il2CppBuildModel>(model);
             fromCache = false;
             readTime = model.ReadTime;
             Trim(entries, dir);
@@ -212,7 +212,7 @@ public sealed class Il2CppRawLoader(AssemblyWorkspace workspace, string? cacheRo
     }
 
     /// <summary>Unreadable items grouped by reason, with up to <paramref name="examples"/> items each.</summary>
-    public static List<(string Reason, int Count, List<Il2CppGameModel.Unreadable> Examples)> UnreadableSummary(Il2CppGameModel model, int examples = 3) =>
+    public static List<(string Reason, int Count, List<Il2CppBuildModel.Unreadable> Examples)> UnreadableSummary(Il2CppBuildModel model, int examples = 3) =>
         model.Unreadables.GroupBy(u => u.Reason).OrderByDescending(g => g.Count())
             .Select(g => (g.Key, g.Count(), g.Take(examples).ToList())).ToList();
 
@@ -223,7 +223,7 @@ public sealed class Il2CppRawLoader(AssemblyWorkspace workspace, string? cacheRo
         var sb = new StringBuilder();
         if (r.Files.Binary.Length == 0)
         {
-            sb.AppendLine($"Read Il2Cpp metadata {r.Files.Metadata} without the game binary{(r.FromCache ? " — from the cache" : "")}:");
+            sb.AppendLine($"Read Il2Cpp metadata {r.Files.Metadata} without the native binary{(r.FromCache ? " — from the cache" : "")}:");
             sb.AppendLine($"  metadata v{m.HeaderVersion} (read as {m.MetadataVersion:0.##}, layout of Unity {m.UnityVersion}, {m.UnityVersionSource})");
             sb.AppendLine($"  {m.Images} images, {m.Types} types, {m.MethodDefinitions} methods, {m.Fields} fields, {m.LiteralValues.Length} string literals");
             sb.AppendLine($"  dummy assemblies: loaded {r.Load.Loaded.Count} from {r.DummyDirectory}" + (r.Load.Skipped.Count > 0 ? $", {r.Load.Skipped.Count} not loaded" : ""));
@@ -231,10 +231,10 @@ public sealed class Il2CppRawLoader(AssemblyWorkspace workspace, string? cacheRo
                           $"{Il2CppMetadataOnly.Placeholder} (those types, method addresses and field offsets are in the binary)");
             sb.AppendLine(m.Unreadables.Count == 0 ? "  unreadable items: none" : $"  unreadable items: {m.Unreadables.Count} (e.g. {string.Join("; ", m.Unreadables.Take(3).Select(u => $"{u.Item}: {u.Reason}"))})");
             foreach (var note in r.Notes.Take(12)) sb.AppendLine($"  note: {Format.Clip(note, 400)}");
-            sb.Append("Next: list_types / search_symbols / get_type_info / search_strings on these assemblies; load the game binary beside the metadata for types, addresses and offsets.");
+            sb.Append("Next: list_types / search_symbols / get_type_info / search_strings on these assemblies; load the native binary beside the metadata for types, addresses and offsets.");
             return sb.ToString();
         }
-        sb.AppendLine($"Read Il2Cpp game {r.Files.Binary}{(r.Files.Slice != null ? $" [{r.Files.Slice}]" : "")} + {r.Files.Metadata} with the built-in reader (LibCpp2IL){(r.FromCache ? " — from the cache" : "")}:");
+        sb.AppendLine($"Read Il2Cpp build {r.Files.Binary}{(r.Files.Slice != null ? $" [{r.Files.Slice}]" : "")} + {r.Files.Metadata} with the built-in reader (LibCpp2IL){(r.FromCache ? " — from the cache" : "")}:");
         if (r.Files.Package != null) sb.AppendLine($"  {r.Files.Platform} build extracted from {r.Files.Package}");
         else if (r.Files.Platform != "windows") sb.AppendLine($"  {r.Files.Platform} build");
         sb.AppendLine($"  metadata v{m.HeaderVersion} (read as {m.MetadataVersion:0.##}), Unity {m.UnityVersion} ({m.UnityVersionSource}); image base 0x{m.ImageBase:X}{(m.MemoryImage ? " (memory image)" : "")}");

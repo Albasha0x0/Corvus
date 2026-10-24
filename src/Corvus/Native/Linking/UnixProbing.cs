@@ -59,7 +59,7 @@ public static class UnixProbing
 
     /// <summary>
     /// The target platform: <paramref name="requested"/> when it names one, else <paramref name="hint"/> (the platform of
-    /// an Il2Cpp game binary), else the app's deps.json runtime target, its runtimes/&lt;rid&gt; folders when they name one
+    /// an Il2Cpp binary), else the app's deps.json runtime target, its runtimes/&lt;rid&gt; folders when they name one
     /// OS, the native libraries beside it, and windows.
     /// </summary>
     public static TargetPlatform Detect(string appDirectory, string? requested, TargetPlatform? hint = null)

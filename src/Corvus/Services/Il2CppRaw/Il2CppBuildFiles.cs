@@ -3,17 +3,17 @@ using Corvus.Core;
 namespace Corvus.Services;
 
 /// <summary>
-/// The files of an Il2Cpp game the built-in reader needs: the native binary, the metadata (global-metadata.dat) and,
+/// The files of an Il2Cpp build the built-in reader needs: the native binary, the metadata (global-metadata.dat) and,
 /// for the Unity version, the player (UnityPlayer.dll) and the data folder. <see cref="Slice"/> picks the slice of a
 /// universal Mach-O binary; <see cref="Package"/> is the .apk / .ipa the files were extracted from.
 /// </summary>
-public sealed record Il2CppGameFiles(string Binary, string Metadata, string? UnityPlayer, string? DataDirectory, string? Slice = null)
+public sealed record Il2CppBuildFiles(string Binary, string Metadata, string? UnityPlayer, string? DataDirectory, string? Slice = null)
 {
     public const string MetadataFileName = "global-metadata.dat";
     public const string BinaryFileName = "GameAssembly.dll";
     private const uint MetadataMagic = 0xFAB11BAF;
 
-    /// <summary>Game binary names by platform: Windows, Linux, macOS, Android, iOS (Unity 2019.3 and later).</summary>
+    /// <summary>Il2Cpp binary names by platform: Windows, Linux, macOS, Android, iOS (Unity 2019.3 and later).</summary>
     public static readonly string[] BinaryNames = [BinaryFileName, "GameAssembly.so", "GameAssembly.dylib", "libil2cpp.so", "UnityFramework"];
 
     /// <summary>Android ABIs in the order a build is picked when none is asked for.</summary>
@@ -25,16 +25,16 @@ public sealed record Il2CppGameFiles(string Binary, string Metadata, string? Uni
     public string? Package { get; init; }
 
     /// <summary>
-    /// The game files for <paramref name="path"/>, or null when the path is not an Il2Cpp game. Layouts: Windows and
-    /// Linux (GameAssembly.dll / .so beside &lt;Game&gt;_Data/il2cpp_data/Metadata), macOS (.app with
+    /// The build files for <paramref name="path"/>, or null when the path is not an Il2Cpp build. Layouts: Windows and
+    /// Linux (GameAssembly.dll / .so beside &lt;Product&gt;_Data/il2cpp_data/Metadata), macOS (.app with
     /// Contents/Frameworks/GameAssembly.dylib and Contents/Resources/Data/il2cpp_data/Metadata), an extracted Android
     /// package (lib/&lt;abi&gt;/libil2cpp.so, assets/bin/Data/Managed/Metadata), an iOS .app
     /// (Frameworks/UnityFramework.framework/UnityFramework or the main executable, Data/Managed/Metadata), or the metadata
-    /// with the binary beside it. The path is the game folder, the metadata or the binary. <paramref name="slice"/> is the
+    /// with the binary beside it. The path is the build folder, the metadata or the binary. <paramref name="slice"/> is the
     /// Android ABI (default arm64-v8a, armeabi-v7a, x86_64, x86) or the Mach-O slice. Throws NotFound when one half is
     /// there and the other is not, unless <paramref name="metadataOnly"/> takes metadata without a binary (Binary is then "").
     /// </summary>
-    public static Il2CppGameFiles? Find(string path, string? slice = null, bool metadataOnly = false)
+    public static Il2CppBuildFiles? Find(string path, string? slice = null, bool metadataOnly = false)
     {
         var full = Path.GetFullPath(path);
         Candidate? found = null;
@@ -50,7 +50,7 @@ public sealed record Il2CppGameFiles(string Binary, string Metadata, string? Uni
         {
             bool isMetadata = IsMetadataFile(full);
             if (!isMetadata && !IsBinaryName(Path.GetFileName(full))) return null;
-            // The game root is the file's folder or one of its ancestors whose layout names this file.
+            // The build root is the file's folder or one of its ancestors whose layout names this file.
             for (var dir = Path.GetDirectoryName(full); dir != null && found is not { Binary: not null, Metadata: not null }; dir = Path.GetDirectoryName(dir))
             {
                 if (FromRoot(dir, slice, isMetadata ? null : full) is { } c && Same(isMetadata ? c.Metadata : c.Binary, full) && (found == null || (c.Binary != null && c.Metadata != null))) found = c;
@@ -62,22 +62,22 @@ public sealed record Il2CppGameFiles(string Binary, string Metadata, string? Uni
         else return null;
         var (binary, metadata, data, platform) = found;
         if (metadata == null)
-            throw new ToolError(ErrorCode.NotFound, $"Found {binary} but no {MetadataFileName} (looked in <Game>_Data/il2cpp_data/Metadata, assets/bin/Data/Managed/Metadata, Data/Managed/Metadata and beside it).",
-                $"pass the {MetadataFileName} path, with the binary beside it or in its game folder");
+            throw new ToolError(ErrorCode.NotFound, $"Found {binary} but no {MetadataFileName} (looked in <Product>_Data/il2cpp_data/Metadata, assets/bin/Data/Managed/Metadata, Data/Managed/Metadata and beside it).",
+                $"pass the {MetadataFileName} path, with the binary beside it or in its build folder");
         if (binary == null && metadataOnly)
-            return new Il2CppGameFiles("", metadata, null, data ?? DataDirectoryOf(metadata)) { Platform = platform };
+            return new Il2CppBuildFiles("", metadata, null, data ?? DataDirectoryOf(metadata)) { Platform = platform };
         if (binary == null)
-            throw new ToolError(ErrorCode.NotFound, $"Found {metadata} but no game binary ({string.Join(", ", BinaryNames)}) beside it or in the game folder.",
-                "put the game binary (or a memory dump of it under its name) beside the metadata, or pass the game folder");
-        var gameDir = Path.GetDirectoryName(binary)!;
-        var player = platform == "windows" ? Existing(gameDir, "UnityPlayer.dll") : null;
-        data ??= DataDirectoryOf(metadata) ?? SafeEnumerate(() => Directory.EnumerateDirectories(gameDir, "*_Data").FirstOrDefault());
-        return new Il2CppGameFiles(binary, metadata, player, data, platform == "android" ? null : slice) { Platform = platform };
+            throw new ToolError(ErrorCode.NotFound, $"Found {metadata} but no native binary ({string.Join(", ", BinaryNames)}) beside it or in the build folder.",
+                "put the native binary (or a memory dump of it under its name) beside the metadata, or pass the build folder");
+        var appDir = Path.GetDirectoryName(binary)!;
+        var player = platform == "windows" ? Existing(appDir, "UnityPlayer.dll") : null;
+        data ??= DataDirectoryOf(metadata) ?? SafeEnumerate(() => Directory.EnumerateDirectories(appDir, "*_Data").FirstOrDefault());
+        return new Il2CppBuildFiles(binary, metadata, player, data, platform == "android" ? null : slice) { Platform = platform };
     }
 
     private sealed record Candidate(string? Binary, string? Metadata, string? Data, string Platform);
 
-    /// <summary>The game files a folder holds in one of the known layouts; either half may be null.</summary>
+    /// <summary>The build files a folder holds in one of the known layouts; either half may be null.</summary>
     private static Candidate? FromRoot(string dir, string? slice, string? binaryHint = null)
     {
         // Android: lib/<abi>/libil2cpp.so with assets/bin/Data/Managed/Metadata.
@@ -111,7 +111,7 @@ public sealed record Il2CppGameFiles(string Binary, string Metadata, string? Uni
             var binary = binaryHint != null && Same(main, binaryHint) ? main : framework ?? main;
             return new Candidate(binary, iosMetadata, Directory.Exists(iosData) ? iosData : null, "ios");
         }
-        // Windows and Linux: GameAssembly.dll / .so with <Game>_Data/il2cpp_data/Metadata; or both files side by side.
+        // Windows and Linux: GameAssembly.dll / .so with <Product>_Data/il2cpp_data/Metadata; or both files side by side.
         var beside = BinaryNames.Select(n => Existing(dir, n)).FirstOrDefault(p => p != null && (binaryHint == null || Same(p, binaryHint)));
         var metadata = MetadataIn(dir);
         if (beside == null && metadata == null) return null;

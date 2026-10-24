@@ -21,7 +21,7 @@ public sealed record Il2CppCallee(string Namespace, string Type, string Member)
 /// <summary>A direct call or tail jump at <see cref="Site"/> (RVA) to the function at <see cref="Target"/>, and the method it reaches.</summary>
 public sealed record Il2CppCall(uint Site, uint Target, Il2CppCallee Callee);
 
-/// <summary>A function of the game binary: its start RVA, the calls it makes to named methods and the string literals it loads.</summary>
+/// <summary>A function of the Il2Cpp binary: its start RVA, the calls it makes to named methods and the string literals it loads.</summary>
 public sealed record Il2CppCodeFunction(uint Rva, IReadOnlyList<Il2CppCall> Calls, IReadOnlyList<string> Strings);
 
 /// <summary>
@@ -41,7 +41,7 @@ public sealed record CapaRuleMatch(string Name, string? Namespace, IReadOnlyList
 public sealed record CapaResult(string State, string? Checker, bool Tested, IReadOnlyList<CapaRuleMatch> Rules, string? Note);
 
 /// <summary>
-/// survey_features' capa capabilities of an Il2Cpp game binary: capa's state (as <see cref="CapaResult"/>), the version
+/// survey_features' capa capabilities of an Il2Cpp binary: capa's state (as <see cref="CapaResult"/>), the version
 /// that ran, each rule matched at a function, and notes naming what was not read.
 /// </summary>
 public sealed record CapaCapabilities(string State, string? Checker, bool Tested, IReadOnlyList<CapaCapability> Rules, IReadOnlyList<string> Notes);
@@ -50,7 +50,7 @@ public sealed record CapaCapabilities(string State, string? Checker, bool Tested
 public sealed record CapaCapability(string Name, string? Namespace, int Matches, IReadOnlyList<string> Methods);
 
 /// <summary>
-/// capa's view of Il2Cpp game code: each function's direct calls to methods the metadata names, written as the .NET
+/// capa's view of Il2Cpp native code: each function's direct calls to methods the metadata names, written as the .NET
 /// features capa's dnfile extractor gives a call (api, or property for an accessor; class and namespace), in capa's
 /// freeze file (format version 3, static), so capa's .NET rules match native code. Indirect and virtual calls are
 /// not followed.
@@ -262,7 +262,7 @@ public static class Il2CppCapa
 
     /// <summary>
     /// The rules capa (CORVUS_CAPA) matches in <paramref name="freeze"/>. Rules matched only at no address are left out:
-    /// they describe the file format the freeze states (.NET), not the game's code.
+    /// they describe the file format the freeze states (.NET), not the native code.
     /// </summary>
     public static CapaResult Match(byte[] freeze, CancellationToken ct)
     {
@@ -329,14 +329,14 @@ public static class Il2CppCapa
     private const int MaxMethodsPerRule = 5;
 
     /// <summary>
-    /// capa's capabilities of the game binary beside the dump of <paramref name="image"/>: functions named by script.json,
+    /// capa's capabilities of the Il2Cpp binary beside the dump of <paramref name="image"/>: functions named by script.json,
     /// else by the dummy methods. Calls are read under the workspace's read lock and capa runs after it. Unavailable when
     /// capa is not set up; unknown, with the reason, when the binary is not found or not readable.
     /// </summary>
     public static CapaCapabilities Survey(Core.AssemblyWorkspace workspace, Il2CppNavigator.Image image, Il2CppStringService strings, CancellationToken ct)
     {
         if (image.Dump?.Files.GameAssembly is not { } path)
-            return new("unknown", null, false, [], ["the game binary was not found beside the dump; capa reads its code"]);
+            return new("unknown", null, false, [], ["the native binary was not found beside the dump; capa reads its code"]);
         var probe = Native.Providers.ExternalTools.Probe(Native.Providers.ExternalTools.Capa);
         if (!probe.Usable) return new("unavailable", null, false, [], [$"capa {probe.Problem}; {probe.Remediation}"]);
         INativeImage binary;
@@ -416,7 +416,7 @@ public static class Il2CppCapa
     };
 
     /// <summary>
-    /// The method of an Il2CppDumper name split at "$$" ("Ns.Type&lt;int&gt;", "Method&lt;T&gt;") in .NET form ("Ns",
+    /// The method of a script.json name split at "$$" ("Ns.Type&lt;int&gt;", "Method&lt;T&gt;") in .NET form ("Ns",
     /// "Type`1", "Method"); null when either part is empty.
     /// </summary>
     public static Il2CppCallee? FromScriptName(string type, string member)

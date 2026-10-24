@@ -36,7 +36,7 @@ public class NativeCodeSweepTests(ITestOutputHelper output)
         Sweep(dir, NativeArch.X86);
     }
 
-    /// <summary>One large image (CORVUS_NATIVE_LARGE_IMAGE, e.g. a game executable or a browser DLL): time, memory, completeness.</summary>
+    /// <summary>One large image (CORVUS_NATIVE_LARGE_IMAGE, e.g. a large executable or a browser DLL): time, memory, completeness.</summary>
     [RequiresRealDataFact("CORVUS_NATIVE_LARGE_IMAGE")]
     [Trait(PerfBudget.Trait, PerfBudget.Timing)]
     [Trait("Tier", "Release")]

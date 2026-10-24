@@ -155,7 +155,7 @@ internal static class Doctor
         if (h.StartsWith("MZ"u8)) return Pe(env, path);
         if (h.StartsWith("PK\x03\x04"u8)) return new CheckReport(path, true, Healthy, "a ZIP container (.apk, .nupkg, ...): list_assemblies and unpack_container read it", null);
         if (h.StartsWith("MDMP"u8)) return new CheckReport(path, true, Healthy, "a Windows minidump: open_minidump reads it", null);
-        if (h.StartsWith((ReadOnlySpan<byte>)[0xAF, 0x1B, 0xB1, 0xFA])) return new CheckReport(path, true, Healthy, "Il2Cpp metadata (global-metadata.dat): load_assembly reads it with the game's GameAssembly", null);
+        if (h.StartsWith((ReadOnlySpan<byte>)[0xAF, 0x1B, 0xB1, 0xFA])) return new CheckReport(path, true, Healthy, "Il2Cpp metadata (global-metadata.dat): load_assembly reads it with the GameAssembly binary beside it", null);
         if (h.StartsWith((ReadOnlySpan<byte>)[0x7F, (byte)'E', (byte)'L', (byte)'F']) || h.StartsWith((ReadOnlySpan<byte>)[0xCF, 0xFA, 0xED, 0xFE]) || h.StartsWith((ReadOnlySpan<byte>)[0xCA, 0xFE, 0xBA, 0xBE]))
             return new CheckReport(path, false, UnsupportedTarget, "an ELF or Mach-O binary; only PE images are analyzed", null);
         return new CheckReport(path, false, UnsupportedTarget, "not a PE image, container, minidump or Il2Cpp metadata", "summarize_file reports what it contains.");

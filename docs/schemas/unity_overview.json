@@ -5,12 +5,12 @@
       "description": "The path as given.",
       "type": "string"
     },
-    "gameDirectory": {
-      "description": "The game folder (the one with the executable / UnityPlayer).",
+    "appDirectory": {
+      "description": "The application folder (the one with the executable / UnityPlayer).",
       "type": "string"
     },
     "dataDirectory": {
-      "description": "The data folder (<Game>_Data, assets/bin/Data, Contents/Resources/Data); null when absent.",
+      "description": "The data folder (<Product>_Data, assets/bin/Data, Contents/Resources/Data); null when absent.",
       "type": "string"
     },
     "executable": {
@@ -172,7 +172,7 @@
         "type": "object",
         "properties": {
           "category": {
-            "description": "guard, transformer, packing, encryption, mod_loader, build, middleware or toolchain.",
+            "description": "guard, transformer, packing, encryption, plugin_loader, build, middleware or toolchain.",
             "type": "string"
           },
           "name": {
@@ -200,7 +200,7 @@
         "type": "object",
         "properties": {
           "kind": {
-            "description": "managed, il2cpp_data, streaming_assets, addressables, plugins, mono_runtime, mod_loader or other.",
+            "description": "managed, il2cpp_data, streaming_assets, addressables, plugins, mono_runtime, plugin_loader or other.",
             "type": "string"
           },
           "path": {
@@ -228,7 +228,7 @@
         "type": "object",
         "properties": {
           "action": {
-            "description": "load_assembly, list_namespaces, apply_il2cpp_names, search_bytes, inspect_process, dump_from_memory, use_external_dumper or summarize_file.",
+            "description": "load_assembly, list_namespaces, apply_il2cpp_names, search_bytes, inspect_process, dump_from_memory, load_dummy_assemblies or summarize_file.",
             "type": "string"
           },
           "tool": {
@@ -279,7 +279,7 @@
   },
   "required": [
     "input",
-    "gameDirectory",
+    "appDirectory",
     "platform",
     "architecture",
     "engine",

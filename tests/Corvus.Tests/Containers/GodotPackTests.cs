@@ -96,7 +96,7 @@ public sealed class GodotPackTests
     [InlineData(4u, "Godot 4.7.1")]
     public void ListsEveryFileWithItsRole(uint format, string engine)
     {
-        var contents = Containers.Open(Build(format, Sample()), "game.pck", AnalysisLimits.Default, default, allFiles: true);
+        var contents = Containers.Open(Build(format, Sample()), "app.pck", AnalysisLimits.Default, default, allFiles: true);
         Assert.Equal(GodotPack.Kind, contents.Kind);
         Assert.Equal([".godot/exported/main.scn: compressed resource", "icon.ctex: texture", "player.gd: GDScript", "../evil.txt: text, unsafe name"],
             contents.Entries!.Select(e => $"{e.Path}: {e.Detail}"));
@@ -113,7 +113,7 @@ public sealed class GodotPackTests
         var exe = pe.Build();
         var pack = Build(4, Sample());
         var bytes = exe.Concat(pack).Concat(BitConverter.GetBytes((ulong)pack.Length)).Concat("GDPC"u8.ToArray()).ToArray();
-        var contents = Containers.Open(bytes, "game.exe", AnalysisLimits.Default, default, allFiles: true);
+        var contents = Containers.Open(bytes, "app.exe", AnalysisLimits.Default, default, allFiles: true);
         Assert.True(contents.Kind == GodotPack.Kind, $"{Blob.Identify(bytes)}: {string.Join("; ", contents.Notes)}");
         Assert.Contains($"embedded at 0x{exe.Length:X}", contents.Notes[0]);
         Assert.Equal("GST2rest", Encoding.ASCII.GetString(contents.Items.Single(i => i.Name == "icon.ctex").Bytes));
@@ -135,7 +135,7 @@ public sealed class GodotPackTests
         foreach (var format in new uint[] { 1, 2, 4 })
             failures.AddRange(FormatFuzz.Run(Build(format, Sample()), b =>
             {
-                try { GodotPack.Open(b, 0, "game.pck", allFiles: true, AnalysisLimits.Default, default); }
+                try { GodotPack.Open(b, 0, "app.pck", allFiles: true, AnalysisLimits.Default, default); }
                 catch (ToolError) { }
             }, 500));
         Assert.True(failures.Count == 0, string.Join("\n", failures.Take(10)));

@@ -38,7 +38,7 @@ public sealed class NativeTypeInfoTools(AssemblyWorkspace workspace, NativeCodeS
     [McpServerTool(Name = "get_native_type", Title = "Native type layout", UseStructuredContent = true, OutputSchemaType = typeof(NativeTypeReport))]
     [Description("Layout of a native type (fields with offset, size, bits; bases, padding; enums by value) from PDB, RTTI (vftables, named slots), " +
                  "Il2Cpp, ObjC or Swift metadata, or the engine (source=engine). By name (exact, case-insensitive, else substring candidates), id or " +
-                 "typed address (PDB global: field path g.players[3].pos.y). read=true adds values.")]
+                 "typed address (PDB global: field path g.nodes[3].pos.y). read=true adds values.")]
     public Task<string> GetNativeType(
         [Description(NativeTools.ImageDescription)] string image,
         [Description("Type name (Packet, ns::Widget, Il2Cpp Ns.Type), or a glob listing matches (*Widget*).")] string? name = null,

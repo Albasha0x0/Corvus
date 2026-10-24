@@ -253,10 +253,10 @@ public sealed class ManagedDumpTests
     public void AManagedLibraryNamedMonoIsNotTheMonoRuntime()
     {
         var (pe, _, _, _) = Image();
-        var builder = Dump(pe, module: @"Z:\game\Mono.Nat.dll");
+        var builder = Dump(pe, module: @"Z:\app\Mono.Nat.dll");
         using (var dump = MinidumpFile.FromBytes(builder.Build()))
             Assert.False(MinidumpService.HostsClr(dump, out _));
-        builder.Modules.Add(new MinidumpBuilder.Module(0x7FFA_0000_0000, 0x10000, 0, @"Z:\game\coreclr.dll"));
+        builder.Modules.Add(new MinidumpBuilder.Module(0x7FFA_0000_0000, 0x10000, 0, @"Z:\app\coreclr.dll"));
         using (var dump = MinidumpFile.FromBytes(builder.Build()))
         {
             Assert.True(MinidumpService.HostsClr(dump, out var runtime));
@@ -269,7 +269,7 @@ public sealed class ManagedDumpTests
     public void AModuleListedTwiceIsOneModule()
     {
         var (pe, _, _, _) = Image();
-        var builder = Dump(pe, module: @"Z:\game\client.exe");
+        var builder = Dump(pe, module: @"Z:\app\client.exe");
         builder.Modules.Add(builder.Modules[0]);
         using var dump = MinidumpFile.FromBytes(builder.Build());
         Assert.Single(dump.Modules);
@@ -281,7 +281,7 @@ public sealed class ManagedDumpTests
     public async Task JitCodeInAMonoProcessIsNotSentToADac()
     {
         var (pe, _, _, _) = Image();
-        var builder = Dump(pe, module: @"Z:\game\MonoBleedingEdge\EmbedRuntime\mono-2.0-bdwgc.dll");
+        var builder = Dump(pe, module: @"Z:\app\MonoBleedingEdge\EmbedRuntime\mono-2.0-bdwgc.dll");
         const ulong Jit = 0xE1_0000_0000;
         builder.Memory.Add((Jit, new byte[0x100]));
         builder.Regions.Add(new MinidumpBuilder.Region(Jit, 0x1000, 0x20));

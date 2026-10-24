@@ -112,15 +112,15 @@ public class ImportedNamesTests(ITestOutputHelper output)
 public class ImportedNamesRealDataTests(ITestOutputHelper output)
 {
     /// <summary>
-    /// A real game (CORVUS_IL2CPP_GAME, read by the built-in reader): the il2cpp layer is saved, then restored by a fresh
+    /// A real Il2Cpp build (CORVUS_IL2CPP_BUILD, read by the built-in reader): the il2cpp layer is saved, then restored by a fresh
     /// workspace and service over the same annotation folder. Reports counts, the saved file size and the timings.
     /// </summary>
-    [RequiresRealDataFact("CORVUS_IL2CPP_GAME")]
+    [RequiresRealDataFact("CORVUS_IL2CPP_BUILD")]
     [Trait("Speed", "Slow")]
     public void RealIl2CppNamesRestore()
     {
         using var dir = new TempDir();
-        var files = Corvus.Services.Il2CppGameFiles.Find(RealData.Path("CORVUS_IL2CPP_GAME")) ?? throw new InvalidOperationException("not an Il2Cpp game");
+        var files = Corvus.Services.Il2CppBuildFiles.Find(RealData.Path("CORVUS_IL2CPP_BUILD")) ?? throw new InvalidOperationException("not an Il2Cpp build");
         var store = new AnnotationStore(dir.File("ann"));
         var cache = Environment.GetEnvironmentVariable(Corvus.Services.Il2CppRawLoader.RootVariable) is { Length: > 0 } c ? c : dir.File("il2cpp-cache");
         int names, comments;

@@ -5,7 +5,7 @@ using Corvus.Native;
 namespace Corvus.Services;
 
 /// <summary>
-/// Finds the Il2CppCodeRegistration of a game binary from its data and relocations alone, without decoding code: the
+/// Finds the Il2CppCodeRegistration of an Il2Cpp binary from its data and relocations alone, without decoding code: the
 /// module name "mscorlib.dll", the Il2CppCodeGenModule whose first field points at it, the codeGenModules array of
 /// module pointers holding that module, and the pointer to the array's start, which is the registration's last field
 /// (preceded by the module count). Used when the library's own search fails (Unity 6 armeabi-v7a builds).

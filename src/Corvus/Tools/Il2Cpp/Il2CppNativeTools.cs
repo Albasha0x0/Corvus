@@ -11,7 +11,7 @@ using static Corvus.Tools.ToolSupport;
 
 namespace Corvus.Tools;
 
-/// <summary>Il2Cpp metadata names on a native game binary (GameAssembly.dll).</summary>
+/// <summary>Il2Cpp metadata names on a native binary (GameAssembly.dll).</summary>
 [McpServerToolType]
 public sealed class Il2CppNativeTools(AssemblyWorkspace workspace, NativeCodeService code, Il2CppNativeNames names, Il2CppRawLoader? il2cppRaw = null)
 {
@@ -40,10 +40,10 @@ public sealed class Il2CppNativeTools(AssemblyWorkspace workspace, NativeCodeSer
         var report = await Task.Run(() =>
         {
             try { return workspace.Read(() => names.Apply(native, index, workspace.Scope(assembly), cancellationToken)); }
-            catch (ToolError e) when (e.Code == ErrorCode.NotLoaded && assembly == null && Il2CppGame(native.FilePath, native.SliceName) is { } game)
+            catch (ToolError e) when (e.Code == ErrorCode.NotLoaded && assembly == null && Il2CppBuild(native.FilePath, native.SliceName) is { } build)
             {
                 // No dummy assemblies loaded: read the Il2Cpp metadata with the built-in reader first.
-                var loaded = (il2cppRaw ?? new Il2CppRawLoader(workspace)).Load(game, loadBinary: false,
+                var loaded = (il2cppRaw ?? new Il2CppRawLoader(workspace)).Load(build, loadBinary: false,
                     m => progress.Report(new ProgressNotificationValue { Progress = 0, Message = $"Il2Cpp: {m}" }), cancellationToken);
                 read = Il2CppRawLoader.Describe(loaded) + Environment.NewLine + Environment.NewLine;
                 return workspace.Read(() => names.Apply(native, index, workspace.Scope(null), cancellationToken));
@@ -52,10 +52,10 @@ public sealed class Il2CppNativeTools(AssemblyWorkspace workspace, NativeCodeSer
         return ToolOutput.With(read + Render(native.Id, report), Outcome(native.Id, report) with { ElapsedMs = clock.ElapsedMilliseconds });
     });
 
-    /// <summary>The game files around a game binary, when its metadata is found; null otherwise.</summary>
-    private static Il2CppGameFiles? Il2CppGame(string binary, string? slice)
+    /// <summary>The Il2Cpp files around a binary, when its metadata is found; null otherwise.</summary>
+    private static Il2CppBuildFiles? Il2CppBuild(string binary, string? slice)
     {
-        try { return Il2CppGameFiles.Find(binary, slice) is { } g && string.Equals(Path.GetFullPath(g.Binary), Path.GetFullPath(binary), StringComparison.OrdinalIgnoreCase) ? g : null; }
+        try { return Il2CppBuildFiles.Find(binary, slice) is { } g && string.Equals(Path.GetFullPath(g.Binary), Path.GetFullPath(binary), StringComparison.OrdinalIgnoreCase) ? g : null; }
         catch (ToolError) { return null; }
     }
 
@@ -69,7 +69,7 @@ public sealed class Il2CppNativeTools(AssemblyWorkspace workspace, NativeCodeSer
     /// <summary>The report; timings go to _meta through the record.</summary>
     internal static string Render(string id, Il2CppNativeNames.Report r)
     {
-        var sb = new StringBuilder($"{id}: il2cpp names from {r.Assemblies}{(r.DumpDirectory != null ? $" (dump {r.DumpDirectory})" : "")}\n");
+        var sb = new StringBuilder($"{id}: il2cpp names from {r.Assemblies}{(r.DumpDirectory != null ? $" (from {r.DumpDirectory})" : "")}\n");
         sb.AppendLine($"  functions named: {r.Functions}" + (r.FunctionsNotDiscovered > 0
             ? $" ({r.FunctionsNotDiscovered} at addresses the code index did not find as function starts: named as labels)" : ""));
         if (r.SharedFunctions > 0)

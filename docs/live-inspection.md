@@ -148,7 +148,7 @@ counts the calls dropped between its cursor and its end. Each event row carries 
 keeps). Other modules join once loaded with `load_assembly`; until then they are named from their file as `dump_stack`
 names a core's frames (a DLL's exports within its unwind data, an ELF's `.symtab` and `.dynsym` functions), a return
 address by the call before it. Ahead-of-time compiled managed code reads by method, and stop points take the same
-names: NativeAOT from its own metadata (`app.exe!Ns_Type__Method`), an Il2Cpp game's binary once `apply_il2cpp_names`
+names: NativeAOT from its own metadata (`app.exe!Ns_Type__Method`), an Il2Cpp binary once `apply_il2cpp_names`
 has named it (`GameAssembly.dll!Ns_Type__Update`). Source lines and `file:line` stop points come from PDB line tables
 on Windows and DWARF line tables on Linux; on Linux a stop's frames are unwound with each module's `.eh_frame` CFI, as
 `dump_stack` walks a core. The module list names the loaded image or assembly each module is (`= id`): a native image

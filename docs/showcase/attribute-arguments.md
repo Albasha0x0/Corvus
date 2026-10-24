@@ -33,8 +33,8 @@ Read the attributes of the target class, of the attribute class that names it, a
 [End: 1 attribute]
 ```
 
-Every argument is decoded from the custom-attribute blob without running anything: strings, the named
-`AllowMultiple`, and enums by member name. A `[Flags]` value is split into its members
-(`AttributeTargets.Class | AttributeTargets.GenericParameter | AttributeTargets.Parameter`) instead of a bare 18436.
-The structured result carries each argument as `{type, value, name}`, so an agent can filter on the decoded values; a blob
-that cannot be decoded is shown with its bytes rather than dropped.
+Every argument is decoded from the custom-attribute blob without running code: strings, the named `AllowMultiple`,
+and enums by member name. A `[Flags]` value is split into its members
+(`AttributeTargets.Class | AttributeTargets.GenericParameter | AttributeTargets.Parameter`), not shown as a bare 18436.
+The structured result carries each argument as `{type, value, name}` for filtering. A blob that cannot be decoded is
+shown as bytes, not dropped.

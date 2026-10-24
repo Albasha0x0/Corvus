@@ -108,7 +108,7 @@ public sealed class Il2CppTools(AssemblyWorkspace workspace, Il2CppService il2cp
             sb.AppendLine();
         }
         if (!any)
-            sb.AppendLine("No Il2Cpp attributes found. This needs Il2Cpp dummy DLLs: load_assembly the game folder or its global-metadata.dat (built-in reader), or an Il2CppDumper / Cpp2IL DummyDll folder (with attribute injection).");
+            sb.AppendLine("No Il2Cpp attributes found. This needs Il2Cpp dummy assemblies: load_assembly the build folder or its global-metadata.dat (built-in reader), or dummy assemblies with [Address] attributes.");
         return Done(sb.ToString());
     }, cancellationToken);
 
@@ -369,8 +369,8 @@ public sealed class Il2CppTools(AssemblyWorkspace workspace, Il2CppService il2cp
     }
 
     [McpServerTool(Name = "export_il2cpp_symbols", Title = "Export IDA/Ghidra scripts", UseStructuredContent = true, OutputSchemaType = typeof(Il2CppExport))]
-    [Description("Export Il2Cpp dummy-DLL metadata for native analysis: IDA Python and Ghidra scripts that create, name (Ns.Type$$Method) and comment " +
-                 "every function (by RVA), a C header of struct layouts, and an Il2CppDumper-style script.json.")]
+    [Description("Export Il2Cpp dummy-assembly metadata for native analysis: IDA Python and Ghidra scripts that create, name (Ns.Type$$Method) and comment " +
+                 "every function (by RVA), a C header of struct layouts, and a script.json.")]
     public Task<string> ExportIl2CppSymbols(
         [Description("Output directory.")] string outputDirectory,
         [Description("Comma-separated: ida, ghidra, header, json or all.")] string formats = "all",
@@ -393,7 +393,7 @@ public sealed class Il2CppTools(AssemblyWorkspace workspace, Il2CppService il2cp
     }
 
     [McpServerTool(Name = "find_method_by_address", Title = "Native address to method", UseStructuredContent = true, OutputSchemaType = typeof(Il2CppLookup))]
-    [Description("Map a native address (IDA, Ghidra, crash log) of an Il2Cpp game to the method(s) whose function holds it, or the string literal, " +
+    [Description("Map a native address (IDA, Ghidra, crash log) in Il2Cpp code to the method(s) whose function holds it, or the string literal, " +
                  "type metadata or MethodInfo slot at it; script.json names generic instantiations (without it, a guess).")]
     public Task<string> FindMethodByAddress(
         [Description("Hex as IDA / Ghidra show it (0x1A2B3C, 1A2B3Ch, 00000001`8001A2B3); d: prefix for decimal.")] string address,
@@ -444,7 +444,7 @@ public sealed class Il2CppTools(AssemblyWorkspace workspace, Il2CppService il2cp
                               (r.Total > 1 ? $": {r.Total} methods share this code ({r.Methods.Count} dummy-DLL, {r.ScriptMethods.Count} script.json only){Showing(offset, limit, r.Total)}" : ""));
             if (r.Total == 0)
             {
-                sb.AppendLine($"  [{k}] {f.Relation}: function at 0x{r.InKind(f.Start):X} (no method name in the dump)");
+                sb.AppendLine($"  [{k}] {f.Relation}: function at 0x{r.InKind(f.Start):X} (no method name in script.json)");
                 rows.Add(Match("function", $"sub_{f.Start:X}"));
             }
             total = Math.Max(total, Math.Max(r.Total, 1));

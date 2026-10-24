@@ -94,7 +94,7 @@ public static partial class Il2CppOverloads
     private enum CKind { Primitive, Object, Array, Struct, Void, Other }
 
     /// <summary>
-    /// A C type of Il2CppDumper's prototypes: a primitive (int32_t ...), Il2CppObject, an array (X_array), a type's
+    /// A C type of the script.json prototypes: a primitive (int32_t ...), Il2CppObject, an array (X_array), a type's
     /// struct (X_o: a class through one pointer more than a value type), void, or another name; with its pointer count.
     /// </summary>
     private sealed record CType(CKind Kind, string Name, int Stars)
@@ -193,7 +193,7 @@ public static partial class Il2CppOverloads
     }
 
     /// <summary>
-    /// A candidate's parameter or return type as Il2CppDumper's C type would show it: kind, by-ref / pointer depth, and
+    /// A candidate's parameter or return type as a script.json C type would show it: kind, by-ref / pointer depth, and
     /// normalized names (with the instantiation's arguments substituted, and as declared) a C name may end with.
     /// </summary>
     private sealed record DefShape(DefKind Kind, string[] Names, int Depth, bool Resolved = true)
@@ -252,7 +252,7 @@ public static partial class Il2CppOverloads
     }
 
     /// <summary>
-    /// Il2CppDumper's spelling of a type in C names: at the top, namespace and declaring types ("System.Int32" for a
+    /// The script.json spelling of a type in C names: at the top, namespace and declaring types ("System.Int32" for a
     /// primitive); inside generic argument lists, declaring types only and C# keywords. Generic parameters are the
     /// instantiation's arguments (<paramref name="substitute"/>) or their declared names (the dumper writes either).
     /// </summary>

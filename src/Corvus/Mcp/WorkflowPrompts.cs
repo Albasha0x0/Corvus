@@ -62,7 +62,7 @@ public static class WorkflowPrompts
     [Description("Identify the managed method behind a native address from IDA/Ghidra or a crash log (IL2CPP builds).")]
     public static string MapNativeAddress(
         [Description("Native address (hex), e.g. 0x1A2B3C.")] string address,
-        [Description("Folder with Il2CppDumper/Cpp2IL dummy DLLs, if not loaded yet.")] string? dummyDllFolder = null) => $"""
+        [Description("Folder of dummy assemblies with [Address] attributes, if not loaded yet.")] string? dummyDllFolder = null) => $"""
         {(dummyDllFolder is null ? "" : $"load_assembly {dummyDllFolder} first.\n")}Use find_method_by_address with address {address} (kind auto). Then get_il2cpp_info on the owning type for neighbouring methods and field offsets,
         and get_type_info for the managed shape of the type. Explain which method the address belongs to, how far inside it is, and which fields are at the offsets likely being accessed.
         {DataRule}

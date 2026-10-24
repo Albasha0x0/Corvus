@@ -241,7 +241,7 @@ public sealed class InspectionService(AssemblyWorkspace workspace, NativeCodeSer
             report = report with
             {
                 Features = [.. report.Features, .. capa.Rules.Select(r => new Feature(r.Name, CapaCategory, [new Evidence(r.Namespace ?? "(no namespace)", r.Matches, r.Methods)]))],
-                Notes = [.. report.Notes, $"category {CapaCategory}: rules of {capa.Checker ?? "capa"} over the game binary's direct calls, {capa.State}",
+                Notes = [.. report.Notes, $"category {CapaCategory}: rules of {capa.Checker ?? "capa"} over the Il2Cpp binary's direct calls, {capa.State}",
                     .. capa.Notes.Select(n => $"{CapaCategory}: {n}")],
             };
         return Filter(report, category);

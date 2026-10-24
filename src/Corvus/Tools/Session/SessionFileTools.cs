@@ -35,8 +35,8 @@ public sealed class SessionFileTools(AssemblyWorkspace workspace, SessionService
         int Offset, int Total, IReadOnlyList<SessionItem> Items, IReadOnlyList<string> Notes);
 
     [McpServerTool(Name = "save_session", Title = "Save the session", UseStructuredContent = true, OutputSchemaType = typeof(SessionSaved))]
-    [Description("Write the session's work to one JSON file: loaded files (path, relative path, SHA-256), .NET edits, native patches, names, " +
-                 "comments, notes, Il2Cpp games, open minidumps; load_session restores it anywhere.")]
+    [Description("Write session work to one JSON file: loaded files (path, relative path, SHA-256), .NET edits, native patches, names, " +
+                 "comments, notes, Il2Cpp builds, open minidumps; load_session restores it anywhere.")]
     public Task<string> SaveSession(
         [Description("Output file path (.json).")] string outputPath,
         [Description("Replace the file if it exists.")] bool overwrite = false,
@@ -90,11 +90,11 @@ public sealed class SessionFileTools(AssemblyWorkspace workspace, SessionService
         if (!dryRun)
             foreach (var d in doc.SearchDirectories.Where(Directory.Exists)) workspace.AddSearchDirectory(d);
 
-        // Il2Cpp games first: reading one loads its binary, which the files below then find loaded.
+        // Il2Cpp builds first: reading one loads its binary, which the files below then find loaded.
         foreach (var g in doc.Il2Cpp ?? [])
         {
             ct.ThrowIfCancellationRequested();
-            Step($"Il2Cpp game {Path.GetFileName(g.Input.Path)}");
+            Step($"Il2Cpp build {Path.GetFileName(g.Input.Path)}");
             if (LoadedId(g.BinarySha256) is { } binaryId)
             {
                 Add("il2cpp", g.Input.Path, AlreadyLoaded, "same_build", 1, binaryId);
@@ -104,7 +104,7 @@ public sealed class SessionFileTools(AssemblyWorkspace workspace, SessionService
             if (located.Path == null)
             {
                 Add("il2cpp", g.Input.Path, located.Other != null ? Refused : NotFound, located.Other != null ? "sha_mismatch" : "not_found", 0,
-                    located.Other != null ? $"{located.Other} has other bytes than the recorded sha256 {g.Input.Sha256}" : "the game's package or metadata was not found");
+                    located.Other != null ? $"{located.Other} has other bytes than the recorded sha256 {g.Input.Sha256}" : "the package or metadata was not found");
                 continue;
             }
             if (dryRun)
@@ -116,9 +116,9 @@ public sealed class SessionFileTools(AssemblyWorkspace workspace, SessionService
             {
                 var result = await Task.Run(() =>
                 {
-                    var game = WorkspaceTools.RawIl2CppGame(located.Path, g.Slice)
-                               ?? throw new ToolError(ErrorCode.NotFound, $"{located.Path} is no longer an Il2Cpp game input.");
-                    return (il2cppRaw ?? new Il2CppRawLoader(workspace)).Load(game, loadBinary: true, null, ct);
+                    var build = WorkspaceTools.RawIl2CppBuild(located.Path, g.Slice)
+                               ?? throw new ToolError(ErrorCode.NotFound, $"{located.Path} is no longer an Il2Cpp input.");
+                    return (il2cppRaw ?? new Il2CppRawLoader(workspace)).Load(build, loadBinary: true, null, ct);
                 }, ct);
                 bool sameBinary = result.Binary?.OriginalSha256.Equals(g.BinarySha256, StringComparison.OrdinalIgnoreCase) == true;
                 Add("il2cpp", g.Input.Path, Loaded, sameBinary ? located.How : "other_binary", result.Load.Loaded.Count,

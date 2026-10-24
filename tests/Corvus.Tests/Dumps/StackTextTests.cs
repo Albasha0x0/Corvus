@@ -78,7 +78,7 @@ public sealed class StackTextTests : IDisposable
             NullReferenceException: Object reference not set to an instance of an object
               at Fixture.Model.Account.Charge (System.Int32 amount) [0x0001a] in <{mvid:N}>:0
               at Fixture.Model.Account.Charge (System.Int32 amount, System.String source) [0x00002] in <{other:N}>:0
-              at Game.Player.Update () [0x00000] in <{unknown:N}>:0
+              at App.Player.Update () [0x00000] in <{unknown:N}>:0
               at (wrapper runtime-invoke) object.runtime_invoke_void (object,intptr,intptr,intptr)
             """);
         Assert.Equal("unity", r.Format);
@@ -89,7 +89,7 @@ public sealed class StackTextTests : IDisposable
         Assert.Equal("mismatch", r.Items[1].BuildCheck);
         Assert.Contains(other.ToString("D"), r.Items[1].BuildDetail);
         Assert.Null(r.Items[2].Resolved);
-        Assert.Contains(r.ModulesMissing, m => m.Module.Contains(unknown.ToString("D"), StringComparison.Ordinal) && m.Module.Contains("Game.Player", StringComparison.Ordinal));
+        Assert.Contains(r.ModulesMissing, m => m.Module.Contains(unknown.ToString("D"), StringComparison.Ordinal) && m.Module.Contains("App.Player", StringComparison.Ordinal));
         Assert.Contains("wrapper", r.Items[3].BuildDetail);
     }
 
@@ -103,8 +103,8 @@ public sealed class StackTextTests : IDisposable
             0x00007FFB22221234 (UnityPlayer) [C:\build\Runtime\Main.cpp:42] PlayerMain
             0x0000020012345678 (Mono JIT Code) [Player.cs:12] Fixture.Model.Account:Charge (int)
             ========== END OF STACKTRACE ===========
-            C:\Game\synth.dll:synth.dll (00007FF610000000), size: 20480 (result: 0), SymType: '-exported-', PDB: '', fileVersion: 1.2.3.4
-            C:\Game\UnityPlayer.dll:UnityPlayer.dll (00007FFB22220000), size: 1048576 (result: 0), SymType: '-exported-', PDB: '', fileVersion: 2022.3.1.0
+            C:\App\synth.dll:synth.dll (00007FF610000000), size: 20480 (result: 0), SymType: '-exported-', PDB: '', fileVersion: 1.2.3.4
+            C:\App\UnityPlayer.dll:UnityPlayer.dll (00007FFB22220000), size: 1048576 (result: 0), SymType: '-exported-', PDB: '', fileVersion: 2022.3.1.0
             """);
         Assert.Equal("unity", r.Format);
         var crash = r.Items[0];
@@ -132,7 +132,7 @@ public sealed class StackTextTests : IDisposable
             0x00007FF610001007 (synth) Crash
             0x00007FFB22221234 (UnityPlayer) PlayerMain
             ========== END OF STACKTRACE ===========
-            C:\Game\synth.dll:synth.dll (00007FF610000000), size: 20480 (result: 0), SymType: '-exported-', PDB: '', fileVersion: 1.2.3.4
+            C:\App\synth.dll:synth.dll (00007FF610000000), size: 20480 (result: 0), SymType: '-exported-', PDB: '', fileVersion: 1.2.3.4
             """;
         var full = await _service.Symbolize(text, null, "auto", null, null, 0, 50, false, default);
         Assert.Equal((4, 4), (full.Frames, full.Total));
@@ -149,7 +149,7 @@ public sealed class StackTextTests : IDisposable
     public async Task AndroidTombstoneFramesResolveByBuildId()
     {
         byte[] id = [0x3c, 0x5c, 0x01, 0x9f, 0xaa, 0xbb, 0xcc, 0xdd, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88, 0x99, 0x00, 0x12, 0x34];
-        var so = _dir.File("libgame.so");
+        var so = _dir.File("libapp.so");
         File.WriteAllBytes(so, new NativeFormats.ElfWriter { BuildId = id, Symbols = [new("Crash", NativeFormats.ElfWriter.TextRva, 8)] }.Build());
         var image = _ws.LoadAny(so).Native!;
         var hex = Convert.ToHexStringLower(id);
@@ -158,14 +158,14 @@ public sealed class StackTextTests : IDisposable
             ABI: 'arm64'
             signal 11 (SIGSEGV), code 1 (SEGV_MAPERR), fault addr 0x0000000000000010
             backtrace:
-                  #00 pc 0000000000001004  /data/app/~~abc==/com.example-1/lib/arm64/libgame.so (Crash+4) (BuildId: {hex})
-                  #01 pc 0000000000001004  /data/app/~~abc==/com.example-1/lib/arm64/libgame.so (BuildId: deadbeef)
+                  #00 pc 0000000000001004  /data/app/~~abc==/com.example-1/lib/arm64/libapp.so (Crash+4) (BuildId: {hex})
+                  #01 pc 0000000000001004  /data/app/~~abc==/com.example-1/lib/arm64/libapp.so (BuildId: deadbeef)
                   #02 pc 000000000004f1a4  /apex/com.android.runtime/lib64/bionic/libc.so (abort+164) (BuildId: 0f00ba44)
             """);
         Assert.Equal("android", r.Format);
         Assert.Equal(3, r.Total);
         var crash = r.Items[0];
-        Assert.Equal(("libgame.so", "0x1004", "Crash+0x4", image.Id, "match"), (crash.Module, crash.Offset, crash.Resolved, crash.Image, crash.BuildCheck));
+        Assert.Equal(("libapp.so", "0x1004", "Crash+0x4", image.Id, "match"), (crash.Module, crash.Offset, crash.Resolved, crash.Image, crash.BuildCheck));
         Assert.Equal("mismatch", r.Items[1].BuildCheck);
         Assert.Contains("deadbeef", r.Items[1].BuildDetail);
         var libc = Assert.Single(r.ModulesMissing);
@@ -177,9 +177,9 @@ public sealed class StackTextTests : IDisposable
     public void An_android_symbol_that_starts_like_a_build_id_stays_the_symbol()
     {
         var frames = StackTextFormats.Parse("""
-            #00 pc 0000000000001004  /system/lib64/libgame.so (Build+4) (BuildId: 0f00ba44)
-            #01 pc 0000000000001008  /system/lib64/libgame.so (BuildIdTable+8)
-            #02 pc 000000000000100c  /system/lib64/libgame.so (BuildId: 0f00ba44)
+            #00 pc 0000000000001004  /system/lib64/libapp.so (Build+4) (BuildId: 0f00ba44)
+            #01 pc 0000000000001008  /system/lib64/libapp.so (BuildIdTable+8)
+            #02 pc 000000000000100c  /system/lib64/libapp.so (BuildId: 0f00ba44)
             """, "android").Frames;
         Assert.Equal([("Build", 4ul, "0f00ba44"), ("BuildIdTable", 8ul, null), (null, null, "0f00ba44")],
             frames.Select(f => (f.Symbol, f.SymbolOffset, f.BuildId)));
@@ -205,26 +205,26 @@ public sealed class StackTextTests : IDisposable
         var r = await Run("""
             Crash!!!
             0x00007FF610001005 (synth) Crash
-            C:\Game\synth.dll:synth.dll (00007FF610000000), size: 20480 (result: 0), SymType: '-exported-', PDB: '', fileVersion: 1.2.3.4
+            C:\App\synth.dll:synth.dll (00007FF610000000), size: 20480 (result: 0), SymType: '-exported-', PDB: '', fileVersion: 1.2.3.4
             """);
         Assert.Equal("Crash+0x5", Assert.Single(r.Items).Resolved);
         Assert.Empty(r.ModulesMissing);
         Assert.Equal(["Crash!!!"], r.UnrecognizedSample);
     }
 
-    /// <summary>The fixture carries Il2CppDumper [Address] attributes (NativeThing::First at 0x1000, ::Second at 0x1100): GameAssembly frames get their names.</summary>
+    /// <summary>The fixture carries dummy-assembly [Address] attributes (NativeThing::First at 0x1000, ::Second at 0x1100): GameAssembly frames get their names.</summary>
     [Fact]
     public async Task Il2CppFramesAreNamedThroughTheDummyAssemblies()
     {
         using var env = new Env();
-        var game = _dir.File("GameAssembly.dll");
-        File.WriteAllBytes(game, Il2CppStringTests.Pe64([(".text", 0x1000, new byte[0x400], 0x60000020)]));
-        env.Workspace.LoadAny(game);
+        var binary = _dir.File("GameAssembly.dll");
+        File.WriteAllBytes(binary, Il2CppStringTests.Pe64([(".text", 0x1000, new byte[0x400], 0x60000020)]));
+        env.Workspace.LoadAny(binary);
         var service = new StackTextService(env.Workspace, null, env.Il2CppNavigator);
         var r = await service.Symbolize("""
             0x00007FFB00001105 (GameAssembly) (function-name not available)
             Fixture.Native.NativeThing:First ()
-            C:\Game\GameAssembly.dll:GameAssembly.dll (00007FFB00000000), size: 8192 (result: 0), fileVersion: 0.0.0.0
+            C:\App\GameAssembly.dll:GameAssembly.dll (00007FFB00000000), size: 8192 (result: 0), fileVersion: 0.0.0.0
             """, null, null, null, null, 0, 50, default);
         var native = r.Items[0];
         Assert.Equal("il2cpp", native.Source);
@@ -241,19 +241,19 @@ public sealed class StackTextTests : IDisposable
     public async Task CodeBetweenIl2CppMethodsIsNotNamedAfterTheMethodBelow()
     {
         using var env = new Env();
-        var game = _dir.File("GameAssembly.dll");
+        var binary = _dir.File("GameAssembly.dll");
         var text = Enumerable.Repeat((byte)0xCC, 0x400).ToArray();
         new byte[] { 0xE8, 0xFB, 0x00, 0x00, 0x00, 0xC3 }.CopyTo(text, 0x100); // Second: call 0x1200; ret
         new byte[] { 0x55, 0x48, 0x89, 0xE5, 0x31, 0xC0, 0x5D, 0xC3 }.CopyTo(text, 0x200); // the runtime's function
         var pe = new PeBuilder { EntryPoint = 0x1100, ImageBase = 0x180000000 };
         pe.Add(".text", text, 0x60000020);
-        File.WriteAllBytes(game, pe.Build());
-        env.Workspace.LoadAny(game);
+        File.WriteAllBytes(binary, pe.Build());
+        env.Workspace.LoadAny(binary);
         var service = new StackTextService(env.Workspace, new NativeCodeService(env.Workspace, new ServerOptions()), env.Il2CppNavigator);
         var r = await service.Symbolize("""
             0x00007FFB00001205 (GameAssembly) (function-name not available)
             0x00007FFB00001105 (GameAssembly) (function-name not available)
-            C:\Game\GameAssembly.dll:GameAssembly.dll (00007FFB00000000), size: 8192 (result: 0), fileVersion: 0.0.0.0
+            C:\App\GameAssembly.dll:GameAssembly.dll (00007FFB00000000), size: 8192 (result: 0), fileVersion: 0.0.0.0
             """, null, null, null, null, 0, 50, default);
         Assert.DoesNotContain("Second", r.Items[0].Resolved);
         Assert.Contains("Second", r.Items[1].Resolved);
@@ -264,13 +264,13 @@ public sealed class StackTextTests : IDisposable
     public async Task AndroidTombstoneFramesInLibIl2CppAreNamedThroughTheDummyAssemblies()
     {
         using var env = new Env();
-        var game = _dir.File("libil2cpp.so");
-        File.WriteAllBytes(game, Il2CppStringTests.Pe64([(".text", 0x1000, new byte[0x400], 0x60000020)]));
-        env.Workspace.LoadAny(game);
+        var binary = _dir.File("libil2cpp.so");
+        File.WriteAllBytes(binary, Il2CppStringTests.Pe64([(".text", 0x1000, new byte[0x400], 0x60000020)]));
+        env.Workspace.LoadAny(binary);
         var service = new StackTextService(env.Workspace, null, env.Il2CppNavigator);
         var r = await service.Symbolize("""
             backtrace:
-                  #00 pc 0000000000001105  /data/app/~~x==/com.example.game-1/lib/arm64/libil2cpp.so
+                  #00 pc 0000000000001105  /data/app/~~x==/com.example.app-1/lib/arm64/libil2cpp.so
             """, null, null, null, null, 0, 50, default);
         var native = Assert.Single(r.Items);
         Assert.Equal("il2cpp", native.Source);
@@ -319,7 +319,7 @@ public sealed class StackTextTests : IDisposable
             Exception code: 0xc0000005
             Fault offset: 0x0000000000001085
             Faulting process id: 0x1a2b
-            Faulting module path: C:\Game\synth.dll
+            Faulting module path: C:\App\synth.dll
             """, "eventlog");
         Assert.Equal("eventlog", r.Format);
         Assert.Equal("0xC0000005", r.Exception!.Code);
@@ -378,7 +378,7 @@ public sealed class StackTextTests : IDisposable
             var filler = new string('x', 1000);
             for (int i = 0; i < 9000; i++) w.WriteLine(filler);
             w.WriteLine("0x00007FF610001005 (synth) Crash");
-            w.WriteLine(@"C:\Game\synth.dll:synth.dll (00007FF610000000), size: 20480 (result: 0)");
+            w.WriteLine(@"C:\App\synth.dll:synth.dll (00007FF610000000), size: 20480 (result: 0)");
         }
         var r = await _service.Symbolize(null, log, null, null, null, 0, 10, default);
         Assert.Equal("Crash+0x5", Assert.Single(r.Items).Resolved);

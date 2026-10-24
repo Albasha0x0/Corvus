@@ -11,7 +11,7 @@ using Corvus.Core;
 namespace Corvus.Services;
 
 /// <summary>
-/// global-metadata.dat read without the game binary. The metadata holds the names and the shape of the code: images,
+/// global-metadata.dat read without the native binary. The metadata holds the names and the shape of the code: images,
 /// types (namespace, name, flags, nesting, value type or enum, generic parameters), methods (name, flags, parameter
 /// names, generic parameters), fields, properties, events, metadata tokens and the string literals. Every type a
 /// signature names (field, parameter, return and base types other than ValueType / Enum) is an index into the binary's
@@ -55,7 +55,7 @@ public static class Il2CppMetadataOnly
     private const double MinNamedShare = 0.99;
 
     /// <summary>Reads the metadata and writes the dummy assemblies into <paramref name="dummyDirectory"/>.</summary>
-    public static Il2CppMetadataReader.Output Read(Il2CppGameFiles files, string dummyDirectory, Action<string>? progress, CancellationToken ct)
+    public static Il2CppMetadataReader.Output Read(Il2CppBuildFiles files, string dummyDirectory, Action<string>? progress, CancellationToken ct)
     {
         var watch = Stopwatch.StartNew();
         byte[] bytes;
@@ -87,7 +87,7 @@ public static class Il2CppMetadataOnly
                     }
                     if (tried.Count > 0) notes.Add($"layout of Unity {version} ({source}) after {tried.Count} other(s) failed: {string.Join("; ", tried)}");
                     LibCpp2IlMain.TheMetadata = meta;
-                    var unreadable = new List<Il2CppGameModel.Unreadable>();
+                    var unreadable = new List<Il2CppBuildModel.Unreadable>();
                     var builder = new Builder(meta, (item, reason, detail) => unreadable.Add(new(item, reason, detail)));
                     var modules = builder.Build(ct);
                     progress?.Invoke($"writing {modules.Count} dummy assemblies");
@@ -98,7 +98,7 @@ public static class Il2CppMetadataOnly
                         try { literals[i] = meta.GetStringLiteralFromIndex(i); }
                         catch (Exception ex) when (ex is not OutOfMemoryException) { literals[i] = ""; unreadable.Add(new($"string literal {i}", "unreadable_literal", ex.Message)); }
                     }
-                    var model = new Il2CppGameModel
+                    var model = new Il2CppBuildModel
                     {
                         BinaryPath = "", MetadataPath = Path.GetFullPath(files.Metadata), MetadataVersion = meta.MetadataVersion, HeaderVersion = header,
                         UnityVersion = version.ToString(), UnityVersionSource = source, ImageBase = 0, MemoryImage = false,
@@ -113,17 +113,17 @@ public static class Il2CppMetadataOnly
         }
         throw new ToolError(ErrorCode.MalformedInput,
             $"{files.Metadata} (metadata v{header}) could not be read without the binary: reason unreadable_structures — no Unity sub-version's layout reads it. Tried: {string.Join("; ", tried)}",
-            "put the game binary beside the metadata (its registration fixes the layout), or load Il2CppDumper / Cpp2IL output (the DummyDll folder)");
+            "put the native binary beside the metadata (its registration fixes the layout), or load dummy assemblies with [Address] attributes");
     }
 
     /// <summary>An assembly the metadata defines: name, version and public key token (lowercase hex, null when unsigned).</summary>
     public sealed record AssemblyIdentity(string Name, System.Version Version, string? Token);
 
     /// <summary>
-    /// The assemblies <paramref name="files"/>' metadata defines, with the Unity version the game files name (null when
+    /// The assemblies <paramref name="files"/>' metadata defines, with the Unity version the build files name (null when
     /// only the metadata version suggests one) and where it was read; null when no layout reads the metadata.
     /// </summary>
-    public static (List<AssemblyIdentity> Assemblies, string? UnityVersion, string Source)? Assemblies(Il2CppGameFiles files, CancellationToken ct)
+    public static (List<AssemblyIdentity> Assemblies, string? UnityVersion, string Source)? Assemblies(Il2CppBuildFiles files, CancellationToken ct)
     {
         var bytes = File.ReadAllBytes(InputFiles.RequireRegularFile(files.Metadata, "metadata file"));
         int header = Il2CppMetadataReader.CheckHeader(files.Metadata, bytes);

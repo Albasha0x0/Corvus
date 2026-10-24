@@ -3,8 +3,8 @@
 <!-- Generated from src/Corvus/Mcp/Guide.cs; run the tests with CORVUS_UPDATE_DOCS=1 to update. -->
 
 .NET assemblies.
-Load: load_assembly takes a file or a whole folder (an application folder, a Unity *_Data/Managed folder, an Il2CppDumper
-DummyDll folder). Load related assemblies too: cross-references and inherited members only see what is loaded or resolvable;
+Load: load_assembly takes a file or a whole folder (an application folder, a Unity *_Data/Managed folder, a dummy
+assembly folder). Load related assemblies too: cross-references and inherited members only see what is loaded or resolvable;
 add_search_directory adds a folder for reference resolution. Method bodies are indexed in the background after loading; files
 that change on disk are reloaded automatically (notices appear as "[workspace] ..." lines at the top of a tool result).
 reload_assembly re-reads a file, unload_assembly drops it (both discard unsaved edits); list_assemblies lists what is loaded.

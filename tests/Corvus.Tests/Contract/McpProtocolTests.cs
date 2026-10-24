@@ -409,7 +409,7 @@ public abstract class McpProtocolTests : IAsyncLifetime
         ["patch_method_il"] = (new() { ["method"] = "Account::Score", ["il"] = "ldc.i4.7\nret", ["dryRun"] = false }, "New body"),
         ["add_members_csharp"] = (new() { ["type"] = "Shop", ["code"] = "public int Twice(int x) { return x * 2; }", ["dryRun"] = false }, "Twice"),
         ["simplify_methods"] = (new() { ["symbol"] = "Account", ["dryRun"] = true }, "Dry run — simplify Fixture.Model.Account"),
-        ["add_types_csharp"] = (new() { ["assembly"] = "TestFixture", ["code"] = "namespace Mods { public static class M { public static int One() => 1; } }", ["dryRun"] = false }, "Mods.M"),
+        ["add_types_csharp"] = (new() { ["assembly"] = "TestFixture", ["code"] = "namespace Extras { public static class M { public static int One() => 1; } }", ["dryRun"] = false }, "Extras.M"),
         ["list_edits"] = (new() { ["assembly"] = "TestFixture" }, "#5"),
         ["diff_edits"] = (new() { ["assembly"] = "TestFixture" }, "+public int Twice(int x)"),
         ["export_edits"] = (new() { ["assembly"] = "TestFixture", ["outputPath"] = dir.File("edits.json") }, "Exported 5 edit(s)"),
@@ -494,7 +494,7 @@ public abstract class McpProtocolTests : IAsyncLifetime
         ["apply_il2cpp_names"] = (new() { ["image"] = NativeSample(dir), ["assembly"] = "TestFixture" }, "il2cpp names from TestFixture"),
         ["load_pdb"] = (new() { ["image"] = PdbSample(dir) }, "matches the image"),
         ["search_pdb_symbols"] = (new() { ["image"] = PdbSample(dir), ["query"] = "Foo" }, "public: int __cdecl Bar::Foo(int)"),
-        ["get_native_type"] = (new() { ["image"] = PdbTypeFixture.Image(dir), ["name"] = "Game", ["at"] = "0xD8" }, "players[3].pos.y (float)"),
+        ["get_native_type"] = (new() { ["image"] = PdbTypeFixture.Image(dir), ["name"] = "Team", ["at"] = "0xD8" }, "sensors[3].pos.y (float)"),
         ["verify_native_imports"] =(new() { ["assembly"] = "TestFixture" }, "TestFixture"),
         ["get_r2r_code"] = R2RFramework.Linq is { } linq
             ? (new() { ["method"] = "System.Linq.Enumerable::Any", ["assembly"] = linq, ["maxBodies"] = 1 }, "native code in System.Linq.dll")

@@ -11,7 +11,7 @@ namespace Corvus.Services;
 /// <summary>
 /// A session file (corvus-session/1): the loaded files by path and SHA-256, each assembly's edit script (the
 /// export_edits format), each native image's patch set (the export_native_patches json) and user names and comments,
-/// notes, the Il2Cpp games read by the built-in reader (their input, binary and metadata, not the generated dummy assemblies)
+/// notes, the Il2Cpp builds read by the built-in reader (their input, binary and metadata, not the generated dummy assemblies)
 /// and the open minidumps. Everything is re-derived from the files themselves on load; nothing in it is executed.
 /// </summary>
 public sealed class SessionService(AssemblyWorkspace workspace, EditHistoryService history, NativeCodeService code, NotesService? notes = null,
@@ -64,7 +64,7 @@ public sealed class SessionService(AssemblyWorkspace workspace, EditHistoryServi
     }
 
     /// <summary>
-    /// An Il2Cpp game read by the built-in reader: <see cref="Input"/> is what load_assembly reads again (the package, else
+    /// An Il2Cpp build read by the built-in reader: <see cref="Input"/> is what load_assembly reads again (the package, else
     /// the metadata, which finds the binary beside it); the binary is checked by SHA-256 after the read.
     /// </summary>
     public sealed record SessionIl2Cpp(SessionFile Input, string Binary, string BinarySha256, string? Slice);
@@ -108,14 +108,14 @@ public sealed class SessionService(AssemblyWorkspace workspace, EditHistoryServi
         var files = new List<SessionFile>();
         var dotnet = new List<SessionEdits>();
         var native = new List<SessionNative>();
-        var games = new Dictionary<string, Il2CppRawLoader.Marker>(StringComparer.OrdinalIgnoreCase); // cache entry -> what it was read from
+        var builds = new Dictionary<string, Il2CppRawLoader.Marker>(StringComparer.OrdinalIgnoreCase); // cache entry -> what it was read from
         workspace.Read(() =>
         {
             foreach (var asm in workspace.Assemblies)
             {
-                // Dummy assemblies of the built-in Il2Cpp reader are regenerated from the game, which the session records instead.
+                // Dummy assemblies of the built-in Il2Cpp reader are regenerated from the build, which the session records instead.
                 if (Path.GetDirectoryName(asm.FilePath) is { } folder && Path.GetFileName(folder) == Il2CppRawLoader.DummyFolder
-                    && Path.GetDirectoryName(folder) is { } entry && (games.ContainsKey(entry) || Il2CppRawLoader.ReadMarker(entry) is { } marker && games.TryAdd(entry, marker)))
+                    && Path.GetDirectoryName(folder) is { } entry && (builds.ContainsKey(entry) || Il2CppRawLoader.ReadMarker(entry) is { } marker && builds.TryAdd(entry, marker)))
                 {
                     if (include.Contains("edits") && asm.IsDirty) dotnet.Add(new SessionEdits(asm.Id, asm.OriginalSha256, history.BuildScript(asm)));
                     continue;
@@ -164,7 +164,7 @@ public sealed class SessionService(AssemblyWorkspace workspace, EditHistoryServi
             noteList = notes.All(keys);
         }
         var il2cpp = new List<SessionIl2Cpp>();
-        foreach (var (entry, marker) in games)
+        foreach (var (entry, marker) in builds)
         {
             string input = marker.Package ?? marker.Metadata;
             if (marker.Binary.Length > 0 && SessionFileOf("il2cpp", input, dir) is { } file && Sha256(marker.Binary) is { } binarySha)
@@ -172,7 +172,7 @@ public sealed class SessionService(AssemblyWorkspace workspace, EditHistoryServi
                 il2cpp.Add(new SessionIl2Cpp(file, marker.Binary, binarySha, marker.Slice));
                 continue;
             }
-            // The game's files are gone: the dummy assemblies are listed like other files.
+            // The build's files are gone: the dummy assemblies are listed like other files.
             var dummy = Path.Combine(entry, Il2CppRawLoader.DummyFolder) + Path.DirectorySeparatorChar;
             files.AddRange(workspace.Read(() => workspace.Assemblies.Where(a => a.FilePath.StartsWith(dummy, StringComparison.OrdinalIgnoreCase))
                 .Select(a => new SessionFile(a.Id, "dotnet", a.FilePath, Path.GetRelativePath(dir, a.FilePath), a.OriginalSha256, a.OriginalBytes.LongLength, a.Module.Mvid?.ToString()))

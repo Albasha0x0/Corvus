@@ -45,7 +45,7 @@ public sealed class Il2CppNavigator(AssemblyWorkspace workspace, Il2CppService i
         public uint[] Starts => Script?.FunctionStarts ?? Methods.Starts;
         public List<NativeCodeScanner.Section>? Sections => Dump?.Binary?.Sections;
 
-        /// <summary>The game binary is 32-bit ARM: odd code addresses are Thumb pointers to the function one byte lower.</summary>
+        /// <summary>The native binary is 32-bit ARM: odd code addresses are Thumb pointers to the function one byte lower.</summary>
         public bool ThumbCode => _thumb ??= Dump?.Files.GameAssembly is { } binary && Il2CppBinaryLayout.IsArm32(binary);
         private bool? _thumb;
 
@@ -125,7 +125,7 @@ public sealed class Il2CppNavigator(AssemblyWorkspace workspace, Il2CppService i
         };
         var images = ImagesFor(scope);
         if (images.Count == 0)
-            throw new ToolError(ErrorCode.Unsupported, "No Il2Cpp address attributes found in the selected assemblies. This works on Il2Cpp dummy DLLs that carry [Address] attributes.", "load_assembly the game folder or its global-metadata.dat (built-in reader), or an Il2CppDumper / Cpp2IL DummyDll folder");
+            throw new ToolError(ErrorCode.Unsupported, "No Il2Cpp address attributes found in the selected assemblies. This works on Il2Cpp dummy DLLs that carry [Address] attributes.", "load_assembly the application folder or its global-metadata.dat (built-in reader), or a dummy assembly folder");
 
         var results = new List<AddressResult>();
         foreach (var image in images)
@@ -232,9 +232,9 @@ public sealed class Il2CppNavigator(AssemblyWorkspace workspace, Il2CppService i
     }
 
     /// <summary>
-    /// The managed method whose game binary code holds <paramref name="rva"/>, named for a stack frame (source il2cpp,
+    /// The managed method whose native code holds <paramref name="rva"/>, named for a stack frame (source il2cpp,
     /// with the function start). The dump made from <paramref name="native"/> answers; without one, the only loaded dump
-    /// does when <paramref name="binaryName"/> is an Il2Cpp game binary (GameAssembly.*, libil2cpp.so, UnityFramework).
+    /// does when <paramref name="binaryName"/> is an Il2Cpp binary (GameAssembly.*, libil2cpp.so, UnityFramework).
     /// </summary>
     public (string Name, string Source, uint Start)? FrameName(uint rva, string binaryName, LoadedNative? native = null)
     {
@@ -245,7 +245,7 @@ public sealed class Il2CppNavigator(AssemblyWorkspace workspace, Il2CppService i
                 if (workspace.Assemblies.Count == 0) return null;
                 var images = ImagesFor(workspace.Scope(null));
                 var image = (native != null ? images.FirstOrDefault(i => i.Dump?.Files.Describes(native) == true) : null)
-                            ?? (images.Count == 1 && IsGameBinary(binaryName) ? images[0] : null);
+                            ?? (images.Count == 1 && IsIl2CppBinary(binaryName) ? images[0] : null);
                 if (image == null) return null;
                 foreach (var r in Locate(rva, "rva", image.Assemblies))
                 {
@@ -260,9 +260,9 @@ public sealed class Il2CppNavigator(AssemblyWorkspace workspace, Il2CppService i
         catch (ToolError) { return null; }
     }
 
-    private static bool IsGameBinary(string fileName) =>
+    private static bool IsIl2CppBinary(string fileName) =>
         fileName.StartsWith("GameAssembly", StringComparison.OrdinalIgnoreCase)
-        || Il2CppGameFiles.BinaryNames.Contains(fileName, StringComparer.OrdinalIgnoreCase);
+        || Il2CppBuildFiles.BinaryNames.Contains(fileName, StringComparer.OrdinalIgnoreCase);
 
     /// <summary>The image holding <paramref name="asm"/>, when it is an Il2Cpp dummy assembly.</summary>
     public Image? ImageOf(LoadedAssembly asm) => ImagesFor([asm]).FirstOrDefault();
@@ -453,7 +453,7 @@ public sealed class Il2CppNavigator(AssemblyWorkspace workspace, Il2CppService i
     }
 }
 
-/// <summary>Il2CppDumper's naming in script.json, and the forms of it users type.</summary>
+/// <summary>The naming in script.json, and the forms of it users type.</summary>
 public static partial class Il2CppNames
 {
     /// <summary>A dummy type as script.json names it: nested types joined with '.', no arity suffixes.</summary>

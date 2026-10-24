@@ -5,72 +5,11 @@
     "name": "Game",
     "at": "0xD8"
   },
-  "isError": false,
+  "isError": true,
   "content": [
-    "struct Game  [pdb:0x1013, pdb], 264 (0x108) bytes, align 8\nField at +0xD8: players[3].pos.y (float)\nFields (4; offset  size  name  type  [id]):\n  +0x0  4  count  int\n  +0x4  4  <padding 0>  unsigned char[4]  (padding)\n  +0x8  256  players  Player[4]  [pdb:0x1011]\n  -  4  instances  int  (static)\nGlobals of this type (1): g_Game at 0x140003010\nNote: alignment computed from the members (the PDB records none)\n",
+    "Error (not_found) in get_native_type: No type named or containing 'Game' in typed.dll (PDB loaded, RTTI read, no Il2Cpp names applied, engine not read).\nNext: list_native_types lists the engine's types; source=engine reads them",
+    "\n\nerror (json): {\"code\":\"not_found\",\"retryable\":false,\"message\":\"No type named or containing 'Game' in typed.dll (PDB loaded, RTTI read, no Il2Cpp names applied, engine not read).\",\"next\":\"list_native_types lists the engine's types; source=engine reads them\",\"partial\":null,\"details\":null}\n\n",
     "[workspace] loaded typed.dll from <fixtures>/samples/typed.dll"
   ],
-  "structuredContent": {
-    "image": "typed.dll",
-    "query": "name Game",
-    "type": {
-      "id": "pdb:0x1013",
-      "name": "Game",
-      "kind": "struct",
-      "source": "pdb",
-      "size": 264,
-      "alignment": 8,
-      "fields": [
-        {
-          "offset": 0,
-          "size": 4,
-          "name": "count",
-          "type": "int",
-          "kind": "member"
-        },
-        {
-          "offset": 4,
-          "size": 4,
-          "name": "<padding 0>",
-          "type": "unsigned char[4]",
-          "kind": "padding"
-        },
-        {
-          "offset": 8,
-          "size": 256,
-          "name": "players",
-          "type": "Player[4]",
-          "typeId": "pdb:0x1011",
-          "kind": "member"
-        },
-        {
-          "offset": -1,
-          "size": 4,
-          "name": "instances",
-          "type": "int",
-          "kind": "static"
-        }
-      ],
-      "totalFields": 4,
-      "globalsOfType": 1,
-      "globals": [
-        "g_Game at 0x140003010"
-      ],
-      "notes": [
-        "alignment computed from the members (the PDB records none)"
-      ]
-    },
-    "paths": [
-      {
-        "path": "players[3].pos.y",
-        "offset": 216,
-        "type": "float",
-        "remainder": 0
-      }
-    ],
-    "offset": 0,
-    "notices": [
-      "loaded typed.dll from <fixtures>/samples/typed.dll"
-    ]
-  }
+  "structuredContent": null
 }

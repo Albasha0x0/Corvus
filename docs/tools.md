@@ -31,7 +31,7 @@ Workspace and server state.
 
 **Load assembly** (edit, idempotent, long-running)
 
-Load a .NET assembly or every assembly in a folder (app folder, Unity *_Data/Managed, DummyDll). PE, ELF, Mach-O or wasm files load as native images (universal Mach-O: one slice, name[slice]); format=raw maps headerless code; folder loads skip native files. An Il2Cpp game (folder, global-metadata.dat, .apk/.xapk/.aab/.ipa/.app, memory dump) loads as dummy assemblies with addresses (metadata v24-39) plus the native binary. A .gzf or .gpr program (copied) opens in Ghidra. A repeat load is a no-op.
+Load a .NET assembly or a folder's assemblies (app, Unity *_Data/Managed, dummy assemblies). PE, ELF, Mach-O or wasm files load as native images (universal Mach-O: one slice, name[slice]); format=raw maps headerless code; folder loads skip native files. An Il2Cpp build (folder, global-metadata.dat, .apk/.xapk/.aab/.ipa/.app, memory dump) loads as dummy assemblies with addresses (metadata v24-39) plus the native binary. A .gzf or .gpr program (copied) opens in Ghidra. A repeat load is a no-op.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -140,7 +140,7 @@ Structured output: `id`, `tool`, `totalChars`, `offset`, `nextOffset`, `code`, `
 
 **Save the session** (destructive, idempotent)
 
-Write the session's work to one JSON file: loaded files (path, relative path, SHA-256), .NET edits, native patches, names, comments, notes, Il2Cpp games, open minidumps; load_session restores it anywhere.
+Write session work to one JSON file: loaded files (path, relative path, SHA-256), .NET edits, native patches, names, comments, notes, Il2Cpp builds, open minidumps; load_session restores it anywhere.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -347,7 +347,7 @@ Structured output: `items`, `offset`, `total`, `notEvaluated`, `totalExact`, `li
 
 **Search string literals** (read-only, idempotent)
 
-Find string literals (ldstr, string constants) by substring, wildcard or regex, with the method and IL offset using each. Il2Cpp dummy DLLs: the game literals with slot RVAs and, with the binary, the functions loading them.
+Find string literals (ldstr, string constants) by substring, wildcard or regex, with the method and IL offset using each. Il2Cpp dummy assemblies: literals with slot RVAs and, with the binary, the functions loading them.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -662,16 +662,16 @@ Structured output: `source`, `container`, `outputDirectory`, `items`, `offset`, 
 
 ### unity_overview
 
-**Unity title overview** (read-only, idempotent, open-world)
+**Unity build overview** (read-only, idempotent, open-world)
 
-Overview of a Unity title in seconds, without loading it: engine version per source, scripting backend (il2cpp / mono) with evidence, metadata version and state (readable, encrypted, header_tampered, unsupported_version, missing), toolchain, middleware, platform, architecture, folders, next calls.
+Overview of a Unity build without loading it: engine version per source, scripting backend (il2cpp / mono) with evidence, metadata version and state (readable, encrypted, header_tampered, unsupported_version, missing), toolchain, middleware, platform, architecture, folders, next calls.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `path` | string | yes |  | Game folder, executable, *_Data, GameAssembly, global-metadata.dat, .apk, .ipa, zip, WebGL, .app. |
+| `path` | string | yes |  | Folder, executable, *_Data, GameAssembly, global-metadata.dat, .apk, .ipa, zip, WebGL, .app. |
 | `detectItEasy` | boolean |  |  | Also run Detect It Easy (CORVUS_DIE or PATH) on the main binaries; about 1 s per file. |
 
-Structured output: `input`, `gameDirectory`, `dataDirectory`, `executable`, `company`, `product`, `platform`, `architecture`, `architectureSource`, `engine`, `backend`, `markers`, `folders`, `nextSteps`, `notes`.
+Structured output: `input`, `appDirectory`, `dataDirectory`, `executable`, `company`, `product`, `platform`, `architecture`, `architectureSource`, `engine`, `backend`, `markers`, `folders`, `nextSteps`, `notes`.
 
 ## edit
 
@@ -928,7 +928,7 @@ Structured output: `symbol`, `members`, `items`, `offset`, `total`, `limit`, `to
 
 **Native address to method** (read-only, idempotent)
 
-Map a native address (IDA, Ghidra, crash log) of an Il2Cpp game to the method(s) whose function holds it, or the string literal, type metadata or MethodInfo slot at it; script.json names generic instantiations (without it, a guess).
+Map a native address (IDA, Ghidra, crash log) in Il2Cpp code to the method(s) whose function holds it, or the string literal, type metadata or MethodInfo slot at it; script.json names generic instantiations (without it, a guess).
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -945,7 +945,7 @@ Structured output: `address`, `items`, `offset`, `total`, `limit`, `totalExact`,
 
 **Export IDA/Ghidra scripts** (destructive, idempotent, long-running)
 
-Export Il2Cpp dummy-DLL metadata for native analysis: IDA Python and Ghidra scripts that create, name (Ns.Type$$Method) and comment every function (by RVA), a C header of struct layouts, and an Il2CppDumper-style script.json.
+Export Il2Cpp dummy-assembly metadata for native analysis: IDA Python and Ghidra scripts that create, name (Ns.Type$$Method) and comment every function (by RVA), a C header of struct layouts, and a script.json.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -1473,7 +1473,7 @@ Structured output: `image`, `source`, `items`, `offset`, `total`, `notes`, `limi
 
 **Native type layout** (read-only, idempotent, open-world, long-running)
 
-Layout of a native type (fields with offset, size, bits; bases, padding; enums by value) from PDB, RTTI (vftables, named slots), Il2Cpp, ObjC or Swift metadata, or the engine (source=engine). By name (exact, case-insensitive, else substring candidates), id or typed address (PDB global: field path g.players[3].pos.y). read=true adds values.
+Layout of a native type (fields with offset, size, bits; bases, padding; enums by value) from PDB, RTTI (vftables, named slots), Il2Cpp, ObjC or Swift metadata, or the engine (source=engine). By name (exact, case-insensitive, else substring candidates), id or typed address (PDB global: field path g.nodes[3].pos.y). read=true adds values.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|

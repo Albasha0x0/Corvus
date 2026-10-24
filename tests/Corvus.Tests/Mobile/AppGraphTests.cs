@@ -91,16 +91,16 @@ public sealed class AppGraphTests(Xunit.Abstractions.ITestOutputHelper output) :
     private static List<string> MobilePackages() =>
         Directory.EnumerateFiles(RealData.Get(RealData.MobileApps)!, "*.apk", new EnumerationOptions { RecurseSubdirectories = true, MaxRecursionDepth = 2 }).ToList();
 
-    /// <summary>The smallest package and the smallest Il2Cpp game under CORVUS_MOBILE_APPS: each graph has the edge kinds its runtimes need.</summary>
+    /// <summary>The smallest package and the smallest Il2Cpp build under CORVUS_MOBILE_APPS: each graph has the edge kinds its runtimes need.</summary>
     [Trait("Speed", "Slow")]
     [RequiresRealDataFact(RealData.MobileApps)]
     public void Real_packages_graph_with_the_edges_their_runtimes_need()
     {
         var apks = MobilePackages().OrderBy(a => new FileInfo(a).Length).ToList();
         Assert.NotEmpty(apks);
-        var game = apks.FirstOrDefault(a => { using var zip = System.IO.Compression.ZipFile.OpenRead(a); return zip.Entries.Any(e => Core.Mobile.AndroidRuntime.IsIl2CppEntry(e.FullName)); });
+        var il2cppApk = apks.FirstOrDefault(a => { using var zip = System.IO.Compression.ZipFile.OpenRead(a); return zip.Entries.Any(e => Core.Mobile.AndroidRuntime.IsIl2CppEntry(e.FullName)); });
         var loader = new Il2CppRawLoader(_workspace);
-        foreach (var apk in new[] { apks[0], game }.OfType<string>().Distinct())
+        foreach (var apk in new[] { apks[0], il2cppApk }.OfType<string>().Distinct())
             GraphOf(loader, apk);
     }
 
@@ -121,8 +121,8 @@ public sealed class AppGraphTests(Xunit.Abstractions.ITestOutputHelper output) :
     /// <summary>Builds the graph of <paramref name="apk"/>, reports its time and checks its edge kinds.</summary>
     private void GraphOf(Il2CppRawLoader loader, string apk)
     {
-        // An Il2Cpp game is read once first, as load_assembly does; the graph joins its methods from the cache.
-        var files = Il2CppPackages.Extract(apk, null) is { } root && Il2CppGameFiles.Find(root) is { Binary.Length: > 0 } found ? found : null;
+        // An Il2Cpp build is read once first, as load_assembly does; the graph joins its methods from the cache.
+        var files = Il2CppPackages.Extract(apk, null) is { } root && Il2CppBuildFiles.Find(root) is { Binary.Length: > 0 } found ? found : null;
         if (files != null) loader.Load(files, loadBinary: false, null, default);
         var before = MachineLoad.Factor();
         var paused = GC.GetTotalPauseDuration();
@@ -137,7 +137,7 @@ public sealed class AppGraphTests(Xunit.Abstractions.ITestOutputHelper output) :
                          string.Join("; ", g.EdgeKinds.Select(k => $"{k.Kind} {k.Edges}/{k.Candidates} {k.Coverage}")));
         PerfBudget.Time("mobile/app-graph", watch.Elapsed, TimeSpan.FromSeconds(5), output, $"{load}; {span}");
         foreach (var k in g.EdgeKinds) Assert.True(k.Edges <= k.Candidates || k.Kind == "jni", $"{apk}: {k.Kind}");
-        // The graph joins the game's methods from the cache the load filled; it reads no metadata itself.
+        // The graph joins the build's methods from the cache the load filled; it reads no metadata itself.
         if (files != null) Assert.True(g.Layers.Single(l => l.Layer == "il2cpp").Items > 0, $"{apk}: the Il2Cpp layer was not joined from the cache");
     }
 }

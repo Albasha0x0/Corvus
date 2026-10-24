@@ -227,7 +227,7 @@ tests in sequence.
 
 - Real libraries come from `<PackageDownload>` items in the test project, read through `RealPackages.Lib`; tests never
   read paths of one machine.
-- Data that cannot be redistributed (application folders, Il2Cpp games, external tools) is found through `CORVUS_*`
+- Data that cannot be redistributed (application folders, Il2Cpp builds, external tools) is found through `CORVUS_*`
   variables (below); a test without its data is skipped.
 - A new external tool is wired through a variable with a neutral name, its command-line options kept in one table.
 
@@ -282,12 +282,12 @@ describe.
 | `CORVUS_HEAVY_LOCK` | A script that takes and reports a machine-wide lock (`heavy <name> -OwnerPid <pid>`), held by whole-suite runs. | nightly.ps1, test-reuse.psm1 |
 | `CORVUS_HOSTAPI_PROJECT_DIR` | The root of a C/C++ project with a host function table, for `generate_cpp_binding style=hostapi`. | CppBindingTests |
 | `CORVUS_IDA_ORACLE_FILES` | Images (separated by `;`) whose functions are compared with IDA's (default: a fixed set of system DLLs). | NativeCodeOracleTests |
-| `CORVUS_IL2CPP_DUMMY_DIR` | A DummyDll folder written by an Il2Cpp dumper. | Il2CppExportTests, RealAssemblyTests |
-| `CORVUS_IL2CPP_GAME` | An Il2Cpp game folder or its global-metadata.dat. | Il2CppRawTests, ImportedNamesTests, LiveCompiledNamesRealTests, OutputBudgetTests, SessionFileTests |
-| `CORVUS_IL2CPP_GAME_DUMP` | A dumper's output for `CORVUS_IL2CPP_GAME` (DummyDll folder, script.json, stringliteral.json), compared with the built-in reader. | Il2CppRawTests |
-| `CORVUS_IL2CPP_GENERICS_GAME` | A Windows Il2Cpp game whose code registration is filled at run time. | Il2CppRawTests |
-| `CORVUS_IL2CPP_MOBILE` | A folder of Android packages of Il2Cpp games. | Il2CppMobileTests, NativeIdaFormatsTests |
-| `CORVUS_IL2CPP_STRINGS_DIR` | A DummyDll folder with stringliteral.json and script.json (and optionally GameAssembly.dll) beside it. | DumpRealDataTests, Il2CppNavigationTests, Il2CppStringTests |
+| `CORVUS_IL2CPP_BUILD` | An Il2Cpp build folder or its global-metadata.dat. | Il2CppRawTests, ImportedNamesTests, LiveCompiledNamesRealTests, OutputBudgetTests, SessionFileTests |
+| `CORVUS_IL2CPP_BUILD_DUMP` | Reference output for `CORVUS_IL2CPP_BUILD` (dummy assemblies, script.json, stringliteral.json), compared with the built-in reader. | Il2CppRawTests |
+| `CORVUS_IL2CPP_DUMMY_DIR` | A folder of dummy assemblies with `[Address]` attributes. | Il2CppExportTests, RealAssemblyTests |
+| `CORVUS_IL2CPP_GENERICS_BUILD` | A Windows Il2Cpp build whose code registration is filled at run time. | Il2CppRawTests |
+| `CORVUS_IL2CPP_MOBILE` | A folder of Android packages of Il2Cpp builds. | Il2CppMobileTests, NativeIdaFormatsTests |
+| `CORVUS_IL2CPP_STRINGS_DIR` | A folder of dummy assemblies with stringliteral.json and script.json (and optionally GameAssembly.dll) beside it. | DumpRealDataTests, Il2CppNavigationTests, Il2CppStringTests |
 | `CORVUS_INSTALLERS` | A folder of installers (NSIS, Inno Setup, MSI, WiX Burn) compared by file name and size with the reference listers. | InstallerComparisonTests |
 | `CORVUS_JAVA_JARS` | A folder of jars (searched three levels deep) disassembled and compared with javap. | JvmClassTests |
 | `CORVUS_LARGE_NATIVE_IMAGE` | A native image of 100 MB or more, for speed measurements. | SimilarFunctionsRealTests |
@@ -345,7 +345,7 @@ describe.
 | `CORVUS_TEST_OFFLOAD` | `0` keeps the offloaded classes in the local run. | test-remote.psm1 |
 | `CORVUS_TEST_PRIORITY` | `normal` keeps a test run at normal priority. | test-reuse.psm1 |
 | `CORVUS_TEST_YARA_X` | The folder fetch-yara-x.ps1 fills with the YARA-X builds the tests use. | YaraTestTools, tests/Corvus.Tests/Support/fetch-yara-x.ps1 |
-| `CORVUS_UNITY_TITLES` | `;`-separated Unity game folders, overviewed beside the game libraries found on the machine, and their MonoBehaviour assets read by view=unity. | UnityFieldTests, UnityOverviewTests |
+| `CORVUS_UNITY_BUILDS` | `;`-separated Unity build folders and packages (player folders, .app, .apk, WebGL builds), overviewed and their MonoBehaviour assets read by view=unity. | UnityFieldTests, UnityOverviewTests |
 | `CORVUS_UPDATE_DOCS` | `1` rewrites the generated documents instead of failing on a difference. | DocsTests, ErrorContractTests, MigrationReasonTests, ProtocolSampleTests, SampleDocsTests, SaveFidelityTests, SchemaDocsTests, SimplifyContractTests, SkillTests, release.ps1, test-reuse.psm1 |
 | `CORVUS_UPDATE_RATCHETS` | `1` drops ratchet entries that now comply and writes a missing list from the current state. | CountRatchet, Ratchet |
 | `CORVUS_VCALL_IMAGE` | A real C++ image for the virtual call acceptance run. | VirtualCallTests |
@@ -433,7 +433,7 @@ missing.
   `.xbf` read with `view=xbf` must be complete, declare the source's elements in order and resolve every event handler
   the source names.
 - **Il2Cpp capabilities against capa** (`Il2CppCapaTests`, `CORVUS_CAPA` naming standalone capa 10.0.0): the freeze
-  file for a built x64 game binary whose functions call methods named as `File.WriteAllText`, `RegistryKey.GetValue`
+  file for a built x64 Il2Cpp binary whose functions call methods named as `File.WriteAllText`, `RegistryKey.GetValue`
   and `HttpClient.GetAsync` must load in capa and match "write file in .NET", "query or enumerate registry value" and
   "send HTTP request" at the calling functions. Rerun for each capa release: the freeze format changes between them.
 - **Behaviour labels against capa** (`NativeCapaTests`, `CORVUS_CAPA` naming standalone capa 10.0.0): a built x64

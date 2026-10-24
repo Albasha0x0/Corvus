@@ -11,7 +11,7 @@ using LibCpp2IL.Metadata;
 namespace Corvus.Services;
 
 /// <summary>
-/// Builds Il2CppDumper-format dummy assemblies from the LibCpp2IL state: one module per metadata image with its types,
+/// Builds dummy assemblies from the LibCpp2IL state: one module per metadata image with its types,
 /// fields, methods, properties and events, the methods' native addresses as [Address(RVA, Offset, VA, Slot)], field
 /// offsets as [FieldOffset(Offset)] and metadata tokens as [Token(Token)] (attributes of an Il2CppDummyDll assembly),
 /// enum and constant values, and stub bodies that return a default value. Fields carry their original custom
@@ -268,7 +268,7 @@ internal sealed class Il2CppDummyBuilder
                 break;
             case Il2CppTypeEnum.IL2CPP_TYPE_GENERICINST:
                 var generic = type.GetGenericClass();
-                int definition = IndexOf(Il2CppDumperNames.Definition(generic, _meta, _bin));
+                int definition = IndexOf(Il2CppScriptNames.Definition(generic, _meta, _bin));
                 var inst = generic.Context.class_inst == 0 ? [] : _bin.ReadReadableAtVirtualAddress<Il2CppGenericInst>(generic.Context.class_inst).Types;
                 var baseRef = Ref(definition, module);
                 ClassOrValueTypeSig open = _meta.typeDefs[definition].IsValueType ? new ValueTypeSig(baseRef) : new ClassSig(baseRef);
@@ -382,7 +382,7 @@ internal sealed class Il2CppDummyBuilder
             var field = new FieldDefUser(f.Name ?? $"field{i}", new FieldSig(Sig(raw, module)), attrs & ~dnlib.DotNet.FieldAttributes.HasFieldRVA);
             if ((attrs & dnlib.DotNet.FieldAttributes.HasDefault) != 0)
             {
-                // Per field: the type-wide FieldDefaults of LibCpp2IL costs seconds on large games.
+                // Per field: the type-wide FieldDefaults of LibCpp2IL costs seconds on large builds.
                 object? value = null;
                 bool known = false;
                 try
@@ -481,7 +481,7 @@ internal sealed class Il2CppDummyBuilder
         }
     }
 
-    /// <summary>A body returning the default value of <paramref name="ret"/> (Il2CppDumper's stubs).</summary>
+    /// <summary>A body returning the default value of <paramref name="ret"/>, the usual dummy assembly stub.</summary>
     private static CilBody StubBody(TypeSig ret)
     {
         var body = new CilBody { InitLocals = true };

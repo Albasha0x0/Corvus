@@ -1,8 +1,8 @@
 # Guide 1: first session
 
-Find the code behind a feature in a program without source, read it, predict what it does, and check the prediction
-by running the program. The program is Notes, a console app built from [samples/Notes](../../samples/Notes); a test
-runs every step below and compares the output.
+Find the code behind a feature in a program without source, read it, predict its output, and check the prediction by
+running the program. The program is Notes, a console app built from [samples/Notes](../../samples/Notes). A test runs
+every step below and compares the output.
 
 ## Build the sample
 
@@ -73,8 +73,8 @@ public static class CsvExporter
 
 ## Predict, then check
 
-`Quote` wraps a field holding a comma, a quote or a line break in quotes and doubles each quote inside. `Hello, "you"`
-has both, so note 2 should export as `2,"Hello, ""you""",2026-01-06`:
+`Quote` quotes a field that holds a comma, a quote or a line break, and doubles each inner quote. `Hello, "you"` has
+both, so note 2 should export as `2,"Hello, ""you""",2026-01-06`:
 
 <!-- check: run -->
 ```sh
@@ -90,4 +90,4 @@ id,title,created
 exit code 0
 ```
 
-The prediction matches. Next: [guide 2](2-decode-and-patch.md) reads code written to be hard to read.
+The prediction matches. Next: [guide 2](2-decode-and-patch.md) reads transformed code.

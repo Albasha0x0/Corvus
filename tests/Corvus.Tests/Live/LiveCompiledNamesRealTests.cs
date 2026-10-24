@@ -17,7 +17,7 @@ public sealed class LiveRealDataFactAttribute(string target, params string[] var
 
 /// <summary>
 /// A session stopped in managed code compiled ahead of time names its frames through the loaded image's code index:
-/// an Il2Cpp game (CORVUS_IL2CPP_GAME) after apply_il2cpp_names, and a NativeAOT program (CORVUS_NATIVEAOT_SAMPLES=1)
+/// an Il2Cpp build (CORVUS_IL2CPP_BUILD) after apply_il2cpp_names, and a NativeAOT program (CORVUS_NATIVEAOT_SAMPLES=1)
 /// without its PDB.
 /// </summary>
 [Trait("Speed", "Slow")]
@@ -29,16 +29,16 @@ public sealed class LiveCompiledNamesRealTests(ITestOutputHelper output) : LiveT
 
     public void Dispose() => _dir.Dispose();
 
-    [LiveRealDataFact("win-x64", "CORVUS_IL2CPP_GAME")]
-    public async Task Il2Cpp_game_frames_are_named()
+    [LiveRealDataFact("win-x64", "CORVUS_IL2CPP_BUILD")]
+    public async Task Il2Cpp_frames_are_named()
     {
-        var files = Il2CppGameFiles.Find(RealData.Path("CORVUS_IL2CPP_GAME")) ?? throw new InvalidOperationException("not an Il2Cpp game");
+        var files = Il2CppBuildFiles.Find(RealData.Path("CORVUS_IL2CPP_BUILD")) ?? throw new InvalidOperationException("not an Il2Cpp build");
         var folder = Path.GetDirectoryName(files.Binary)!;
         var exe = Directory.EnumerateFiles(folder, "*.exe").Single(f => !Path.GetFileName(f).StartsWith("UnityCrashHandler", StringComparison.OrdinalIgnoreCase));
         await using var server = await Server();
         await Ok(server, "load_assembly", new() { ["path"] = folder }, log: false);
         await Ok(server, "apply_il2cpp_names", new() { ["image"] = Path.GetFileName(files.Binary) });
-        // a game's per-frame method, by the layer's C identifier ("Ns.Type::Update()" as "Ns_Type__Update")
+        // a per-frame method, by the layer's C identifier ("Ns.Type::Update()" as "Ns_Type__Update")
         var update = await Ok(server, "search_symbols", new() { ["query"] = "::Update()", ["assembly"] = "Assembly-CSharp", ["kind"] = "method", ["limit"] = 1 });
         var method = Regex.Match(update, @"method\s+(\S+)::Update\(\)").Groups[1].Value;
         Assert.NotEmpty(method);
@@ -55,7 +55,7 @@ public sealed class LiveCompiledNamesRealTests(ITestOutputHelper output) : LiveT
             await Ok(server, "live_session", new() { ["action"] = "close", ["session"] = "live-1" });
         }
         Ended(pid);
-        // The player's crash handler, a process of its own, can hold the log a while after the game ends.
+        // The player's crash handler, a process of its own, can hold the log a while after the program ends.
         for (var clock = System.Diagnostics.Stopwatch.StartNew(); clock.Elapsed < TimeSpan.FromMinutes(1); await Task.Delay(200))
         {
             try

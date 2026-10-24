@@ -540,21 +540,21 @@ public sealed class BuildUpdateTools(AssemblyWorkspace workspace, NativeCodeServ
             var given = workspace.Read(() => ids.Select(workspace.Get).Distinct().Where(a => il2cpp.GetIndex(a).Count > 0).ToList());
             if (given.Count == 0)
                 throw new ToolError(ErrorCode.InvalidArgument, $"'{string.Join(", ", ids)}' names no Il2Cpp dummy assembly (methods with [Address] attributes).",
-                    "pass the ids of the build's DummyDll assemblies (list_assemblies), or omit it to find them");
+                    "pass the ids of the build's dummy assemblies (list_assemblies), or omit it to find them");
             return (given, "assemblies " + string.Join(", ", given.Select(a => a.Id)));
         }
         if (FromDumps(native) is { } found) return found;
-        Il2CppGameFiles? game = null;
-        try { game = Il2CppGameFiles.Find(native.FilePath, native.SliceName); }
+        Il2CppBuildFiles? build = null;
+        try { build = Il2CppBuildFiles.Find(native.FilePath, native.SliceName); }
         catch (ToolError ex) { notes.Add($"{native.Id}: {ex.Message}"); }
-        if (game != null && string.Equals(Path.GetFullPath(game.Binary), native.FilePath, StringComparison.OrdinalIgnoreCase))
+        if (build != null && string.Equals(Path.GetFullPath(build.Binary), native.FilePath, StringComparison.OrdinalIgnoreCase))
         {
             try
             {
-                (il2cppRaw ?? new Il2CppRawLoader(workspace)).Load(game, loadBinary: false, null, ct);
+                (il2cppRaw ?? new Il2CppRawLoader(workspace)).Load(build, loadBinary: false, null, ct);
                 if (FromDumps(native) is { } read) return read;
             }
-            catch (ToolError ex) { notes.Add($"{native.Id}: Il2Cpp metadata {game.Metadata} not read: {ex.Message}"); }
+            catch (ToolError ex) { notes.Add($"{native.Id}: Il2Cpp metadata {build.Metadata} not read: {ex.Message}"); }
         }
         if (Il2CppNativeNames.Of(native) is { } applied) return (applied.Image.Assemblies.ToList(), $"the dummy assemblies apply_il2cpp_names used ({applied.Assemblies})");
         return (null, "");

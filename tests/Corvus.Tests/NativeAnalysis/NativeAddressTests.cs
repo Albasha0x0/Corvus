@@ -131,7 +131,7 @@ public class NativeAddressTests
     }
     [Theory]
     [InlineData("Packet::length", "Packet", "length", null)]
-    [InlineData("Game::Player::health", "Game::Player", "health", null)]
+    [InlineData("App::Player::health", "App::Player", "health", null)]
     [InlineData("Packet.length", "Packet", "length", null)]
     [InlineData("Packet+0x18", "Packet", null, 0x18)]
     [InlineData("Packet + 18h", "Packet", null, 0x18)]

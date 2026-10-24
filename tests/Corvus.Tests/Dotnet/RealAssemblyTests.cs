@@ -158,7 +158,7 @@ public class RealAssemblyTests(ITestOutputHelper output)
         Assert.Contains("ret", compiled.Listing);
     }
 
-    /// <summary>A real Il2CppDumper / Cpp2IL DummyDll folder (CORVUS_IL2CPP_DUMMY_DIR).</summary>
+    /// <summary>A real DummyDll folder of Il2Cpp dummy assemblies (CORVUS_IL2CPP_DUMMY_DIR).</summary>
     [Trait("Speed", "Slow")]
     [RequiresRealDataFact(RealData.Il2CppDummyDir)]
     public void Il2CppDummyDllFolder()

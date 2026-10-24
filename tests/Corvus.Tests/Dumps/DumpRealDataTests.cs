@@ -143,7 +143,7 @@ public sealed class DumpRealDataTests(Xunit.Abstractions.ITestOutputHelper outpu
         Assert.True(record.TryGetProperty("nextOffset", out _));
     }
 
-    /// <summary>A real Il2CppDumper dump: get_il2cpp_info, find_method_by_address and export_il2cpp_symbols records; apply_il2cpp_names with the binary.</summary>
+    /// <summary>A real Il2Cpp dump: get_il2cpp_info, find_method_by_address and export_il2cpp_symbols records; apply_il2cpp_names with the binary.</summary>
     [RequiresRealDataFact(RealData.Il2CppStringsDir)]
     public async Task Il2CppRecordsOnARealDump()
     {

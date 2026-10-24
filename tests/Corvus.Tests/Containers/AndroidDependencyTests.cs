@@ -88,12 +88,12 @@ public sealed class AndroidDependencyTests : IDisposable
     }
 
     [Fact]
-    public void An_il2cpp_apk_lists_unity_and_the_games_assemblies_from_its_metadata()
+    public void An_il2cpp_apk_lists_unity_and_the_apps_assemblies_from_its_metadata()
     {
         var metadata = new Il2CppMetadataWriter().Assembly("Assembly-CSharp", "0.0.0.0").Assembly("mscorlib", "4.0.0.0").Assembly("Newtonsoft.Json", "13.0.0.0").Build();
         // globalgamemanagers keeps the Unity version as a NUL-terminated string at offset 20.
         byte[] managers = [.. new byte[20], .. Encoding.ASCII.GetBytes("2021.3.45f1"), 0, .. new byte[64]];
-        var facts = Facts("game.apk", AndroidSamples.Apk(30,
+        var facts = Facts("app.apk", AndroidSamples.Apk(30,
             ("assets/bin/Data/Managed/Metadata/global-metadata.dat", metadata), ("assets/bin/Data/globalgamemanagers", managers),
             ("lib/arm64-v8a/libil2cpp.so", NativeLibrary("il2cpp")), ("lib/arm64-v8a/libunity.so", NativeLibrary("unity"))));
         Assert.Equal("com.example.app", facts.Subject!.Name);
@@ -137,7 +137,7 @@ public sealed class AndroidDependencyTests : IDisposable
     {
         var metadata = new Il2CppMetadataWriter().Assembly("Assembly-CSharp", "0.0.0.0").Assembly("mscorlib", "4.0.0.0").Build();
         byte[] managers = [.. new byte[20], .. Encoding.ASCII.GetBytes("2021.3.45f1"), 0, .. new byte[64]];
-        var facts = Facts("game.xapk", ContainerFixtures.Zip(
+        var facts = Facts("app.xapk", ContainerFixtures.Zip(
             ("base.apk", AndroidSamples.Apk(30,
                 ("assets/bin/Data/Managed/Metadata/global-metadata.dat", metadata), ("assets/bin/Data/globalgamemanagers", managers))),
             ("config.arm64_v8a.apk", ContainerFixtures.Zip(("lib/arm64-v8a/libil2cpp.so", NativeLibrary("il2cpp"))))));

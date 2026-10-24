@@ -1,8 +1,7 @@
 # Installation
 
-Corvus is one self-contained program: the MCP server (stdio), the setup commands that register it with MCP clients,
-and a command line that runs every tool ([cli.md](cli.md)). It needs no .NET installation, admin rights or network
-port.
+Corvus is one self-contained program: the MCP server (stdio), setup commands that register it with MCP clients, and a
+command line that runs every tool ([cli.md](cli.md)). It needs no .NET installation, admin rights or network port.
 
 ## Install script
 
@@ -51,8 +50,8 @@ with sh. Piped into `sh`, the confirmation is read from the terminal.
 **Offline install.** Download the archive for your system and `SHA256SUMS` from the release page, then run the script
 with `CORVUS_ARCHIVE=<archive>` and `CORVUS_SHA256SUMS=<manifest>`.
 
-**Verifying a release.** The `SHA256SUMS` check that the scripts and `corvus update` make comes from the same release
-as the archive, so it catches a corrupted download, not a tampered release. Every asset also carries signed SLSA build
+**Verifying a release.** The `SHA256SUMS` that the scripts and `corvus update` check comes from the same release as
+the archive, so it catches a corrupted download, not a tampered release. Every asset also carries signed SLSA build
 provenance (Sigstore) from the release workflow. When `gh` is on PATH and signed in (`gh auth login`, or `GH_TOKEN` /
 `GITHUB_TOKEN`), the scripts and `corvus update` verify the archive's provenance before installing: built by this
 repository's `release.yml`, from the requested tag when one is known.
@@ -223,9 +222,9 @@ folder), the entry's shape, and the environment variables that move the file. `-
 | Kilo Code | `~/.kilocode/skills/corvus` |
 | Windsurf, Qwen Code, Crush, Command Code, Pi | `skills/corvus` beside the client's MCP configuration file (table above) |
 
-The skill is generated from the server's own guidance, so it describes only tools the server has; it tells an agent
-how to check the registration and how to use the command line when the tools are not connected. It is optional (the
-server already sends its guidance to every client) and does not include the server: install the program first.
+The skill is generated from the server's own guidance, so it names only tools the server has; it tells an agent how to
+check the registration and use the command line when the tools are not connected. It is optional (the server sends its
+guidance to every client) and does not include the server: install the program first.
 
 Folders written by install carry a `.corvus-skill` marker: every later `install` and `update` keeps them current,
 `status` reports them `aligned` or `stale`, and `uninstall` removes them. A folder of the same name without the marker

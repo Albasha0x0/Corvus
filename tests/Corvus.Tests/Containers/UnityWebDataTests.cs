@@ -50,18 +50,18 @@ public sealed class UnityWebDataTests : IDisposable
     private string BuildFolder(string dataName, byte[] data)
     {
         var build = Directory.CreateDirectory(_dir.File("Build")).FullName;
-        File.WriteAllBytes(Path.Combine(build, "game.wasm.br"), [0]);
-        File.WriteAllBytes(Path.Combine(build, "game.framework.js.br"), [0]);
-        File.WriteAllText(Path.Combine(build, "game.loader.js"), "");
+        File.WriteAllBytes(Path.Combine(build, "app.wasm.br"), [0]);
+        File.WriteAllBytes(Path.Combine(build, "app.framework.js.br"), [0]);
+        File.WriteAllText(Path.Combine(build, "app.loader.js"), "");
         var path = Path.Combine(build, dataName);
         File.WriteAllBytes(path, data);
         return path;
     }
 
     [Theory]
-    [InlineData("game.data", null)]
-    [InlineData("game.data.gz", "gzip")]
-    [InlineData("game.data.br", "Brotli")]
+    [InlineData("app.data", null)]
+    [InlineData("app.data.gz", "gzip")]
+    [InlineData("app.data.br", "Brotli")]
     public void ListsFilesWithRolesAndTheBuildFolder(string name, string? compression)
     {
         var data = Sample();
@@ -76,14 +76,14 @@ public sealed class UnityWebDataTests : IDisposable
         ], listing.Files!.Select(f => $"{f.Path}: {f.Detail}"));
         Assert.Equal($"UnityWebData{(compression != null ? $" ({compression} compressed)" : "")}: 4 file(s), Unity 2021.3.5f1; Il2Cpp metadata " +
                      "Il2CppData/Metadata/global-metadata.dat (Il2Cpp metadata v29).", listing.Notes[0]);
-        Assert.Equal("Build folder: game.framework.js.br (the JavaScript framework: Emscripten runtime and imports); game.loader.js (the loader); " +
-                     "game.wasm.br (the Il2Cpp code, WebAssembly).", listing.Notes[1]);
+        Assert.Equal("Build folder: app.framework.js.br (the JavaScript framework: Emscripten runtime and imports); app.loader.js (the loader); " +
+                     "app.wasm.br (the Il2Cpp code, WebAssembly).", listing.Notes[1]);
     }
 
     [Fact]
     public void UnpacksEveryFileButUnsafeNames()
     {
-        var path = BuildFolder("game.data", Sample());
+        var path = BuildFolder("app.data", Sample());
         var output = _dir.File("out");
         var report = new UnpackService(_workspace).Unpack(path, output, load: false, AnalysisLimits.Default, default);
         Assert.Equal(Metadata, File.ReadAllBytes(Path.Combine(output, "Il2CppData", "Metadata", "global-metadata.dat")));

@@ -66,10 +66,10 @@ samples/bin/sqlite-random.json: 3 record(s), 3 verified, 0 differ (each call re-
 - **Survey:** one crypto feature, the ChaCha20 constant `expand 32-byte k` in `.rdata`.
 - **Code:** its only readers are two instructions in the exported `sqlite3_randomness`, so the pseudo-random
   generator is built on ChaCha20.
-- **Callers:** the call tree lists the 13 functions that call it directly; each is a place where SQLite draws random
-  bytes (`sqlite3_test_control` among them).
-- **Evidence:** step 5 writes the three calls to a bundle (not shown: its size and hash change with the build); it
-  holds each call's arguments, the SHA-256 of the image it ran on and the SHA-256 of its result. `format=verify`
-  re-runs every call and names any record whose input or result differs.
+- **Callers:** the call tree lists the 13 direct callers, each a place where SQLite draws random bytes
+  (`sqlite3_test_control` among them).
+- **Evidence:** step 5 writes the three calls to a bundle (not shown: its size and hash change with the build). It
+  holds each call's arguments, the SHA-256 of its input image and the SHA-256 of its result. `format=verify` re-runs
+  every call and names any record whose input or result differs.
 
 The `investigate_feature` prompt walks the same steps for a behaviour of your own.

@@ -509,7 +509,7 @@ public sealed class LiveSessionTests : LiveSessionTestBase
     [Fact]
     public async Task A_deferred_point_not_set_at_the_load_is_reported_once_and_listed_as_failed()
     {
-        // the session's code service carries an Il2Cpp layer naming sqlite3_open "Game_Player__Update"; the point is given in the managed form
+        // the session's code service carries an Il2Cpp layer naming sqlite3_open "App_Player__Update"; the point is given in the managed form
         var code = new NativeCodeService(_workspace, SharedCodeIndex.Options());
         using var service = new LiveSessionService(_workspace, code) { Backend = new ScriptedLiveBackend(Sqlite, Base, 0x200000) };
         var backend = (ScriptedLiveBackend)service.Backend;
@@ -517,31 +517,31 @@ public sealed class LiveSessionTests : LiveSessionTestBase
         var native = _workspace.LoadAny(Sqlite).Native!;
         var index = await code.Index(native, null, default);
         var rva = index.AddressOfName("sqlite3_open")!.Value;
-        NativeNameLayers.Of(native).Set(new NativeNameLayers.Layer(NativeNameSource.Il2Cpp, new Dictionary<uint, string> { [rva] = "Game_Player__Update" },
+        NativeNameLayers.Of(native).Set(new NativeNameLayers.Layer(NativeNameSource.Il2Cpp, new Dictionary<uint, string> { [rva] = "App_Player__Update" },
             new Dictionary<uint, string>(), "test"), index);
         await tools.LiveSession("attach", program: "99994242");
-        await tools.LiveBreak("live-1", "set", at: "plugin!Game.Player::Update()");
+        await tools.LiveBreak("live-1", "set", at: "plugin!App.Player::Update()");
         await tools.LiveWatchCalls("live-1", "set", at: "plugin!no_such_function");
 
         backend.Load("plugin.dll", Sqlite, 0x7ff7_0000_0000, 0x200000, heldBy: 77);
         for (int i = 0; i < 100 && !backend.Ops.Contains("release_load"); i++) await Task.Delay(50);
         var first = await tools.LiveBreak("live-1");
-        Assert.Contains("deferred stop point s1 at plugin!Game.Player::Update() was dropped (plugin.dll loaded): ", first);
+        Assert.Contains("deferred stop point s1 at plugin!App.Player::Update() was dropped (plugin.dll loaded): ", first);
         Assert.Contains("deferred watch w1 at plugin!no_such_function was dropped (plugin.dll loaded): ", first);
         Assert.Contains("0 stop point(s), 1 failed", first);
-        Assert.Contains("s1 plugin!Game.Player::Update(): failed (plugin.dll loaded): ", first);
-        Assert.Contains("Next: at=plugin.dll!Game_Player__Update (the il2cpp layer's name for it)", first);
+        Assert.Contains("s1 plugin!App.Player::Update(): failed (plugin.dll loaded): ", first);
+        Assert.Contains("Next: at=plugin.dll!App_Player__Update (the il2cpp layer's name for it)", first);
         // said once; the list keeps the failed point until it is cleared
         var again = await tools.LiveBreak("live-1");
         Assert.DoesNotContain("was dropped", again);
         Assert.DoesNotContain("Next:", again);
-        Assert.Contains("s1 plugin!Game.Player::Update(): failed", again);
+        Assert.Contains("s1 plugin!App.Player::Update(): failed", again);
         Assert.Contains("w1 plugin!no_such_function: failed (plugin.dll loaded): ", await tools.LiveWatchCalls("live-1"));
         Assert.DoesNotContain("failed", await tools.LiveBreak("live-1", "clear", stopPoint: "s1"));
         // set now: the same hint
-        var refused = await Assert.ThrowsAsync<ToolError>(() => tools.LiveBreak("live-1", "set", at: "plugin!Game.Player::Update"));
-        Assert.Equal("at=plugin.dll!Game_Player__Update (the il2cpp layer's name for it)", refused.Remediation);
-        Assert.Contains("plugin.dll!Game_Player__Update", await tools.LiveBreak("live-1", "set", at: "plugin!Game_Player__Update"));
+        var refused = await Assert.ThrowsAsync<ToolError>(() => tools.LiveBreak("live-1", "set", at: "plugin!App.Player::Update"));
+        Assert.Equal("at=plugin.dll!App_Player__Update (the il2cpp layer's name for it)", refused.Remediation);
+        Assert.Contains("plugin.dll!App_Player__Update", await tools.LiveBreak("live-1", "set", at: "plugin!App_Player__Update"));
     }
 
     [Fact]

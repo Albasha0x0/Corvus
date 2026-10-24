@@ -126,7 +126,7 @@ public static class Targets
         try { loaded = workspace.LoadAny(full); }
         catch (ToolError e) when (e.Code == ErrorCode.Unsupported && e.Remediation == null)
         {
-            throw new ToolError(ErrorCode.Unsupported, e.Message, $"load_assembly path={text} loads packages, game folders and directories; then pass one of the ids it lists");
+            throw new ToolError(ErrorCode.Unsupported, e.Message, $"load_assembly path={text} loads packages and folders; then pass one of the ids it lists");
         }
         var id = loaded.Assembly?.Id ?? loaded.Native!.Id;
         return $"loaded {id} from {full}";

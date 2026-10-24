@@ -3,14 +3,14 @@ using System.Text;
 namespace Corvus.Services;
 
 /// <summary>
-/// What the built-in metadata reader takes from a game (GameAssembly.dll + global-metadata.dat) besides the dummy
-/// assemblies: the data Il2CppDumper writes to script.json and stringliteral.json. String literals with their slot RVAs;
+/// What the built-in metadata reader takes from a build (GameAssembly.dll + global-metadata.dat) besides the dummy
+/// assemblies: the data of script.json and stringliteral.json. String literals with their slot RVAs;
 /// ScriptMethod entries (every method with code and every generic instantiation, with the method definition each comes
 /// from); ScriptMetadata and ScriptMetadataMethod slots; the other function starts (invokers, generic method pointers,
 /// reverse P/Invoke wrappers, unresolved-call stubs); and every item that could not be read, with the reason. Stored
-/// beside the generated dummy assemblies (<see cref="FileName"/>), so a later load does not read the game again.
+/// beside the generated dummy assemblies (<see cref="FileName"/>), so a later load does not read the build again.
 /// </summary>
-public sealed class Il2CppGameModel
+public sealed class Il2CppBuildModel
 {
     public const string FileName = "il2cpp-model.bin";
     private const uint Magic = 0x4D504932; // "2IPM"
@@ -46,7 +46,7 @@ public sealed class Il2CppGameModel
     public int MethodsWithCode { get; init; }
     public TimeSpan ReadTime { get; set; }
 
-    /// <summary>A ScriptMethod entry: RVA, Il2CppDumper name ("Ns.Type&lt;args&gt;$$Method"), and the definition it instantiates (image file name, token).</summary>
+    /// <summary>A ScriptMethod entry: RVA, script.json name ("Ns.Type&lt;args&gt;$$Method"), and the definition it instantiates (image file name, token).</summary>
     public readonly record struct Entry(uint Address, string Name, string Image, uint Token);
 
     /// <summary>An item that could not be read: what it is, a reason code (snake_case) and the detail.</summary>
@@ -80,7 +80,7 @@ public sealed class Il2CppGameModel
     }
 
     /// <summary>Reads a model file; IOException when it is not one or is damaged.</summary>
-    public static Il2CppGameModel Read(string path)
+    public static Il2CppBuildModel Read(string path)
     {
         try
         {
@@ -119,7 +119,7 @@ public sealed class Il2CppGameModel
             n = Count(r, stream);
             var unreadable = new List<Unreadable>(n);
             for (int i = 0; i < n; i++) unreadable.Add(new Unreadable(r.ReadString(), r.ReadString(), r.ReadString()));
-            return new Il2CppGameModel
+            return new Il2CppBuildModel
             {
                 BinaryPath = binary, MetadataPath = metadata, MetadataVersion = version, HeaderVersion = header, UnityVersion = unity,
                 UnityVersionSource = unitySource, ImageBase = imageBase, MemoryImage = memory, Images = images, Types = types,

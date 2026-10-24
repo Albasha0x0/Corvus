@@ -173,9 +173,9 @@ public static class RealData
 {
     /// <summary>A folder of real-world .NET assemblies.</summary>
     public const string AssemblyDir = "CORVUS_ASSEMBLY_DIR";
-    /// <summary>An Il2CppDumper / Cpp2IL DummyDll folder.</summary>
+    /// <summary>A DummyDll folder of Il2Cpp dummy assemblies.</summary>
     public const string Il2CppDummyDir = "CORVUS_IL2CPP_DUMMY_DIR";
-    /// <summary>An Il2CppDumper DummyDll folder with stringliteral.json / script.json (and optionally GameAssembly.dll) beside it.</summary>
+    /// <summary>A DummyDll folder with stringliteral.json / script.json (and optionally GameAssembly.dll) beside it.</summary>
     public const string Il2CppStringsDir = "CORVUS_IL2CPP_STRINGS_DIR";
     /// <summary>Two builds of the same application (folders), and the assembly to compare between them.</summary>
     public const string CompareOldDir = "CORVUS_COMPARE_OLD_DIR";

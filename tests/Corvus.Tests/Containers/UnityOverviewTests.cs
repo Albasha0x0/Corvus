@@ -1,58 +1,57 @@
 using System.Buffers.Binary;
 using System.Diagnostics;
 using System.Text;
-using System.Text.RegularExpressions;
 using Corvus.Core;
 using Corvus.Services.Analysis;
 using Xunit.Abstractions;
 
 namespace Corvus.Tests;
 
-/// <summary>unity_overview over tiny synthetic game layouts: Mono, Il2Cpp (readable, encrypted, tampered header), input forms, not Unity.</summary>
+/// <summary>unity_overview over tiny synthetic build layouts: Mono, Il2Cpp (readable, encrypted, tampered header), input forms, not Unity.</summary>
 public sealed class UnityOverviewTests : IDisposable
 {
     private readonly TempDir _dir = new();
 
     public void Dispose() => _dir.Dispose();
 
-    /// <summary>A Mono title: Game.exe, Game_Data (globalgamemanagers 2022.3.62f1, Managed with Assembly-CSharp), MonoBleedingEdge, Burst, Addressables, EAC.</summary>
+    /// <summary>A Mono title: App.exe, App_Data (globalgamemanagers 2022.3.62f1, Managed with Assembly-CSharp), MonoBleedingEdge, Burst, Addressables, EAC.</summary>
     internal static string MonoSample(TempDir dir)
     {
-        var game = Path.Combine(dir.Path, "MonoGame");
-        if (Directory.Exists(game)) return game;
-        var data = Path.Combine(game, "Game_Data");
+        var folder = Path.Combine(dir.Path, "MonoApp");
+        if (Directory.Exists(folder)) return folder;
+        var data = Path.Combine(folder, "App_Data");
         Directory.CreateDirectory(Path.Combine(data, "Managed"));
-        File.WriteAllBytes(Path.Combine(game, "Game.exe"), NativePeTests.KitchenSink(is64: true));
+        File.WriteAllBytes(Path.Combine(folder, "App.exe"), NativePeTests.KitchenSink(is64: true));
         File.WriteAllBytes(Path.Combine(data, "globalgamemanagers"), SerializedHeader(22, "2022.3.62f1"));
         File.Copy(Env.FixturePath, Path.Combine(data, "Managed", "Assembly-CSharp.dll"));
         File.WriteAllBytes(Path.Combine(data, "Managed", "Unity.Addressables.dll"), []);
-        File.WriteAllText(Path.Combine(data, "app.info"), "Studio\nMono Game");
-        Touch(game, "MonoBleedingEdge", "EmbedRuntime", "mono-2.0-bdwgc.dll");
+        File.WriteAllText(Path.Combine(data, "app.info"), "Studio\nMono App");
+        Touch(folder, "MonoBleedingEdge", "EmbedRuntime", "mono-2.0-bdwgc.dll");
         Touch(data, "Plugins", "x86_64", "lib_burst_generated.dll");
         Touch(data, "StreamingAssets", "aa", "catalog.json");
-        Touch(game, "EasyAntiCheat", "Settings.json");
-        return game;
+        Touch(folder, "EasyAntiCheat", "Settings.json");
+        return folder;
     }
 
-    /// <summary>An Il2Cpp title: GameAssembly.dll, Game_Data/il2cpp_data/Metadata/global-metadata.dat (v27 by default) and data.unity3d 2021.1.5f1.</summary>
+    /// <summary>An Il2Cpp title: GameAssembly.dll, App_Data/il2cpp_data/Metadata/global-metadata.dat (v27 by default) and data.unity3d 2021.1.5f1.</summary>
     private string Il2CppSample(string name, byte[]? metadata = null)
     {
-        var game = Path.Combine(_dir.Path, name);
-        var data = Path.Combine(game, "Game_Data");
+        var folder = Path.Combine(_dir.Path, name);
+        var data = Path.Combine(folder, "App_Data");
         Directory.CreateDirectory(Path.Combine(data, "il2cpp_data", "Metadata"));
-        File.WriteAllBytes(Path.Combine(game, "Game.exe"), NativePeTests.KitchenSink(is64: true));
-        File.WriteAllBytes(Path.Combine(game, "GameAssembly.dll"), NativePeTests.KitchenSink(is64: true));
+        File.WriteAllBytes(Path.Combine(folder, "App.exe"), NativePeTests.KitchenSink(is64: true));
+        File.WriteAllBytes(Path.Combine(folder, "GameAssembly.dll"), NativePeTests.KitchenSink(is64: true));
         File.WriteAllBytes(Path.Combine(data, "data.unity3d"), [.. "UnityFS\0"u8, 0, 0, 0, 8, .. "5.x.x\0"u8, .. "2021.1.5f1\0"u8, 0, 0, 0, 0]);
         File.WriteAllText(Path.Combine(data, "ScriptingAssemblies.json"), """{"names":["Assembly-CSharp.dll","Unity.Burst.dll","mscorlib.dll"],"types":[16,16,16]}""");
         File.WriteAllBytes(Path.Combine(data, "il2cpp_data", "Metadata", "global-metadata.dat"), metadata ?? Metadata(27, ["Player", "Update", "a", "b"]));
-        return game;
+        return folder;
     }
 
     [Fact]
     public void Mono_title_reports_version_backend_markers_and_the_managed_folder_as_next_step()
     {
-        var game = MonoSample(_dir);
-        var r = UnityOverview.Inspect(game, false, default);
+        var folder = MonoSample(_dir);
+        var r = UnityOverview.Inspect(folder, false, default);
         Assert.Equal("2022.3.62f1", r.Engine.Version);
         Assert.Equal("serialized_file", Assert.Single(r.Engine.Claims).Source); // the synthetic exe has no version resource
         Assert.Equal("single_source", r.Engine.Agreement);
@@ -60,35 +59,35 @@ public sealed class UnityOverviewTests : IDisposable
         Assert.StartsWith("mono-2.0-bdwgc", r.Backend.MonoRuntime);
         Assert.Equal("not_applicable", r.Backend.MetadataState);
         Assert.Equal(("windows", "x64"), (r.Platform, r.Architecture));
-        Assert.Equal(("Studio", "Mono Game"), (r.Company, r.Product));
+        Assert.Equal(("Studio", "Mono App"), (r.Company, r.Product));
         var names = r.Markers.Select(m => m.Name).ToList();
         Assert.Contains("EasyAntiCheat", names);
         Assert.Contains("Burst", names);
         Assert.Contains("Addressables", names);
         Assert.Contains(r.Folders, f => f.Kind == "addressables" && f.Note!.Contains("catalog.json"));
         var step = r.NextSteps[0];
-        Assert.Equal(("load_assembly", Path.Combine(game, "Game_Data", "Managed")), (step.Tool, step.Arguments["path"]));
+        Assert.Equal(("load_assembly", Path.Combine(folder, "App_Data", "Managed")), (step.Tool, step.Arguments["path"]));
 
         // Every input form names the same title.
-        foreach (var input in new[] { Path.Combine(game, "Game.exe"), Path.Combine(game, "Game_Data"), Path.Combine(game, "Game_Data", "Managed") })
-            Assert.Equal(game, UnityOverview.Inspect(input, false, default).GameDirectory);
+        foreach (var input in new[] { Path.Combine(folder, "App.exe"), Path.Combine(folder, "App_Data"), Path.Combine(folder, "App_Data", "Managed") })
+            Assert.Equal(folder, UnityOverview.Inspect(input, false, default).AppDirectory);
     }
 
     [Fact]
     public void Two_calls_give_the_same_bytes()
     {
-        var game = MonoSample(_dir);
-        string Json() => System.Text.Json.JsonSerializer.Serialize(UnityOverview.Inspect(game, false, default));
+        var folder = MonoSample(_dir);
+        string Json() => System.Text.Json.JsonSerializer.Serialize(UnityOverview.Inspect(folder, false, default));
         var first = Json();
         Assert.Equal(first, Json());
         Assert.DoesNotContain("Seconds", first);
     }
 
-    /// <summary>An .apk reads like its extracted game files; a package without Il2Cpp metadata says what to do instead.</summary>
+    /// <summary>An .apk reads like its extracted build files; a package without Il2Cpp metadata says what to do instead.</summary>
     [Fact]
-    public void An_android_package_is_read_through_its_extracted_game_files()
+    public void An_android_package_is_read_through_its_extracted_build_files()
     {
-        var apk = Path.Combine(_dir.Path, "game.apk");
+        var apk = Path.Combine(_dir.Path, "app.apk");
         using (var zip = System.IO.Compression.ZipFile.Open(apk, System.IO.Compression.ZipArchiveMode.Create))
         {
             void Entry(string name, byte[] bytes)
@@ -115,13 +114,13 @@ public sealed class UnityOverviewTests : IDisposable
         var mono = Path.Combine(_dir.Path, "mono.apk");
         Zip(mono, ("assets/bin/Data/Managed/Assembly-CSharp.dll", assembly), ("assets/bin/Data/data.unity3d", header),
             ("lib/arm64-v8a/libunity.so", [0x7F, 0x45, 0x4C, 0x46, 2]), ("lib/arm64-v8a/libmonobdwgc-2.0.so", [0x7F, 0x45, 0x4C, 0x46, 2]));
-        // a zipped Windows title: the folder above <Game>_Data becomes the game root
+        // a zipped Windows title: the folder above <Product>_Data becomes the build root
         var desktop = Path.Combine(_dir.Path, "title.zip");
         Zip(desktop, ("Title v1.0/Title.exe", File.ReadAllBytes(Path.Combine(Path.GetDirectoryName(Env.FixturePath)!, "Corvus.Tests.dll"))),
             ("Title v1.0/Title_Data/data.unity3d", header), ("Title v1.0/Title_Data/Managed/Assembly-CSharp.dll", assembly));
         var r = UnityOverview.Inspect(apk, false, default);
         Assert.Equal(("il2cpp", "readable", "2021.1.5f1"), (r.Backend.Kind, r.Backend.MetadataState, r.Engine.Version));
-        Assert.Contains(r.Notes, n => n.StartsWith($"Read from the game files of {apk}", StringComparison.Ordinal));
+        Assert.Contains(r.Notes, n => n.StartsWith($"Read from the build files of {apk}", StringComparison.Ordinal));
         var m = UnityOverview.Inspect(mono, false, default);
         Assert.Equal(("mono", "android", "2021.1.5f1"), (m.Backend.Kind, m.Platform, m.Engine.Version));
         var d = UnityOverview.Inspect(desktop, false, default);
@@ -149,8 +148,8 @@ public sealed class UnityOverviewTests : IDisposable
         var r = UnityOverview.Inspect(zip, false, default);
         Assert.Equal(("mono", "2021.1.5f1"), (r.Backend.Kind, r.Engine.Version));
         Assert.EndsWith("Title.exe", r.Executable);
-        var game = Path.GetDirectoryName(r.Executable)!;
-        Assert.All(Directory.EnumerateFiles(game, "*", SearchOption.AllDirectories), f => Assert.True(f.Length < 260, f));
+        var folder = Path.GetDirectoryName(r.Executable)!;
+        Assert.All(Directory.EnumerateFiles(folder, "*", SearchOption.AllDirectories), f => Assert.True(f.Length < 260, f));
     }
 
     [Fact]
@@ -196,9 +195,9 @@ public sealed class UnityOverviewTests : IDisposable
         Assert.Equal(["load_assembly", "apply_il2cpp_names"], readable.NextSteps.Select(s => s.Action));
         Assert.EndsWith("global-metadata.dat", readable.NextSteps[0].Arguments["path"]);
 
-        var game = Il2CppSample("Encrypted", [0x12, 0x34, 0x56, 0x78, .. new byte[200]]);
-        var encrypted = UnityOverview.Inspect(Path.Combine(game, "GameAssembly.dll"), false, default);
-        Assert.Equal(game, encrypted.GameDirectory);
+        var folder = Il2CppSample("Encrypted", [0x12, 0x34, 0x56, 0x78, .. new byte[200]]);
+        var encrypted = UnityOverview.Inspect(Path.Combine(folder, "GameAssembly.dll"), false, default);
+        Assert.Equal(folder, encrypted.AppDirectory);
         Assert.Equal("encrypted", encrypted.Backend.MetadataState);
         Assert.Equal("not_checked", encrypted.Engine.MetadataCheck);
         Assert.Equal("dump_from_memory", encrypted.NextSteps[0].Action);
@@ -206,19 +205,19 @@ public sealed class UnityOverviewTests : IDisposable
 
         var tampered = Metadata(27, ["x"]);
         BinaryPrimitives.WriteInt32LittleEndian(tampered.AsSpan(4), 0x01B89E24);
-        var t = UnityOverview.Inspect(Path.Combine(Il2CppSample("Tampered", tampered), "Game_Data", "il2cpp_data", "Metadata", "global-metadata.dat"), false, default);
+        var t = UnityOverview.Inspect(Path.Combine(Il2CppSample("Tampered", tampered), "App_Data", "il2cpp_data", "Metadata", "global-metadata.dat"), false, default);
         Assert.Equal("header_tampered", t.Backend.MetadataState);
         Assert.Contains("version field", t.Backend.MetadataStateReason);
 
         var old = UnityOverview.Inspect(Il2CppSample("Old", Metadata(23, ["x"])), false, default);
-        Assert.Equal(("unsupported_version", "use_external_dumper"), (old.Backend.MetadataState, old.NextSteps[0].Action));
+        Assert.Equal(("unsupported_version", "load_dummy_assemblies"), (old.Backend.MetadataState, old.NextSteps[0].Action));
         Assert.Equal("inconsistent", old.Engine.MetadataCheck); // v23 is 5.6 - 2017.1, the bundle says 2021.1
     }
 
     [Fact]
     public void An_iOS_app_is_an_Il2Cpp_title_with_UnityFramework_and_a_macOS_universal_binary_has_both_cpus()
     {
-        var app = Path.Combine(_dir.Path, "Game.app");
+        var app = Path.Combine(_dir.Path, "Example.app");
         var data = Path.Combine(app, "Data");
         Directory.CreateDirectory(Path.Combine(data, "Managed", "Metadata"));
         File.WriteAllBytes(Path.Combine(data, "globalgamemanagers"), SerializedHeader(22, "2021.3.1f1"));
@@ -229,7 +228,7 @@ public sealed class UnityOverviewTests : IDisposable
         foreach (var input in new[] { app, data, Path.Combine(data, "Managed", "Metadata", "global-metadata.dat") })
         {
             var r = UnityOverview.Inspect(input, false, default);
-            Assert.Equal((app, "ios", "arm64"), (r.GameDirectory, r.Platform, r.Architecture));
+            Assert.Equal((app, "ios", "arm64"), (r.AppDirectory, r.Platform, r.Architecture));
             Assert.Equal(("il2cpp", framework, "readable"), (r.Backend.Kind, r.Backend.NativeBinary, r.Backend.MetadataState));
             Assert.Equal(["load_assembly", "apply_il2cpp_names"], r.NextSteps.Select(s => s.Action));
         }
@@ -291,8 +290,8 @@ public sealed class UnityOverviewTests : IDisposable
 }
 
 /// <summary>
-/// unity_overview over the Unity titles installed on this machine: Steam library folders (from the Steam registry key) and
-/// CORVUS_UNITY_TITLES (';'-separated game folders). Prints per-title results and timings; each overview must finish in seconds.
+/// unity_overview over the Unity builds of CORVUS_UNITY_BUILDS (';'-separated build folders). Prints per-build results and
+/// timings; each overview must finish in seconds.
 /// </summary>
 [Trait("Speed", "Slow")]
 [Permit("reference-tool")]
@@ -300,22 +299,22 @@ public sealed class UnityOverviewRealTests(ITestOutputHelper output)
 {
     [Fact]
     [Trait(PerfBudget.Trait, PerfBudget.Timing)]
-    public void Installed_titles_are_overviewed_in_seconds()
+    public void Unity_builds_are_overviewed_in_seconds()
     {
-        var titles = Titles().Distinct(StringComparer.OrdinalIgnoreCase).ToList();
-        if (titles.Count == 0) { output.WriteLine("No Unity titles found (Steam libraries, CORVUS_UNITY_TITLES)."); return; }
+        var builds = Builds().Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+        if (builds.Count == 0) { output.WriteLine("No Unity builds (CORVUS_UNITY_BUILDS)."); return; }
         int unity = 0;
         var total = Stopwatch.StartNew();
-        foreach (var title in titles)
+        foreach (var build in builds)
         {
             UnityOverview.BytesRead = 0;
             var watch = Stopwatch.StartNew();
             UnityOverview.Report r;
-            try { r = UnityOverview.Inspect(title, Environment.GetEnvironmentVariable("CORVUS_DIE") != null, default); }
+            try { r = UnityOverview.Inspect(build, Environment.GetEnvironmentVariable("CORVUS_DIE") != null, default); }
             catch (ToolError e) when (e.Code == ErrorCode.Unsupported) { continue; }
             watch.Stop();
             unity++;
-            output.WriteLine($"{Path.GetFileName(title)}: {watch.Elapsed.TotalSeconds:0.00} s | Unity {r.Engine.Version} ({r.Engine.Agreement}; " +
+            output.WriteLine($"{Path.GetFileName(build)}: {watch.Elapsed.TotalSeconds:0.00} s | Unity {r.Engine.Version} ({r.Engine.Agreement}; " +
                              $"{string.Join(", ", r.Engine.Claims.Select(c => $"{c.Source}={c.Normalized}"))}) | {r.Backend.Kind} {r.Platform}/{r.Architecture}" +
                              (r.Backend.Kind == "il2cpp" ? $" | metadata v{r.Backend.MetadataVersion} {r.Backend.MetadataState} range {r.Engine.MetadataRange} {r.Engine.MetadataCheck}" : "") +
                              (r.Backend.Kind == "mono" ? $" | {r.Backend.MonoRuntime}; {r.Backend.DotnetProfile}; {r.Backend.ManagedAssemblies} DLLs {r.Backend.ManagedState}" : "") +
@@ -331,53 +330,38 @@ public sealed class UnityOverviewRealTests(ITestOutputHelper output)
             Assert.NotNull(r.Engine.Version);
             Assert.NotEmpty(r.NextSteps);
         }
-        output.WriteLine($"{unity} Unity title(s) of {titles.Count} folders, {total.Elapsed.TotalSeconds:0.0} s");
+        output.WriteLine($"{unity} Unity build(s) of {builds.Count} folders, {total.Elapsed.TotalSeconds:0.0} s");
     }
 
-    /// <summary>The unity_overview tool on each installed title: a Unity title's report within the report budget per part, with its engine version, backend and next steps.</summary>
+    /// <summary>The unity_overview tool on each build: a Unity build's report within the report budget per part, with its engine version, backend and next steps.</summary>
     [Fact, Trait("Data", "Real")]
-    public async Task Unity_overview_tool_reports_installed_titles()
+    public async Task Unity_overview_tool_reports_each_build()
     {
-        var titles = Titles().Distinct(StringComparer.OrdinalIgnoreCase).ToList();
-        if (titles.Count == 0) { output.WriteLine("No Unity titles found (Steam libraries, CORVUS_UNITY_TITLES)."); return; }
+        var builds = Builds().Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+        if (builds.Count == 0) { output.WriteLine("No Unity builds (CORVUS_UNITY_BUILDS)."); return; }
         await using var server = await InProcessServer.StartAsync();
         int unity = 0;
-        foreach (var title in titles)
+        foreach (var build in builds)
         {
-            var r = await server.Client.CallToolAsync("unity_overview", new Dictionary<string, object?> { ["path"] = title });
+            var r = await server.Client.CallToolAsync("unity_overview", new Dictionary<string, object?> { ["path"] = build });
             var text = string.Concat(r.Content.OfType<ModelContextProtocol.Protocol.TextContentBlock>().Select(b => b.Text));
             if (r.IsError == true) { Assert.Contains("not_a_unity_title", text); continue; }
             unity++;
             var record = r.StructuredContent!.Value;
             int budget = Corvus.Mcp.OutputClasses.Budget(Corvus.Mcp.ToolContract.Of("unity_overview").Output) * 105 / 100;
-            output.WriteLine($"{Path.GetFileName(title)}: text {TokenEstimate.Of(text)}, record {TokenEstimate.Of(record.GetRawText())} tokens");
-            Assert.True(TokenEstimate.Of(text) <= budget && TokenEstimate.Of(record.GetRawText()) <= budget, title);
+            output.WriteLine($"{Path.GetFileName(build)}: text {TokenEstimate.Of(text)}, record {TokenEstimate.Of(record.GetRawText())} tokens");
+            Assert.True(TokenEstimate.Of(text) <= budget && TokenEstimate.Of(record.GetRawText()) <= budget, build);
             Assert.False(string.IsNullOrEmpty(record.GetProperty("engine").GetProperty("version").GetString()));
             Assert.Contains(record.GetProperty("backend").GetProperty("kind").GetString(), new[] { "mono", "il2cpp" });
             Assert.True(record.GetProperty("nextSteps").GetArrayLength() > 0);
         }
-        output.WriteLine($"{unity} Unity title(s) of {titles.Count} folders");
+        output.WriteLine($"{unity} Unity build(s) of {builds.Count} folders");
     }
 
-    private static IEnumerable<string> Titles()
+    private static IEnumerable<string> Builds()
     {
-        if (Environment.GetEnvironmentVariable("CORVUS_UNITY_TITLES") is { Length: > 0 } list)
+        if (Environment.GetEnvironmentVariable("CORVUS_UNITY_BUILDS") is { Length: > 0 } list)
             foreach (var t in list.Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
                 if (Directory.Exists(t) || File.Exists(t)) yield return t;
-        if (!OperatingSystem.IsWindows()) yield break;
-        var steam = Microsoft.Win32.Registry.GetValue(@"HKEY_CURRENT_USER\Software\Valve\Steam", "SteamPath", null) as string;
-        if (steam == null) yield break;
-        var libraries = new List<string> { steam };
-        var vdf = Path.Combine(steam, "steamapps", "libraryfolders.vdf");
-        if (File.Exists(vdf))
-            libraries.AddRange(Regex.Matches(File.ReadAllText(vdf), "\"path\"\\s+\"([^\"]+)\"").Select(m => m.Groups[1].Value.Replace(@"\\", @"\")));
-        foreach (var library in libraries.Select(Path.GetFullPath).Distinct(StringComparer.OrdinalIgnoreCase))
-        {
-            var common = Path.Combine(library, "steamapps", "common");
-            if (!Directory.Exists(common)) continue;
-            foreach (var game in Directory.EnumerateDirectories(common))
-                if (File.Exists(Path.Combine(game, "UnityPlayer.dll")) || Directory.EnumerateDirectories(game, "*_Data").Any())
-                    yield return game;
-        }
     }
 }

@@ -49,9 +49,9 @@ public sealed class EditDigestTests : IDisposable
             await PreviewThenApply(d => _tools.PatchMethodIL("Account::CheckPreview", "ldc.i4.1\nret", dryRun: d)),
             await PreviewThenApply(d => _tools.PatchMethodCSharp("Account::Score", "return 9;", dryRun: d)),
             await PreviewThenApply(d => _tools.AddMembersCSharp("Fixture.Model.Account", "public int Bonus() => 7;", dryRun: d)),
-            await PreviewThenApply(d => _tools.AddTypesCSharp(id, "namespace Mods { public static class M { public static int One() => 1; } }", dryRun: d)),
+            await PreviewThenApply(d => _tools.AddTypesCSharp(id, "namespace Extras { public static class M { public static int One() => 1; } }", dryRun: d)),
             await PreviewThenApply(d => _tools.RenameSymbol("Account::Tick", "Step", dryRun: d)),
-            await PreviewThenApply(d => _tools.RenameNamespace(id, "Mods", "Plugins", dryRun: d)),
+            await PreviewThenApply(d => _tools.RenameNamespace(id, "Extras", "Plugins", dryRun: d)),
         };
         Assert.Equal(applied.Count, applied.Select(a => a.Digest).Distinct().Count());
 

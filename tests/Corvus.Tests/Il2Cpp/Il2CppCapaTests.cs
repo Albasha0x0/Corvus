@@ -12,7 +12,7 @@ using Xunit.Abstractions;
 namespace Corvus.Tests;
 
 /// <summary>
-/// capa's view of Il2Cpp code on a built game binary: x64 functions that call methods named as the class library's
+/// capa's view of Il2Cpp code on a built Il2Cpp binary: x64 functions that call methods named as the class library's
 /// file write, registry read and HTTP request methods, whose own bodies are a bare ret.
 /// </summary>
 [Collection(ExternalToolEnvironmentCollection.Name)]
@@ -22,21 +22,21 @@ public sealed class Il2CppCapaTests(ITestOutputHelper output) : IDisposable
 
     public void Dispose() => _dir.Dispose();
 
-    /// <summary>The script.json methods of the game: RVA and Il2CppDumper name; two methods share the code at 0x1340.</summary>
+    /// <summary>The script.json methods of the build: RVA and script name; two methods share the code at 0x1340.</summary>
     internal static readonly (uint Rva, string Name)[] Methods =
     [
-        (0x1000, "Game.Saver$$Save"),
-        (0x1040, "Game.Settings$$Load"),
-        (0x1080, "Game.Updater$$Check"),
+        (0x1000, "App.Saver$$Save"),
+        (0x1040, "App.Settings$$Load"),
+        (0x1080, "App.Updater$$Check"),
         (0x1100, "System.IO.File$$WriteAllText"),
         (0x1200, "Microsoft.Win32.Registry$$get_CurrentUser"),
         (0x1240, "Microsoft.Win32.RegistryKey$$GetValue"),
         (0x1300, "System.Net.Http.HttpClient$$GetAsync"),
-        (0x1340, "Game.Folded$$First"),
-        (0x1340, "Game.Folded$$Second"),
+        (0x1340, "App.Folded$$First"),
+        (0x1340, "App.Folded$$Second"),
     ];
 
-    /// <summary>The .text section (RVA 0x1000) of the game binary: each caller's calls, then ret; every callee a bare ret.</summary>
+    /// <summary>The .text section (RVA 0x1000) of the Il2Cpp binary: each caller's calls, then ret; every callee a bare ret.</summary>
     internal static byte[] Text()
     {
         var code = new byte[0x400];
@@ -90,9 +90,9 @@ public sealed class Il2CppCapaTests(ITestOutputHelper output) : IDisposable
     {
         Assert.Equal(new Il2CppCallee("System.Collections.Generic", "Dictionary`2", "Add"),
             Il2CppCapa.FromScriptName("System.Collections.Generic.Dictionary<string, System.Collections.Generic.List<int>>", "Add"));
-        Assert.Equal(new Il2CppCallee("Game", "Pool", "Rent"), Il2CppCapa.FromScriptName("Game.Pool", "Rent<int>"));
+        Assert.Equal(new Il2CppCallee("App", "Pool", "Rent"), Il2CppCapa.FromScriptName("App.Pool", "Rent<int>"));
         Assert.Equal(new Il2CppCallee("", "Global", ".ctor"), Il2CppCapa.FromScriptName("Global", ".ctor"));
-        Assert.Null(Il2CppCapa.FromScriptName("Game.Saver", ""));
+        Assert.Null(Il2CppCapa.FromScriptName("App.Saver", ""));
     }
 
     [Fact]
@@ -154,7 +154,7 @@ public sealed class Il2CppCapaTests(ITestOutputHelper output) : IDisposable
         Assert.Contains("CORVUS_CAPA", result.Note);
     }
 
-    /// <summary>A dump folder: script.json of <see cref="Methods"/>, the game binary, and the fixture as its dummy assembly.</summary>
+    /// <summary>A dump folder: script.json of <see cref="Methods"/>, the Il2Cpp binary, and the fixture as its dummy assembly.</summary>
     private Env LoadDump()
     {
         var dump = Path.Combine(_dir.Path, "dump");
@@ -192,11 +192,11 @@ public sealed class Il2CppCapaTests(ITestOutputHelper output) : IDisposable
         var rule = Assert.Single(report.Features);
         var evidence = Assert.Single(rule.Evidence);
         Assert.Equal(("query or enumerate registry value", "capa", "host-interaction/registry", 1), (rule.Name, rule.Category, evidence.Feature, evidence.Count));
-        Assert.Equal(["0x180001040 Game.Settings::Load"], evidence.Locations);
-        Assert.Contains("category capa: rules of capa 10.0.0 over the game binary's direct calls, matched", report.Notes);
+        Assert.Equal(["0x180001040 App.Settings::Load"], evidence.Locations);
+        Assert.Contains("category capa: rules of capa 10.0.0 over the Il2Cpp binary's direct calls, matched", report.Notes);
         Assert.Contains("capa: direct calls only: indirect and virtual calls are not followed", report.Notes);
         Assert.Contains("capa: 1 of 5 calls reach code several methods share and are left out", report.Notes);
-        Assert.Contains("capa\n  query or enumerate registry value, 1 match\n    host-interaction/registry x1\n      0x180001040 Game.Settings::Load\n",
+        Assert.Contains("capa\n  query or enumerate registry value, 1 match\n    host-interaction/registry x1\n      0x180001040 App.Settings::Load\n",
             ContainerText.Survey(ContainerText.Survey(report, "capa")));
     }
 

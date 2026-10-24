@@ -1,8 +1,8 @@
 # Command line
 
-Every tool, prompt and resource of the server also runs from a terminal. Commands and argument types come from the
-live tool catalog, and each call runs the server in the same process, so a terminal call gets the same argument
-checks, limits and error results as an agent's. Tool reference: [tools.md](tools.md); setup commands (`install`,
+Every tool, prompt and resource also runs from a terminal. Commands and argument types come from the tool catalog,
+and each call runs the server in process, so a terminal call gets the same argument checks, limits and errors as an
+agent's. Tool reference: [tools.md](tools.md); setup commands (`install`,
 `status`, ...): [installation.md](installation.md).
 
 ## Commands
@@ -41,7 +41,7 @@ spaces or shell characters: `member='Ns.Type::Method(int, string)'`.
 
 ## Server options
 
-Every server option applies to the session ([configuration.md](configuration.md#server-options)). Most used:
+Every server option applies ([configuration.md](configuration.md#server-options)). Most used:
 
 - `--load PATH` preloads a file or folder (repeatable), so one line loads and calls:
   `corvus get_type_info --load app.dll type=Ns.Type`.
@@ -82,7 +82,7 @@ The exit code is the first failed step's.
 ### File batch
 
 `batch --file sample.bin --json` reads one file with a fixed set of read-only steps and prints one JSON document, for
-pipelines that scan files without an agent. Nothing in the file runs, and Corvus makes no network calls.
+pipelines that scan files without an agent. Nothing in the file runs; no network calls are made.
 
 | Section | Reads | Runs when |
 |---|---|---|

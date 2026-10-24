@@ -26,7 +26,7 @@ public sealed partial class CppBindingGenerator
         struct Il2CppDomain; struct Il2CppAssembly; struct Il2CppImage; struct Il2CppClass; struct FieldInfo; struct MethodInfo;
         struct Il2CppObject;
 
-        // Fill with Load(lookup), where lookup(name) returns that export of the game's Il2Cpp runtime: GetProcAddress on
+        // Fill with Load(lookup), where lookup(name) returns that export of the Il2Cpp runtime: GetProcAddress on
         // GameAssembly.dll, dlsym on libil2cpp.so, or the function itself when linked.
         struct Il2CppApi {
             Il2CppDomain* (*domain_get)() = nullptr;
@@ -276,7 +276,7 @@ public sealed partial class CppBindingGenerator
         sb.AppendLine("// XPointer() is the method's native code; CallX calls it directly (no exception handling: a managed exception");
         sb.AppendLine("// thrown there unwinds through the caller), with the MethodInfo as the last argument as Il2Cpp's code expects.");
         if (s.Overloaded.Count > 0)
-            sb.AppendLine("// Overloaded methods are matched by metadata token: regenerate this header when the game is updated.");
+            sb.AppendLine("// Overloaded methods are matched by metadata token: regenerate this header for each new build.");
         if (type.IsValueType)
             sb.AppendLine("// Value type: instance offsets include the object header (two pointers); subtract it for unboxed data.");
         sb.AppendLine("#pragma once");

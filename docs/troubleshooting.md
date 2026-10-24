@@ -73,7 +73,7 @@ server declares `anthropic/maxResultSizeChars` above its largest page, so a page
 - A request that runs out of time or is cancelled by the client is stopped inside the worker, which keeps the database
   open: scans answer with what they found, marked partial with where to continue. Only a worker that does not stop
   within 10 s is killed; the next request restarts it from the saved database.
-- Huge or hostile inputs: `CORVUS_ENGINE_ANALYSIS=none` opens images in IDA and Ghidra without auto-analysis. Functions
+- Very large or malformed inputs: `CORVUS_ENGINE_ANALYSIS=none` opens images in IDA and Ghidra without auto-analysis. Functions
   are made where a tool asks for one, the database is kept apart from the fully analyzed one, and output headers say so.
 - A second server process opening an image whose IDA database another process holds gets a read-only snapshot of the
   last saved database (edits are neither journaled nor saved; decompile headers and `server_status` say so), or, when
@@ -88,7 +88,7 @@ and, when the tool kept one, its partial result. Narrow the call, or start the s
 
 ## Windows SmartScreen or macOS blocks a downloaded archive
 
-This concerns archives downloaded by a browser; the install scripts download without marking files. Check the archive
+Only archives downloaded by a browser are affected; the install scripts download without marking files. Check the archive
 against the release's `SHA256SUMS` first (`gh attestation verify <archive> --repo Albasha0x0/Corvus` also checks
 where it was built). Then, on Windows, unblock it before extracting (file properties, or `Unblock-File <archive>`); on
 macOS, remove the quarantine attribute from the extracted folder: `xattr -dr com.apple.quarantine <folder>`.

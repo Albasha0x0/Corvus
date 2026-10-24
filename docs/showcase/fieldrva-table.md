@@ -40,7 +40,7 @@ internal static readonly __StaticArrayInitTypeSize=256 <sha256-2>
 [More: offset=4]
 ```
 
-The outline joins the bytes to the code: the file offset is checked against the bytes the metadata declares, both
-SHA-224 and SHA-256 static constructors read the one shared field, and the `newarr uint32` beside each read types the
-elements, so the table reads as the 64 constants of FIPS 180-4 instead of a hex blob. The field's name is the SHA-256 of
-its bytes, which the hash on the data line confirms. `offset` pages the 16-byte rows.
+The outline joins the bytes to the code. The bytes at the file offset are checked against the metadata. The SHA-224
+and SHA-256 static constructors both read the one shared field. The `newarr uint32` beside each read types the
+elements, so the table reads as the 64 constants of FIPS 180-4, not a hex blob. The field's name is the SHA-256 of its
+bytes, as the data line confirms. `offset` pages the 16-byte rows.

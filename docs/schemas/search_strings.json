@@ -11,7 +11,7 @@
             "type": "string"
           },
           "source": {
-            "description": "il (ldstr), constant (const field), il2cpp (the dump's string literal table).",
+            "description": "il (ldstr), constant (const field), il2cpp (stringliteral.json or script.json).",
             "type": "string"
           },
           "owner": {

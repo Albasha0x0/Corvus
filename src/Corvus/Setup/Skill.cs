@@ -44,7 +44,7 @@ internal static class Skill
     public const string Description =
         "Reverse engineering of compiled .NET assemblies and native PE, ELF and Mach-O binaries with the Corvus MCP server " +
         "or its corvus command line: decompile, search, follow calls, compare builds, read crash dumps, patch and save a copy. " +
-        "Use when an answer depends on what a compiled program does (an .exe or .dll, a Unity or Il2Cpp game build, a package without " +
+        "Use when an answer depends on what a compiled program does (an .exe or .dll, a Unity or Il2Cpp build, a package without " +
         "source, a crash dump, two builds of one app). Skip it when the source code is at hand.";
 
     private static string Body()

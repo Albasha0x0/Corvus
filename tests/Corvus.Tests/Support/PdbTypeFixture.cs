@@ -73,19 +73,19 @@ internal sealed class TpiBuilder
 
 /// <summary>
 /// A PDB with types: enum Color (flags-like, declared out of value order), struct Vec, Header (bit fields), union Value,
-/// Player (nested structs, an array, a self pointer), Game (an array of Player), Dup twice (different unique names and
+/// Sensor (nested structs, an array, a self pointer), Team (an array of Sensor), Dup twice (different unique names and
 /// sizes), a forward-only Opaque, class Base with a vftable pointer and Derived from it, procedure and member function types,
-/// the S_UDT typedef PPlayer, and the global g_Game (a Game at rva 0x3010) beside <see cref="PdbBuilder.Sample"/>'s symbols.
+/// the S_UDT typedef PSensor, and the global g_Team (a Team at rva 0x3010) beside <see cref="PdbBuilder.Sample"/>'s symbols.
 /// </summary>
 internal static class PdbTypeFixture
 {
-    public const uint GameRva = 0x3010;
+    public const uint TeamRva = 0x3010;
 
-    /// <param name="globalTwice">g_Game listed twice, as a global in the globals stream and again in its module's stream.</param>
+    /// <param name="globalTwice">g_Team listed twice, as a global in the globals stream and again in its module's stream.</param>
     public static byte[] Pdb(bool globalTwice = false)
     {
         var t = new TpiBuilder();
-        uint args = t.Reserve();                                       // 0x1000 (Player*, int)
+        uint args = t.Reserve();                                       // 0x1000 (Sensor*, int)
         uint proc = t.Reserve();                                       // 0x1001: the type of Sample's procedures
         uint color = t.Enum("Color", 0x74, t.FieldList(TpiBuilder.Enumerate(4, "Blue"), TpiBuilder.Enumerate(1, "Red"), TpiBuilder.Enumerate(2, "Green")));
         uint vec = t.Struct("Vec", t.FieldList(TpiBuilder.Member(0x40, 0, "x"), TpiBuilder.Member(0x40, 4, "y"), TpiBuilder.Member(0x40, 8, "z")), 12);
@@ -93,13 +93,13 @@ internal static class PdbTypeFixture
         uint header = t.Struct("Header", t.FieldList(TpiBuilder.Member(0x21, 0, "magic"), TpiBuilder.Member(0x20, 2, "version"), TpiBuilder.Member(color, 4, "kind"),
             TpiBuilder.Member(urgent, 8, "urgent"), TpiBuilder.Member(retries, 8, "retries")), 12);
         uint value = t.Union("Value", t.FieldList(TpiBuilder.Member(0x74, 0, "i"), TpiBuilder.Member(0x40, 0, "f"), TpiBuilder.Member(vec, 0, "v")), 12);
-        uint playerForward = t.Struct("Player", 0, 0, forward: true);
-        uint playerPtr = t.Pointer(playerForward);
-        uint scores = t.Array(0x74, 16);
-        uint player = t.Struct("Player", t.FieldList(TpiBuilder.Member(header, 0, "header"), TpiBuilder.Member(vec, 0xC, "pos"), TpiBuilder.Member(value, 0x18, "val"),
-            TpiBuilder.Member(scores, 0x24, "scores"), TpiBuilder.Member(playerPtr, 0x38, "next")), 0x40);
-        uint players = t.Array(player, 0x100);
-        uint game = t.Struct("Game", t.FieldList(TpiBuilder.Member(0x74, 0, "count"), TpiBuilder.Member(players, 8, "players"), TpiBuilder.Static(0x74, "instances")), 0x108);
+        uint sensorForward = t.Struct("Sensor", 0, 0, forward: true);
+        uint sensorPtr = t.Pointer(sensorForward);
+        uint levels = t.Array(0x74, 16);
+        uint sensor = t.Struct("Sensor", t.FieldList(TpiBuilder.Member(header, 0, "header"), TpiBuilder.Member(vec, 0xC, "pos"), TpiBuilder.Member(value, 0x18, "val"),
+            TpiBuilder.Member(levels, 0x24, "levels"), TpiBuilder.Member(sensorPtr, 0x38, "next")), 0x40);
+        uint sensors = t.Array(sensor, 0x100);
+        uint team = t.Struct("Team", t.FieldList(TpiBuilder.Member(0x74, 0, "count"), TpiBuilder.Member(sensors, 8, "sensors"), TpiBuilder.Static(0x74, "instances")), 0x108);
         uint dup1 = t.Struct("Dup", t.FieldList(TpiBuilder.Member(0x74, 0, "a")), 4, unique: ".?AUDup@?A0x1@@");
         uint dup2 = t.Struct("Dup", t.FieldList(TpiBuilder.Member(0x13, 0, "b")), 8, unique: ".?AUDup@?A0x2@@");
         uint opaque = t.Struct("Opaque", 0, 0, forward: true);
@@ -108,14 +108,14 @@ internal static class PdbTypeFixture
         uint derived = t.Struct("Derived", t.FieldList(TpiBuilder.Base(baseClass, 0), TpiBuilder.Member(0x74, 16, "b")), 24, cls: true);
         uint basePtr = t.Pointer(baseForward);
         t.MemberFunction(0x74, baseForward, basePtr, t.ArgList(0x74), 1);
-        t.Set(args, 0x1201, b => { TpiBuilder.U32(b, 2); TpiBuilder.U32(b, playerPtr); TpiBuilder.U32(b, 0x74); });
+        t.Set(args, 0x1201, b => { TpiBuilder.U32(b, 2); TpiBuilder.U32(b, sensorPtr); TpiBuilder.U32(b, 0x74); });
         t.Set(proc, 0x1008, b => { TpiBuilder.U32(b, 0x74); b.Add(0); b.Add(0); TpiBuilder.U16(b, 2); TpiBuilder.U32(b, args); });
 
         var pdb = PdbBuilder.Sample();
-        foreach (var (type, name) in new[] { (playerPtr, "PPlayer"), (game, "Game"), (derived, "Derived"), (dup1, "Dup"), (dup2, "Dup"), (opaque, "Opaque"), (color, "Color") })
+        foreach (var (type, name) in new[] { (sensorPtr, "PSensor"), (team, "Team"), (derived, "Derived"), (dup1, "Dup"), (dup2, "Dup"), (opaque, "Opaque"), (color, "Color") })
             pdb.GlobalRecords.Add(PdbBuilder.Record(0x1108, b => { TpiBuilder.U32(b, type); TpiBuilder.Name(b, name); }));
         for (int i = 0; i < (globalTwice ? 2 : 1); i++)
-            pdb.GlobalRecords.Add(PdbBuilder.Record(0x110D, b => { TpiBuilder.U32(b, game); TpiBuilder.U32(b, GameRva - 0x3000); TpiBuilder.U16(b, 2); TpiBuilder.Name(b, "g_Game"); }));
+            pdb.GlobalRecords.Add(PdbBuilder.Record(0x110D, b => { TpiBuilder.U32(b, team); TpiBuilder.U32(b, TeamRva - 0x3000); TpiBuilder.U16(b, 2); TpiBuilder.Name(b, "g_Team"); }));
         var msf = pdb.Msf();
         msf.Streams[2] = t.Build();
         return msf.Build();

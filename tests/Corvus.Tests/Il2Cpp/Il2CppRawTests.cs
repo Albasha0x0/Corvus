@@ -7,9 +7,9 @@ using Xunit.Abstractions;
 namespace Corvus.Tests;
 
 /// <summary>
-/// The built-in Il2Cpp metadata reader: header checks and typed errors, game file discovery, memory-image layouts,
-/// and the model's round trip into the script the navigator uses (quick); on a real game, agreement with an
-/// Il2CppDumper dump of the same files (slow, CORVUS_IL2CPP_GAME and CORVUS_IL2CPP_GAME_DUMP).
+/// The built-in Il2Cpp metadata reader: header checks and typed errors, build file discovery, memory-image layouts,
+/// and the model's round trip into the script the navigator uses (quick); on a real build, agreement with an
+/// Il2Cpp dump of the same files (slow, CORVUS_IL2CPP_BUILD and CORVUS_IL2CPP_BUILD_DUMP).
 /// </summary>
 public sealed class Il2CppRawTests(ITestOutputHelper output) : IDisposable
 {
@@ -43,31 +43,31 @@ public sealed class Il2CppRawTests(ITestOutputHelper output) : IDisposable
         Assert.Equal(31, Il2CppMetadataReader.CheckHeader(Metadata("ok.dat", 0xFAB11BAF, 31)));
 
         // A valid header over nothing, with a binary that is no Il2Cpp build: every layout fails, reported as such.
-        Directory.CreateDirectory(_dir.File("game"));
-        var metadata = Metadata(Path.Combine("game", "global-metadata.dat"), 0xFAB11BAF, 29, 0x400);
-        File.Copy(McpProtocolTests.NativeSample(_dir), _dir.File(Path.Combine("game", "GameAssembly.dll")));
-        var files = Assert.IsType<Il2CppGameFiles>(Il2CppGameFiles.Find(metadata));
+        Directory.CreateDirectory(_dir.File("app"));
+        var metadata = Metadata(Path.Combine("app", "global-metadata.dat"), 0xFAB11BAF, 29, 0x400);
+        File.Copy(McpProtocolTests.NativeSample(_dir), _dir.File(Path.Combine("app", "GameAssembly.dll")));
+        var files = Assert.IsType<Il2CppBuildFiles>(Il2CppBuildFiles.Find(metadata));
         var error = Assert.Throws<ToolError>(() => Il2CppMetadataReader.Read(files, _dir.File("out"), null, default));
         Assert.Equal(ErrorCode.MalformedInput, error.Code);
         Assert.Contains("Tried: Unity", error.Message);
     }
 
     [Fact]
-    public async Task LoadAssemblyReadsAGameFolderAndReportsWhyNot()
+    public async Task LoadAssemblyReadsABuildFolderAndReportsWhyNot()
     {
-        var game = _dir.File("enc");
-        Directory.CreateDirectory(Path.Combine(game, "G_Data", "il2cpp_data", "Metadata"));
+        var folder = _dir.File("enc");
+        Directory.CreateDirectory(Path.Combine(folder, "G_Data", "il2cpp_data", "Metadata"));
         Metadata(Path.Combine("enc", "G_Data", "il2cpp_data", "Metadata", "global-metadata.dat"), 0xDEADBEEF, 29);
-        File.Copy(McpProtocolTests.NativeSample(_dir), Path.Combine(game, "GameAssembly.dll"));
+        File.Copy(McpProtocolTests.NativeSample(_dir), Path.Combine(folder, "GameAssembly.dll"));
         using var ws = new AssemblyWorkspace();
         var options = new ServerOptions { BackgroundIndexing = false, WatchFiles = false };
         var il2cpp = new Il2CppService(ws);
         var tools = new Corvus.Tools.WorkspaceTools(ws, il2cpp, new IndexingService(ws, new CallGraphService(ws), options), new Corvus.Services.Analysis.UnpackService(ws));
-        var error = await Assert.ThrowsAsync<ToolError>(() => tools.LoadAssembly(game));
+        var error = await Assert.ThrowsAsync<ToolError>(() => tools.LoadAssembly(folder));
         Assert.Contains("encrypted_or_transformed", error.Message);
         Assert.Empty(ws.Assemblies); // nothing half-loaded
         // GameAssembly.dll alone still loads as a native image, with the way to its metadata.
-        Assert.Contains("Il2Cpp game: its metadata is", await tools.LoadAssembly(Path.Combine(game, "GameAssembly.dll")));
+        Assert.Contains("Il2Cpp: its metadata is", await tools.LoadAssembly(Path.Combine(folder, "GameAssembly.dll")));
         // A package without Il2Cpp metadata says so, not that it is no PE file.
         var apk = _dir.File("plain.apk");
         using (var zip = System.IO.Compression.ZipFile.Open(apk, System.IO.Compression.ZipArchiveMode.Create)) zip.CreateEntry("classes.dex");
@@ -75,23 +75,23 @@ public sealed class Il2CppRawTests(ITestOutputHelper output) : IDisposable
     }
 
     [Fact]
-    public void GameFilesAreFoundFromTheFolderTheMetadataOrTheBinary()
+    public void BuildFilesAreFoundFromTheFolderTheMetadataOrTheBinary()
     {
-        var game = _dir.File("Game");
-        var meta = Path.Combine(game, "Game_Data", "il2cpp_data", "Metadata");
+        var folder = _dir.File("App");
+        var meta = Path.Combine(folder, "App_Data", "il2cpp_data", "Metadata");
         Directory.CreateDirectory(meta);
-        var metadata = Metadata(Path.Combine("Game", "Game_Data", "il2cpp_data", "Metadata", "global-metadata.dat"), 0xFAB11BAF, 24);
-        Assert.Equal(ErrorCode.NotFound, Assert.Throws<ToolError>(() => Il2CppGameFiles.Find(metadata)).Code); // no binary yet
-        var binary = Path.Combine(game, "GameAssembly.dll");
+        var metadata = Metadata(Path.Combine("App", "App_Data", "il2cpp_data", "Metadata", "global-metadata.dat"), 0xFAB11BAF, 24);
+        Assert.Equal(ErrorCode.NotFound, Assert.Throws<ToolError>(() => Il2CppBuildFiles.Find(metadata)).Code); // no binary yet
+        var binary = Path.Combine(folder, "GameAssembly.dll");
         File.WriteAllBytes(binary, [0x4D, 0x5A]);
-        foreach (var path in new[] { game, metadata, binary })
+        foreach (var path in new[] { folder, metadata, binary })
         {
-            var files = Assert.IsType<Il2CppGameFiles>(Il2CppGameFiles.Find(path));
+            var files = Assert.IsType<Il2CppBuildFiles>(Il2CppBuildFiles.Find(path));
             Assert.Equal(Path.GetFullPath(binary), files.Binary, ignoreCase: true);
             Assert.Equal(Path.GetFullPath(metadata), files.Metadata, ignoreCase: true);
-            Assert.EndsWith("Game_Data", files.DataDirectory);
+            Assert.EndsWith("App_Data", files.DataDirectory);
         }
-        Assert.Null(Il2CppGameFiles.Find(Env.FixturePath)); // an ordinary assembly
+        Assert.Null(Il2CppBuildFiles.Find(Env.FixturePath)); // an ordinary assembly
     }
 
     [Fact]
@@ -115,7 +115,7 @@ public sealed class Il2CppRawTests(ITestOutputHelper output) : IDisposable
     [Fact]
     public void ModelRoundTripsIntoTheNavigatorsScript()
     {
-        var model = new Il2CppGameModel
+        var model = new Il2CppBuildModel
         {
             BinaryPath = "b", MetadataPath = "m", MetadataVersion = 29.1f, HeaderVersion = 29, UnityVersion = "2022.1.0f1", UnityVersionSource = "test",
             ImageBase = 0x180000000, MemoryImage = false,
@@ -131,9 +131,9 @@ public sealed class Il2CppRawTests(ITestOutputHelper output) : IDisposable
             Addresses = [0x1200],
             Unreadables = [new("method X::Y", "pointer_outside_image", "detail")],
         };
-        var path = _dir.File(Il2CppGameModel.FileName);
+        var path = _dir.File(Il2CppBuildModel.FileName);
         model.Write(path);
-        var back = Il2CppGameModel.Read(path);
+        var back = Il2CppBuildModel.Read(path);
         Assert.Equal(model.Methods, back.Methods);
         Assert.Equal(model.LiteralSlots, back.LiteralSlots);
         Assert.Equal("pointer_outside_image", Assert.Single(back.Unreadables).Reason);
@@ -151,22 +151,22 @@ public sealed class Il2CppRawTests(ITestOutputHelper output) : IDisposable
         int seen = 0;
         script.ForEachMethodInfo(_ => seen++, default);
         Assert.Equal(1, seen);
-        Assert.Throws<IOException>(() => Il2CppGameModel.Read(Env.FixturePath));
+        Assert.Throws<IOException>(() => Il2CppBuildModel.Read(Env.FixturePath));
     }
 
     /// <summary>script.json names built-in types by their C# keyword ("string_TypeInfo"); either spelling finds the slot.</summary>
     [Fact]
     public void BuiltInTypesAreFoundByEitherSpelling()
     {
-        var model = new Il2CppGameModel
+        var model = new Il2CppBuildModel
         {
             BinaryPath = "b", MetadataPath = "m", MetadataVersion = 29, HeaderVersion = 29, UnityVersion = "2022.1.0f1", UnityVersionSource = "test",
             ImageBase = 0x180000000, MemoryImage = false, LiteralValues = [], LiteralSlots = [], Methods = [], MethodInfos = [], Addresses = [], Unreadables = [],
             Metadata = [new(0x5000, "string_TypeInfo", "System_String_c*"), new(0x5008, "System.Collections.Generic.List<string>_TypeInfo", "x")],
         };
-        var path = _dir.File("alias-" + Il2CppGameModel.FileName);
+        var path = _dir.File("alias-" + Il2CppBuildModel.FileName);
         model.Write(path);
-        var script = Il2CppScript.FromModel(Il2CppGameModel.Read(path), path);
+        var script = Il2CppScript.FromModel(Il2CppBuildModel.Read(path), path);
         Assert.Single(Il2CppNavigator.FindSlots(script, "System.String_TypeInfo").Metadata);
         Assert.Single(Il2CppNavigator.FindSlots(script, "string_TypeInfo").Metadata);
         Assert.Empty(Il2CppNavigator.FindSlots(script, "System.Strin_TypeInfo").Metadata);
@@ -174,17 +174,17 @@ public sealed class Il2CppRawTests(ITestOutputHelper output) : IDisposable
     }
 
     /// <summary>
-    /// A raw game (CORVUS_IL2CPP_GAME: game folder or global-metadata.dat) read by the built-in reader, against an
-    /// Il2CppDumper dump of the same files (CORVUS_IL2CPP_GAME_DUMP: its DummyDll folder, script.json and stringliteral.json
+    /// A raw build (CORVUS_IL2CPP_BUILD: build folder or global-metadata.dat) read by the built-in reader, against an
+    /// Il2Cpp dump of the same files (CORVUS_IL2CPP_BUILD_DUMP: its DummyDll folder, script.json and stringliteral.json
     /// beside it or in its parent). Methods, types and fields are paired by assembly and metadata token ([Token]);
     /// reports the agreement of method addresses, field offsets, ScriptMethod / metadata slots and string literals,
     /// and the timings. Without the dump, reports the read alone.
     /// </summary>
-    [RequiresRealDataFact(GameVariable)]
+    [RequiresRealDataFact(BuildVariable)]
     [Trait("Speed", "Slow")]
-    public void RawGameMatchesTheDump()
+    public void RawBuildMatchesTheDump()
     {
-        var files = Il2CppGameFiles.Find(RealData.Path(GameVariable)) ?? throw new InvalidOperationException("not an Il2Cpp game");
+        var files = Il2CppBuildFiles.Find(RealData.Path(BuildVariable)) ?? throw new InvalidOperationException("not an Il2Cpp build");
         using var raw = new AssemblyWorkspace(new ServerOptions { WatchFiles = false });
         var cache = Il2CppRawLoader.DefaultRoot; // apply_il2cpp_names below reads the default cache
         var watch = Stopwatch.StartNew();
@@ -310,7 +310,7 @@ public sealed class Il2CppRawTests(ITestOutputHelper output) : IDisposable
             output.WriteLine($"  {key}: raw {rawRun[key]}, dump {dumpRun.GetValueOrDefault(key)}");
     }
 
-    private Dictionary<string, string> EndToEnd(AssemblyWorkspace ws, Il2CppGameFiles files, string label)
+    private Dictionary<string, string> EndToEnd(AssemblyWorkspace ws, Il2CppBuildFiles files, string label)
     {
         var result = new Dictionary<string, string>();
         var il2cpp = new Il2CppService(ws);
@@ -360,8 +360,8 @@ public sealed class Il2CppRawTests(ITestOutputHelper output) : IDisposable
     {
         Directory.CreateDirectory(_dir.File("alone"));
         var path = Metadata(Path.Combine("alone", "global-metadata.dat"), 0xFAB11BAF, 29, 0x400);
-        Assert.Throws<ToolError>(() => Il2CppGameFiles.Find(path));
-        var files = Assert.IsType<Il2CppGameFiles>(Il2CppGameFiles.Find(path, metadataOnly: true));
+        Assert.Throws<ToolError>(() => Il2CppBuildFiles.Find(path));
+        var files = Assert.IsType<Il2CppBuildFiles>(Il2CppBuildFiles.Find(path, metadataOnly: true));
         Assert.Equal("", files.Binary);
         using var ws = new AssemblyWorkspace(new ServerOptions { WatchFiles = false });
         var error = Assert.Throws<ToolError>(() => new Il2CppRawLoader(ws).Load(files, loadBinary: true, null, default, _dir.File("cache")));
@@ -371,19 +371,19 @@ public sealed class Il2CppRawTests(ITestOutputHelper output) : IDisposable
         Assert.Empty(ws.Assemblies);
     }
 
-    /// <summary>The real game's metadata copied alone: the same images, types, methods and fields as the read with the binary.</summary>
-    [RequiresRealDataFact(GameVariable)]
+    /// <summary>The real build's metadata copied alone: the same images, types, methods and fields as the read with the binary.</summary>
+    [RequiresRealDataFact(BuildVariable)]
     [Trait("Speed", "Slow")]
     public void RealMetadataAloneMatchesTheReadWithTheBinary()
     {
-        var files = Il2CppGameFiles.Find(RealData.Path(GameVariable)) ?? throw new InvalidOperationException("not an Il2Cpp game");
-        var alone = _dir.File(Path.Combine("alone-real", Il2CppGameFiles.MetadataFileName));
+        var files = Il2CppBuildFiles.Find(RealData.Path(BuildVariable)) ?? throw new InvalidOperationException("not an Il2Cpp build");
+        var alone = _dir.File(Path.Combine("alone-real", Il2CppBuildFiles.MetadataFileName));
         Directory.CreateDirectory(Path.GetDirectoryName(alone)!);
         File.Copy(files.Metadata, alone);
         var cache = _dir.File("il2cpp-cache");
         using var metaWs = new AssemblyWorkspace(new ServerOptions { WatchFiles = false });
         var watch = Stopwatch.StartNew();
-        var meta = new Il2CppRawLoader(metaWs).Load(Il2CppGameFiles.Find(alone, metadataOnly: true)!, loadBinary: true, null, default, cache);
+        var meta = new Il2CppRawLoader(metaWs).Load(Il2CppBuildFiles.Find(alone, metadataOnly: true)!, loadBinary: true, null, default, cache);
         output.WriteLine($"metadata alone: {watch.Elapsed.TotalSeconds:0.0} s\n{Il2CppRawLoader.Describe(meta)}");
         using var fullWs = new AssemblyWorkspace(new ServerOptions { WatchFiles = false });
         var full = new Il2CppRawLoader(fullWs).Load(files, loadBinary: false, null, default, cache);
@@ -398,16 +398,16 @@ public sealed class Il2CppRawTests(ITestOutputHelper output) : IDisposable
         Assert.Equal(Names(fullWs), Names(metaWs));
     }
 
-    /// <summary>The real game's dummy assemblies, with the binary and from the metadata alone, are byte-identical on a second build.</summary>
-    [RequiresRealDataFact(GameVariable)]
+    /// <summary>The real build's dummy assemblies, with the binary and from the metadata alone, are byte-identical on a second build.</summary>
+    [RequiresRealDataFact(BuildVariable)]
     [Trait("Speed", "Slow")]
     public void RealDummyAssembliesAreTheSameBytesOnEveryBuild()
     {
-        var files = Il2CppGameFiles.Find(RealData.Path(GameVariable)) ?? throw new InvalidOperationException("not an Il2Cpp game");
-        var alone = _dir.File(Path.Combine("alone-twice", Il2CppGameFiles.MetadataFileName));
+        var files = Il2CppBuildFiles.Find(RealData.Path(BuildVariable)) ?? throw new InvalidOperationException("not an Il2Cpp build");
+        var alone = _dir.File(Path.Combine("alone-twice", Il2CppBuildFiles.MetadataFileName));
         Directory.CreateDirectory(Path.GetDirectoryName(alone)!);
         File.Copy(files.Metadata, alone);
-        var metadataOnly = Il2CppGameFiles.Find(alone, metadataOnly: true)!;
+        var metadataOnly = Il2CppBuildFiles.Find(alone, metadataOnly: true)!;
         foreach (var (name, build) in new (string, Action<string>)[]
                  {
                      ("binary", dir => Il2CppMetadataReader.Read(files, dir, null, default)),
@@ -425,7 +425,7 @@ public sealed class Il2CppRawTests(ITestOutputHelper output) : IDisposable
     }
 
     /// <summary>
-    /// A real game (CORVUS_IL2CPP_GENERICS_GAME: a Windows game folder) copied with its code registration's module fields
+    /// A real build (CORVUS_IL2CPP_GENERICS_BUILD: a Windows build folder) copied with its code registration's module fields
     /// cleared, as in builds that fill the registration at run time: the copy reads every ScriptMethod entry of the
     /// original, generic instances (from the generic method pointer array found in the data) included, and its function
     /// starts from the invoker, attribute generator and unresolved call tables found there.
@@ -434,7 +434,7 @@ public sealed class Il2CppRawTests(ITestOutputHelper output) : IDisposable
     [Trait("Speed", "Slow")]
     public void RuntimeFilledRegistrationKeepsTheGenericInstances()
     {
-        var files = Il2CppGameFiles.Find(RealData.Path(GenericsVariable)) ?? throw new InvalidOperationException("not an Il2Cpp game");
+        var files = Il2CppBuildFiles.Find(RealData.Path(GenericsVariable)) ?? throw new InvalidOperationException("not an Il2Cpp build");
         var original = Il2CppMetadataReader.Read(files, _dir.File("dummy-original"), null, default).Model;
 
         var bytes = File.ReadAllBytes(files.Binary);
@@ -462,9 +462,9 @@ public sealed class Il2CppRawTests(ITestOutputHelper output) : IDisposable
         Assert.True(original.Addresses.Length - starts.Count <= original.Addresses.Length / 1000, "more than 0.1 % of the function starts are missing");
     }
 
-    private const string GameVariable = "CORVUS_IL2CPP_GAME";
-    private const string DumpVariable = "CORVUS_IL2CPP_GAME_DUMP";
-    private const string GenericsVariable = "CORVUS_IL2CPP_GENERICS_GAME";
+    private const string BuildVariable = "CORVUS_IL2CPP_BUILD";
+    private const string DumpVariable = "CORVUS_IL2CPP_BUILD_DUMP";
+    private const string GenericsVariable = "CORVUS_IL2CPP_GENERICS_BUILD";
 
     private void Report(string what, int same, int dumpCount, int rawCount) =>
         output.WriteLine($"{what}: {same} of {dumpCount} ({(dumpCount == 0 ? 0 : 100.0 * same / dumpCount):0.00} %); raw has {rawCount}");

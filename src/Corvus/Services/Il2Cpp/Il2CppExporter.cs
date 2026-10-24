@@ -8,7 +8,7 @@ namespace Corvus.Services;
 /// <summary>
 /// Exports Il2Cpp dummy-DLL metadata for native tools: an IDA Python script and a Ghidra script that create and name
 /// every function, give it its C prototype and comment it with the managed signature, a C header with struct layouts
-/// (<see cref="Il2CppLayout"/>; imported by the IDA script before the prototypes), and an Il2CppDumper-style script.json
+/// (<see cref="Il2CppLayout"/>; imported by the IDA script before the prototypes), and a script.json
 /// whose Signature is the C prototype.
 /// </summary>
 public sealed class Il2CppExporter(Il2CppService il2cpp)
@@ -34,7 +34,7 @@ public sealed class Il2CppExporter(Il2CppService il2cpp)
         LayOut(layout, scope, ct);
         var methods = CollectMethods(scope, layout, ct);
         if (methods.Count == 0)
-            throw new ToolError(ErrorCode.Unsupported, "No Il2Cpp [Address] attributes in the selected assemblies. This needs Il2CppDumper/Cpp2IL dummy DLLs.");
+            throw new ToolError(ErrorCode.Unsupported, "No Il2Cpp [Address] attributes in the selected assemblies; load dummy assemblies that carry them.");
         var dir = SafeFile.FullPath(outputDirectory);
         Directory.CreateDirectory(dir);
         string Write(string name, string content) => SafeFile.WriteUnderRoot(dir, name, System.Text.Encoding.UTF8.GetBytes(content), overwrite);

@@ -2,7 +2,7 @@
 
 Notes 2.0 ([source](../../samples/Notes/v2)) renames `CsvExporter.Quote` to `Escape` and `PreviewGate.Verify` to
 `Check`, and moves the string decoder into `PreviewGate`. This guide finds those changes and carries the edits of
-[guide 2](2-decode-and-patch.md) (simplify, rename, patch) to the new build. Run guide 2 first: it writes the edit
+[guide 2](2-decode-and-patch.md) (simplify, rename, patch) to the new build. Run guide 2 first; it writes the edit
 script.
 
 ## Ask your agent
@@ -38,6 +38,7 @@ Comparing Notes (samples/Notes/v1/bin/Notes.dll; SHA-256 <sha256-1>, MVID <guid-
 Types: 0 renamed, 4 with member changes, 1 removed, 0 added (7 matched of 8 old).
 Members (each change of a member counted): 2 renamed, 1 moved, 0 signature, 4 body, 0 metadata, 0 type, 0 offset, 0 address, 0 added, 0 removed, 0 ambiguous, 0 unknown
 Member matches: 73 exact, 2 strong, 1 structural, 0 ambiguous (by tier: full name + signature 53, full name 20, body shape 1, IL hash 1, IL hash, other type 1).
+Capabilities (survey_features rules and kept capa labels): 0 added, 0 removed.
 
 7 changes (showing 1-7):
   Notes.CsvExporter

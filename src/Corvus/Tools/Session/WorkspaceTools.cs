@@ -89,9 +89,9 @@ public sealed class WorkspaceTools(AssemblyWorkspace workspace, Il2CppService il
             : null;
 
     [McpServerTool(Name = "load_assembly", Title = "Load assembly", UseStructuredContent = true, OutputSchemaType = typeof(ImageChange))]
-    [Description("Load a .NET assembly or every assembly in a folder (app folder, Unity *_Data/Managed, DummyDll). PE, ELF, Mach-O or wasm files load " +
+    [Description("Load a .NET assembly or a folder's assemblies (app, Unity *_Data/Managed, dummy assemblies). PE, ELF, Mach-O or wasm files load " +
                  "as native images (universal Mach-O: one slice, name[slice]); format=raw maps headerless code; folder loads skip native files. An " +
-                 "Il2Cpp game (folder, global-metadata.dat, .apk/.xapk/.aab/.ipa/.app, memory dump) loads as dummy assemblies with addresses " +
+                 "Il2Cpp build (folder, global-metadata.dat, .apk/.xapk/.aab/.ipa/.app, memory dump) loads as dummy assemblies with addresses " +
                  "(metadata v24-39) plus the native binary. A .gzf or .gpr program (copied) opens in Ghidra. A repeat load is a no-op.")]
     public Task<string> LoadAssembly(
         [Description("Absolute path to an assembly file or a folder.")] string path,
@@ -160,10 +160,10 @@ public sealed class WorkspaceTools(AssemblyWorkspace workspace, Il2CppService il
             return Loaded([packed.Id], $"Loaded native image {packed.Id}: {Native.NativeImageExtensions.KindText(packed.Image)}\n  {packed.FilePath}\n  " +
                    $"from {Path.GetFileName(path)}: Ghidra opens the archive as its database (no analysis); the built-in tools read the file");
         }
-        if (RawIl2CppGame(path, requestedSlice) is { } game)
+        if (RawIl2CppBuild(path, requestedSlice) is { } build)
         {
             int step = 0;
-            var result = (il2cppRaw ?? new Il2CppRawLoader(workspace)).Load(game, loadBinary: true,
+            var result = (il2cppRaw ?? new Il2CppRawLoader(workspace)).Load(build, loadBinary: true,
                 m => progress?.Report(new ProgressNotificationValue { Progress = ++step, Message = $"Il2Cpp: {m}" }), cancellationToken);
             return Loaded(result.Load.Loaded.Select(a => a.Id).Concat(result.Binary != null ? [result.Binary.Id] : []), Il2CppRawLoader.Describe(result));
         }
@@ -184,7 +184,7 @@ public sealed class WorkspaceTools(AssemblyWorkspace workspace, Il2CppService il
                        (image.RuntimeFunctions.Count > 0 ? $", {Plural(image.RuntimeFunctions.Count, "unwind entry")}" : "") +
                        (image.Issues.Count > 0 ? $"\n  {Plural(image.Issues.Count, "parse issue")} (get_pe_info lists them)" : "") + providers + ImportLine(native) +
                        (Il2CppMetadataNear(native.FilePath) is { } metadata
-                           ? $"\n  Il2Cpp game: its metadata is {metadata}; load_assembly that file (or the game folder) reads it with the built-in reader " +
+                           ? $"\n  Il2Cpp: its metadata is {metadata}; load_assembly that file (or its folder) reads it with the built-in reader " +
                              "(dummy assemblies, addresses, field offsets, string literals), or apply_il2cpp_names on this image does it"
                            : ""));
             }
@@ -196,7 +196,7 @@ public sealed class WorkspaceTools(AssemblyWorkspace workspace, Il2CppService il
                 var types = MetadataUtil.CountedTypes(asm.Module);
                 return Loaded(native != null ? [asm.Id, native.Id] : [asm.Id], $"Loaded {asm.Id}: {asm.FullAssemblyName}\n  {asm.FilePath}\n  {types.Count} types, " +
                        $"{MetadataUtil.NamespaceCount(types)} namespaces" +
-                       (il2cpp.GetIndex(asm).Count > 0 ? "\n  Il2Cpp dummy DLL: method bodies are stubs; use get_il2cpp_info / find_method_by_address." : "") +
+                       (il2cpp.GetIndex(asm).Count > 0 ? "\n  Il2Cpp dummy assembly: method bodies are stubs; use get_il2cpp_info / find_method_by_address." : "") +
                        (native != null ? $"\n  mixed-mode (C++/CLI): its native code is also loaded as native image {native.Id} for the native tools" + ImportLine(native) : "") + providers);
             });
         }
@@ -227,11 +227,11 @@ public sealed class WorkspaceTools(AssemblyWorkspace workspace, Il2CppService il
         native.Overrides is { } ov ? $"\n  engine import: {ov.Text} (IDA and Ghidra keep a database of their own for it)" : "";
 
     /// <summary>
-    /// The Il2Cpp game a load_assembly path names: a global-metadata.dat, a game folder (Windows, Linux, macOS .app,
+    /// The Il2Cpp build a load_assembly path names: a global-metadata.dat, a build folder (Windows, Linux, macOS .app,
     /// extracted Android package, iOS .app) or both files side by side, or an .apk / .xapk / .apks / .aab / .ipa holding
-    /// one (extracted to the cache). A game binary alone loads as a native image.
+    /// one (extracted to the cache). The binary alone loads as a native image.
     /// </summary>
-    internal static Il2CppGameFiles? RawIl2CppGame(string path, string? slice)
+    internal static Il2CppBuildFiles? RawIl2CppBuild(string path, string? slice)
     {
         if (string.IsNullOrWhiteSpace(path)) return null;
         string full;
@@ -242,20 +242,20 @@ public sealed class WorkspaceTools(AssemblyWorkspace workspace, Il2CppService il
             var root = Il2CppPackages.Extract(full, slice)
                        ?? throw new ToolError(ErrorCode.NotFound, $"{full} is a package without Il2Cpp metadata (no global-metadata.dat): reason no_il2cpp_metadata.",
                            "summarize_file tells what it holds; list_assemblies with path lists the .NET assemblies a Xamarin / MAUI / Unity Mono package carries");
-            return (Il2CppGameFiles.Find(root, slice) ?? throw new ToolError(ErrorCode.NotFound, $"{full} holds Il2Cpp metadata but no game binary.")) with { Package = full };
+            return (Il2CppBuildFiles.Find(root, slice) ?? throw new ToolError(ErrorCode.NotFound, $"{full} holds Il2Cpp metadata but no Il2Cpp binary.")) with { Package = full };
         }
         // The metadata file itself also reads alone; a folder with only metadata stays an ordinary folder load.
-        if (File.Exists(full)) return Il2CppGameFiles.IsMetadataFile(full) ? Il2CppGameFiles.Find(full, slice, metadataOnly: true) : null;
+        if (File.Exists(full)) return Il2CppBuildFiles.IsMetadataFile(full) ? Il2CppBuildFiles.Find(full, slice, metadataOnly: true) : null;
         if (!Directory.Exists(full)) return null;
-        try { return Il2CppGameFiles.Find(full, slice); }
-        catch (ToolError e) when (e.Code == ErrorCode.NotFound) { return null; } // half a game: an ordinary folder load, with the layout hints
+        try { return Il2CppBuildFiles.Find(full, slice); }
+        catch (ToolError e) when (e.Code == ErrorCode.NotFound) { return null; } // Metadata or binary alone: an ordinary folder load, with the layout hints.
     }
 
-    /// <summary>The metadata of the Il2Cpp game whose binary is at <paramref name="binary"/>, or null.</summary>
+    /// <summary>The metadata of the Il2Cpp build whose binary is at <paramref name="binary"/>, or null.</summary>
     private static string? Il2CppMetadataNear(string binary)
     {
-        if (!Il2CppGameFiles.BinaryNames.Any(n => n.Equals(Path.GetFileName(binary), StringComparison.OrdinalIgnoreCase))) return null;
-        try { return Il2CppGameFiles.Find(binary)?.Metadata; }
+        if (!Il2CppBuildFiles.BinaryNames.Any(n => n.Equals(Path.GetFileName(binary), StringComparison.OrdinalIgnoreCase))) return null;
+        try { return Il2CppBuildFiles.Find(binary)?.Metadata; }
         catch (ToolError) { return null; }
     }
 

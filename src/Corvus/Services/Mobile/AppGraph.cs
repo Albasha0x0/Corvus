@@ -151,13 +151,13 @@ public sealed class AppGraph(DexService dex, JniBindings jni, JavaDotNetMap map,
     private void Il2Cpp(string full, List<string> entries, List<AppLayer> layers, List<AppEdgeKind> kinds, List<AppEdge> edges, List<string> notes, CancellationToken ct)
     {
         if (!entries.Any(e => e.EndsWith("/global-metadata.dat", StringComparison.Ordinal))) return;
-        Il2CppGameModel? model = null;
+        Il2CppBuildModel? model = null;
         try
         {
-            if (il2cpp != null && Il2CppPackages.Extract(full, null, ct: ct) is { } root && Il2CppGameFiles.Find(root) is { Binary.Length: > 0 } files)
+            if (il2cpp != null && Il2CppPackages.Extract(full, null, ct: ct) is { } root && Il2CppBuildFiles.Find(root) is { Binary.Length: > 0 } files)
                 model = il2cpp.Cached(files);
         }
-        catch (ToolError e) { notes.Add($"Il2Cpp game not located: {e.Message}"); }
+        catch (ToolError e) { notes.Add($"Il2Cpp build not located: {e.Message}"); }
         if (model == null)
         {
             layers.Add(new("il2cpp", 0, "global-metadata.dat and libil2cpp.so, not read yet"));

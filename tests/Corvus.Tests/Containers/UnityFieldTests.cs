@@ -14,7 +14,7 @@ namespace Corvus.Tests;
 /// </summary>
 public sealed class UnityFieldTests : IDisposable
 {
-    private const long ScriptPath = 2, PlayerPath = 10, BrokenPath = 11, BrokenScript = 3, DoorPath = 12, DoorScript = 4, TunedPath = 13, TunedScript = 5;
+    private const long ScriptPath = 2, SensorPath = 10, BrokenPath = 11, BrokenScript = 3, DoorPath = 12, DoorScript = 4, TunedPath = 13, TunedScript = 5;
 
     private const string Engine = """
         namespace UnityEngine
@@ -46,17 +46,17 @@ public sealed class UnityFieldTests : IDisposable
             public int value;
         }
 
-        public class Player : MonoBehaviour
+        public class Sensor : MonoBehaviour
         {
-            public int health;
-            public float speed;
-            public bool alive;
+            public int count;
+            public float rate;
+            public bool active;
             public string title;
-            [SerializeField] private Vector3 spawn;
+            [SerializeField] private Vector3 origin;
             public Color tint;
             public Mode mode;
-            public int[] scores;
-            public List<Stat> stats;
+            public int[] samples;
+            public List<Stat> readings;
             public Transform target;
             private int hidden;
             public static int shared;
@@ -100,7 +100,7 @@ public sealed class UnityFieldTests : IDisposable
             public Color32 shade;
         }
 
-        namespace Game
+        namespace App
         {
             public class Door : MonoBehaviour
             {
@@ -111,10 +111,10 @@ public sealed class UnityFieldTests : IDisposable
         }
         """;
 
-    private static readonly string[] PlayerFields =
+    private static readonly string[] SensorFields =
     [
-        "health = 120", "speed = 4.5", "alive = true", "title = \"Knight\"", "spawn = {x = 1, y = 2, z = 3}", "tint = {r = 1, g = 0.5, b = 0.25, a = 1}",
-        "mode = 2", "scores = [3] [10, 20, 30]", "stats = [2] [{label = \"str\", value = 5}, {label = \"dex\", value = 7}]",
+        "count = 120", "rate = 4.5", "active = true", "title = \"Intake\"", "origin = {x = 1, y = 2, z = 3}", "tint = {r = 1, g = 0.5, b = 0.25, a = 1}",
+        "mode = 2", "samples = [3] [10, 20, 30]", "readings = [2] [{label = \"min\", value = 5}, {label = \"max\", value = 7}]",
         "target = PPtr<$Transform>(file 0, path 7)",
     ];
 
@@ -129,10 +129,10 @@ public sealed class UnityFieldTests : IDisposable
         return (engine, Roslyn.Compile("Assembly-CSharp", Scripts, options, [MetadataReference.CreateFromImage(engine)]));
     });
 
-    /// <summary>A game folder: the file in Game_Data, with the compiled scripts in Game_Data/Managed when asked.</summary>
-    private string Game(string name, byte[] bytes, bool managed = true)
+    /// <summary>A build folder: the file in App_Data, with the compiled scripts in App_Data/Managed when asked.</summary>
+    private string Folder(string name, byte[] bytes, bool managed = true)
     {
-        var data = Directory.CreateDirectory(Path.Combine(_dir.Path, Guid.NewGuid().ToString("N")[..8], "Game_Data")).FullName;
+        var data = Directory.CreateDirectory(Path.Combine(_dir.Path, Guid.NewGuid().ToString("N")[..8], "App_Data")).FullName;
         if (managed)
         {
             var dir = Directory.CreateDirectory(Path.Combine(data, "Managed")).FullName;
@@ -166,14 +166,14 @@ public sealed class UnityFieldTests : IDisposable
     private static IEnumerable<TreeNode> Floats(int level, string type, string name, params string[] names) =>
         [new(level, type, name, names.Length * 4), .. names.Select(n => new TreeNode(level + 1, "float", n, 4))];
 
-    /// <summary>The type tree the engine writes for Player, listed by hand.</summary>
-    private static List<TreeNode> PlayerTree() =>
+    /// <summary>The type tree the engine writes for Sensor, listed by hand.</summary>
+    private static List<TreeNode> SensorTree() =>
     [
         .. Base(),
-        new(1, "int", "health", 4), new(1, "float", "speed", 4), new(1, "bool", "alive", 1, 0x4000), .. Text(1, "title"),
-        .. Floats(1, "Vector3f", "spawn", "x", "y", "z"), .. Floats(1, "ColorRGBA", "tint", "r", "g", "b", "a"), new(1, "int", "mode", 4),
-        new(1, "vector", "scores", -1), new(2, "Array", "Array", -1, 0x4000, true), new(3, "int", "size", 4), new(3, "int", "data", 4),
-        new(1, "vector", "stats", -1), new(2, "Array", "Array", -1, 0x4000, true), new(3, "int", "size", 4), new(3, "Stat", "data", -1),
+        new(1, "int", "count", 4), new(1, "float", "rate", 4), new(1, "bool", "active", 1, 0x4000), .. Text(1, "title"),
+        .. Floats(1, "Vector3f", "origin", "x", "y", "z"), .. Floats(1, "ColorRGBA", "tint", "r", "g", "b", "a"), new(1, "int", "mode", 4),
+        new(1, "vector", "samples", -1), new(2, "Array", "Array", -1, 0x4000, true), new(3, "int", "size", 4), new(3, "int", "data", 4),
+        new(1, "vector", "readings", -1), new(2, "Array", "Array", -1, 0x4000, true), new(3, "int", "size", 4), new(3, "Stat", "data", -1),
         .. Text(4, "label"), new(4, "int", "value", 4),
         new(1, "PPtr<$Transform>", "target", 12), new(2, "int", "m_FileID", 4), new(2, "SInt64", "m_PathID", 8),
     ];
@@ -185,33 +185,33 @@ public sealed class UnityFieldTests : IDisposable
     private static UnityFileWriter.Data Behaviour(long script, string name) =>
         new UnityFileWriter.Data().Pointer(0, 0).U8(1).Align().Pointer(0, script).String(name);
 
-    private static byte[] PlayerData(int extra = 0) => Behaviour(ScriptPath, "Hero")
-        .I32(120).F32(4.5f).Bool(true).Align().String("Knight").F32(1).F32(2).F32(3).F32(1).F32(0.5f).F32(0.25f).F32(1).I32(2)
-        .I32(3).I32(10).I32(20).I32(30).I32(2).String("str").I32(5).String("dex").I32(7).Pointer(0, 7).Zero(extra).ToArray();
+    private static byte[] SensorData(int extra = 0) => Behaviour(ScriptPath, "Unit")
+        .I32(120).F32(4.5f).Bool(true).Align().String("Intake").F32(1).F32(2).F32(3).F32(1).F32(0.5f).F32(0.25f).F32(1).I32(2)
+        .I32(3).I32(10).I32(20).I32(30).I32(2).String("min").I32(5).String("max").I32(7).Pointer(0, 7).Zero(extra).ToArray();
 
     private static byte[] Script(string className, string ns = "") =>
         new UnityFileWriter.Data().String(className).I32(0).Zero(16).String(className).String(ns).String("Assembly-CSharp.dll").ToArray();
 
-    /// <summary>A file with the Player asset and its MonoScript, with or without type trees.</summary>
-    private static byte[] PlayerFile(bool typeTrees, int format = 22, int extra = 0)
+    /// <summary>A file with the Sensor asset and its MonoScript, with or without type trees.</summary>
+    private static byte[] SensorFile(bool typeTrees, int format = 22, int extra = 0)
     {
         var w = new UnityFileWriter(format, typeTrees);
-        w.Types.Add(new(SerializedFile.ClassMonoBehaviour, 0, typeTrees ? PlayerTree() : null));
+        w.Types.Add(new(SerializedFile.ClassMonoBehaviour, 0, typeTrees ? SensorTree() : null));
         w.Types.Add(new(SerializedFile.ClassMonoScript, -1, typeTrees ? ScriptTree() : null));
-        w.Objects.Add((ScriptPath, 1, Script("Player")));
-        w.Objects.Add((PlayerPath, 0, PlayerData(extra)));
+        w.Objects.Add((ScriptPath, 1, Script("Sensor")));
+        w.Objects.Add((SensorPath, 0, SensorData(extra)));
         return w.Build();
     }
 
     [Fact]
     public void Script_fields_from_the_type_tree_match_those_laid_out_from_the_assembly()
     {
-        var tree = View(Game("level0", PlayerFile(typeTrees: true))).Assets.Single();
-        var laid = View(Game("level0", PlayerFile(typeTrees: false))).Assets.Single();
-        Assert.Equal(("type tree", "read", "Hero", "Player"), (tree.Layout, tree.State, tree.Name, tree.Script));
-        Assert.Equal(("assembly", "read", "Hero", "Player", "Assembly-CSharp.dll"), (laid.Layout, laid.State, laid.Name, laid.Script, laid.Assembly));
-        Assert.Equal(PlayerFields, tree.Fields);
-        Assert.Equal(PlayerFields, laid.Fields);
+        var tree = View(Folder("level0", SensorFile(typeTrees: true))).Assets.Single();
+        var laid = View(Folder("level0", SensorFile(typeTrees: false))).Assets.Single();
+        Assert.Equal(("type tree", "read", "Unit", "Sensor"), (tree.Layout, tree.State, tree.Name, tree.Script));
+        Assert.Equal(("assembly", "read", "Unit", "Sensor", "Assembly-CSharp.dll"), (laid.Layout, laid.State, laid.Name, laid.Script, laid.Assembly));
+        Assert.Equal(SensorFields, tree.Fields);
+        Assert.Equal(SensorFields, laid.Fields);
     }
 
     [Fact]
@@ -220,12 +220,12 @@ public sealed class UnityFieldTests : IDisposable
         var w = new UnityFileWriter(17, typeTrees: false, "5.6.7f1");
         w.Types.Add(new(SerializedFile.ClassMonoBehaviour, 0, null));
         w.Types.Add(new(SerializedFile.ClassMonoScript, -1, null));
-        w.Objects.Add((DoorScript, 1, Script("Door", "Game")));
+        w.Objects.Add((DoorScript, 1, Script("Door", "App")));
         w.Objects.Add((DoorPath, 0, Behaviour(DoorScript, "Gate").U8(3).Align().I16(-2).Align().I64(1234567890123).ToArray()));
-        var facts = View(Game("sharedassets0.assets", w.Build()), script: "game.door");
+        var facts = View(Folder("sharedassets0.assets", w.Build()), script: "app.door");
         var door = facts.Assets.Single();
         Assert.Equal(17, facts.Files.Single().Format);
-        Assert.Equal(("assembly", "read", "Game.Door"), (door.Layout, door.State, door.Script));
+        Assert.Equal(("assembly", "read", "App.Door"), (door.Layout, door.State, door.Script));
         Assert.Equal(["level = 3", "code = -2", "id = 1234567890123"], door.Fields);
     }
 
@@ -235,11 +235,11 @@ public sealed class UnityFieldTests : IDisposable
     [InlineData(2)]
     public void A_bundle_entry_reads_like_the_file_it_holds(int codec)
     {
-        var bundle = UnityFileWriter.Bundle(codec, ("CAB-0a1b2c", PlayerFile(typeTrees: false)), ("CAB-0a1b2c.resS", new byte[100]));
+        var bundle = UnityFileWriter.Bundle(codec, ("CAB-0a1b2c", SensorFile(typeTrees: false)), ("CAB-0a1b2c.resS", new byte[100]));
         Assert.Empty(UnityFsBundle.Read(bundle, 1 << 20).Issues);
-        var facts = View(Game("player.bundle", bundle));
+        var facts = View(Folder("sensor.bundle", bundle));
         Assert.Equal("bundle", facts.Container);
-        Assert.Equal(PlayerFields, facts.Assets.Single().Fields);
+        Assert.Equal(SensorFields, facts.Assets.Single().Fields);
         Assert.Equal("CAB-0a1b2c", facts.Assets.Single().File);
     }
 
@@ -251,7 +251,7 @@ public sealed class UnityFieldTests : IDisposable
         w.Types.Add(new(SerializedFile.ClassMonoScript, -1, null));
         w.Objects.Add((BrokenScript, 1, Script("Broken")));
         w.Objects.Add((BrokenPath, 0, Behaviour(BrokenScript, "Odd").I32(1).Zero(40).I32(2).ToArray()));
-        var odd = View(Game("level1", w.Build())).Assets.Single();
+        var odd = View(Folder("level1", w.Build())).Assets.Single();
         Assert.Equal(("assembly", "partial"), (odd.Layout, odd.State));
         Assert.Equal(["before = 1", "curve = unknown"], odd.Fields);
         Assert.Contains("engine type UnityEngine.Gradient", odd.Reason);
@@ -265,7 +265,7 @@ public sealed class UnityFieldTests : IDisposable
         w.Types.Add(new(SerializedFile.ClassMonoScript, -1, null));
         w.Objects.Add((TunedScript, 1, Script("Tuned")));
         w.Objects.Add((TunedPath, 0, Behaviour(TunedScript, "Knob").F32(0.5f).U8(1).Align().I32(9).ToArray()));
-        var knob = View(Game("level2", w.Build())).Assets.Single();
+        var knob = View(Folder("level2", w.Build())).Assets.Single();
         Assert.Equal(("assembly", "read"), (knob.Layout, knob.State));
         Assert.Equal(["strength = {value = 0.5}", "size = 1", "nothing = {}", "last = 9"], knob.Fields);
     }
@@ -273,7 +273,7 @@ public sealed class UnityFieldTests : IDisposable
     [Fact]
     public void A_layout_that_misses_the_object_size_shows_no_values()
     {
-        var asset = View(Game("level0", PlayerFile(typeTrees: false, extra: 4))).Assets.Single();
+        var asset = View(Folder("level0", SensorFile(typeTrees: false, extra: 4))).Assets.Single();
         Assert.Equal(("assembly", "unknown"), (asset.Layout, asset.State));
         Assert.Empty(asset.Fields);
         Assert.Contains("reads 148 of the object's 152 bytes", asset.Reason);
@@ -282,17 +282,17 @@ public sealed class UnityFieldTests : IDisposable
     [Fact]
     public void A_script_without_its_assembly_is_unknown_and_names_what_was_looked_for()
     {
-        var asset = View(Game("level0", PlayerFile(typeTrees: false), managed: false)).Assets.Single();
-        Assert.Equal(("none", "unknown", "Player"), (asset.Layout, asset.State, asset.Script));
+        var asset = View(Folder("level0", SensorFile(typeTrees: false), managed: false)).Assets.Single();
+        Assert.Equal(("none", "unknown", "Sensor"), (asset.Layout, asset.State, asset.Script));
         Assert.Contains("Assembly-CSharp.dll is not in a Managed folder", asset.Reason);
     }
 
     [Fact]
     public void A_script_filter_that_matches_nothing_lists_the_classes()
     {
-        var e = Assert.Throws<ToolError>(() => View(Game("level0", PlayerFile(typeTrees: true)), script: "Enemy"));
+        var e = Assert.Throws<ToolError>(() => View(Folder("level0", SensorFile(typeTrees: true)), script: "Missing"));
         Assert.Equal(ErrorCode.NotFound, e.Code);
-        Assert.Contains("Player", e.Message + e.Remediation);
+        Assert.Contains("Sensor", e.Message + e.Remediation);
     }
 
     [Fact]
@@ -301,24 +301,24 @@ public sealed class UnityFieldTests : IDisposable
         using var module = dnlib.DotNet.ModuleDefMD.Load(Assemblies.Value.Scripts);
         // Il2Cpp dummy assemblies keep field flags but no custom attributes.
         foreach (var f in module.GetTypes().SelectMany(t => t.Fields)) f.CustomAttributes.Clear();
-        var layout = UnityScriptLayout.Build(module.Find("Player", false), 22, attributesKept: false);
-        Assert.StartsWith("spawn: a private field", layout.Unknown);
+        var layout = UnityScriptLayout.Build(module.Find("Sensor", false), 22, attributesKept: false);
+        Assert.StartsWith("origin: a private field", layout.Unknown);
         var names = layout.Tree.Where(n => n.Level == 1).Select(n => n.Name).ToList();
-        Assert.Equal(["m_GameObject", "m_Enabled", "m_Script", "m_Name", "health", "speed", "alive", "title"], names);
+        Assert.Equal(["m_GameObject", "m_Enabled", "m_Script", "m_Name", "count", "rate", "active", "title"], names);
     }
 
     [Fact]
     public void Il2Cpp_metadata_with_field_attributes_continues_past_a_private_field()
     {
         using var module = dnlib.DotNet.ModuleDefMD.Load(Assemblies.Value.Scripts);
-        var expected = UnityScriptLayout.Build(module.Find("Player", false), 22, attributesKept: true);
+        var expected = UnityScriptLayout.Build(module.Find("Sensor", false), 22, attributesKept: true);
         // The dummy builder marks a module whose fields keep their attribute types.
         var marker = new dnlib.DotNet.TypeRefUser(module, Il2CppDummyBuilder.AttributeAssembly, "FieldAttributesAttribute", new dnlib.DotNet.AssemblyRefUser(Il2CppDummyBuilder.AttributeAssembly));
         module.Assembly.CustomAttributes.Add(new dnlib.DotNet.CustomAttribute(new dnlib.DotNet.MemberRefUser(module, ".ctor", dnlib.DotNet.MethodSig.CreateInstance(module.CorLibTypes.Void), marker)));
-        var layout = UnityScriptLayout.Build(module.Find("Player", false), 22, attributesKept: false);
+        var layout = UnityScriptLayout.Build(module.Find("Sensor", false), 22, attributesKept: false);
         // Both stop at the engine reference the test's module cannot resolve, after the private fields.
         Assert.Equal(expected.Unknown, layout.Unknown);
-        Assert.Contains(layout.Tree, n => n is { Level: 1, Name: "spawn" });
+        Assert.Contains(layout.Tree, n => n is { Level: 1, Name: "origin" });
         Assert.Equal(expected.Tree.Select(n => (n.Level, n.Name, n.Type)), layout.Tree.Select(n => (n.Level, n.Name, n.Type)));
     }
 
@@ -335,7 +335,7 @@ public sealed class UnityFieldTests : IDisposable
     [Fact]
     public void The_overview_lists_the_view_and_counts_the_assets()
     {
-        var path = Game("level0", PlayerFile(typeTrees: true));
+        var path = Folder("level0", SensorFile(typeTrees: true));
         var summary = new InspectionService(new AssemblyWorkspace()).Summarize(null, path, default);
         Assert.Contains(summary.Highlights, h => h.Contains("1 MonoBehaviour assets", StringComparison.Ordinal));
         Assert.True(summary.Views.ContainsKey("unity"));
@@ -345,10 +345,10 @@ public sealed class UnityFieldTests : IDisposable
     [FuzzEntry(typeof(SerializedFile), typeof(UnityFsBundle), typeof(UnityFileView))]
     public void Fuzzed_unity_files_never_throw_unexpectedly()
     {
-        var seeds = new[] { ("level0", PlayerFile(typeTrees: true)), ("level1", PlayerFile(typeTrees: false)), ("x.bundle", UnityFileWriter.Bundle(2, ("CAB-1", PlayerFile(typeTrees: false)))) };
+        var seeds = new[] { ("level0", SensorFile(typeTrees: true)), ("level1", SensorFile(typeTrees: false)), ("x.bundle", UnityFileWriter.Bundle(2, ("CAB-1", SensorFile(typeTrees: false)))) };
         foreach (var (name, seed) in seeds)
         {
-            var path = Game(name, seed);
+            var path = Folder(name, seed);
             var failures = FormatFuzz.Run(seed, b =>
             {
                 SerializedFile.Read(b, name);
@@ -362,37 +362,37 @@ public sealed class UnityFieldTests : IDisposable
 }
 
 /// <summary>
-/// view=unity on the Unity titles of CORVUS_UNITY_TITLES (';'-separated game folders): every asset read, and the assets
+/// view=unity on the Unity builds of CORVUS_UNITY_BUILDS (';'-separated build folders): every asset read, and the assets
 /// whose bundles keep type trees laid out again from the scripts' assemblies or Il2Cpp metadata and compared.
 /// </summary>
 [Trait("Speed", "Slow")]
 public sealed class UnityFieldRealTests(ITestOutputHelper output)
 {
     [Fact]
-    public void Real_titles_lay_out_their_scripts_as_their_type_trees_do()
+    public void Real_builds_lay_out_their_scripts_as_their_type_trees_do()
     {
-        var titles = (Environment.GetEnvironmentVariable("CORVUS_UNITY_TITLES") ?? "").Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+        var builds = (Environment.GetEnvironmentVariable("CORVUS_UNITY_BUILDS") ?? "").Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
             .Where(Directory.Exists).ToList();
-        if (titles.Count == 0) { output.WriteLine("No Unity titles (CORVUS_UNITY_TITLES)."); return; }
-        foreach (var title in titles) Title(title);
+        if (builds.Count == 0) { output.WriteLine("No Unity builds (CORVUS_UNITY_BUILDS)."); return; }
+        foreach (var build in builds) ReadBuild(build);
     }
 
-    private void Title(string title)
+    private void ReadBuild(string build)
     {
         int both = 0, same = 0, partial = 0, unknown = 0, different = 0;
         static List<string> Known(IEnumerable<string> lines) => [.. lines.Where(l => !l.EndsWith(" = unknown", StringComparison.Ordinal))];
         var states = new Dictionary<string, int>();
         var reasons = new Dictionary<string, int>();
         var differ = new List<string>();
-        // An Il2Cpp title is read first, as load_assembly reads it, so its metadata gives the layouts.
-        foreach (var metadata in Directory.EnumerateFiles(title, Il2CppGameFiles.MetadataFileName, SearchOption.AllDirectories))
+        // An Il2Cpp build is read first, as load_assembly reads it, so its metadata gives the layouts.
+        foreach (var metadata in Directory.EnumerateFiles(build, Il2CppBuildFiles.MetadataFileName, SearchOption.AllDirectories))
         {
             try
             {
-                if (Il2CppGameFiles.Find(metadata) is { Binary.Length: > 0 } game)
+                if (Il2CppBuildFiles.Find(metadata) is { Binary.Length: > 0 } files)
                 {
                     using var workspace = new AssemblyWorkspace();
-                    new Il2CppRawLoader(workspace).Load(game, loadBinary: false, null, default);
+                    new Il2CppRawLoader(workspace).Load(files, loadBinary: false, null, default);
                 }
             }
             catch (ToolError e)
@@ -400,7 +400,7 @@ public sealed class UnityFieldRealTests(ITestOutputHelper output)
                 output.WriteLine($"{metadata}: not read ({e.Message})");
             }
         }
-        foreach (var file in Directory.EnumerateFiles(title, "*", SearchOption.AllDirectories))
+        foreach (var file in Directory.EnumerateFiles(build, "*", SearchOption.AllDirectories))
         {
             if (new FileInfo(file).Length is < 64 or > 512L << 20) continue;
             var head = new byte[64];
@@ -436,7 +436,7 @@ public sealed class UnityFieldRealTests(ITestOutputHelper output)
                 else if (++different <= 10) differ.Add($"{Path.GetFileName(file)} {tree.Script}: {string.Join("; ", t.Except(l).Take(3))} vs {string.Join("; ", l.Except(t).Take(3))}");
             }
         }
-        output.WriteLine($"{Path.GetFileName(title)}: {both} assets with both layouts: {same} equal, {partial} equal up to an unknown field, {unknown} unknown, {different} differ");
+        output.WriteLine($"{Path.GetFileName(build)}: {both} assets with both layouts: {same} equal, {partial} equal up to an unknown field, {unknown} unknown, {different} differ");
         foreach (var d in differ) output.WriteLine(d);
         output.WriteLine("assets by layout and state: " + string.Join(", ", states.OrderBy(p => p.Key, StringComparer.Ordinal).Select(p => $"{p.Key} {p.Value}")));
         foreach (var (reason, n) in reasons.OrderByDescending(p => p.Value).Take(12)) output.WriteLine($"{n} x {reason}");

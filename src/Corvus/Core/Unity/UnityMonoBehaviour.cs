@@ -16,7 +16,7 @@ public sealed record UnityScriptClass(string ClassName, string Namespace, string
 }
 
 /// <summary>
-/// The fixed part of MonoBehaviour and MonoScript objects: the base fields every MonoBehaviour starts with (game object,
+/// The fixed part of MonoBehaviour and MonoScript objects: the base fields every MonoBehaviour starts with (GameObject,
 /// enabled, script, name) and the class a MonoScript names.
 /// </summary>
 internal static partial class UnityMonoBehaviour
@@ -28,7 +28,7 @@ internal static partial class UnityMonoBehaviour
         "m_GameObject", "m_Enabled", "m_EditorHideFlags", "m_Script", "m_Name", "m_EditorClassIdentifier",
     ];
 
-    /// <summary>The type tree of a player build's MonoBehaviour base: game object, enabled, script and name.</summary>
+    /// <summary>The type tree of a player build's MonoBehaviour base: GameObject, enabled, script and name.</summary>
     public static List<UnityTypeNode> BaseTree(int format)
     {
         var nodes = new List<UnityTypeNode> { new("MonoBehaviour", "Base", 0, -1, false, 0) };

@@ -9,13 +9,13 @@ using Corvus.Native.Code;
 namespace Corvus.Services;
 
 /// <summary>
-/// Names a native Il2Cpp game binary (GameAssembly.dll) from the dump that describes it: the dummy-DLL methods'
+/// Names a native Il2Cpp binary (GameAssembly.dll) from the dump that describes it: the dummy-DLL methods'
 /// [Address] RVAs and, with script.json, every function start, generic instantiation, ScriptMetadata and MethodInfo
 /// slot; with stringliteral.json (or script.json's strings), the string literal slots. The names form the image's
 /// <see cref="NativeNameSource.Il2Cpp"/> layer, below user and PDB names, replaced or cleared as a whole.
 /// <para>
 /// Naming scheme: C identifiers (letters, digits, '_'), the name characters IDA accepts for x86/x64, so the names
-/// in IDA equal ours. Functions "Ns_Type__Method": the Il2CppDumper name "Ns.Type$$Method" with "$$" as "__" and
+/// in IDA equal ours. Functions "Ns_Type__Method": the script.json name "Ns.Type$$Method" with "$$" as "__" and
 /// every other character outside the set replaced by '_' (runs collapsed, a trailing one dropped; non-ASCII letters
 /// as uXXXX; a leading digit gets '_'); a name already used at another address gets "_&lt;RVA hex&gt;". Comments keep
 /// the readable form: "Ns.Type::Method(int, string)" for dummy methods, "Ns.Type&lt;args&gt;::Method" for
@@ -217,20 +217,20 @@ public sealed class Il2CppNativeNames(Il2CppService il2cpp, Il2CppNavigator navi
     {
         var withMetadata = scope.Where(a => il2cpp.GetIndex(a).Count > 0).ToList();
         if (withMetadata.Count == 0)
-            throw new ToolError(ErrorCode.NotLoaded, "No Il2Cpp dummy assembly (Il2CppDumper / Cpp2IL DummyDll with [Address] attributes) is loaded" +
+            throw new ToolError(ErrorCode.NotLoaded, "No Il2Cpp dummy assembly (one with [Address] attributes) is loaded" +
                                                      (scope.Count > 0 ? " in the selected assemblies." : "."),
-                "load_assembly the game folder or its global-metadata.dat (built-in reader; apply_il2cpp_names does it when the metadata is beside the image), or a DummyDll folder (script.json and stringliteral.json beside it add generic instantiations, metadata slots and strings)");
+                "load_assembly the application folder or its global-metadata.dat (built-in reader; apply_il2cpp_names does it when the metadata is beside the image), or a dummy assembly folder (script.json and stringliteral.json beside it add generic instantiations, metadata slots and strings)");
         var images = navigator.ImagesFor(withMetadata);
         var image = images.FirstOrDefault(i => i.Dump?.Files.Describes(native) == true)
                     ?? (images.Count == 1 ? images[0] : null)
                     ?? throw new ToolError(ErrorCode.Ambiguous, $"{images.Count} Il2Cpp dumps are loaded and none was made from {native.FilePath}: " +
                                                                 string.Join("; ", images.Select(i => i.Dump?.Files.Directory ?? string.Join(", ", i.Assemblies.Select(a => a.Id)))),
-                        "pass assembly to pick the dummy assemblies of this game");
+                        "pass assembly to pick the dummy assemblies of this build");
         var pe = native.Image;
         if (!image.Starts.Any(s => s < pe.SizeOfImage && pe.SectionAt(s) is { IsExecutable: true }))
             throw new ToolError(ErrorCode.InvalidArgument,
                 $"None of the {image.Starts.Length} function addresses of the dump ({string.Join(", ", image.Assemblies.Select(a => a.Id))}) is in an executable section of {native.Id}: " +
-                "the dump was not made from this binary.", "load the game's GameAssembly.dll, or the dummy assemblies dumped from this binary");
+                "the dump was not made from this binary.", "load the matching GameAssembly.dll, or the dummy assemblies dumped from this binary");
         return image;
     }
 

@@ -4,7 +4,8 @@
 No file is uploaded. Requests: a .NET reference pack from nuget.org when code targets an uninstalled .NET version;
 `load_pdb download=true` (symbol server, debuginfod) and `open_minidump downloadDac=true`; the pinned Frida with
 `--live-install-frida`; release downloads by the install scripts and `update`; and IDA or Ghidra if their own settings
-reach out. `CORVUS_OFFLINE=1` refuses Corvus's own requests except updates and installs, which run only when you start them. Full list: [SECURITY.md](../SECURITY.md#network).
+reach out. `CORVUS_OFFLINE=1` refuses Corvus's own requests except updates and installs, which run only when you
+start them. Full list: [SECURITY.md](../SECURITY.md#network).
 
 **Does it run the program I analyze?**
 Not by default: it reads bytes. `simplify_methods` and `emulate_native` emulate code (never run natively).
@@ -16,8 +17,7 @@ only on the calls that need them: [SECURITY.md](../SECURITY.md#worker-and-helper
 No. Decompilation, search, cross-references and patching of .NET code, and native analysis (PE, ELF, Mach-O
 disassembly, functions, cross-references, CFGs, RTTI, PDBs, patching) are built in. IDA (with idalib) or Ghidra adds
 C pseudocode (`decompile_native`, `search_decompiled`), emulation (`emulate_native`), engine scripting and the engine
-type and frame edits. WebAssembly decompiles without one. `corvus status
---engine all` shows what is available.
+type and frame edits. WebAssembly decompiles without one. `corvus status --engine all` shows what is available.
 
 **Which clients are supported?**
 The ones in the table of [installation.md](installation.md#clients); `install` finds the installed ones. Any other MCP
@@ -39,14 +39,14 @@ Yes: copy a release archive and `SHA256SUMS`, then run the install script with `
 ([installation.md](installation.md)).
 
 **Does it handle Il2Cpp and Unity builds?**
-Yes. `load_assembly` reads an Il2Cpp game folder or its `global-metadata.dat` with the built-in metadata reader
-(Il2CppDumper and Cpp2IL are not needed), and `unity_overview` reports the engine version, scripting backend and the next
-calls. Metadata encrypted on disk is reported, not decrypted: dump the decrypted copy from the running game's memory and
-load that.
+Yes. `load_assembly` reads an Il2Cpp build folder or its `global-metadata.dat` with the built-in metadata reader; no
+external dumper is needed. `unity_overview` reports the engine version, scripting backend and the next calls. Metadata
+encrypted on disk is reported, not decrypted: dump the decrypted copy from the running program's memory and load
+that.
 
 **Is the agent skill required?**
 No. The server sends its own guidance to every client. `install --skill` adds an optional skill for clients that read
-skills; it helps an agent check the registration and use the command line when the tools are not connected.
+skills; it lets an agent check the registration and use the command line when the tools are not connected.
 
 **Where is my data, and how do I remove it?**
 Saved names, comments, notes, code-index and engine caches, symbols and reference packs live under
@@ -54,5 +54,5 @@ Saved names, comments, notes, code-index and engine caches, symbols and referenc
 `uninstall --purge-data` deletes them.
 
 **May I use it on any program?**
-Use it on software you own or are permitted to analyze, and follow the license terms and laws that apply to you. See the
-README's lawful-use note.
+Use it on software you own or are permitted to analyze, and follow the license terms and laws that apply to you
+([README](../README.md#responsible-use)).

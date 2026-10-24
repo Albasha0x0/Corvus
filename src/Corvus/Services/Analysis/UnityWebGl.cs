@@ -8,13 +8,13 @@ namespace Corvus.Services.Analysis;
 
 /// <summary>
 /// Unity WebGL builds for unity_overview: the Build folder's .data (a UnityWebData file table; gzip, brotli or plain) gives the
-/// version file and the Il2Cpp metadata, unpacked into a short cache folder laid out as Data/; the .wasm is the game code.
+/// version file and the Il2Cpp metadata, unpacked into a short cache folder laid out as Data/; the .wasm is the compiled code.
 /// </summary>
 internal static class UnityWebGl
 {
     /// <summary>A file in the extracted folder that marks it as a WebGL title.</summary>
     public const string Marker = ".webgl";
-    private const int Format = 1; // bump when what is extracted changes
+    private const int Format = 2; // bump when what is extracted changes
     private const int VersionHeaderBytes = 1 << 16;
     private const long MaxBytes = 2L << 30;
 
@@ -41,15 +41,15 @@ internal static class UnityWebGl
         return name.EndsWith(".data") || name.EndsWith(".data.gz") || name.EndsWith(".data.br") || name.EndsWith(".data.unityweb");
     }
 
-    /// <summary>The extracted game folder; <paramref name="notes"/> gets the code's facts.</summary>
+    /// <summary>The extracted build folder; <paramref name="notes"/> gets the code's facts.</summary>
     public static string Extract(Build build, string cacheRoot, List<string> notes, CancellationToken ct)
     {
         var bytes = Decompress(File.ReadAllBytes(build.Data), build.Data);
         var sha = Convert.ToHexStringLower(SHA256.HashData(bytes));
-        var game = Path.Combine(cacheRoot, "webgl", $"{sha[..16]}-{Format}", "game");
-        if (!File.Exists(Path.Combine(game, Marker)))
+        var root = Path.Combine(cacheRoot, "webgl", $"{sha[..16]}-{Format}", "app");
+        if (!File.Exists(Path.Combine(root, Marker)))
         {
-            var data = Path.Combine(game, "Data");
+            var data = Path.Combine(root, "Data");
             Directory.CreateDirectory(Path.Combine(data, "Managed", "Metadata"));
             foreach (var (name, offset, size) in Entries(bytes, build.Data))
             {
@@ -63,7 +63,7 @@ internal static class UnityWebGl
                 if (target != null)
                     File.WriteAllBytes(target, bytes.AsSpan(offset, name == "data.unity3d" ? Math.Min(size, VersionHeaderBytes) : size).ToArray());
             }
-            File.WriteAllText(Path.Combine(game, Marker), build.Data);
+            File.WriteAllText(Path.Combine(root, Marker), build.Data);
         }
         if (build.Code is { } code)
             try
@@ -74,7 +74,7 @@ internal static class UnityWebGl
                           "(summarize_file view=wasm gives its imports, exports and toolchain).");
             }
             catch (ToolError e) { notes.Add($"WebGL code {Path.GetFileName(code)}: {e.Message}"); }
-        return game;
+        return root;
     }
 
     /// <summary>gzip by its magic, the plain table, else brotli (Unity writes no brotli magic).</summary>

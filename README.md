@@ -1,8 +1,8 @@
 # Corvus
 
-**Reverse engineering for AI agents.** Corvus is an MCP server that lets your agent read, trace, compare and patch
-compiled programs: .NET assemblies and native PE, ELF and Mach-O binaries. One self-contained binary, no runtime to
-install, nothing uploaded; by default nothing it reads is executed.
+**Reverse engineering for AI agents.** Corvus is an MCP server that reads, traces, compares and patches compiled
+programs: .NET assemblies and native PE, ELF and Mach-O binaries. One self-contained binary, no runtime to install,
+nothing uploaded; by default nothing it reads is executed.
 
 [![Release](https://img.shields.io/github/v/release/Albasha0x0/Corvus?style=flat-square)](https://github.com/Albasha0x0/Corvus/releases)
 [![CI](https://img.shields.io/github/actions/workflow/status/Albasha0x0/Corvus/ci.yml?branch=main&style=flat-square&label=CI)](https://github.com/Albasha0x0/Corvus/actions/workflows/ci.yml)
@@ -11,8 +11,7 @@ install, nothing uploaded; by default nothing it reads is executed.
 
 > [!NOTE]
 > Corvus is under active development. Tools, parameters and output can change between releases; breaking changes are
-> listed in the [release notes](docs/release-notes.md). Bug reports and feedback are welcome in
-> [issues](https://github.com/Albasha0x0/Corvus/issues). If Corvus is useful to you, a star helps other people find it.
+> listed in the [release notes](docs/release-notes.md). Report bugs in [issues](https://github.com/Albasha0x0/Corvus/issues).
 
 [Quick start](#quick-start) · [How it works](#how-it-works) · [What you can analyze](#what-you-can-analyze) ·
 [Showcases](#showcases) · [Why Corvus](#why-corvus) · [Documentation](#documentation)
@@ -32,8 +31,7 @@ curl -fsSL https://raw.githubusercontent.com/Albasha0x0/Corvus/main/install.sh |
 ```
 
 The installer checks the download against the release's `SHA256SUMS` and, when `gh` is signed in, its signed build
-provenance from this repository's release workflow (without `gh` it says "provenance not checked") and registers
-Corvus with the MCP clients it finds. As a plugin (server and skill; needs the .NET 10 SDK): `/plugin install corvus --marketplace Albasha0x0/Corvus`
+provenance (without `gh` it says "provenance not checked"), then registers Corvus with the MCP clients it finds. As a plugin (server and skill; needs the .NET 10 SDK): `/plugin install corvus --marketplace Albasha0x0/Corvus`
 in Claude Code, `codex plugin marketplace add Albasha0x0/Corvus` then `corvus` in `/plugins` in Codex
 ([installation](docs/installation.md#claude-code-and-codex-plugins)). Restart your client and ask:
 
@@ -43,19 +41,19 @@ From a terminal: `corvus decompile_member --load app.dll member=Ns.Type::Method`
 
 ## How it works
 
-Your agent calls Corvus over MCP. Corvus answers with bounded, structured results: every list pages, every error names
-the next step, and long results are kept for `read_result`. The agent follows calls and references, explains the
-behaviour, and can patch a copy and save it.
+Your agent calls Corvus over MCP. Results are bounded and structured: every list pages, every error names the next
+step, and long results are kept for `read_result`. The agent follows calls and references and can patch and save a
+copy.
 
-Native code is analyzed by Corvus's own engine (x86, x64, ARM32, ARM64), with IDA or Ghidra as optional decompilers
-when installed. Their databases and output are kept, so the second question about a binary is fast.
+Corvus's own engine analyzes native code (x86, x64, ARM32, ARM64); IDA or Ghidra, when installed, are optional
+decompilers. Their databases and output are kept, so later calls on the same binary are fast.
 
 ## What you can analyze
 
 | Target | What you get | Needs |
 |---|---|---|
 | .NET assemblies | C# decompilation, IL, references, call graphs, build comparison, C# and IL patching, saving | nothing |
-| Unity and Il2Cpp games | metadata, addresses, string literals, IDA / Ghidra scripts, C++ bindings | nothing |
+| Unity and Il2Cpp applications | metadata, addresses, string literals, IDA / Ghidra scripts, C++ bindings | nothing |
 | Native binaries (PE, ELF, Mach-O) | functions, disassembly, CFG, cross-references, values, RTTI, PDB types, similar functions | nothing |
 | Native pseudocode | decompilation, engine types, frames, scripting, emulation, pseudocode search | IDA 9 (idalib) or Ghidra 12 |
 | WebAssembly | modules and components, disassembly, decompiled code | nothing |
@@ -76,7 +74,7 @@ Full list: [features](docs/features.md) and the [tool reference](docs/tools.md) 
 
 - **[Decompile, rebuild, run](docs/showcase/round-trip.md):** an assembly exported as a C# project that builds with
   warnings as errors, runs with the same output, and is measured against the original.
-- **[Inside a single-file app](docs/showcase/single-file.md):** a .NET single-file executable extracted without running
+- **[Inside a single-file app](docs/showcase/single-file.md):** a .NET single-file executable unpacked without running
   it, its assemblies extracted byte for byte.
 - **[Where SQLite makes its random numbers](docs/showcase/sqlite-random.md):** a crypto constant in a native SQLite
   build traced to `sqlite3_randomness` and its callers, recorded as an evidence bundle and re-verified.
@@ -87,12 +85,12 @@ Each step in the showcases and [guides](docs/guides/1-first-session.md) is check
 
 ## Why Corvus
 
-- **Works with nothing installed.** Native analysis, .NET decompilation, containers and dumps are built in.
+- **Nothing to install.** Native analysis, .NET decompilation, containers and dumps are built in.
 - **Fast.** Results come from saved indexes and engine databases; warm calls answer in milliseconds.
-- **Sized for agents.** Every result fits a token budget per part, with paging and kept results.
+- **Sized for agents.** Every result fits a token budget, with paging and kept results.
 - **Edits, not just reads.** Patch .NET and native code in memory, review the diff, save a verified copy, and carry
   names and patches to the next build.
-- **Every platform.** Windows, Linux (glibc and musl) and macOS, x64 and arm64: win-x64, win-arm64, linux-x64,
+- **Cross-platform.** Windows, Linux (glibc and musl) and macOS, x64 and arm64: win-x64, win-arm64, linux-x64,
   linux-arm64, linux-musl-x64, linux-musl-arm64, osx-x64 and osx-arm64.
 
 Supported clients: Claude Code, Claude Desktop, Cursor, Windsurf, VS Code, VS Code Insiders, VSCodium, Cline, Roo Code,

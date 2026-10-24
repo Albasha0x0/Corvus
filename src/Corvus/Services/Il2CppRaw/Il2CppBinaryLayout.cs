@@ -7,7 +7,7 @@ using Corvus.Native.MachO;
 namespace Corvus.Services;
 
 /// <summary>
-/// Where the Il2Cpp reader finds things in a game binary of any format: image base and size, executable and
+/// Where the Il2Cpp reader finds things in an Il2Cpp binary of any format: image base and size, executable and
 /// initialized-data areas with their file layout, the file offset of an RVA as built, and whether code pointers carry
 /// the Thumb bit. Built from the PE section table (a memory image normalized first) or from the ELF / Mach-O readers.
 /// </summary>
@@ -102,11 +102,11 @@ public sealed class Il2CppBinaryLayout
                || name.StartsWith(".gcc_except", StringComparison.Ordinal) || name.StartsWith(".ARM", StringComparison.Ordinal) || name.StartsWith(".got", StringComparison.Ordinal)),
     };
 
-    /// <summary>What the bytes of a game binary are: the buffer the library reads, its layout, and notes on what was done to it.</summary>
+    /// <summary>What the bytes of an Il2Cpp binary are: the buffer the library reads, its layout, and notes on what was done to it.</summary>
     public sealed record Opened(byte[] Bytes, Il2CppBinaryLayout Layout, bool MemoryImage, string? Note);
 
     /// <summary>
-    /// Opens a game binary for the reader: a PE (a memory image is normalized to its file layout), an ELF (a memory
+    /// Opens an Il2Cpp binary for the reader: a PE (a memory image is normalized to its file layout), an ELF (a memory
     /// image gets file offsets equal to its addresses), or a Mach-O (the chosen slice of a universal file). Encrypted
     /// Mach-O code (FairPlay) is refused with reason encrypted_fairplay; other formats with binary_format_unsupported.
     /// </summary>
@@ -149,8 +149,8 @@ public sealed class Il2CppBinaryLayout
     }
 
     private static ToolError Unsupported(string path, string why) =>
-        new(ErrorCode.Unsupported, $"{path} cannot be read as an Il2Cpp game binary: {why} (reason binary_format_unsupported).",
-            "pass the game's GameAssembly.dll, libil2cpp.so, UnityFramework or GameAssembly.dylib/.so; for WebGL builds use Il2CppDumper or Cpp2IL output");
+        new(ErrorCode.Unsupported, $"{path} cannot be read as an Il2Cpp binary: {why} (reason binary_format_unsupported).",
+            "pass the build's GameAssembly.dll, libil2cpp.so, UnityFramework or GameAssembly.dylib/.so; for WebGL builds load dummy assemblies with [Address] attributes");
 
     /// <summary>
     /// Rewrites the program headers of an ELF memory image in place so every PT_LOAD's file data is at its address, and

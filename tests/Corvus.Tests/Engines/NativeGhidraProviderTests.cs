@@ -354,9 +354,9 @@ public sealed class NativeGhidraColdOpenTests(ITestOutputHelper output, GhidraCa
         new byte[] { 0xB8, 0x07, 0, 0, 0, 0xC3 }.CopyTo(text, 0);
         var dir = new TempDir();
         Owned.Add(dir);
-        var path = dir.File("Player's \u0436 Game.so");
+        var path = dir.File("Player's \u0436 App.so");
         File.WriteAllBytes(path, new NativeFormats.ElfWriter { Machine = NativeFormats.ElfWriter.EmX64, Entry = NativeFormats.ElfWriter.TextRva, Text = text }.Build());
-        Assert.Equal("Player_s _ Game.so", GhidraSession.ProgramName(Path.GetFileName(path)));
+        Assert.Equal("Player_s _ App.so", GhidraSession.ProgramName(Path.GetFileName(path)));
         var provider = new GhidraProvider(new GhidraProviderOptions { CacheRoot = dir.File("cache") });
         Owned.Add(provider);
         await using var s = await provider.OpenAsync(path, null, Offline);

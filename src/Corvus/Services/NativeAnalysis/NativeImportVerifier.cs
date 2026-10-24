@@ -17,7 +17,7 @@ namespace Corvus.Services;
 /// found in the IL (<see cref="DynamicNativeLoads"/>) turns unresolved declarations into dynamic_only, and malformed
 /// ImplMap / ModuleRef rows are reported with their location instead of being read as empty names. Off Windows targets
 /// (the platform the app ships for, see <see cref="UnixProbing"/>) .so / .dylib libraries are probed as .NET does and
-/// matched against ELF dynamic symbols and Mach-O exports; __Internal binds to an Il2Cpp game's own binary.
+/// matched against ELF dynamic symbols and Mach-O exports; __Internal binds to an Il2Cpp build's own binary.
 /// </summary>
 public sealed class NativeImportVerifier
 {
@@ -113,8 +113,8 @@ public sealed class NativeImportVerifier
         T Locked<T>(Func<T> read) => workspace != null ? workspace.Read(read, ct) : read();
 
         var appDirectory = Path.GetDirectoryName(Path.GetFullPath(asm.FilePath))!;
-        var game = Il2CppGame(appDirectory);
-        var target = UnixProbing.Detect(appDirectory, platform, game?.Platform);
+        var il2cpp = FindIl2CppBinary(appDirectory);
+        var target = UnixProbing.Detect(appDirectory, platform, il2cpp?.Platform);
         var issues = MetadataSurvey.Survey(asm.OriginalBytes).ToList();
         var (rowIssues, types, x86) = Locked(() => (MetadataSurvey.ImplMapRows(asm.Module), asm.Module.GetTypes().ToList(), IsX86(asm.Module)));
         issues.AddRange(rowIssues.Values);
@@ -142,7 +142,7 @@ public sealed class NativeImportVerifier
                 if (method.ImplMap is not { } map) return true; // removed by an edit meanwhile
                 var check = rowIssues.TryGetValue(map.Rid, out var issue) ? Malformed(method, map, issue)
                     : target.IsWindows ? CheckOne(asm, method, map, x86)
-                    : CheckUnix(method, map, appDirectory, target, game);
+                    : CheckUnix(method, map, appDirectory, target, il2cpp);
                 checks.Add(Dynamic(check, resolvers, loadedLibraries));
                 return true;
             });
@@ -151,10 +151,10 @@ public sealed class NativeImportVerifier
         return new Result(checks, dynamic, truncated, issues) { Platform = target };
     }
 
-    /// <summary>An Il2Cpp game whose dummy assemblies are in <paramref name="directory"/>: its binary (for __Internal), platform and library folders.</summary>
-    private sealed record GameBinary(string File, TargetPlatform Platform, List<string> Folders);
+    /// <summary>An Il2Cpp build whose dummy assemblies are in <paramref name="directory"/>: its binary (for __Internal), platform and library folders.</summary>
+    private sealed record Il2CppBinaryFile(string File, TargetPlatform Platform, List<string> Folders);
 
-    private GameBinary? Il2CppGame(string directory)
+    private Il2CppBinaryFile? FindIl2CppBinary(string directory)
     {
         if (Il2CppDumpFiles.Locate(directory)?.GameAssembly is not { } binary || _open(binary) is not { } image) return null;
         var folder = Path.GetDirectoryName(binary)!;
@@ -168,29 +168,29 @@ public sealed class NativeImportVerifier
         var folders = new List<string> { folder };
         // iOS: UnityFramework.framework sits in the app's Frameworks folder beside the other frameworks.
         if (os == "ios" && Path.GetDirectoryName(folder) is { } frameworks) folders.Add(frameworks);
-        return new GameBinary(binary, new TargetPlatform(os, arch.Length > 0 ? $"{os}-{arch}" : null, $"Il2Cpp game binary {Path.GetFileName(binary)}"), folders);
+        return new Il2CppBinaryFile(binary, new TargetPlatform(os, arch.Length > 0 ? $"{os}-{arch}" : null, $"Il2Cpp binary {Path.GetFileName(binary)}"), folders);
     }
 
     /// <summary>A declaration checked against .so / .dylib libraries with the .NET probing rules of a Unix target.</summary>
-    private Check CheckUnix(MethodDef method, ImplMap map, string appDirectory, TargetPlatform target, GameBinary? game)
+    private Check CheckUnix(MethodDef method, ImplMap map, string appDirectory, TargetPlatform target, Il2CppBinaryFile? il2cpp)
     {
         string label = Format.MemberLabel(method);
         var (module, entry, charSet, callConv) = Describe(method, map);
         Check Result(string status, string reason, string? file, string? export, string detail) =>
             new(label, $"0x{method.MDToken.Raw:X8}", module, entry, charSet, map.IsNoMangle, callConv, status, reason, file, export, detail, null);
 
-        if (module == "__Internal" && game != null && _open(game.File) is { } own)
+        if (module == "__Internal" && il2cpp != null && _open(il2cpp.File) is { } own)
         {
             var name = own.Format == ImageFormat.MachO ? "_" + entry : entry;
             return own.Exports.Any(e => e.Name == name) || own.Symbols.Any(s => s.Name == name && s.Kind == ImageSymbolKind.Function)
-                ? Result(Verified, "internal", game.File, name, $"__Internal: defined in {Path.GetFileName(game.File)}, the game binary it is linked into")
-                : Result(Contradicted, "missing_export", game.File, null, $"__Internal: {Path.GetFileName(game.File)} does not define it; {NativeLinker.NearMisses(own, name)}");
+                ? Result(Verified, "internal", il2cpp.File, name, $"__Internal: defined in {Path.GetFileName(il2cpp.File)}, the Il2Cpp binary it is linked into")
+                : Result(Contradicted, "missing_export", il2cpp.File, null, $"__Internal: {Path.GetFileName(il2cpp.File)} does not define it; {NativeLinker.NearMisses(own, name)}");
         }
         if (RuntimeResolved(module) is { } why) return Result(NotChecked, "runtime_internal", null, null, why);
         if (IsRuntimeLibrary(module))
             return Result(NotChecked, "runtime_library", null, null, "a .NET runtime native library that ships with the runtime on this platform");
 
-        var (file, searched, other) = UnixProbing.Locate(module, appDirectory, target, game?.Folders);
+        var (file, searched, other) = UnixProbing.Locate(module, appDirectory, target, il2cpp?.Folders);
         var tried = string.Join(", ", UnixProbing.ProbeNames(module, target));
         if (file == null)
             return other.Count > 0

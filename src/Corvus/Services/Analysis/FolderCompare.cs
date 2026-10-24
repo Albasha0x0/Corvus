@@ -408,7 +408,7 @@ public sealed class FolderCompare
         var name = Path.GetFileName(b);
         var load = $"load_assembly path=\"{a}\"; load_assembly path=\"{b}\"; ";
         if (name.Equals("global-metadata.dat", StringComparison.OrdinalIgnoreCase))
-            return $"Il2Cpp metadata changed: load both game folders, then update_to_new_build oldImage=GameAssembly.dll newImage=GameAssembly.dll#2 (Il2Cpp mapping)";
+            return $"Il2Cpp metadata changed: load both build folders, then update_to_new_build oldImage=GameAssembly.dll newImage=GameAssembly.dll#2 (Il2Cpp mapping)";
         return kind switch
         {
             "dotnet" => load + $"compare_assemblies oldAssembly={name} newAssembly={name}#2",

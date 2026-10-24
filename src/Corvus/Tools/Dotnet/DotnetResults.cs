@@ -36,7 +36,7 @@ public sealed record MemberEntry(
     [property: Description("Declaration as C#.")] string Signature)
 {
     [Description("nested, field, property, event or method (section summary and all).")] public string? Kind { get; init; }
-    [Description("Il2Cpp RVA / offset from the dummy DLL's attributes.")] public string? Il2Cpp { get; init; }
+    [Description("Il2Cpp RVA / offset from the dummy assembly's attributes.")] public string? Il2Cpp { get; init; }
     [Description("Methods: IL instruction count; absent without a body.")] public int? Il { get; init; }
 }
 
@@ -127,7 +127,7 @@ public sealed record IlMethodHash(string Token, string? IlHash, string? RawSha25
 
 public sealed record StringEntry(
     [property: Description("The literal (clipped at 200 characters).")] string Value,
-    [property: Description("il (ldstr), constant (const field), il2cpp (the dump's string literal table).")] string Source)
+    [property: Description("il (ldstr), constant (const field), il2cpp (stringliteral.json or script.json).")] string Source)
 {
     [Description("Method or field using it (il, constant).")] public SymbolRef? Owner { get; init; }
     public int? IlOffset { get; init; }

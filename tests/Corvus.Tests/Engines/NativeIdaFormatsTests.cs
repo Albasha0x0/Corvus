@@ -92,7 +92,7 @@ public sealed class NativeIdaFormatsTests(ITestOutputHelper output) : IDisposabl
         var package = Directory.EnumerateFiles(root, "*.apk").OrderBy(f => new FileInfo(f).Length).FirstOrDefault();
         if (package == null) return;
         var cache = RealData.Get(Il2CppRawLoader.RootVariable) ?? _dir.File("il2cpp");
-        var files = Il2CppGameFiles.Find(Il2CppPackages.Extract(package, null, cache)!)!;
+        var files = Il2CppBuildFiles.Find(Il2CppPackages.Extract(package, null, cache)!)!;
         var options = new ServerOptions { TimeoutSeconds = 1800, BackgroundIndexing = false };
         var workspace = new AssemblyWorkspace(options);
         _owned.Add(workspace);
