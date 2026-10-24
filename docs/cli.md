@@ -20,6 +20,7 @@ checks, limits and error results as an agent's. Tool reference: [tools.md](tools
 | `resources` | The resources and resource templates. |
 | `read <uri>` | One resource, e.g. `corvus://guide/native`. |
 | `completion <bash\|zsh\|pwsh>` | A shell completion script for commands, tools and parameter names. |
+| `rules [list]`, `rules fetch <pack>` | List the installed and known YARA rule packs (malcontent, yara-forge-core); `fetch` downloads one from GitHub, refuses it unless its SHA-256 equals the pinned one, and installs its rules and license under the data folder's `rules/<pack>/<version>/` for `search_container kind=yara query=pack:<name>`. |
 
 Tool names are accepted in snake case or kebab case (`decompile-member`). `corvus help` lists the setup commands and
 these.

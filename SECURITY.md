@@ -147,6 +147,7 @@ as above), device pulls and extracted containers where the call says or to a nam
 and per-user caches and annotations under the data folder (`<LocalAppData>/Corvus`, `CORVUS_DATA_DIR`). Engine
 database and code index caches are bounded by size and age ([docs/configuration.md](docs/configuration.md)).
 `corvus install` writes only the client configuration files it lists, each with a `.corvus.bak` copy.
+`corvus rules fetch` writes only under the data folder's `rules/<pack>/<version>/`: the rule files and their license.
 
 ### Kept results
 

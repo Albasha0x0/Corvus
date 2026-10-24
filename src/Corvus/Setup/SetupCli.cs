@@ -122,6 +122,8 @@ internal static class SetupCli
           prompts               List the prompts; prompt <name> [name=value ...] prints one, ready to pipe.
           resources             List resources and templates; read <uri> prints one.
           completion <shell>    A completion script for bash, zsh or pwsh.
+          rules [list]          Installed and known YARA rule packs; rules fetch <pack> downloads one (SHA-256 checked)
+                                for search_container kind=yara query=pack:<name>.
         Tool exit codes: 0 success, 1 tool error, 2 usage or invalid_argument, 3 engine missing or unsupported,
         124 timeout, 130 cancelled (Ctrl+C).
         """;

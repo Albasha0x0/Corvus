@@ -217,11 +217,12 @@ The server goes online only when a call or command asks for it ([SECURITY.md](..
 | `open_minidump downloadDac=true` | Symbol server; the DAC is signature-checked | `CORVUS_OFFLINE` |
 | Loading a DAC | Certificate revocation servers named by the DAC's signer (cached data only with `CORVUS_OFFLINE`) | `CORVUS_OFFLINE` |
 | `--live-install-frida` | pip; hash-checked wheels | `CORVUS_OFFLINE` |
+| `corvus rules fetch <pack>` | GitHub; the archive's SHA-256 must equal the one pinned in Corvus | `CORVUS_OFFLINE`, or not running it |
 | `corvus update`, install scripts | GitHub | not running them |
 
 | Variable | Effect |
 |---|---|
-| `CORVUS_OFFLINE` | `1` or `true`: never download reference packs, symbols, a runtime DAC, certificate revocation lists or the private Frida environment. |
+| `CORVUS_OFFLINE` | `1` or `true`: never download reference packs, symbols, a runtime DAC, certificate revocation lists, rule packs or the private Frida environment. |
 | `CORVUS_DEBUGINFOD_URLS` | debuginfod servers for `load_pdb download=true` on ELF (else `DEBUGINFOD_URLS`; none by default). |
 | `GITHUB_TOKEN` | Optional token for `corvus update` and the install scripts (higher GitHub API rate limit); sent to GitHub hosts over HTTPS only. |
 
@@ -260,8 +261,8 @@ the call, while the server keeps answering.
 | `CORVUS_YES` | `1`: `install` and the install scripts add new clients without asking. |
 | `CORVUS_REPO` | Repository releases are downloaded from (`owner/name`). |
 | `CORVUS_VERSION`, `CORVUS_HOME`, `CORVUS_ARCHIVE`, `CORVUS_SHA256SUMS` | Install-script release, folder and offline archive ([installation.md](installation.md#install-script)). |
-| `CORVUS_RELAY_DIR` | Staged copies of the development reload relay ([installation.md](installation.md#development-reload)). |
 | `CORVUS_REQUIRE_ATTESTATION` | `1`: the install scripts and `update` refuse a build whose provenance `gh` could not check; `0`: skip the check (a self-built archive). |
+| `CORVUS_RELAY_DIR` | Staged copies of the development reload relay ([installation.md](installation.md#development-reload)). |
 
 ### Diagnostics
 

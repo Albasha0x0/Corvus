@@ -206,6 +206,28 @@ public sealed class YaraSearchTests : IDisposable
         Assert.StartsWith("query names no rule file or folder, so it was compiled as rule source, which gave no rules: query:1:", e.Message, StringComparison.Ordinal);
     }
 
+    [YaraFact]
+    public void A_pack_query_compiles_every_rule_file_of_the_installed_pack()
+    {
+        // The pack is installed in the tests' data folder under a name no other test uses.
+        var name = "fixture-" + Guid.NewGuid().ToString("N");
+        var folder = Path.Combine(RulePacks.Root, name, "1.0");
+        try
+        {
+            Directory.CreateDirectory(Path.Combine(folder, "sub"));
+            File.WriteAllText(Path.Combine(folder, "pack.json"), "{}");
+            File.WriteAllText(Path.Combine(folder, "one.yar"), "rule finds_corvus { strings: $a = \"corvus\" condition: $a }\n");
+            File.WriteAllText(Path.Combine(folder, "sub", "two.yara"), "rule finds_ver { strings: $v = \"ver2.5\" condition: $v }\n");
+            using var pool = Pool();
+            using var shared = WorkerPool.UseShared(pool);
+
+            var found = new UnpackService(_ws).Search(FixtureFiles()[1], $"pack:{name}", "yara", 10, AnalysisLimits.Default, default);
+            Assert.Equal(["finds_corvus", "finds_ver"], found.Items.Select(i => i.Name).Order());
+            Assert.StartsWith("YARA-X 1.22.0: 2 rules from 2 files;", found.Notes[0], StringComparison.Ordinal);
+        }
+        finally { Directory.Delete(Path.Combine(RulePacks.Root, name), recursive: true); }
+    }
+
     [Fact]
     public async Task Without_the_library_the_scan_is_refused_naming_the_platform()
     {

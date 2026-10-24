@@ -9,7 +9,8 @@ using Corvus.Native.Providers.Worker.Yara;
 namespace Corvus.Services.Analysis;
 
 /// <summary>
-/// search_container kind=yara: the query is a YARA rule file, a folder of them, or else rule text, compiled and run by YARA-X in a
+/// search_container kind=yara: the query is a YARA rule file, a folder of them, an installed rule pack
+/// (pack:&lt;name&gt;, <see cref="RulePacks"/>), or else rule text, compiled and run by YARA-X in a
 /// <c>corvus worker</c> process over the file and each container member; rows are the rules that matched, with the file
 /// or member path, tags, metadata and pattern offsets. Rules that do not compile are named with their file, line and
 /// rule, and the rest still run.
@@ -30,8 +31,8 @@ internal sealed class YaraSearchKind : IContainerSearchKind
         if (!File.Exists(source) && !Directory.Exists(source)) throw Targets.FileNotFound(source);
         if (string.IsNullOrWhiteSpace(query))
             throw new ToolError(ErrorCode.InvalidArgument, "kind=yara takes the rules as query.", "pass rule text, a .yar file or a folder of .yar and .yara files as query");
-        // An existing file or folder is read; anything else is compiled as rule text.
-        var rules = RulePath(query);
+        // An installed pack or an existing file or folder is read; anything else is compiled as rule text.
+        var rules = RulePacks.ResolveQuery(query, RulePacks.Root) ?? RulePath(query);
         var request = new JsonObject { ["path"] = source };
         if (rules != null) request["rules"] = rules;
         else request["source"] = query;

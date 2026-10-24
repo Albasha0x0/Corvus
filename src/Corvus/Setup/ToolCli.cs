@@ -29,7 +29,7 @@ internal static partial class ToolCli
     }
 
     /// <summary>The CLI's commands; any other first word that is not a setup command is a tool name.</summary>
-    public static readonly string[] Commands = ["call", "tools", "describe", "help", "batch", "prompts", "prompt", "resources", "read", "completion"];
+    public static readonly string[] Commands = ["call", "tools", "describe", "help", "batch", "prompts", "prompt", "resources", "read", "completion", "rules"];
 
     private const string Program = "corvus";
 
@@ -93,6 +93,7 @@ internal static partial class ToolCli
                 "resources" => await ResourcesAsync(a, io, cancellationToken),
                 "read" => await ReadAsync(a, io, cancellationToken),
                 "completion" => Completion(a, io),
+                "rules" => await RulesAsync(a, io, cancellationToken),
                 _ => Describe(a, io),
             };
         }

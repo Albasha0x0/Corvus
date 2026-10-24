@@ -403,6 +403,7 @@ counted gaps; a 1.07 GB capture in 4 s with 106 MB of memory) and writes what th
 
 `search_container kind=yara`; unavailable with `CORVUS_WORKER_HOST=0`.
 
+- **Rule packs:** `query=pack:<name>` reads every rule file of a pack installed with `corvus rules fetch` ([cli.md](cli.md)); Corvus ships no rules.
 - **Rules:** the query is a rule file, a folder of `.yar` and `.yara` files, or, when it names neither, the rule text itself (origin `query` in errors). Compiled and run by YARA-X 1.22.0 in a `corvus worker` process, so a fault in the engine ends the worker and not the server. A rule that does not compile is named with its file, line, column and error; the other rules still run.
 - **What is scanned:** the file, then each member of the container it is (nested containers opened, compressed members decompressed; files over 512 MB are scanned as one file), so a match inside a compressed member is found at its member path.
 - **Dump files:** a minidump or core file is scanned by its captured memory: one block scan over every region at its virtual address (a rule's patterns may sit in different regions), then each region as a file of its own for modules, `filesize` and `uint16(0)`. Regions are contiguous captured ranges cut at module bounds and at 64 MB; rows name the region and offsets are virtual addresses. Patterns that cross a region boundary are not matched.
