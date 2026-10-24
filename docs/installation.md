@@ -74,6 +74,11 @@ gh attestation verify corvus-win-x64.zip --repo Albasha0x0/Corvus --signer-workf
 archives, bundles and the .NET tool package (`gh attestation verify <asset> --repo Albasha0x0/Corvus --predicate-type
 https://cyclonedx.org/bom`). The workflow pins every action by commit SHA.
 
+`corvus-tests.json` (also `release/tests.json` in the tagged commit) records the full test pass the release shipped on:
+its commit, date and strength, the tests it ran, each test family's newest pass with its test count, the classes left
+to nightly runs, whether the IDA and Ghidra tests ran, the external tools not found, and the OS and SDK. A fact the
+test records do not hold is `unknown`. It is listed in `SHA256SUMS` and covered by the provenance attestation.
+
 **From source.** `./publish.ps1` (add `-SelfContained` for a build that needs no .NET), then
 `publish/corvus install`.
 

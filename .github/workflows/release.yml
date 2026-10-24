@@ -194,6 +194,9 @@ jobs:
           dotnet restore src/Corvus/Corvus.csproj
           dotnet tool install CycloneDX --version 6.2.0 --tool-path "$RUNNER_TEMP/cyclonedx"
           "$RUNNER_TEMP/cyclonedx/dotnet-CycloneDX" src/Corvus/Corvus.csproj -o . -fn corvus-sbom.cdx.json -F Json -sn Corvus -sv "${GITHUB_REF_NAME#v}"
+      # The full pass release.ps1 released on (release/tests.json in the tagged commit): listed below and attested.
+      - name: Test summary
+        run: cp release/tests.json corvus-tests.json
       # The installers and `update` refuse a build whose SHA-256 is not listed here.
       - name: Checksums
         run: sha256sum corvus-* CorvusRE.*.nupkg > SHA256SUMS && cat SHA256SUMS

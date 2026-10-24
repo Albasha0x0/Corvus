@@ -59,6 +59,8 @@ public partial class ReleaseProvenanceTests
         // Order: the SBOM is listed in SHA256SUMS, provenance covers SHA256SUMS, and the release attaches all of them.
         int At(string text) => release.IndexOf(text, StringComparison.Ordinal);
         Assert.True(At("-fn corvus-sbom.cdx.json") < At("sha256sum corvus-*"));
+        // The test summary is listed and attested like the SBOM: corvus-* covers both.
+        Assert.True(At("cp release/tests.json corvus-tests.json") is > 0 and var copied && copied < At("sha256sum corvus-*"));
         Assert.True(At("sha256sum corvus-*") < At("uses: actions/attest@"));
         Assert.True(At("uses: actions/attest@") < At("uses: softprops/action-gh-release@"));
         var provenance = release[At("uses: actions/attest@")..At("sbom-path:")];

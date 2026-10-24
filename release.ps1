@@ -7,6 +7,7 @@
 #         ./release.ps1 -Version 1.2.0 -Push        # ... then push, wait for the workflow and verify the release
 #         ./release.ps1 -Version 1.2.0 -VerifyOnly  # verify an existing release and print the checklist
 #         ./release.ps1 -Version 1.2.0 -Bundle DIR  # MCP bundles (.mcpb) from the archives in DIR (release.yml runs this)
+#         ./release.ps1 -Version 1.2.0 -Summary F   # write the test summary the release would carry to F
 # Needs PowerShell 7, git, the .NET SDK and, for -Push / -VerifyOnly, an authenticated gh.
 #Requires -Version 7.0
 param(
@@ -17,6 +18,9 @@ param(
     # The most commits a release may be ahead of its last full pass.
     [int]$MaxBehind = 50,
     [string]$Bundle,
+    [string]$Summary,
+    # Where the test records are read from (default: the repository's git directory).
+    [string]$Evidence,
     [string]$Repo = 'Albasha0x0/Corvus'
 )
 
@@ -47,6 +51,105 @@ $assets += $bundleRids | ForEach-Object { "corvus-$_.mcpb" }
 # The NuGet .NET tool, attached to the release; the release workflow pushes it to nuget.org.
 $nupkg = "CorvusRE.$Version.nupkg"
 $assets += $nupkg
+# The full pass the release relied on: committed with the version bump, attached and attested by release.yml.
+$testSummary = 'release/tests.json'
+$assets += 'corvus-tests.json'
+
+# The summary of the full pass at $passedAt (null: none was checked, $why says why), from what test.ps1 recorded in
+# $gitDir: the pass ledger, the run history, the family stamps and the last run. A fact not recorded is 'unknown';
+# tool names only, no paths.
+function Get-TestSummary([string]$gitDir, [string]$passedAt, [string]$why) {
+    $unknown = 'unknown'
+    $summary = [ordered]@{
+        schema = 1; version = $Version; commit = $unknown; tree = $unknown; date = $unknown; strength = $unknown
+        reusedEarlierPasses = $unknown; commitsBehind = $unknown; testsRun = $unknown; failed = $unknown
+        families = $unknown; deferred = $unknown; engines = $unknown; tools = $unknown
+        os = "$([Runtime.InteropServices.RuntimeInformation]::OSDescription) $([Runtime.InteropServices.RuntimeInformation]::OSArchitecture)".ToLowerInvariant()
+        sdk = $unknown; environment = 'the machine that tagged the release; the run itself records no OS or SDK'
+    }
+    $sdk = (& dotnet --version 2>$null) -join ''
+    if ($LASTEXITCODE -eq 0 -and $sdk) { $summary.sdk = $sdk.Trim() }
+    if (-not $passedAt) { $summary.commit = "$unknown ($why)"; return $summary }
+    $summary.commit = $passedAt
+    $behind = git -C $root rev-list --count "$passedAt..HEAD" 2>$null
+    if ($LASTEXITCODE -eq 0) { $summary.commitsBehind = [int]$behind }
+
+    # Ledger line: <commit> <tree> <strength> [reused] <yyyy-MM-ddTHH:mm>.
+    $ledger = Join-Path $gitDir 'corvus-full-passes.txt'
+    $line = if (Test-Path $ledger) { Get-Content $ledger | Where-Object { ($_ -split ' ')[0] -eq $passedAt } | Select-Object -Last 1 }
+    if ($line) {
+        $fields = $line -split ' '
+        $summary.tree = $fields[1]; $summary.strength = $fields[2]; $summary.date = $fields[-1]
+        $summary.reusedEarlierPasses = $fields -contains 'reused'
+    }
+
+    # Whole-suite runs in the history by commit and end time (the minute the ledger and the stamps record too); their
+    # class records give test counts. A family's stamp may come from a run that failed in another family.
+    $history = Join-Path $gitDir 'corvus-test-history.jsonl'
+    $runs = @(if (Test-Path $history) {
+        Select-String -Path $history -SimpleMatch '"kind":"run"' | ForEach-Object { $_.Line | ConvertFrom-Json } |
+            Where-Object { $_.mode -in 'push', 'full' -and $_.commit }
+    })
+    function Find-Run([string]$commit, [string]$at) { $runs | Where-Object { $commit.StartsWith($_.commit) -and $_.at -eq $at.Replace('T', ' ') } | Select-Object -Last 1 }
+    $run = if ($line) { Find-Run $passedAt $summary.date }
+    if (-not $run) { $run = $runs | Where-Object { $passedAt.StartsWith($_.commit) -and $_.code -eq 0 } | Select-Object -Last 1 }
+    if ($run) {
+        $summary.testsRun = $run.tests; $summary.failed = $run.failed
+        if ($null -ne $run.permits) {
+            $engines = @($run.permits.PSObject.Properties.Name -split ',')
+            $summary.engines = [ordered]@{}
+            foreach ($engine in 'ida', 'ghidra') { $summary.engines[$engine] = if ("engine-$engine" -in $engines) { 'ran' } else { 'not in this run (reused or not available)' } }
+        }
+    }
+
+    # Families: the newest recorded pass of each test folder, with the test count of that run when the history has it.
+    $stampsFile = Join-Path $gitDir 'corvus-family-stamps.json'
+    if (Test-Path $stampsFile) {
+        $stamps = Get-Content $stampsFile -Raw | ConvertFrom-Json -AsHashtable
+        $classMap = Get-ClassMap (Join-Path $root 'tests/Corvus.Tests')
+        $wanted = @{}
+        foreach ($name in $stamps.Keys) { if ($r = Find-Run $stamps[$name].commit $stamps[$name].at) { $wanted[$name] = $r.run } }
+        $counts = @{}
+        if ($wanted.Count) {
+            $ids = @($wanted.Values | Sort-Object -Unique)
+            foreach ($record in Select-String -Path $history -SimpleMatch $ids | Where-Object Line -like '*"kind":"class"*' | ForEach-Object { $_.Line | ConvertFrom-Json }) {
+                $counts["$($record.run) $(($record.name -split '\+')[0])"] += [int]$record.tests
+            }
+        }
+        $summary.families = @($stamps.Keys | Sort-Object | ForEach-Object {
+            $name = $_
+            $tests = $unknown
+            if ($wanted[$name] -and $classMap[$name]) {
+                $sum = 0
+                foreach ($class in $classMap[$name]) { $sum += [int]$counts["$($wanted[$name]) $class"] }
+                if ($sum) { $tests = $sum }
+            }
+            [ordered]@{ name = $name; mode = $stamps[$name].mode; commit = $stamps[$name].commit; at = $stamps[$name].at; tests = $tests }
+        })
+    }
+
+    # Classes the pass left to the nightly runs, when the last run is the pass: host-only classes and the test host's
+    # tier, whose smoke tests run in the pass.
+    $lastRun = Join-Path $gitDir 'corvus-last-run.json'
+    if ((Test-Path $lastRun) -and ($last = Get-Content $lastRun -Raw | ConvertFrom-Json) -and $last.commit -and $passedAt.StartsWith($last.commit)) {
+        $summary.deferred = [ordered]@{ reason = 'left to the nightly whole run and the test host tier run'; classes = @($last.deferred | Sort-Object) }
+    }
+
+    # External tools the suite looks for; the tests that need a tool not found skip.
+    $tools = @(Get-LocatedTools (Join-Path $root 'tests/Corvus.Tests'))
+    if ($tools) {
+        $summary.tools = [ordered]@{
+            reason = 'not found on the machine that tagged the release; the tests that need them skip'
+            notFound = @($tools | Where-Object { $_ -match '^tool ([^=]+)=$' } | ForEach-Object { $Matches[1] } | Sort-Object)
+        }
+    }
+    return $summary
+}
+
+function Write-TestSummary([string]$path, $summary) {
+    New-Item -ItemType Directory -Force (Split-Path $path) | Out-Null
+    [IO.File]::WriteAllText($path, (($summary | ConvertTo-Json -Depth 5) -replace "`r`n", "`n") + "`n")
+}
 
 function New-Bundles([string]$dir) {
     Add-Type -AssemblyName System.IO.Compression, System.IO.Compression.FileSystem
@@ -98,6 +201,14 @@ if ($Bundle) {
     exit 0
 }
 
+if ($Summary) {
+    Import-Module (Join-Path $root 'test-reuse.psm1') -Force
+    $gitDir = if ($Evidence) { $Evidence } else { [IO.Path]::GetFullPath((git -C $root rev-parse --git-common-dir).Trim(), $root) }
+    $passedAt = Get-FullPass $root (Join-Path $gitDir 'corvus-full-passes.txt') (Join-Path $gitDir 'corvus-background.passed')
+    Write-TestSummary ([IO.Path]::GetFullPath($Summary)) (Get-TestSummary $gitDir $passedAt 'no full pass on this history')
+    exit 0
+}
+
 # The notes section of this version: from its heading to the next version heading.
 function Get-Notes {
     $text = (Get-Content $notes -Raw) -replace "`r`n", "`n"
@@ -135,6 +246,7 @@ if (-not $VerifyOnly) {
                 git merge-base --is-ancestor $failed HEAD 2>$null; $onHistory = $LASTEXITCODE -eq 0
                 if ($afterPass -and $onHistory) { Fail "the last background run failed after the last pass ($last); fix it first (./test.ps1 -Status), or pass -SkipTests" }
             }
+            $summaryData = Get-TestSummary $gitDir $passedAt $null
             Write-Host "The full suite passed on $($passedAt.Substring(0, 8))$(if ($behind) { ", $behind commits back" } else { ', this commit' })$(if ($last -match 'running') { "; a run is going: $last" })."
             $stampsFile = Join-Path $gitDir 'corvus-family-stamps.json'
             if (Test-Path $stampsFile) {
@@ -162,6 +274,9 @@ if (-not $VerifyOnly) {
         $env:CORVUS_UPDATE_DOCS = '1'
         try { Run 'dotnet' @('test', (Join-Path $root 'tests/Corvus.Tests'), '--nologo') }
         finally { Remove-Item Env:CORVUS_UPDATE_DOCS }
+
+        if (-not $summaryData) { $summaryData = Get-TestSummary $gitDir $null 'released with -SkipTests' }
+        Write-TestSummary (Join-Path $root $testSummary) $summaryData
 
         Run 'git' @('add', '-A')
         # The subject keeps the form the commit-msg hook checks.

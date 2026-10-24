@@ -79,7 +79,9 @@
   overrides), names the families not yet verified on the current inputs, and runs the quick set after the version
   bump. A failure found later goes into a patch release. By policy, patch releases take a reused pass and minor
   releases (`x.y.0`) a whole pass (`./test.ps1 -Full -Background -Whole`; `-Exhaustive` for a reused release-strength
-  pass); `release.ps1` does not check the strength. After publishing, `release.ps1` installs the previous release with
+  pass); `release.ps1` does not check the strength. It writes a summary of the pass it relied on to
+  `release/tests.json` in the release commit (`-Summary <file>` previews it), which the release attaches as
+  `corvus-tests.json` ([installation.md](installation.md#install-script)). After publishing, `release.ps1` installs the previous release with
   `install.sh` in WSL under a throwaway home and checks that `corvus update` reaches the new one.
 - **Offloaded classes** (`test-remote.psm1`). Every push to main also runs three groups of heavy classes on
   GitHub-hosted runners (the `offload` job of `ci.yml`; skipped for documentation-only commits):
