@@ -156,7 +156,21 @@ public sealed class LiveTargetRealTests(ITestOutputHelper output) : LiveToolCall
         program.StandardInput.WriteLine("go");
         program.StandardInput.Flush();
         Assert.Equal("children 0", program.StandardOutput.ReadLine());
-        Assert.True(program.WaitForExit(30_000));
+        if (!program.WaitForExit(30_000)) Assert.Fail($"the program did not exit after the session closed:\n{ProcState(program.Id)}");
+    }
+
+    // A Linux process's state and each thread's wait channel and state, read from /proc; an unreadable entry is named so.
+    private static string ProcState(int pid)
+    {
+        string Read(string path)
+        {
+            try { return File.ReadAllText(path).Trim(); }
+            catch (Exception e) when (e is IOException or UnauthorizedAccessException) { return $"unknown ({e.GetType().Name})"; }
+        }
+        var tasks = Directory.Exists($"/proc/{pid}/task") ? Directory.GetDirectories($"/proc/{pid}/task") : [];
+        return string.Join("\n", tasks.Select(t => $"thread {Path.GetFileName(t)}: wchan {Read($"{t}/wchan")}, " +
+            (Read($"{t}/status").Split('\n').FirstOrDefault(l => l.StartsWith("State:", StringComparison.Ordinal)) ?? "state unknown"))
+            .Prepend($"process {pid}: " + (Read($"/proc/{pid}/status").Split('\n').FirstOrDefault(l => l.StartsWith("State:", StringComparison.Ordinal)) ?? "state unknown")));
     }
 
     // ---- attach to a running program; close leaves it running
