@@ -1,18 +1,18 @@
 # Guide 2: decode and patch
 
-Code that ships transformed hides its strings behind decoder calls and its control flow behind a state-machine switch.
-`PreviewGate` in the Notes sample ([source](../../samples/Notes/v1/PreviewGate.cs)) is written in that shape on
-purpose. This guide turns it back into plain code, finds the valid code, makes the gate accept any code and saves a
-patched copy. Build the sample first ([guide 1](1-first-session.md#build-the-sample)).
+Transformed code hides its strings behind decoder calls and its control flow behind a state-machine switch.
+`PreviewGate` in the Notes sample ([source](../../samples/Notes/v1/PreviewGate.cs)) is written that way. This guide
+restores plain code, finds the valid code, makes the gate accept any code and saves a patched copy. Build the sample
+first ([guide 1](1-first-session.md#build-the-sample)).
 
 ## Ask your agent
 
 > Load samples/Notes/v1/bin/Notes.dll. Simplify PreviewGate.Verify and tell me which code it accepts. Then make it
 > accept any code, name the string decoder Decode, and save a copy to samples/Notes/v1/bin/patched/Notes.dll.
 
-The calls it makes, as a batch. The first `decompile_member` shows the method as compiled; `simplify_methods` runs each
-decoder call with its constant arguments in a sandboxed IL interpreter (nothing from the file is executed) and replaces
-it with the string it returns, then straightens the switch; the second `decompile_member` shows the result.
+The calls, as a batch. `simplify_methods` runs each decoder call with its constant arguments in a sandboxed IL
+interpreter (nothing from the file is executed), replaces the call with the returned string, then straightens the
+switch. The two `decompile_member` calls show the method before and after.
 
 <!-- check: batch -->
 ```json
@@ -102,11 +102,11 @@ Exported 3 edit(s) of Notes to samples/Notes/v1/bin/patched/notes-v1.edits.json.
 Bound to the build: sha256 <sha256-1>, MVID <guid-1>, Notes, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null. apply_edits refuses other builds unless targetBuild=other.
 ```
 
-All three decoder calls fold, and the simplified method names the code: `EARLY-` followed by `7F3A91C2`.
+All three decoder calls fold; the valid code is `EARLY-` followed by `7F3A91C2`.
 
 ## Check
 
-The original accepts that code and refuses any other:
+The original accepts that code only:
 
 <!-- check: run -->
 ```sh
@@ -144,4 +144,4 @@ preview enabled
 exit code 0
 ```
 
-The edits are also saved as an edit script (`export_edits`), which [guide 3](3-new-build.md) carries to a new build.
+`export_edits` saved the edits as a script; [guide 3](3-new-build.md) carries it to a new build.

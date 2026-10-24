@@ -31,8 +31,9 @@ irm https://raw.githubusercontent.com/Albasha0x0/Corvus/main/install.ps1 | iex
 curl -fsSL https://raw.githubusercontent.com/Albasha0x0/Corvus/main/install.sh | sh
 ```
 
-The installer verifies the download against the release's `SHA256SUMS` and registers Corvus with the MCP clients it
-finds. As a plugin (server and skill; needs the .NET 10 SDK): `/plugin install corvus --marketplace Albasha0x0/Corvus`
+The installer checks the download against the release's `SHA256SUMS` (this catches a corrupt download, not a tampered
+release; `gh attestation verify <archive> --repo Albasha0x0/Corvus` checks the signed build provenance) and registers
+Corvus with the MCP clients it finds. As a plugin (server and skill; needs the .NET 10 SDK): `/plugin install corvus --marketplace Albasha0x0/Corvus`
 in Claude Code, `codex plugin marketplace add Albasha0x0/Corvus` then `corvus` in `/plugins` in Codex
 ([installation](docs/installation.md#claude-code-and-codex-plugins)). Restart your client and ask:
 
@@ -56,13 +57,18 @@ when installed. Their databases and output are kept, so the second question abou
 | .NET assemblies | C# decompilation, IL, references, call graphs, build comparison, C# and IL patching, saving | nothing |
 | Unity and Il2Cpp games | metadata, addresses, string literals, IDA / Ghidra scripts, C++ bindings | nothing |
 | Native binaries (PE, ELF, Mach-O) | functions, disassembly, CFG, cross-references, values, RTTI, PDB types, similar functions | nothing |
-| Native pseudocode | decompilation, engine types, frames, scripting | IDA 9 (idalib) or Ghidra 12 |
+| Native pseudocode | decompilation, engine types, frames, scripting, emulation, pseudocode search | IDA 9 (idalib) or Ghidra 12 |
+| WebAssembly | modules and components, disassembly, decompiled code | nothing |
 | NativeAOT and ReadyToRun | method names, MethodTables, strings, precompiled code | nothing |
-| Native patching | names, comments, byte and assembly patches, patched copies, carried to new builds | nothing |
-| Containers | single-file bundles, NuGet, APK, ASAR, Unity WebGL, HAR captures, installers (MSI, NSIS, Inno Setup, WiX Burn), frozen Python programs, firmware images; CycloneDX SBOM, YARA-X matches | nothing |
+| Native patching | names, comments, byte patches, assembly patches (x86 and x64), patched copies, carried to new builds | nothing |
+| Containers | single-file bundles, NuGet, APK, IPA, ASAR, Unity WebGL, archives, installers (MSI, NSIS, Inno Setup, WiX Burn), frozen Python (PyInstaller, py2exe, cx_Freeze, Nuitka onefile; Nuitka standalone is described, not extracted), firmware images and filesystems, disk images (ISO/UDF, VHD/VHDX, NTFS, FAT, ext); CycloneDX SBOM, YARA-X matches | nothing |
+| Documents and scripts | Office VBA and Excel 4.0 macros, encrypted OOXML, PDF actions and JavaScript, OneNote, LNK; PowerShell, batch, VBScript and JavaScript deobfuscated without running them | nothing |
+| Packages before install | npm, PyPI, VS Code extensions, browser extensions (CRX, XPI): install scripts, native files, suspicious patterns | nothing |
+| Network captures | pcap and pcapng, TCP streams, HTTP/1 and HTTP/2 objects, TLS 1.2/1.3 decrypted with a key log, JA3/JA4, DNS and beaconing hints | nothing (TShark only for other Wireshark fields) |
+| Languages and data | Go, Swift, Delphi and Free Pascal metadata; Hermes bytecode; JavaScript bundles with source maps; protobuf definitions recovered from embedded descriptors; SQLite with deleted rows recovered | nothing |
 | Android packages | manifest, resources, DEX, smali, Java (JADX), JNI bindings, devices over adb | JADX for Java, adb for devices |
 | Crash dumps | Windows minidumps, Linux and macOS core dumps, .NET exceptions, stacks, heap; crash text | nothing |
-| Running programs | sessions with stop points, call recording, code coverage, activity traces, snapshots and child processes on Windows, Linux and macOS | Frida 17.24.3 or newer 17.x; off by default |
+| Running programs | read-only process inspection; sessions with stop points, call recording, code coverage, snapshots and child processes on Windows, Linux and macOS; activity traces (ETW) and console runs on Windows | Frida 17.24.3 or newer 17.x for sessions, which are off by default |
 
 Full list: [features](docs/features.md) and the [tool reference](docs/tools.md) (165 tools, 15 prompts).
 

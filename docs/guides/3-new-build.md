@@ -1,18 +1,17 @@
 # Guide 3: a new build
 
-A new version of a program usually renames and moves some of what you had worked out. Notes 2.0
-([source](../../samples/Notes/v2)) renames `CsvExporter.Quote` to `Escape` and `PreviewGate.Verify` to `Check`, and
-moves the string decoder into `PreviewGate`. This guide finds those changes and carries the edits of
+Notes 2.0 ([source](../../samples/Notes/v2)) renames `CsvExporter.Quote` to `Escape` and `PreviewGate.Verify` to
+`Check`, and moves the string decoder into `PreviewGate`. This guide finds those changes and carries the edits of
 [guide 2](2-decode-and-patch.md) (simplify, rename, patch) to the new build. Run guide 2 first: it writes the edit
-script used here.
+script.
 
 ## Ask your agent
 
 > Load samples/Notes/v1/bin/Notes.dll and samples/Notes/v2/bin/Notes.dll. What changed? Then apply my edit script
 > samples/Notes/v1/bin/patched/notes-v1.edits.json to the new build and save it to samples/Notes/v2/bin/patched/Notes.dll.
 
-`compare_assemblies` matches members by content, so a renamed or moved method is found even under its new name.
-`apply_edits` with `targetBuild=other` resolves each edit by name and follows the renames it finds.
+`compare_assemblies` matches members by content, so it finds renamed and moved methods. `apply_edits` with
+`targetBuild=other` resolves each edit by name and follows the renames.
 
 <!-- check: batch -->
 ```json
@@ -71,8 +70,8 @@ Wrote samples/Notes/v2/bin/patched/Notes.dll (12,800 bytes, 3 edit(s); everythin
 Edits written: Notes#2#1 (c89766f68754b1db), Notes#2#2 (4e55ef172ec3a611), Notes#2#3 (44588f360cc89803).
 ```
 
-The comparison finds the two renames and the move that the [source diff](../../samples/Notes) shows, and all three
-edits apply to their renamed targets.
+The comparison finds the two renames and the move in the [source diff](../../samples/Notes); all three edits apply
+to their renamed targets.
 
 ## Check
 

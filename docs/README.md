@@ -9,17 +9,17 @@
 | [Features](features.md) | What each area reads and shows, by tool |
 | [Tool reference](tools.md) | Every tool's arguments and output (generated) |
 | [Command line](cli.md) | Running tools from a terminal or a script |
-| [Errors](errors.md) | Error codes and their `Next:` lines |
+| [Errors](errors.md) | Error codes and their `Next:` lines (generated) |
 | [Troubleshooting](troubleshooting.md) | Common problems and fixes |
 | [FAQ](faq.md) | Network use, what runs, supported formats |
 
 ## Learn
 
-Guides, run on the sample in `samples/Notes`:
+Guides on the sample in `samples/Notes`:
 [first session](guides/1-first-session.md) · [decode and patch](guides/2-decode-and-patch.md) ·
 [new build](guides/3-new-build.md).
 
-Showcases, each a question about a real library answered step by step:
+Showcases: a question about a real library, answered step by step.
 
 - [Decompile, rebuild, run](showcase/round-trip.md)
 - [Inside a single-file app](showcase/single-file.md)
@@ -52,6 +52,6 @@ Every step in the guides and showcases is checked by a test.
 | [Contributing](../CONTRIBUTING.md) | Build, test, add a tool, commit and release |
 | [Testing](testing.md) | Test sets, layout, test data, guard and generated-document tests |
 | [Native reliability](native-maturity.md) | Sweeps, large images, tested engine versions, agreement with other tools |
-| [Known issues](known-issues.md) | Open issues with a workaround |
+| [Known issues](known-issues.md) | Known limits and open issues with a workaround |
 | [Release notes](release-notes.md) | Changes by version |
 | [Security](../SECURITY.md) | Trust model and reporting |

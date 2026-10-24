@@ -1,9 +1,8 @@
 # Guide 1: first session
 
-A first look at a program you have no source for: find the code behind a feature, read it, predict what it does, then
-check the prediction by running the program. The program is Notes, a small console app built from
-[samples/Notes](../../samples/Notes) in this repository, so every step here can be repeated and every output below is
-what Corvus prints (a test runs these steps and compares).
+Find the code behind a feature in a program without source, read it, predict what it does, and check the prediction
+by running the program. The program is Notes, a console app built from [samples/Notes](../../samples/Notes); a test
+runs every step below and compares the output.
 
 ## Build the sample
 
@@ -24,8 +23,7 @@ With Corvus registered in your MCP client ([installation](../installation.md)), 
 > Load samples/Notes/v1/bin/Notes.dll. Find how Notes exports to CSV and predict the exported line for the note titled
 > `Hello, "you"`.
 
-The agent loads the file, searches for the export code and reads it. The same calls from the terminal, as a
-[batch](../cli.md#batch) (save the lines as `g1.jsonl` and run `corvus batch g1.jsonl`):
+The same calls from a terminal, as a [batch](../cli.md#batch) (save as `g1.jsonl`, run `corvus batch g1.jsonl`):
 
 <!-- check: batch -->
 ```json
@@ -75,9 +73,8 @@ public static class CsvExporter
 
 ## Predict, then check
 
-`Quote` leaves a field alone unless it holds a comma, a quote or a line break; otherwise it wraps the field in quotes
-and doubles each quote inside. The title `Hello, "you"` has both, so the predicted line for note 2 is
-`2,"Hello, ""you""",2026-01-06`. Run the program:
+`Quote` wraps a field holding a comma, a quote or a line break in quotes and doubles each quote inside. `Hello, "you"`
+has both, so note 2 should export as `2,"Hello, ""you""",2026-01-06`:
 
 <!-- check: run -->
 ```sh
@@ -93,5 +90,4 @@ id,title,created
 exit code 0
 ```
 
-The second line of the export matches the prediction. Next: [guide 2](2-decode-and-patch.md) reads code that was
-written to be hard to read.
+The prediction matches. Next: [guide 2](2-decode-and-patch.md) reads code written to be hard to read.
