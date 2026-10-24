@@ -186,6 +186,34 @@ public sealed class TestRemoteTests : IDisposable
 
     [Fact]
     [Trait("Speed", "Slow")]
+    public void Real_data_classes_the_host_can_run_are_dealt_by_recorded_time_and_timed_classes_stay_there()
+    {
+        var tests = Path.Combine(_dir.Path, "data-tests");
+        void Source(string folder, string text, string file)
+        {
+            Directory.CreateDirectory(Path.Combine(tests, folder));
+            File.WriteAllText(Path.Combine(tests, folder, file), text);
+        }
+        Source("Mobile", "public class DataLongTests { [RequiresRealDataFact(\"CORVUS_X\")] public void M() { } }", "A.cs");
+        Source("Mobile", "public class DataMidTests { [RequiresRealDataFact(\"CORVUS_X\")] public void M() { } }", "B.cs");
+        Source("Mobile", "public class DataShortTests { [RequiresRealDataFact(\"CORVUS_X\")] public void M() { } }", "C.cs");
+        Source("Mobile", "public class DataElsewhereTests { [RequiresRealDataFact(\"CORVUS_Y\")] public void M() { } }", "D.cs");
+        Source("Session", "public sealed class DeadlineTests { }", "S.cs");
+        var lines = TestReuseTests.Run($$"""
+            Import-Module {{Module}}
+            $seconds = @{ DataLongTests = 100; DataMidTests = 60; DataShortTests = 50; DataElsewhereTests = 500 }
+            'here=' + ((Get-RealDataLocalClasses {{Quote(tests)}} $seconds @('CORVUS_X')) -join ',')
+            'host=' + ((Get-RemoteClasses {{Quote(tests)}} -TestHost -hostVariables @('CORVUS_X')) -join ',')
+            """);
+        if (lines is ["skip"]) return;
+        // Longest first, each to the machine with less so far, this one first: 100 here, 60 and 50 there. A class whose
+        // data the host lacks is held here apart from this deal; a timed class always goes there.
+        Assert.Contains("here=DataLongTests", lines);
+        Assert.Contains("host=DataLongTests,DataMidTests,DataShortTests,DeadlineTests", lines);
+    }
+
+    [Fact]
+    [Trait("Speed", "Slow")]
     public void A_host_with_two_of_five_engine_permits_takes_two_fifths_of_the_engine_time()
     {
         var tests = Path.Combine(_dir.Path, "share-tests");

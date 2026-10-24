@@ -836,6 +836,12 @@ if ($offload) {
         $candidates = @($candidates | Where-Object { $_ -notin $ghidraHere })
         Write-Host "Ghidra classes split: $($ghidraHere.Count) run here, the rest on $($offload.Name)."
     }
+    # The real-data classes are dealt the same way: all of them on the host left this machine idle for its last 17 min.
+    $dataHere = if ($offload.Kind -eq 'ssh') { @(Get-RealDataLocalClasses $tests (Get-FastestClassSeconds $timeHistory) $offload.Variables $hostPart) } else { @() }
+    if ($dataHere) {
+        $candidates = @($candidates | Where-Object { $_ -notin $dataHere })
+        Write-Host "Real-data classes split: $($dataHere.Count) run here, the rest on $($offload.Name)."
+    }
     $candidates = @($candidates | Where-Object { $_ -notin $tierSkip })
     $held = if ($offload.Kind -eq 'ssh' -and -not $Filter) { @(Get-HeldClasses $tests $offload.Variables) } else { @() }
     if ($held) { Write-Host "Kept here, their real-data variables not set on $($offload.Name): $($held -join '; ')." }
