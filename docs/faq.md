@@ -1,19 +1,22 @@
 # FAQ
 
 **Does it upload my files or send anything over the network?**
-No file is uploaded. The server makes three kinds of requests: a .NET reference pack from nuget.org when code targets
-a .NET version that is not installed (`CORVUS_OFFLINE=1` turns this off), a PDB from a symbol server when you call
-`load_pdb download=true`, and the release download of the install scripts and `update`. Everything else runs locally.
+No file is uploaded. Requests: a .NET reference pack from nuget.org when code targets an uninstalled .NET version;
+`load_pdb download=true` (symbol server, debuginfod) and `open_minidump downloadDac=true`; the pinned Frida with
+`--live-install-frida`; release downloads by the install scripts and `update`; and IDA or Ghidra if their own settings
+reach out. `CORVUS_OFFLINE=1` refuses Corvus's own requests except updates and installs, which run only when you start them. Full list: [SECURITY.md](../SECURITY.md#network).
 
 **Does it run the program I analyze?**
-No. It reads bytes. Two features execute something, both bounded: `simplify_methods` runs string-decoder methods in its
-own sandboxed IL interpreter (no I/O, reflection or native code; such calls are kept and reported), and
-`inspect_process` reads a running process you name with query and read handles only, writing and suspending nothing.
+Not by default: it reads bytes. `simplify_methods` and `emulate_native` emulate code (never run natively).
+`inspect_process` reads a running process, writing and suspending nothing. Only the session tools, off by default, run
+or attach to a program and patch its code in memory. External helpers (IDA, Ghidra, JADX, adb, TShark and others) run
+only on the calls that need them: [SECURITY.md](../SECURITY.md#worker-and-helper-processes).
 
 **Do I need IDA or Ghidra?**
 No. Decompilation, search, cross-references and patching of .NET code, and native analysis (PE, ELF, Mach-O
 disassembly, functions, cross-references, CFGs, RTTI, PDBs, patching) are built in. IDA (with idalib) or Ghidra adds
-C pseudocode for native code (`decompile_native`) and the engine type and frame edits. `corvus status
+C pseudocode (`decompile_native`, `search_decompiled`), emulation (`emulate_native`), engine scripting and the engine
+type and frame edits. WebAssembly decompiles without one. `corvus status
 --engine all` shows what is available.
 
 **Which clients are supported?**
