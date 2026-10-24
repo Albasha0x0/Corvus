@@ -1,24 +1,22 @@
 # Normalized IL hash
 
-`IlHash` (src/Corvus/Services/Dotnet/IlHash.cs) gives each method body a SHA-256 that does not depend on
-metadata tokens, byte offsets or the short / long form the compiler picked for an instruction. Two builds of the
-same code therefore give each method the same hash, even when adding members elsewhere shifted every token.
-`get_il` prints it (`// IL hash: <first 16 hex digits>`, one line per method), `find_counterpart` compares it
-(`body: unchanged` / `changed`), and `compare_assemblies` uses it to tell changed bodies from unchanged ones and
-to pair renamed methods whose bodies are identical.
+`IlHash` (src/Corvus/Services/Dotnet/IlHash.cs) gives each method body a SHA-256 independent of metadata tokens,
+byte offsets and short / long instruction forms, so two builds of the same code give the same hash even when every
+token shifted. `get_il` prints it (`// IL hash: <first 16 hex digits>` per method), `find_counterpart` compares it
+(`body: unchanged` / `changed`), and `compare_assemblies` uses it to separate changed bodies and to pair renamed
+methods with identical bodies.
 
 A method without a body (abstract, extern, runtime-implemented) or whose body is not valid IL (see
 `get_assembly_info`) has no hash.
 
 ## Raw IL SHA-256
 
-`get_il` also prints `raw IL SHA-256: <first 16 hex digits>`: the SHA-256 of the method's IL code bytes exactly as
-stored in the file as loaded. The bytes start after the tiny (1-byte) or fat (12-byte) method header and run for the
-header's code size; the header, the alignment padding and the extra data sections (exception clauses) are not
-included. It changes whenever a token or an offset changes, so it identifies one exact build, where the normalized
-hash identifies the code. For an assembly with unsaved edits it is still the file's value (`(file as loaded)`).
-Methods without an IL body (abstract, extern, runtime-implemented, native) have none. `decompile_member` with
-`provenance=true` prints both hashes in full.
+`get_il` also prints `raw IL SHA-256: <first 16 hex digits>`: the SHA-256 of the method's IL code bytes as stored
+in the loaded file, from after the tiny (1-byte) or fat (12-byte) header for the header's code size (header,
+padding and exception sections excluded). Any token or offset change changes it: it identifies one exact build, the
+normalized hash identifies the code. With unsaved edits it is still the file's value (`(file as loaded)`). Methods
+without an IL body (abstract, extern, runtime-implemented, native) have none. `decompile_member provenance=true`
+prints both hashes in full.
 
 ## Encoding (version 1)
 

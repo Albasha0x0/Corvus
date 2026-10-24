@@ -1,11 +1,10 @@
 # Native tools: reliability and accuracy
 
-What was run against the native tools (`get_pe_info`, `list_imports`, `list_exports`, `resolve_address`,
+The tests run against the native tools (`get_pe_info`, `list_imports`, `list_exports`, `resolve_address`,
 `search_bytes`, `read_bytes`, `list_resources` / `get_resource`, `list_functions`, `disassemble`, `get_cfg`,
 `find_xrefs`, `native_call_tree`, `search_native_strings`, `list_cpp_classes`, `decompile_native`, and
-`load_assembly` / `reload_assembly` / `unload_assembly` on native images), what it found, and what is still open.
-Numbers are from one Windows 11 machine (20 logical processors), 2026-10-10; other test runs shared the machine
-part of the time, so times are upper bounds.
+`load_assembly` / `reload_assembly` / `unload_assembly` on native images), their results, and what is open.
+One Windows 11 machine (20 logical processors), 2026-10-10; other runs shared it at times, so times are upper bounds.
 
 ## Tests
 
@@ -35,14 +34,14 @@ All are `[Trait("Speed", "Slow")]` unless marked quick; run with `-p:CORVUS_ALL_
 | stdio | 81 (incl. msedge.dll 333 MB) | 1,562 | 0; longest progress gap 8.0 s | 148 s |
 | Adapter cross-check | 800 (400 per directory) | – | 0 differences (1,250,926 functions, 9,418 RTTI classes) | 3 min |
 
-Before the fixes below, the first 25,000-iteration fuzz run failed on 87 mutants (code index runs of 20 s to minutes
-on small files, `get_cfg` internal errors), the second on 2 (`search_bytes` and `list_cpp_classes` over 30 s / 120 s);
-the first full System32 / SysWOW64 sweep passed apart from `search_bytes` results over the response budget, and the
-first stdio run found the 56 s progress gap.
+Before the fixes: the first 25,000-iteration fuzz run failed on 87 mutants (code index runs of 20 s to minutes on
+small files, `get_cfg` internal errors), the second on 2 (`search_bytes` / `list_cpp_classes` over 30 s / 120 s); the
+first System32 / SysWOW64 sweep failed only on `search_bytes` results over the response budget; the first stdio run
+found a 56 s progress gap.
 
-Typed errors seen in the sweeps were `get_cfg` `not_found` on section starts that are no function (`.reloc`,
-`.rdata`, ...) and, for ARM64 images under Program Files, `disassemble` / `get_cfg` `unsupported`.
-The existing native sweeps still pass after the fixes: `NativeCodeSweepTests` (System32 x64 682,528 functions,
+Typed errors in the sweeps: `get_cfg` `not_found` on section starts that are no function (`.reloc`, `.rdata`, ...)
+and, in that run, `disassemble` / `get_cfg` `unsupported` on ARM64 images under Program Files (ARM64 is decoded
+since). The existing native sweeps still pass after the fixes: `NativeCodeSweepTests` (System32 x64 682,528 functions,
 0 of 485,461 `.pdata` starts missing; SysWOW64 729,708 functions), `MsvcRttiTests.SweepSystemImages` (7,368 images,
 125,426 classes), `NativePeSweepTests`, `NativePeFuzzTests` (20,000 iterations).
 
@@ -58,38 +57,42 @@ The existing native sweeps still pass after the fixes: `NativeCodeSweepTests` (S
 | cudnn_engines_precompiled64_9.dll | 424 MB | 0.1 s | 12 s | 2.3 GB | 2.4 GB |
 | MRT.exe | 220 MB | 0 s | 4 s | 0.75 GB | 1.1 GB |
 
-Live memory measured step by step on codex.exe (317 MB): 369 MB after loading, 1.15 GB with its index (peak 2.1 GB
-while building), 33 MB after unloading. msedge.dll: 988,220 functions, 69 M instructions, 17.5 M references, index
+Live memory on codex.exe (317 MB): 369 MB loaded, 1.15 GB with its index (peak 2.1 GB while building), 33 MB after
+unloading. msedge.dll: 988,220 functions, 69 M instructions, 17.5 M references, index
 retained 883 MB. A build cancelled by an unload stops within about 5 s on these images.
 
 ## Tested engine versions
 
-The full suite before each release runs against these; older versions inside the supported range are not tested.
+The full suite before each release runs against these (pinned in `tests/Corvus.Tests/Support/remote-tools-assets.json`);
+older versions inside the supported range are not tested.
 
 | Engine | Supported | Tested |
 |---|---|---|
 | IDA Pro (idalib) | 9.0 or newer (older is refused) | 9.3, with Python 3.12 |
-| Ghidra | 12.0 or newer | 12.1.4 and 12.0.4, with JDK 22; on 12.0 `emulate_native` reads unmapped memory as zero instead of stopping (12.1's emulator says why it reads) |
-| JADX headless server (`decompile_java`) | jadx-headless-mcp fat jar | 0.7.1, with JDK 24 |
+| Ghidra | 12.0 or newer | 12.1.4 (and 12.0.4), with JDK 24.0.1+9; on 12.0 `emulate_native` reads unmapped memory as zero instead of stopping (12.1's emulator says why it reads) |
+| JADX headless server (`decompile_java`) | jadx-headless-mcp fat jar | 0.7.1, with JDK 24.0.1+9 |
 
 ## Limits and known gaps
 
-- Index time on 300 MB browser DLLs is one to two minutes, with a transient GC heap of 3-5 GB (6-15 bytes per file
-  byte, garbage included). No bound beyond the 16x heuristic is enforced; a machine with less memory than that cannot
-  index such an image.
+- Indexing a 300 MB browser DLL takes one to two minutes with a transient GC heap of 3-5 GB (6-15 bytes per file
+  byte, garbage included). No bound beyond the 16x heuristic is enforced; a machine with less memory cannot index it.
 - A cancelled index build stops at its next cancellation check: up to about 5 s on the largest images.
-- `load_assembly` on a native file first tries it as .NET (the whole file is read and parsed by dnlib, then
-  discarded) before parsing it as PE: one extra read of the file and garbage of its size.
-- Instructions are decoded for x86, x64, ARM64 and 32-bit ARM (A32 and Thumb-2); ARMv8 AES / SHA / VMULL.P64 are decoded;
-  other rare SIMD encodings decode as `simd` without operands. A function's ARM / Thumb state comes from symbols, mapping symbols, BL / BLX and code pointers, else from
-  decoding its first words in both states and their prologues; when both read plausibly the image's prevailing state is
-  taken and list_functions tags the function "state guessed" (stripped libSkiaSharp armv7: 18,219 of 18,219 functions
+- `load_assembly` on a native file first tries it as .NET (dnlib reads and parses the whole file, then discards it):
+  one extra read and garbage of the file's size.
+- The built-in analysis decodes x86, x64, ARM64 and 32-bit ARM (A32 and Thumb-2; ARMv8 AES / SHA / VMULL.P64
+  included, other rare SIMD encodings decode as `simd` without operands). WebAssembly has its own bytecode reader.
+  Other instruction sets (MIPS, PPC, RISC-V, ...) get only the function starts the image declares; disassembly and
+  decompilation of them need IDA or Ghidra.
+- A function's ARM / Thumb state comes from symbols, mapping symbols, BL / BLX and code pointers, else from decoding
+  its first words in both states and their prologues; when both read plausibly the image's prevailing state is taken
+  and `list_functions` tags the function "state guessed" (stripped libSkiaSharp armv7: 18,219 of 18,219 functions
   right, IDA 15,781 of 15,781; static busybox armhf: 99.82% agreement with IDA).
-- `list_resources` and several .NET tools page with a footer that names an `offset` the tool does not take; for native
-  images only `list_resources` is affected (an image with thousands of resources).
+- `list_resources` and several .NET tools page with a footer naming an `offset` the tool does not take; among native
+  tools only `list_resources` is affected (images with thousands of resources).
 - IDA was exercised on a small sample only (`DecompilesThroughIdaAndRecoversCppClasses`, the unload test, and up to
   three sweep images); IDA on the largest images was not measured.
-- Program Files was sampled (3,000 of 52,490 files); the adapter cross-check covered 800 of the 7,446 System32 / SysWOW64 images.
+- Program Files was sampled (3,000 of 52,490 files); the adapter cross-check covered 800 of 7,446 System32 /
+  SysWOW64 images.
 
 ## Agreement with other tools
 
