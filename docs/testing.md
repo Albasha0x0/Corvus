@@ -436,6 +436,10 @@ missing.
   file for a built x64 game binary whose functions call methods named as `File.WriteAllText`, `RegistryKey.GetValue`
   and `HttpClient.GetAsync` must load in capa and match "write file in .NET", "query or enumerate registry value" and
   "send HTTP request" at the calling functions. Rerun for each capa release: the freeze format changes between them.
+- **Behaviour labels against capa** (`NativeCapaTests`, `CORVUS_CAPA` naming standalone capa 10.0.0): a built x64
+  program whose functions call `CreateProcessA`, `RegSetValueExA` and `ExitProcess` must get "create process on
+  Windows", "set registry value" and "terminate process" at those functions, read from capa's result document
+  through the worker host. capa itself only reads the program.
 - **Whole-program emulation against speakeasy** (`ProgramEmulationRealTests`, `CORVUS_EMULATOR` naming speakeasy
   2.0.0b9): a small x86 program allocates a page, decodes a fixed text into it, writes it to a file and exits;
   `emulate_native engine=speakeasy` must list its five kernel32 calls in order, save the file with the text and hold

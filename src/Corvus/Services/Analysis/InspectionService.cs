@@ -190,9 +190,18 @@ public sealed class InspectionService(AssemblyWorkspace workspace, NativeCodeSer
     public FeatureReport SurveyFeatures(string? assembly, string? path, string? category, CancellationToken ct)
     {
         if (assembly == null && path != null && AppSurvey(path, ct) is { } app) return Filter(app, category);
-        if (NativeSurvey(assembly, path, ct) is { } native) return Filter(native, category);
-        var report = WithAssembly(assembly, path, s => new FeatureReport(s.Label, s.Scan.MethodsScanned, Features.Detect(s.Scan, ct), s.Scan.Notes), ct);
-        if (assembly != null && CapaSurvey(assembly, ct) is { } capa)
+        if (NativeSurvey(assembly, path, category, ct) is { } native) return Filter(native, category);
+        var il2cppCapa = assembly != null ? CapaSurvey(assembly, ct) : null;
+        var file = il2cppCapa != null ? null : path != null ? Path.GetFullPath(path) : workspace.Read(() => workspace.Get(assembly!).FilePath);
+        var labels = file != null ? CapaLabels(file, category, ct) : null;
+        var report = WithAssembly(assembly, path, s =>
+        {
+            var found = new FeatureReport(s.Label, s.Scan.MethodsScanned, Features.Detect(s.Scan, ct), s.Scan.Notes);
+            // .NET locations are method tokens, named while the module is open.
+            return labels != null ? WithLabels(found, labels, token => s.Module.ResolveToken((uint)token) is IMethod m
+                ? $"0x{token:X8} {m.DeclaringType?.FullName}::{m.Name}" : $"0x{token:X8}") : found;
+        }, ct);
+        if (il2cppCapa is { } capa)
             report = report with
             {
                 Features = [.. report.Features, .. capa.Rules.Select(r => new Feature(r.Name, CapaCategory, [new Evidence(r.Namespace ?? "(no namespace)", r.Matches, r.Methods)]))],
@@ -204,6 +213,39 @@ public sealed class InspectionService(AssemblyWorkspace workspace, NativeCodeSer
 
     /// <summary>The category of capa's rules; each rule's evidence is its namespace, at the functions it matched.</summary>
     private const string CapaCategory = "capa";
+
+    /// <summary>Most functions named per capa label; the count covers them all.</summary>
+    private const int MaxCapaLocations = 5;
+
+    /// <summary>
+    /// capa's labels of the file at <paramref name="file"/>: run when <paramref name="category"/> is capa, else only those
+    /// an earlier run kept; null when there are none and capa is not set up, so a survey without it is unchanged.
+    /// </summary>
+    private static CapaReport? CapaLabels(string file, string? category, CancellationToken ct)
+    {
+        if (!string.Equals(category, CapaCategory, StringComparison.OrdinalIgnoreCase))
+            return NativeCapa.Cached(file) ?? (Native.Providers.ExternalTools.Locate(Native.Providers.ExternalTools.Capa) != null
+                ? new(NativeCapa.NotChecked, null, false, null, [], [$"capa was not run: category={CapaCategory} runs it over the whole file"]) : null);
+        return File.Exists(file) ? NativeCapa.Analyze(file, ct)
+            : new(NativeCapa.NotChecked, null, false, null, [], [$"capa reads files on disk; {Path.GetFileName(file)} is not one"]);
+    }
+
+    /// <summary>
+    /// <paramref name="report"/> with capa's labels as features of category capa: evidence is the namespace at the matched
+    /// functions (named by <paramref name="name"/>), then each ATT&amp;CK and MBC label; a file-scope label is at "(file)".
+    /// </summary>
+    private static FeatureReport WithLabels(FeatureReport report, CapaReport capa, Func<ulong, string> name) => report with
+    {
+        Features = [.. report.Features, .. capa.Labels.Select(l =>
+        {
+            int count = Math.Max(1, l.Addresses.Count);
+            List<string> at = l.Addresses.Count == 0 ? ["(file)"] : [.. l.Addresses.Take(MaxCapaLocations).Select(name)];
+            return new Feature(l.Name, CapaCategory, [new Evidence(l.Namespace ?? "(no namespace)", count, at),
+                .. l.Attack.Select(a => new Evidence($"ATT&CK {a}", count, [])), .. l.Mbc.Select(m => new Evidence($"MBC {m}", count, []))]);
+        })],
+        Notes = [.. report.Notes, $"category {CapaCategory}: labels of {capa.Checker ?? "capa"} over the whole file, {capa.State}",
+            .. capa.Notes.Select(n => $"{CapaCategory}: {n}")],
+    };
 
     /// <summary>capa's capabilities when <paramref name="assembly"/> is a dummy assembly of an Il2Cpp dump; null for any other.</summary>
     private CapaCapabilities? CapaSurvey(string assembly, CancellationToken ct)
@@ -224,7 +266,7 @@ public sealed class InspectionService(AssemblyWorkspace workspace, NativeCodeSer
     /// The survey of a native image: a loaded one (assembly names it and no managed assembly matches) through its code index,
     /// or a native PE file (path) indexed for this call without loading it; null when the input is not native.
     /// </summary>
-    private FeatureReport? NativeSurvey(string? assembly, string? path, CancellationToken ct)
+    private FeatureReport? NativeSurvey(string? assembly, string? path, string? category, CancellationToken ct)
     {
         if ((assembly == null) == (path == null)) return null;
         NativeCodeIndex index;
@@ -270,7 +312,19 @@ public sealed class InspectionService(AssemblyWorkspace workspace, NativeCodeSer
             }
         }
         var plist = index.Image is Native.MachO.MachOFile ? AppleFileView.BundleInfo(index.Image.Path) : null;
-        return NativeReport(index, label, plist, ct);
+        var report = NativeReport(index, label, plist, ct);
+        if (index.Image is Native.MachO.MachOFile)
+            return string.Equals(category, CapaCategory, StringComparison.OrdinalIgnoreCase)
+                ? report with { Notes = [.. report.Notes, $"category {CapaCategory}: not checked: capa reads PE, ELF and .NET files"] } : report;
+        if (CapaLabels(index.Image.Path, category, ct) is not { } capa) return report;
+        var imageBase = index.Image.ImageBase;
+        return WithLabels(report, capa, at =>
+        {
+            var va = capa.Rebase(at, imageBase);
+            var named = va >= imageBase && va - imageBase <= uint.MaxValue && index.FunctionAt((uint)(va - imageBase)) is { } f
+                ? $" {index.NameAt(f.Start) ?? f.Name}" : "";
+            return $"0x{va:X}{named}";
+        });
     }
 
     /// <summary>The rules over a native image's code index; a Mach-O image also gets the Apple app rules (with its bundle's Info.plist).</summary>

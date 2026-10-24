@@ -117,7 +117,7 @@ public sealed class NativeFunctionTools(AssemblyWorkspace workspace, NativeCodeS
             foreach (var f in functions)
                 if (await EngineRecord(native, f.Start, engine, cancellationToken) is { } rec) records[f.Start] = rec;
         var key = $"dossier|{native.Image.Sha256}|{string.Join(",", found.Select(x => $"{x.Query}={x.Function?.Start:X}"))}|{string.Join(",", wanted)}|{max}|{component}|" +
-                  $"{index.Sourced.Version}|{engine}|{string.Join(",", pseudo.Values.Select(p => $"{p.Text?.GetHashCode()}:{p.Error}"))}|" +
+                  $"{index.Sourced.Version}|{Services.Analysis.NativeCapa.Cached(native.FilePath)?.Labels.Count}|{engine}|{string.Join(",", pseudo.Values.Select(p => $"{p.Text?.GetHashCode()}:{p.Error}"))}|" +
                   string.Join(",", records.Values.Select(x => string.Join(";", NativeEngineCode.RecordLines(x.Value, r => r.ToString("X")))));
         var (text, report) = await Task.Run(() =>
         {
@@ -558,6 +558,17 @@ public sealed class NativeFunctionTools(AssemblyWorkspace workspace, NativeCodeS
                     if (a.Rva != f.Start || a.Comment != null)
                         x.Add(Va(a.Rva), $"{(a.Name != null && a.Rva != f.Start ? $"name {a.Name}" : "")}{(a.Name != null && a.Rva != f.Start && a.Comment != null ? "; " : "")}" +
                                          $"{(a.Comment != null ? $"comment {a.Comment}" : "")} ({a.Source.Id()})", a.Comment != null ? "comment" : "name");
+            // capa runs from a survey only, as it reads the whole file for minutes; the dossier shows the labels it kept.
+            if (Services.Analysis.NativeCapa.Cached(native.FilePath) is { } capa)
+            {
+                foreach (var l in capa.Labels)
+                    if (l.Addresses.Any(a => capa.Rebase(a, image.ImageBase) is var va && va >= image.ImageBase && va - image.ImageBase <= uint.MaxValue
+                                             && index.FunctionAt((uint)(va - image.ImageBase))?.Start == f.Start))
+                        x.Add(Va(f.Start), $"capa {l.Name}{(l.Namespace != null ? $" ({l.Namespace})" : "")}" +
+                                           string.Concat(l.Attack.Select(t => $"; ATT&CK {t}").Concat(l.Mbc.Select(m => $"; MBC {m}"))), "capa");
+            }
+            else if (image is Native.Pe.PeFile or Native.Elf.ElfFile && ExternalTools.Locate(ExternalTools.Capa) != null)
+                x.Add(null, $"capa labels not read: survey_features image={native.Id} category=capa runs capa", "capa");
         }
 
         void Params(Section x)

@@ -94,8 +94,8 @@ public sealed class InspectionTools(InspectionService inspection, AssemblyWorksp
     [McpServerTool(Name = "survey_features", Title = "Survey features", UseStructuredContent = true, OutputSchemaType = typeof(SurveyRecord))]
     [Description("Rules over API calls, P/Invokes and strings (network, execution, registry, persistence, collection, system changes, code loading, " +
                  "cross-process, crypto); category= adds evidence. Native: imports, call arguments, strings, sections, RTTI. Apps: MASVS findings " +
-                 "(WebView, TLS, pinning, root checks, code loading, weak crypto, keys) by method offset. Il2Cpp: capa rule matches over the game " +
-                 "binary's direct calls (category capa, CORVUS_CAPA).")]
+                 "(WebView, TLS, pinning, root checks, code loading, weak crypto, keys) by method offset. category=capa: capa labels by function " +
+                 "(CORVUS_CAPA; Il2Cpp: direct calls).")]
     public async Task<string> SurveyFeatures(
         [Description(AssemblyParam)] string? assembly = null,
         [Description("A .NET, native or app file, read without loading.")] string? path = null,

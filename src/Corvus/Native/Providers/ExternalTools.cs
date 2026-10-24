@@ -146,10 +146,10 @@ public static partial class ExternalTools
         ["osv-scanner" + Exe], ["--version"], 2, "summarize_file view=dependencies advisories", false,
         Ops(("scan", ["scan", "source", "--offline", "--format", "json", "-L", "{file}"])));
 
-    // The freeze file format is capa's own and changes between releases: 10.0.0 is the version tested.
+    // The freeze file and result formats are capa's own and change between releases: 10.0.0 is the version tested.
     public static readonly ExternalTool Capa = new("capa", "capa (standalone, rules built in)", "CORVUS_CAPA", ExternalToolKind.Executable,
-        ["capa" + Exe], ["--version"], 0, "survey_features capa capabilities of Il2Cpp code", false,
-        Ops(("freeze", ["-j", "{file}"])));
+        ["capa" + Exe], ["--version"], 0, "survey_features category=capa and analyze_native_function labels", false,
+        Ops(("freeze", ["-j", "{file}"]), ("analyze", ["-j", "{file}"])));
 
     // Tested with speakeasy 2.0.0b9 (report format 5); it prints no version, so the report's format is checked instead.
     // Unknown functions stop the run rather than return a guessed 1, and region contents are saved for the region set.
