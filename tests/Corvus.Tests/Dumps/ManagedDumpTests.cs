@@ -119,6 +119,34 @@ public sealed class ManagedDumpTests
         Assert.Contains("changed after signing", DacLocator.Verify(bytes, microsoft));
     }
 
+    [Fact]
+    public void A_signer_without_the_code_signing_usage_is_refused()
+    {
+        using var key = System.Security.Cryptography.ECDsa.Create();
+        System.Security.Cryptography.X509Certificates.X509Certificate2 Signer(params string[] usages)
+        {
+            var request = new System.Security.Cryptography.X509Certificates.CertificateRequest("CN=Test, O=Microsoft Corporation", key,
+                System.Security.Cryptography.HashAlgorithmName.SHA256);
+            if (usages.Length > 0)
+                request.CertificateExtensions.Add(new System.Security.Cryptography.X509Certificates.X509EnhancedKeyUsageExtension(
+                    [.. usages.Select(u => new System.Security.Cryptography.Oid(u))], critical: false));
+            return request.CreateSelfSigned(DateTimeOffset.UtcNow.AddDays(-1), DateTimeOffset.UtcNow.AddDays(1));
+        }
+        // Server authentication only.
+        Assert.False(Certificates.AllowsCodeSigning(Signer("1.3.6.1.5.5.7.3.1")));
+        Assert.False(Certificates.AllowsCodeSigning(Signer()));
+        Assert.True(Certificates.AllowsCodeSigning(Signer("1.3.6.1.5.5.7.3.3")));
+    }
+
+    [Fact]
+    public void An_installed_dac_passes_the_usage_and_revocation_checks()
+    {
+        if (!OperatingSystem.IsWindows()) return;
+        var dac = Path.Combine(RuntimeEnvironment.GetRuntimeDirectory(), "mscordaccore.dll");
+        Assert.Null(DacLocator.Verify(File.ReadAllBytes(dac), dac, out var note));
+        Assert.True(note == null || note.StartsWith("revocation not checked", StringComparison.Ordinal), note);
+    }
+
     /// <summary>Windows' own files are signed through system catalogs, as the .NET Framework's DAC is.</summary>
     [Fact]
     public void CatalogSignedSystemFilesAreAccepted()

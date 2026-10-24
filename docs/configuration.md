@@ -215,12 +215,13 @@ The server goes online only when a call or command asks for it ([SECURITY.md](..
 | Reference packs, when an assembly targets a .NET version that is not installed | nuget.org; SHA-512 checked against nuget.org's catalog | `CORVUS_OFFLINE` |
 | `load_pdb download=true` | Symbol server (default `https://msdl.microsoft.com/download/symbols`); debuginfod for ELF | `CORVUS_OFFLINE` |
 | `open_minidump downloadDac=true` | Symbol server; the DAC is signature-checked | `CORVUS_OFFLINE` |
+| Loading a DAC | Certificate revocation servers named by the DAC's signer (cached data only with `CORVUS_OFFLINE`) | `CORVUS_OFFLINE` |
 | `--live-install-frida` | pip; hash-checked wheels | `CORVUS_OFFLINE` |
 | `corvus update`, install scripts | GitHub | not running them |
 
 | Variable | Effect |
 |---|---|
-| `CORVUS_OFFLINE` | `1` or `true`: never download reference packs, symbols, a runtime DAC or the private Frida environment. |
+| `CORVUS_OFFLINE` | `1` or `true`: never download reference packs, symbols, a runtime DAC, certificate revocation lists or the private Frida environment. |
 | `CORVUS_DEBUGINFOD_URLS` | debuginfod servers for `load_pdb download=true` on ELF (else `DEBUGINFOD_URLS`; none by default). |
 | `GITHUB_TOKEN` | Optional token for `corvus update` and the install scripts (higher GitHub API rate limit); sent to GitHub hosts over HTTPS only. |
 

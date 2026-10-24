@@ -300,6 +300,7 @@ public sealed class ClrDecoder : IDisposable
 
         var problems = new List<string>();
         bool signatureFailed = false;
+        string? note = null;
         IClrBackend? Try(DacCandidate c)
         {
             try
@@ -309,7 +310,7 @@ public sealed class ClrDecoder : IDisposable
                 if (file.Length > DacLocator.MaxDownloadBytes) { problems.Add($"{c.Path}: larger than {DacLocator.MaxDownloadBytes >> 20} MB"); return null; }
                 var bytes = new byte[file.Length];
                 file.ReadExactly(bytes);
-                if (DacLocator.Verify(bytes, c.Path) is { } bad)
+                if (DacLocator.Verify(bytes, c.Path, out note) is { } bad)
                 {
                     signatureFailed = true;
                     problems.Add($"{c.Path} ({c.Source}): signature not accepted: {bad}");
@@ -323,7 +324,8 @@ public sealed class ClrDecoder : IDisposable
                 return null;
             }
         }
-        string Where(DacCandidate c) => arch != RuntimeInformation.ProcessArchitecture ? $"{c.Source}; decoded by the 32-bit decoder process" : c.Source;
+        string Where(DacCandidate c) => (arch != RuntimeInformation.ProcessArchitecture ? $"{c.Source}; decoded by the 32-bit decoder process" : c.Source)
+                                        + (note != null ? $"; {note}" : "");
         foreach (var c in request.DownloadOnly ? [] : DacLocator.Local(clr, module, request, arch, core?.Folder))
         {
             ct.ThrowIfCancellationRequested();

@@ -86,11 +86,14 @@ public static class DacLocator
     }
 
     /// <summary>Null when the file carries Microsoft's signature, embedded or through a system catalog; else why not.</summary>
-    public static string? Verify(byte[] bytes, string path)
+    public static string? Verify(byte[] bytes, string path) => Verify(bytes, path, out _);
+
+    /// <summary>As <see cref="Verify(byte[], string)"/>; <paramref name="note"/> names a check that could not be made (revocation).</summary>
+    public static string? Verify(byte[] bytes, string path, out string? note)
     {
-        var embedded = Certificates.VerifyPublisher(bytes, Publisher);
+        var embedded = Certificates.VerifyPublisher(bytes, Publisher, out note);
         if (embedded != "no embedded signature") return embedded;
-        return CatalogSignature.Verify(path, Publisher) is { } catalog ? $"no embedded signature; {catalog}" : null;
+        return CatalogSignature.Verify(path, Publisher, out note) is { } catalog ? $"no embedded signature; {catalog}" : null;
     }
 
     private static IEnumerable<DacCandidate> Explicit(string? path, IReadOnlyList<string> names)

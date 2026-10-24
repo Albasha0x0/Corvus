@@ -10,9 +10,13 @@ namespace Corvus.Core;
 /// </summary>
 public static class CatalogSignature
 {
-    /// <summary>Null when <paramref name="path"/> is in a system catalog signed by <paramref name="organization"/>; else why not.</summary>
-    public static string? Verify(string path, string organization)
+    /// <summary>
+    /// Null when <paramref name="path"/> is in a system catalog signed by <paramref name="organization"/>; else why not.
+    /// <paramref name="note"/> names a check of the catalog's signer that could not be made (revocation).
+    /// </summary>
+    public static string? Verify(string path, string organization, out string? note)
     {
+        note = null;
         if (!OperatingSystem.IsWindows()) return "catalog signatures are checked on Windows only";
         using var file = File.OpenHandle(path, FileMode.Open, FileAccess.Read, FileShare.Read);
         string? last = null;
@@ -35,7 +39,7 @@ public static class CatalogSignature
                     if (Trust(path, file.DangerousGetHandle(), catalog.File, hash, admin) is { } problem) return problem;
                     var cms = new SignedCms();
                     cms.Decode(File.ReadAllBytes(catalog.File));
-                    return Certificates.CheckSigner(cms, organization) is { } signer ? $"catalog {Path.GetFileName(catalog.File)}: {signer}" : null;
+                    return Certificates.CheckSigner(cms, organization, out note) is { } signer ? $"catalog {Path.GetFileName(catalog.File)}: {signer}" : null;
                 }
                 finally { CryptCATAdminReleaseCatalogContext(admin, info, 0); }
             }

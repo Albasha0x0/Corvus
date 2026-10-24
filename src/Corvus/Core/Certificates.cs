@@ -31,6 +31,7 @@ public static class Certificates
 {
     private const int SecurityDirectory = 4;
     private const ushort WinCertTypePkcsSignedData = 2;
+    private const string CodeSigning = "1.3.6.1.5.5.7.3.3";
 
     public static CertificateInfo Read(byte[] file) => Read(file, out _);
 
@@ -191,21 +192,31 @@ public static class Certificates
 
     /// <summary>
     /// Null when the PE's embedded signature is intact and valid, its signer and the chain's root belong to
-    /// <paramref name="organization"/>, and the chain is trusted on this machine (no revocation check, no downloads); else why not.
+    /// <paramref name="organization"/>, and the chain is trusted on this machine for code signing; else why not.
     /// </summary>
-    public static string? VerifyPublisher(byte[] file, string organization)
+    public static string? VerifyPublisher(byte[] file, string organization) => VerifyPublisher(file, organization, out _);
+
+    /// <summary>As <see cref="VerifyPublisher(byte[], string)"/>; <paramref name="note"/> names a check that could not be made (revocation).</summary>
+    public static string? VerifyPublisher(byte[] file, string organization, out string? note)
     {
+        note = null;
         var info = Read(file, out var cms);
         if (!info.Present) return "no embedded signature";
         if (info.Problem != null) return info.Problem;
         if (info.DigestMatches != true) return "the file does not match its signature (changed after signing)";
         if (info.SignatureValid != true) return "the signature does not verify";
-        return CheckSigner(cms!, organization);
+        return CheckSigner(cms!, organization, out note);
     }
 
-    /// <summary>Null when a PKCS #7 signature (Authenticode or a security catalog) verifies and chains to a trusted root of <paramref name="organization"/>.</summary>
-    public static string? CheckSigner(SignedCms cms, string organization)
+    /// <summary>
+    /// Null when a PKCS #7 signature (Authenticode or a security catalog) verifies, its signer may sign code, is not
+    /// revoked, and chains to a trusted root of <paramref name="organization"/>; else why not. Revocation is checked
+    /// online unless CORVUS_OFFLINE is set (then from cached data); when it cannot be determined the signature is
+    /// accepted and <paramref name="note"/> says so.
+    /// </summary>
+    public static string? CheckSigner(SignedCms cms, string organization, out string? note)
     {
+        note = null;
         try
         {
             if (cms.SignerInfos.Count == 0) return "the signature has no signer";
@@ -214,11 +225,20 @@ public static class Certificates
             var cert = signer.Certificate;
             if (cert == null) return "the signer certificate is missing";
             if (Organization(cert) != organization) return $"signed by '{cert.Subject}', not {organization}";
-            using var chain = Chain(cms.Certificates, SigningTime(signer));
-            if (!chain.Build(cert))
-                return $"the signer's chain is not trusted on this machine ({string.Join(", ", chain.ChainStatus.Select(s => s.Status.ToString()).Distinct())})";
+            if (!AllowsCodeSigning(cert)) return $"the signer certificate '{cert.Subject}' is not issued for code signing";
+            bool offline = ReferencePacks.Offline;
+            using var chain = Chain(cms.Certificates, SigningTime(signer), revocation: offline ? X509RevocationMode.Offline : X509RevocationMode.Online);
+            chain.ChainPolicy.ApplicationPolicy.Add(new Oid(CodeSigning));
+            chain.Build(cert);
+            var status = chain.ChainStatus.Select(s => s.Status).Where(s => s != X509ChainStatusFlags.NoError).ToHashSet();
+            if (status.Contains(X509ChainStatusFlags.Revoked)) return "a certificate in the signer's chain is revoked";
+            bool unknown = status.Remove(X509ChainStatusFlags.RevocationStatusUnknown) | status.Remove(X509ChainStatusFlags.OfflineRevocation);
+            if (status.Count > 0)
+                return $"the signer's chain is not trusted on this machine ({string.Join(", ", status.Select(s => s.ToString()).Order(StringComparer.Ordinal))})";
             var root = chain.ChainElements[^1].Certificate;
-            return Organization(root) == organization ? null : $"the chain ends at '{root.Subject}', not a root of {organization}";
+            if (Organization(root) != organization) return $"the chain ends at '{root.Subject}', not a root of {organization}";
+            if (unknown) note = offline ? "revocation not checked (CORVUS_OFFLINE=1 and no cached revocation data)" : "revocation not checked (no revocation data could be retrieved)";
+            return null;
         }
         catch (Exception ex) when (ex is CryptographicException or AsnContentException)
         {
@@ -233,10 +253,18 @@ public static class Certificates
         return null;
     }
 
-    private static X509Chain Chain(X509Certificate2Collection extra, DateTime? timestamp)
+    /// <summary>True when the certificate's enhanced key usage lists code signing; a certificate without that extension is refused.</summary>
+    internal static bool AllowsCodeSigning(X509Certificate2 cert) =>
+        cert.Extensions.OfType<X509EnhancedKeyUsageExtension>().FirstOrDefault() is { } usage
+        && usage.EnhancedKeyUsages.Cast<Oid>().Any(o => o.Value == CodeSigning);
+
+    // Intermediates come from the signature, never the network; on Windows this leaves revocation data retrieval on.
+    private static X509Chain Chain(X509Certificate2Collection extra, DateTime? timestamp, X509RevocationMode revocation = X509RevocationMode.NoCheck)
     {
         var chain = new X509Chain();
-        chain.ChainPolicy.RevocationMode = X509RevocationMode.NoCheck;
+        chain.ChainPolicy.RevocationMode = revocation;
+        chain.ChainPolicy.RevocationFlag = X509RevocationFlag.ExcludeRoot;
+        chain.ChainPolicy.UrlRetrievalTimeout = TimeSpan.FromSeconds(5);
         chain.ChainPolicy.DisableCertificateDownloads = true;
         chain.ChainPolicy.ExtraStore.AddRange(extra);
         if (timestamp is { } at) chain.ChainPolicy.VerificationTime = at.ToLocalTime();

@@ -35,8 +35,10 @@ server reads files and never runs them. The opt-ins below, each off by default, 
   budget: the code runs on speakeasy's CPU emulator against modelled Windows APIs and a virtual file system, never
   natively; files it writes go under the data folder's `emulation` folder.
 - **Crash dumps.** .NET heap and stack decoding loads the dump's runtime data-access library (DAC) in process, only
-  after its Authenticode signature verifies and chains to a trusted Microsoft root (for the bundled 32-bit decoder
-  process, also its hash); revocation and the certificate's usage are not checked. A DAC is downloaded only with `downloadDac=true`.
+  after its Authenticode signature verifies and chains to a trusted Microsoft root, its signer certificate allows code
+  signing, and no certificate in the chain is revoked (for the bundled 32-bit decoder process, also its hash).
+  Revocation is checked online, or from cached data with `CORVUS_OFFLINE=1`; when it cannot be determined the DAC
+  loads and the result says "revocation not checked". A DAC is downloaded only with `downloadDac=true`.
 - **`inspect_process`** is registered by default and needs no opt-in. It opens only query and read handles to a
   running process, writes and suspends nothing, and closes every handle before it returns.
 
@@ -124,14 +126,16 @@ The server reaches the network only:
 - with `load_pdb download=true` (a symbol server for a PDB, debuginfod for an ELF; `server` names another) or
   `open_minidump downloadDac=true` (the DAC from Microsoft's symbol server);
 - for `--live-install-frida` (pip, hash-checked wheels);
+- when a DAC loads, for the certificate revocation lists its signer's chain names (cached data only with
+  `CORVUS_OFFLINE=1`);
 - for `corvus update` and the install scripts (GitHub releases): a build whose SHA-256 is not in the release's
   `SHA256SUMS` is refused. `SHA256SUMS` comes from the same release, so this catches corruption, not a tampered
   release; `gh attestation verify <asset> --repo Albasha0x0/Corvus` checks the signed build provenance.
   `GITHUB_TOKEN` is sent to GitHub hosts over HTTPS only and dropped on redirects;
 - through IDA or Ghidra when their own configuration says so (for example IDA's symbol server).
 
-`CORVUS_OFFLINE=1` refuses the first three; updates and installs run only when you start them, and the engines
-follow their own configuration.
+`CORVUS_OFFLINE=1` refuses the first three and keeps the fourth to cached data; updates and installs run only when
+you start them, and the engines follow their own configuration.
 
 ### Files written
 

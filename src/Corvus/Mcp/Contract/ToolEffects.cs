@@ -17,7 +17,8 @@ namespace Corvus.Mcp;
 /// <item>OpenWorld: some argument value can make the call launch a process (IDA through idalib, Python, a Ghidra JVM, diec), reach the network
 /// or read another running process; so every tool with an engine parameter is open-world. Not counted: server-wide settings
 /// (--engine, --prewarm) and a reference pack download (any .NET tool can trigger one when an assembly targets a .NET
-/// version that is not installed; CORVUS_OFFLINE=1 turns it off).</item>
+/// version that is not installed; CORVUS_OFFLINE=1 turns it off) and the revocation check when a DAC loads (cached data
+/// only with CORVUS_OFFLINE=1).</item>
 /// <item>LongRunning (not an MCP annotation): a call can run for more than ~10 s on large inputs: whole-assembly or whole-image
 /// work, an external engine, or the first use of a native image, which waits for its code index. Advertised as a
 /// description suffix, as _meta "corvus/longRunning": true, and in server_status.</item>
