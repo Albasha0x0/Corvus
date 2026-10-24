@@ -75,7 +75,7 @@
     <PackageReference Include="Microsoft.Diagnostics.Runtime" Version="3.1.512801" />
     <!-- real-time sessions only: its native helpers (kernel rundown, PDB reading) are left out of the output; aliased, as its
          global PEFile namespace hides the decompiler's PEFile -->
-    <PackageReference Include="Microsoft.Diagnostics.Tracing.TraceEvent" Version="3.2.8" ExcludeAssets="build;buildTransitive" Aliases="TraceEventPackage" />
+    <PackageReference Include="Microsoft.Diagnostics.Tracing.TraceEvent" Version="4.0.0" ExcludeAssets="build;buildTransitive" Aliases="TraceEventPackage" />
     <PackageReference Include="Microsoft.Extensions.Hosting" Version="10.0.12" />
     <PackageReference Include="ModelContextProtocol" Version="2.2.0" />
     <PackageReference Include="Samboy063.LibCpp2IL" Version="2022.1.0-pre-release.21" />
