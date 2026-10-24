@@ -3,20 +3,21 @@
 ## 2.6.0
 
 165 tools and 15 prompts, as in 2.5.1: everything new is a parameter, an action, a view or a kind of an existing tool.
-Corvus is now licensed under the Apache License 2.0. [3d429e2f](https://github.com/Albasha0x0/Corvus/commit/3d429e2f)
+Corvus is now licensed under the Apache License 2.0. [d11df476](https://github.com/Albasha0x0/Corvus/commit/d11df476)
 
 ### Highlights
 
 - Recover settings a Unity build keeps in its serialized assets: typed URLs, hosts, keys and encoded values from
   MonoBehaviour fields and config TextAssets, located by file, asset and field.
 - Compare a binary's file bytes with IDA's or Ghidra's memory and see what the loader, a fixup or a patch changed.
-- List Rust and Swift string literals one by one in native string search, and match DEX rules on decoded strings.
+- Gate a package before it is installed: signed provenance checked offline, GuardDog's rules, what a source folder
+  runs on open, checkout or build, and what an update changes by policy group.
 - Scan a running program's memory with YARA rules, fetch pinned rule packs, and write findings as a STIX 2.1 bundle.
 
 ### Breaking changes
 
 - **unity_overview, extract_strings:** an input that holds no Unity build is refused with reason `not_a_unity_build`
-  (was `not_a_unity_title`); `extract_strings` on such a folder answers `unsupported` instead of `invalid_argument`. [3d429e2f](https://github.com/Albasha0x0/Corvus/commit/3d429e2f)
+  (was `not_a_unity_title`); `extract_strings` on such a folder answers `unsupported` instead of `invalid_argument`. [d11df476](https://github.com/Albasha0x0/Corvus/commit/d11df476)
   - Before: `unity_overview path=<folder>` → `unsupported`, `details.reason: not_a_unity_title`
   - After: the same call → `unsupported`, `details.reason: not_a_unity_build`
 
@@ -24,36 +25,56 @@ Corvus is now licensed under the Apache License 2.0. [3d429e2f](https://github.c
 
 - **Unity:** `extract_strings` reads serialized files, bundles, build folders and the packages that hold them, lays out
   Il2Cpp scripts without an earlier load, and reads JSON, XML and INI TextAssets; `summarize_file view=unity` shows
-  MonoBehaviour script fields. [3d429e2f](https://github.com/Albasha0x0/Corvus/commit/3d429e2f) [460c434c](https://github.com/Albasha0x0/Corvus/commit/460c434c)
-- **Values:** a whole base64 or hex value is an `encoded` row with its decoded length, in assets and string literals. [3d429e2f](https://github.com/Albasha0x0/Corvus/commit/3d429e2f)
+  MonoBehaviour script fields. [d11df476](https://github.com/Albasha0x0/Corvus/commit/d11df476) [460c434c](https://github.com/Albasha0x0/Corvus/commit/460c434c)
+- **Values:** a whole base64 or hex value is an `encoded` row with its decoded length, in assets and string literals. [d11df476](https://github.com/Albasha0x0/Corvus/commit/d11df476)
 - **Engines:** `compare_native_images engine=ida|ghidra` names each differing range patched, engine fixup, relocation
-  applied, zero fill or unknown (IDA 9.3, Ghidra 12.1.4; PE and ELF). [3d429e2f](https://github.com/Albasha0x0/Corvus/commit/3d429e2f)
+  applied, zero fill or unknown (IDA 9.3, Ghidra 12.1.4; PE and ELF). [d11df476](https://github.com/Albasha0x0/Corvus/commit/d11df476)
 - **Native strings:** Rust literals take their length from the code or the pointer and length pair; Swift small strings
-  are read from their immediates (PE and ELF, x86-64 and ARM64). [3d429e2f](https://github.com/Albasha0x0/Corvus/commit/3d429e2f)
+  are read from their immediates (PE and ELF, x86-64 and ARM64). [d11df476](https://github.com/Albasha0x0/Corvus/commit/d11df476)
 - **Mobile:** DEX string decoder calls show their returned strings in `disassemble_dex` and `search_dex`, and
-  `survey_features` rules match them. [7663ae6c](https://github.com/Albasha0x0/Corvus/commit/7663ae6c) [3d429e2f](https://github.com/Albasha0x0/Corvus/commit/3d429e2f)
+  `survey_features` rules match them. [7663ae6c](https://github.com/Albasha0x0/Corvus/commit/7663ae6c) [d11df476](https://github.com/Albasha0x0/Corvus/commit/d11df476)
 - **Capabilities:** capa rule names label PE, ELF, .NET and Il2Cpp binaries, and a build comparison reports
   capabilities an update adds or removes. [34266e8d](https://github.com/Albasha0x0/Corvus/commit/34266e8d) [f6b3193c](https://github.com/Albasha0x0/Corvus/commit/f6b3193c) [a70f82ec](https://github.com/Albasha0x0/Corvus/commit/a70f82ec)
 - **YARA and STIX:** `live_read rules=` scans a session's writable memory; pinned rule packs are fetched and verified;
   findings export as STIX 2.1. [814968d7](https://github.com/Albasha0x0/Corvus/commit/814968d7) [5ae2fb2e](https://github.com/Albasha0x0/Corvus/commit/5ae2fb2e) [06cf329d](https://github.com/Albasha0x0/Corvus/commit/06cf329d)
 - **Emulation:** `emulate_native engine=speakeasy` runs a whole PE with Windows API emulation. [97d330b8](https://github.com/Albasha0x0/Corvus/commit/97d330b8)
 - **Containers:** `extract_strings` reads a container's own assemblies, `unity_overview` counts Il2Cpp images, types
-  and methods from the header, and `batch --file` pages each step to its limit and adds a `unity` section. [3d429e2f](https://github.com/Albasha0x0/Corvus/commit/3d429e2f)
-- **Package review:** the package view reviews agent configuration files. [86d3eb43](https://github.com/Albasha0x0/Corvus/commit/86d3eb43)
+  and methods from the header, and `batch --file` pages each step to its limit and adds a `unity` section. [d11df476](https://github.com/Albasha0x0/Corvus/commit/d11df476)
+- **Package review:** the package view reviews agent configuration files; `summarize_file` takes a source folder and
+  names what runs on open, checkout or build (git hooks and config, dev container commands, `.envrc`, MSBuild, Cargo,
+  Gradle and CMake steps); `compare_folders` leads with a policy line counting install scripts, endpoints, native files,
+  permissions and findings an update adds or removes. [86d3eb43](https://github.com/Albasha0x0/Corvus/commit/86d3eb43) [d11df476](https://github.com/Albasha0x0/Corvus/commit/d11df476)
+- **Provenance:** a Sigstore bundle, npm's attestations or PyPI's provenance beside a package file is checked offline:
+  subject digest, signature, certificate chain to the pinned Sigstore trust root and the log's signed entry timestamp,
+  with the source repository, commit and workflow; npm's publish attestation against npm's keys. Revocation and Ed25519
+  logs are not checked. [d11df476](https://github.com/Albasha0x0/Corvus/commit/d11df476)
+- **GuardDog:** with GuardDog 3.2.0 (`CORVUS_GUARDDOG` or PATH), its rule matches join the package review at file and
+  line. Linux and macOS; GuardDog does not build on Windows. [d11df476](https://github.com/Albasha0x0/Corvus/commit/d11df476)
+- **Comparisons:** with the malcontent rule pack installed, `compare_assemblies` and `compare_native_images` list the
+  malcontent behaviours an update adds or removes, highest risk first. [d11df476](https://github.com/Albasha0x0/Corvus/commit/d11df476)
+- **Raw code:** `summarize_file view=raw` names the instruction sets an unknown file reads as and the load bases its
+  pointers imply, each with its `load_assembly` call; `format=raw` without `arch` names them. [d11df476](https://github.com/Albasha0x0/Corvus/commit/d11df476)
+- **.NET:** `get_assembly_info view=transforms` lists the transformation layers (constants, proxies, control flow) from
+  a `simplify_methods` dry run, counts encoded bodies and assemblies loaded from bytes, and names the identified tool
+  behind each layer. [d11df476](https://github.com/Albasha0x0/Corvus/commit/d11df476)
 - **.NET:** compiled XAML (XBF) reads as XAML. [0bd7ab85](https://github.com/Albasha0x0/Corvus/commit/0bd7ab85)
 - **Supply chain:** releases ship with build provenance, checked before install; reference packs and the dump DAC are
   verified against their publishers; actions are pinned by commit and CodeQL and Scorecard run on every push.
   [82917b7a](https://github.com/Albasha0x0/Corvus/commit/82917b7a) [7efad8c1](https://github.com/Albasha0x0/Corvus/commit/7efad8c1) [30f5568b](https://github.com/Albasha0x0/Corvus/commit/30f5568b) [0b853057](https://github.com/Albasha0x0/Corvus/commit/0b853057) [23b7b472](https://github.com/Albasha0x0/Corvus/commit/23b7b472)
 - **Upgrade:** saved native indexes are rebuilt once (format 18), cached Il2Cpp dummy assemblies are read again once
-  (cache format 4), and reference packs cached before keep their documentation files. [3d429e2f](https://github.com/Albasha0x0/Corvus/commit/3d429e2f) [df1323db](https://github.com/Albasha0x0/Corvus/commit/df1323db) [d2f80da7](https://github.com/Albasha0x0/Corvus/commit/d2f80da7)
+  (cache format 4), and reference packs cached before keep their documentation files. [d11df476](https://github.com/Albasha0x0/Corvus/commit/d11df476) [df1323db](https://github.com/Albasha0x0/Corvus/commit/df1323db) [d2f80da7](https://github.com/Albasha0x0/Corvus/commit/d2f80da7)
 
 ### Fixes
 
 - **Unity:** Il2Cpp scripts read from metadata without the binary no longer lay out with no fields; such fields are
-  unknown with a reason. [3d429e2f](https://github.com/Albasha0x0/Corvus/commit/3d429e2f)
+  unknown with a reason. [d11df476](https://github.com/Albasha0x0/Corvus/commit/d11df476)
 - **Ghidra:** indirect-call arguments the decompiler infers carry `derived=true`, since they can differ between
-  decompiler processes. [3d429e2f](https://github.com/Albasha0x0/Corvus/commit/3d429e2f)
-- **Comparisons:** rule pattern setup no longer counts against the 2 s capability survey budget. [3d429e2f](https://github.com/Albasha0x0/Corvus/commit/3d429e2f)
+  decompiler processes. [d11df476](https://github.com/Albasha0x0/Corvus/commit/d11df476)
+- **Comparisons:** rule pattern setup no longer counts against the 2 s capability survey budget. [d11df476](https://github.com/Albasha0x0/Corvus/commit/d11df476)
+- **ELF:** MIPS64 relocations read their symbol and type from the split `r_info` layout. [d11df476](https://github.com/Albasha0x0/Corvus/commit/d11df476)
+- **Status:** `server_status` keeps every capability row within its budget with all engines installed and on a busy
+  server (child programs and lock users bounded). [d11df476](https://github.com/Albasha0x0/Corvus/commit/d11df476)
+- **Recipes:** the GuardDog recipe fetches sdists by URL; `pip download` of an sdist runs its build backend. [d11df476](https://github.com/Albasha0x0/Corvus/commit/d11df476)
 - **Engines:** a killed worker's process tree is awaited, a Windows worker ends at its job memory limit, and a Ghidra
   project another server holds opens as a snapshot. [cc731176](https://github.com/Albasha0x0/Corvus/commit/cc731176) [f6d74f0b](https://github.com/Albasha0x0/Corvus/commit/f6d74f0b) [64f1436c](https://github.com/Albasha0x0/Corvus/commit/64f1436c)
 
