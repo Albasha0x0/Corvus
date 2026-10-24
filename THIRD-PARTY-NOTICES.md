@@ -2,6 +2,20 @@
 
 Corvus includes material derived from the following projects.
 
+## Pre-release packages
+
+The shipped projects' lock files resolve pre-release packages only by exception:
+
+- Samboy063.LibCpp2IL `2022.1.0-pre-release.21` and its dependency
+  Samboy063.WasmDisassembler `2022.1.0-pre-release.21` (https://github.com/SamboyCoding/Cpp2IL, MIT). Corvus reads
+  Il2Cpp metadata versions 24-39 through the 2022.1 line, which has no stable release; the newest stable, 2022.0.7.2,
+  dates from October 2022.
+- Microsoft.CodeAnalysis.Analyzers `5.9.0-1.26328.17`, which Microsoft.CodeAnalysis.CSharp 5.9.0 depends on. It holds
+  analyzers and build files only and puts no file in the program.
+
+Each is pinned by version and content hash in `src/Corvus/packages.lock.json`, and a test refuses any other
+pre-release package in the shipped projects' lock files.
+
 ## dotnet/runtime
 
 The NativeAOT reader (`src/Corvus/Native/NativeAot`) ports the NativeFormat metadata record schema
