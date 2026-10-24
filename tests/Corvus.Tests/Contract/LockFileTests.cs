@@ -56,6 +56,20 @@ public partial class LockFileTests
     }
 
     [Fact]
+    public void The_release_targets_are_listed_outside_a_restore_and_left_out_of_a_pack()
+    {
+        // Regression: Dependabot's lock file rewrite in pull request #2 evaluated the project outside a
+        // restore and dropped the RID targets.
+        var project = Path.Combine(Root, Shipped[0]);
+        var (code, listed) = Tools.Dotnet(Root, "msbuild", project, "-getProperty:RuntimeIdentifiers");
+        Assert.True(code == 0, listed);
+        Assert.Equal(ReleaseRids(), listed.Trim().Split(';').Order(StringComparer.Ordinal));
+        var (packCode, packing) = Tools.Dotnet(Root, "msbuild", project, "-p:_IsPacking=true", "-getProperty:RuntimeIdentifiers");
+        Assert.True(packCode == 0, packing);
+        Assert.Equal("", packing.Trim());
+    }
+
+    [Fact]
     public void Ci_restores_the_shipped_projects_locked()
     {
         var props = File.ReadAllText(Path.Combine(Root, "Directory.Build.props"));

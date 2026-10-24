@@ -11,9 +11,11 @@
     <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
     <Version>2.5.1</Version>
     <!-- The release targets (release.yml's matrix), so the lock file covers each RID-specific publish; a test keeps
-         the lists equal. Restore and RID-specific builds only: listed for a RID-neutral pack, .NET 10 packs the tool
-         without its program. -->
-    <RuntimeIdentifiers Condition="'$(MSBuildIsRestoring)' == 'true' or '$(RuntimeIdentifier)' != ''">win-x64;win-arm64;linux-x64;linux-arm64;linux-musl-x64;linux-musl-arm64;osx-x64;osx-arm64</RuntimeIdentifiers>
+         the lists equal. Left out only of a RID-neutral pack's build, as tools that rewrite the lock file outside
+         a restore must see them. Workaround for dotnet/sdk#56774 (tested SDK 10.0.402, no fix yet): with them listed
+         the pack leaves out the program even with CreateRidSpecificToolPackages false. _IsPacking is the SDK's
+         internal mark of a pack; LockFileTests evaluates both cases. -->
+    <RuntimeIdentifiers Condition="'$(_IsPacking)' != 'true' or '$(MSBuildIsRestoring)' == 'true' or '$(RuntimeIdentifier)' != ''">win-x64;win-arm64;linux-x64;linux-arm64;linux-musl-x64;linux-musl-arm64;osx-x64;osx-arm64</RuntimeIdentifiers>
   </PropertyGroup>
 
   <!-- The NuGet .NET tool (dotnet pack): framework-dependent and RID-neutral; the release archives stay self-contained. -->
