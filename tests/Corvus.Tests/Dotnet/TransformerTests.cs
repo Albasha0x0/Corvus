@@ -111,6 +111,35 @@ public sealed class TransformerTests : IDisposable
         Assert.True(failures.Count == 0, string.Join("\n", failures.Take(5)));
     }
 
+    /// <summary>ConfuserEx's resource protection: a &lt;Module&gt; method that registers AssemblyResolve and loads bytes.</summary>
+    private static void ResourceProtection(ModuleDefUser m)
+    {
+        var resolve = Static(m, "‍", m.CorLibTypes.Void);
+        Body(resolve,
+            OpCodes.Call.ToInstruction(m.Import(typeof(AppDomain).GetProperty(nameof(AppDomain.CurrentDomain))!.GetMethod!)),
+            OpCodes.Ldnull.ToInstruction(),
+            OpCodes.Callvirt.ToInstruction(m.Import(typeof(AppDomain).GetEvent(nameof(AppDomain.AssemblyResolve))!.AddMethod!)),
+            OpCodes.Ldnull.ToInstruction(),
+            OpCodes.Call.ToInstruction(m.Import(typeof(System.Reflection.Assembly).GetMethod(nameof(System.Reflection.Assembly.Load), [typeof(byte[])])!)),
+            OpCodes.Pop.ToInstruction(),
+            OpCodes.Ret.ToInstruction());
+        m.GlobalType.Methods.Add(resolve);
+    }
+
+    [Fact]
+    public void The_transforms_view_joins_a_layer_to_the_transformer_whose_evidence_explains_it()
+    {
+        var path = _dir.File("app.dll");
+        File.WriteAllBytes(path, ContainerFixtures.Module("App", m => { Confuser(m); ResourceProtection(m); }));
+        var asm = _workspace.Load(path);
+        Corvus.Services.AssemblyReport.Summary summary = null!;
+        _workspace.Read(() => new Corvus.Services.AssemblyReport(_workspace, new Corvus.Services.Il2CppService(_workspace)).Build(asm, "transforms", out summary));
+        var loads = Assert.Single(summary.Transformers!, t => t.Name == "layer: loaded assemblies");
+        Assert.Contains(loads.Evidence, e => e.StartsWith("identified: ConfuserEx (strong): resource protection", StringComparison.Ordinal));
+        Assert.DoesNotContain(summary.Transformers!, t => t.Name.StartsWith("layer: ", StringComparison.Ordinal) && t.Name != "layer: loaded assemblies"
+            && t.Evidence.Any(e => e.Contains("resource protection", StringComparison.Ordinal)));
+    }
+
     [Fact]
     public void SummarizeFile_AndAssemblyInfo_NameIt()
     {

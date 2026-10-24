@@ -31,6 +31,10 @@ Showcases: a question about a real library, answered step by step.
 
 Every step in the guides and showcases is checked by a test.
 
+Recipes: Corvus with other security tools.
+[Dependency-Track](recipes/dependency-track.md) · [Velociraptor](recipes/velociraptor.md) ·
+[GuardDog](recipes/guarddog.md) · [Package gate](recipes/package-gate.md).
+
 ## Contracts and formats
 
 | Page | Covers |

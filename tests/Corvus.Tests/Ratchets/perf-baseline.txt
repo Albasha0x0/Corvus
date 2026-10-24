@@ -180,6 +180,12 @@ native/msvc-eh-slowest-file	windows	10000	ms
 native/msvc-rtti-slowest-image	linux	20000	ms
 native/msvc-rtti-slowest-image	macos	20000	ms
 native/msvc-rtti-slowest-image	windows	20000	ms
+native/raw-base-16mb	linux	1000	ms
+native/raw-base-16mb	macos	1000	ms
+native/raw-base-16mb	windows	1000	ms
+native/raw-isa-rate	linux	20	MB/s
+native/raw-isa-rate	macos	20	MB/s
+native/raw-isa-rate	windows	20	MB/s
 native/similar-query-median/linux-arm	linux	1000	ms
 native/similar-query-median/linux-arm	macos	1000	ms
 native/similar-query-median/linux-arm	windows	1000	ms

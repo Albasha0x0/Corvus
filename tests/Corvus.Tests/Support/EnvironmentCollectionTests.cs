@@ -1,6 +1,7 @@
 using System.Reflection;
 using System.Reflection.Emit;
 using System.Runtime.CompilerServices;
+using System.Text.RegularExpressions;
 using Xunit.Abstractions;
 
 namespace Corvus.Tests;
@@ -9,7 +10,7 @@ namespace Corvus.Tests;
 /// A CORVUS_* variable set process-wide is read by every test running at that moment: a class that sets one runs in a
 /// collection that keeps it from the tests that read it.
 /// </summary>
-public sealed class EnvironmentCollectionTests
+public sealed partial class EnvironmentCollectionTests
 {
     /// <summary>
     /// Collections that keep a class's settings from the tests that read them: ProcessEnvironment runs alone, and the
@@ -25,6 +26,7 @@ public sealed class EnvironmentCollectionTests
         {
             typeof(Environment).GetMethod(nameof(Environment.SetEnvironmentVariable), [typeof(string), typeof(string)])!,
             typeof(EnvironmentScope).GetMethod(nameof(EnvironmentScope.Set))!,
+            typeof(EnvironmentScope).GetMethod(nameof(EnvironmentScope.SetProcessWide))!,
         };
         var rerun = typeof(ChildTest).GetMethod(nameof(ChildTest.Rerun))!;
         var offenders = new SortedSet<string>(StringComparer.Ordinal);
@@ -50,6 +52,45 @@ public sealed class EnvironmentCollectionTests
         Assert.True(offenders.Count == 0, "Classes that set CORVUS_* variables outside [Collection(ProcessEnvironmentCollection.Name)] "
             + "(or the external tool collection for its own variables):\n" + string.Join("\n", offenders));
     }
+
+    // Regression: CORVUS_WORKER_HOST=0 set by NativeCapaTests and CapabilityChangesTests turned off the shared file
+    // worker of a test running beside them (CI run 40097321516, 814968d7).
+    [Fact]
+    public void A_class_in_the_external_tool_collection_sets_only_the_tools_own_variables()
+    {
+        // Read through ExternalTools.ReadVariable, so in the test's flow; CORVUS_TEST_* only the tests read. Any other
+        // variable reaches every test running then.
+        var tools = Corvus.Native.Providers.ExternalTools.Table.Select(t => t.Variable)
+            .Append("CORVUS_DIE").Append(Corvus.Core.ReferencePacks.OfflineVariable).Append(Corvus.Native.Pdb.PdbLocator.CacheVariable)
+            .ToHashSet(StringComparer.Ordinal);
+        var setters = new[]
+        {
+            typeof(Environment).GetMethod(nameof(Environment.SetEnvironmentVariable), [typeof(string), typeof(string)])!,
+            typeof(EnvironmentScope).GetMethod(nameof(EnvironmentScope.Set))!,
+            typeof(EnvironmentScope).GetMethod(nameof(EnvironmentScope.SetProcessWide))!,
+        };
+        var offenders = new SortedSet<string>(StringComparer.Ordinal);
+        foreach (var type in typeof(EnvironmentCollectionTests).Assembly.GetTypes())
+        {
+            var owner = type;
+            while (owner.DeclaringType != null && owner.IsDefined(typeof(CompilerGeneratedAttribute))) owner = owner.DeclaringType;
+            var collection = owner.GetCustomAttributesData().FirstOrDefault(a => a.AttributeType == typeof(CollectionAttribute))?.ConstructorArguments[0].Value as string;
+            if (collection != ExternalToolEnvironmentCollection.Name) continue;
+            const BindingFlags all = BindingFlags.Instance | BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.DeclaredOnly;
+            foreach (var method in type.GetMethods(all).Cast<MethodBase>().Concat(type.GetConstructors(all)))
+            {
+                var (names, calls) = Scan(method);
+                if (calls.Any(c => setters.Contains(c))
+                    && names.Where(n => Variable().IsMatch(n) && !tools.Contains(n) && !n.StartsWith("CORVUS_TEST_", StringComparison.Ordinal)).ToList() is { Count: > 0 } other)
+                    offenders.Add($"{owner.FullName}: {string.Join(", ", other.Order())}");
+            }
+        }
+        Assert.True(offenders.Count == 0, "Classes in the external tool collection that set variables other than the tools' own "
+            + "(WorkerPool.UseShared turns the worker host off in one flow):\n" + string.Join("\n", offenders));
+    }
+
+    [GeneratedRegex("^CORVUS_[A-Z0-9_]+$")]
+    private static partial Regex Variable();
 
     private static readonly Dictionary<short, OpCode> OpCodesByValue = typeof(OpCodes).GetFields(BindingFlags.Public | BindingFlags.Static)
         .Select(f => (OpCode)f.GetValue(null)!).ToDictionary(o => o.Value);

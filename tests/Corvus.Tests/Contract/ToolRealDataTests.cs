@@ -74,7 +74,7 @@ public sealed class ToolRealDataTests(Xunit.Abstractions.ITestOutputHelper outpu
         await Call(c, "find_similar_functions", On(("address", "sqlite3_open"), ("limit", 5)));
         await Call(c, "find_virtual_calls", On(("limit", 5)));
         var unity = await c.CallToolAsync("unity_overview", new Dictionary<string, object?> { ["path"] = image });
-        Assert.True(unity.IsError == true && Text(unity).Contains("not_a_unity_title", StringComparison.Ordinal), Text(unity)); // a real native library is no Unity title
+        Assert.True(unity.IsError == true && Text(unity).Contains("not_a_unity_build", StringComparison.Ordinal), Text(unity)); // a real native library is no Unity build
     }
 
     /// <summary>Every find_similar_functions view keeps its rows in items: a walk by nextOffset sees each of total once.</summary>

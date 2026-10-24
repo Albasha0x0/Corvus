@@ -87,11 +87,28 @@ public class ExternalToolsTests : IDisposable
     }
 
     [Fact]
+    public async Task A_scoped_variable_reaches_the_tools_this_flow_starts_and_no_other_flow()
+    {
+        using var fake = new FakeTool();
+        fake.On("script", printEnv: FakeTool.ScriptVariable);
+        var before = Environment.GetEnvironmentVariable(FakeTool.ScriptVariable);
+        using var env = new EnvironmentScope().Set(FakeTool.ScriptVariable, fake.ScriptPath);
+        Assert.Equal(fake.ScriptPath, ExternalTools.Run(FakeTool.Executable, ["script"], TimeSpan.FromSeconds(30), 1000, default).Text);
+        Assert.Equal(before, Environment.GetEnvironmentVariable(FakeTool.ScriptVariable));
+        Task<string> other;
+        // A flow started without this one's context, as a worker another test starts.
+        using (ExecutionContext.SuppressFlow())
+            other = Task.Run(() => ExternalTools.Run(FakeTool.Executable, ["script"], TimeSpan.FromSeconds(30), 1000, default).Text);
+        Assert.DoesNotContain(fake.ScriptPath, await other);
+    }
+
+    [Fact]
     public void Run_GivesTheChildAMinimalEnvironment()
     {
         using var fake = new FakeTool();
         fake.On("secret", printEnv: "CORVUS_TEST_SECRET").On("script", printEnv: FakeTool.ScriptVariable);
-        using var env = new EnvironmentScope().Set("CORVUS_TEST_SECRET", "s3cret");
+        // Process-wide: the check is that the minimal environment strips the server's own variables.
+        using var env = new EnvironmentScope().SetProcessWide("CORVUS_TEST_SECRET", "s3cret");
         Assert.Equal("<unset>", ExternalTools.Run(FakeTool.Executable, ["secret"], TimeSpan.FromSeconds(30), 1000, default, fake.Environment).Text);
         Assert.Equal(fake.ScriptPath, ExternalTools.Run(FakeTool.Executable, ["script"], TimeSpan.FromSeconds(30), 1000, default, fake.Environment).Text);
         Assert.Contains("CORVUS_TEST_SECRET", ExternalTools.MinimalEnvironment().Keys);
@@ -157,10 +174,10 @@ public class ExternalToolsTests : IDisposable
         try
         {
             var probe = ExternalTools.Probe(ExternalTools.OsvScanner);
-            Assert.Equal((true, null, "its version check timed out after 300 ms"), (probe.Usable, probe.Version, probe.VersionUnknown));
+            Assert.Equal((true, null, "check timed out after 300 ms"), (probe.Usable, probe.Version, probe.VersionUnknown));
             var status = Assert.Single(Corvus.Tools.SessionTools.ExternalToolCapabilities(), c => c.Name.StartsWith("osv-scanner", StringComparison.Ordinal));
             Assert.True(status.Available);
-            Assert.EndsWith("version unknown (its version check timed out after 300 ms)", status.Detail);
+            Assert.EndsWith("version unknown (check timed out after 300 ms)", status.Detail);
         }
         finally { ExternalTools.VersionTimeout = saved; }
     }
@@ -185,7 +202,7 @@ public class ExternalToolsTests : IDisposable
             Assert.True(await Task.WhenAny(answer, Task.Delay(TimeSpan.FromSeconds(60))) == answer, "status waited for the version check");
             var first = Assert.Single(await answer, c => c.Name.StartsWith("osv-scanner", StringComparison.Ordinal));
             Assert.True(first.Available);
-            Assert.EndsWith("version unknown (its version check is still running; call server_status again)", first.Detail);
+            Assert.EndsWith("version unknown (check running; call server_status again)", first.Detail);
         }
         finally { File.WriteAllText(release, ""); }
         var next = Assert.Single(Corvus.Tools.SessionTools.ExternalToolCapabilities(), c => c.Name.StartsWith("osv-scanner", StringComparison.Ordinal));

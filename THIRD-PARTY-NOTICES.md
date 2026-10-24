@@ -130,9 +130,6 @@ from these Apache License 2.0 projects (https://www.apache.org/licenses/LICENSE-
 - [jtang613/GhidrAssistMCP](https://github.com/jtang613/GhidrAssistMCP), Copyright (c) 2025 Jason Tang, MIT License (text as
   for ida-pro-mcp above): a Java script run through `GhidraScriptUtil.getProvider` and `getScriptInstance`, then
   `execute` with a `GhidraState` and `ScriptControls` whose writers capture its output (`ScriptOps.java`).
-- [morluto/rea](https://github.com/morluto/rea) (REA), Copyright (c) 2026 morluto, MIT License (text as for
-  ida-pro-mcp above): value flow read from the decompiler's high p-code through `Varnode.getDef()`, with parameters
-  by `HighParam.getSlot()` (`SliceOps.java`, which adds the forward direction through `getDescendants()`).
 
 ## AsmArm64
 
@@ -281,3 +278,10 @@ Copyright (c) 2014 - 2017 Apple Inc. and the Swift project authors, licensed und
     you may redistribute such product without providing attribution as would
     otherwise be required by Sections 4(a), 4(b) and 4(d) of the License.
 ```
+
+## Sigstore trust root and npm keys
+
+`src/Corvus/Services/Web/Packages/TrustRoots/sigstore-trusted-root.json` is `targets/trusted_root.json` of
+https://github.com/sigstore/root-signing at commit c9bda74ad2221f938f7d2e0295ca3aad2da710a8, licensed under the Apache
+License 2.0 (https://www.apache.org/licenses/LICENSE-2.0). `npm-attestation-keys.json` beside it is the public key list
+npm publishes at https://registry.npmjs.org/-/npm/v1/keys.

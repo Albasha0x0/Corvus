@@ -189,9 +189,16 @@ public enum StringEncoding : byte
 {
     Ascii,
     Utf16,
+    /// <summary>UTF-8 of a byte length that code or data gives, with no terminator (Rust &amp;str).</summary>
+    Utf8,
+    /// <summary>A Swift small string held in immediates: <see cref="StringLiteral.Rva"/> is the instruction that completes it.</summary>
+    Inline,
 }
 
-/// <summary>A NUL-terminated string at an address referenced by code or data.</summary>
+/// <summary>
+/// A string at an address referenced by code or data: NUL-terminated (ASCII, UTF-16), or of a known byte length (UTF-8,
+/// inline). <see cref="Length"/> counts characters for ASCII and UTF-16, bytes for UTF-8 and inline strings.
+/// </summary>
 public readonly record struct StringLiteral(uint Rva, int Length, StringEncoding Encoding);
 
 /// <summary>Kind of a control-flow edge between basic blocks.</summary>

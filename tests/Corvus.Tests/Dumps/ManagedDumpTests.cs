@@ -342,14 +342,27 @@ public sealed class ManagedDumpTests
         Assert.Equal(ErrorCode.InvalidArgument, (await Assert.ThrowsAsync<ToolError>(() => service.Heap(path, "tree", null, 0, 0, 50, 100, default))).Code);
         Assert.Equal(ErrorCode.InvalidArgument, (await Assert.ThrowsAsync<ToolError>(() => service.Object(path, "nowhere", 1, 10, 10, default))).Code);
 
-        var previous = Environment.GetEnvironmentVariable("CORVUS_OFFLINE");
-        Environment.SetEnvironmentVariable("CORVUS_OFFLINE", "1");
-        try
+        using (new EnvironmentScope().Set(ReferencePacks.OfflineVariable, "1"))
         {
             summary = await service.Summarize(path, null, new DacRequest(Download: true), default);
             Assert.Equal("download_refused_offline", summary.Managed!.Dac.Status);
         }
-        finally { Environment.SetEnvironmentVariable("CORVUS_OFFLINE", previous); }
+    }
+
+    [Fact]
+    public async Task Offline_and_the_symbol_cache_set_in_one_flow_are_not_seen_in_another()
+    {
+        var cache = Path.Combine(Path.GetTempPath(), "corvus-flow-cache");
+        using var scope = new EnvironmentScope().Set(ReferencePacks.OfflineVariable, "1").Set(Native.Pdb.PdbLocator.CacheVariable, cache);
+        Assert.True(ReferencePacks.Offline);
+        Assert.Equal(cache, Native.Pdb.PdbLocator.DownloadCache);
+        Task<(bool, string)> other;
+        // A flow started without this one's context reads the values the run started with.
+        using (ExecutionContext.SuppressFlow())
+            other = Task.Run(() => (ReferencePacks.Offline, Native.Pdb.PdbLocator.DownloadCache));
+        var (offline, downloadCache) = await other;
+        Assert.Equal(EnvironmentScope.AtStart.GetValueOrDefault(ReferencePacks.OfflineVariable) is "1" or "true", offline);
+        Assert.NotEqual(cache, downloadCache);
     }
 
     /// <summary>

@@ -1,3 +1,4 @@
+using System.Text.RegularExpressions;
 using dnlib.DotNet;
 using Corvus.Core;
 using Corvus.Core.Unity;
@@ -11,7 +12,7 @@ namespace Corvus.Services.Analysis;
 /// earlier load. A layout is kept only when it reads exactly the object's size; a field that cannot be laid out is
 /// unknown with its reason. script= keeps one script class; offset= and limit= page the assets.
 /// </summary>
-internal sealed class UnityFileView : IFileSummaryView
+internal sealed partial class UnityFileView : IFileSummaryView
 {
     private const long MaxFile = 1L << 30, MaxBundleBytes = 1L << 30;
     private const int DefaultLimit = 20, MaxLimit = 200, MaxFields = 60, MaxScan = 200_000, MaxAncestors = 6;
@@ -47,16 +48,7 @@ internal sealed class UnityFileView : IFileSummaryView
         if (file.Length > MaxFile)
             return new FileView(new Facts(kind, [], 0, 0, 0, 0, null, new Dictionary<string, int>(), [],
                 [$"the file is {file.Length:N0} bytes, over the {MaxFile:N0} byte limit of this view"]), []);
-        var files = new List<SerializedFile>();
-        if (bundle)
-        {
-            var b = UnityFsBundle.Read(file.Bytes, MaxBundleBytes);
-            notes.AddRange(b.Issues);
-            foreach (var e in b.Entries)
-                if (SerializedFile.IsSerializedFile(e.Bytes, e.Bytes.Length)) files.Add(SerializedFile.Read(e.Bytes, e.Path));
-        }
-        else files.Add(SerializedFile.Read(file.Bytes, Path.GetFileName(file.Path)));
-        foreach (var f in files) notes.AddRange(f.Issues.Select(i => $"{f.Name}: {i}"));
+        var files = Files(file.Bytes, Path.GetFileName(file.Path), notes);
         var monos = files.SelectMany(f => f.Objects.Where(o => o.ClassId == SerializedFile.ClassMonoBehaviour).Select(o => (File: f, Object: o))).ToList();
         var fileFacts = files.Select(f => new FileFacts(f.Name, f.Format, f.UnityVersion, f.HasTypeTrees, f.Objects.Count,
             f.Objects.Count(o => o.ClassId == SerializedFile.ClassMonoBehaviour))).ToList();
@@ -110,10 +102,7 @@ internal sealed class UnityFileView : IFileSummaryView
     /// </summary>
     internal static IEnumerable<(ScriptAsset Tree, ScriptAsset Laid)> BothLayouts(string path, byte[] bytes)
     {
-        var files = new List<SerializedFile>();
-        if (UnityFsBundle.IsBundle(bytes))
-            files.AddRange(UnityFsBundle.Read(bytes, MaxBundleBytes).Entries.Where(e => SerializedFile.IsSerializedFile(e.Bytes, e.Bytes.Length)).Select(e => SerializedFile.Read(e.Bytes, e.Path)));
-        else if (SerializedFile.IsSerializedFile(bytes, bytes.Length)) files.Add(SerializedFile.Read(bytes, Path.GetFileName(path)));
+        var files = Files(bytes, Path.GetFileName(path), []);
         using var context = new Context(path, files);
         foreach (var f in files.Where(f => f.HasTypeTrees))
             foreach (var o in f.Objects.Where(o => o.ClassId == SerializedFile.ClassMonoBehaviour && o.Type?.Tree is { Count: > 1 }))
@@ -123,6 +112,144 @@ internal sealed class UnityFileView : IFileSummaryView
             }
     }
 
+    /// <summary>The serialized files of a plain file or of a bundle's entries; bundle and file issues go to <paramref name="notes"/>.</summary>
+    private static List<SerializedFile> Files(byte[] bytes, string name, List<string> notes)
+    {
+        var files = new List<SerializedFile>();
+        if (UnityFsBundle.IsBundle(bytes))
+        {
+            var b = UnityFsBundle.Read(bytes, MaxBundleBytes);
+            notes.AddRange(b.Issues);
+            foreach (var e in b.Entries)
+                if (SerializedFile.IsSerializedFile(e.Bytes, e.Bytes.Length)) files.Add(SerializedFile.Read(e.Bytes, e.Path));
+        }
+        else if (SerializedFile.IsSerializedFile(bytes, bytes.Length)) files.Add(SerializedFile.Read(bytes, name));
+        foreach (var f in files) notes.AddRange(f.Issues.Select(i => $"{f.Name}: {i}"));
+        return files;
+    }
+
+    /// <summary>A string an asset field holds: its serialized file (a bundle entry as "bundle/CAB-..."), "Asset (Script: Ns.Class).field" and the text.</summary>
+    internal sealed record AssetText(string File, string Location, string Text);
+
+    /// <summary>
+    /// The MonoBehaviour and TextAsset strings of one serialized file or bundle: the texts, the MonoBehaviour assets
+    /// counted by state, the reasons partial and unknown ones give (numbers as N), texts past the limit, whether the stop
+    /// token ended the read, notes, and the TextAssets counted by format (json, xml, ini, other, large, unreadable).
+    /// </summary>
+    internal sealed record AssetStrings(IReadOnlyList<AssetText> Texts, int Assets, int Read, int Partial, int Unknown, int Dropped, bool Stopped,
+        IReadOnlyDictionary<string, int> Reasons, IReadOnlyList<string> Notes, IReadOnlyDictionary<string, int> TextAssets);
+
+    /// <summary>
+    /// The string fields of every MonoBehaviour in a serialized file or bundle (the first <see cref="MaxScan"/>), laid
+    /// out as view=unity lays them out, then the values of each TextAsset that holds config text (<see cref="ConfigText"/>);
+    /// <paramref name="path"/> places the file for the assembly lookup and <paramref name="label"/> names it in locations.
+    /// At most <paramref name="maxTexts"/> texts are kept. An unknown asset adds none. <paramref name="stop"/> ends the
+    /// read between assets with what was read; <paramref name="ct"/> cancels it. Il2Cpp layouts are read from the cache
+    /// under <paramref name="il2cppCache"/> (null: the default).
+    /// </summary>
+    internal static AssetStrings Strings(string path, byte[] bytes, string label, int maxTexts, CancellationToken stop, CancellationToken ct, string? il2cppCache = null)
+    {
+        var notes = new List<string>();
+        bool bundle = UnityFsBundle.IsBundle(bytes);
+        var files = Files(bytes, Path.GetFileName(path), notes);
+        var monos = files.SelectMany(f => f.Objects.Where(o => o.ClassId == SerializedFile.ClassMonoBehaviour).Select(o => (File: f, Object: o))).ToList();
+        if (monos.Count > MaxScan) notes.Add($"MonoBehaviours: the first {MaxScan:N0} of {monos.Count:N0} are read");
+        using var context = new Context(path, files, il2cppCache);
+        var texts = new List<AssetText>();
+        var reasons = new Dictionary<string, int>(StringComparer.Ordinal);
+        int assets = 0, read = 0, partial = 0, unknown = 0, dropped = 0;
+        bool stopped = false;
+        foreach (var (f, o) in monos.Take(MaxScan))
+        {
+            ct.ThrowIfCancellationRequested();
+            if (stop.IsCancellationRequested)
+            {
+                stopped = true;
+                break;
+            }
+            assets++;
+            var sink = new UnityTextSink(Math.Max(0, maxTexts - texts.Count), UnityMonoBehaviour.BaseFields);
+            var asset = context.Fields(f, o, context.ReadBase(f, o), sink: sink);
+            if (asset.State == "read") read++;
+            else if (asset.State == "partial") partial++;
+            else unknown++;
+            if (asset.State != "read" && asset.Reason != null)
+            {
+                var reason = Digits().Replace(asset.Reason, "N");
+                reasons[reason] = reasons.GetValueOrDefault(reason) + 1;
+            }
+            // A layout that missed the object's size read the wrong bytes, so its strings are not kept.
+            if (asset.State == "unknown") continue;
+            dropped += sink.Dropped;
+            var file = bundle ? $"{label}/{f.Name}" : label;
+            var owner = (asset.Name is { Length: > 0 } n ? n : $"path id {o.PathId}") + (asset.Script != null ? $" (Script: {asset.Script})" : "");
+            texts.AddRange(sink.Texts.Select(t => new AssetText(file, $"{owner}.{t.Field}", t.Text)));
+        }
+        var formats = new Dictionary<string, int>(StringComparer.Ordinal);
+        var textAssets = files.SelectMany(f => f.Objects.Where(o => o.ClassId == SerializedFile.ClassTextAsset).Select(o => (File: f, Object: o))).ToList();
+        if (textAssets.Count > MaxScan) notes.Add($"TextAssets: the first {MaxScan:N0} of {textAssets.Count:N0} are read");
+        foreach (var (f, o) in textAssets.Take(MaxScan))
+        {
+            ct.ThrowIfCancellationRequested();
+            if (stopped || stop.IsCancellationRequested)
+            {
+                stopped = true;
+                break;
+            }
+            string name, kind;
+            (string Kind, List<string> Values)? config = null;
+            try
+            {
+                // TextAsset: m_Name, then m_Script, the file's bytes as a length-prefixed string.
+                var r = f.Data(o) ?? throw new InvalidDataException("the object is outside the file");
+                name = r.String(align: true);
+                int n = r.I32();
+                if (n < 0 || n > r.Remaining) throw new InvalidDataException($"a script of {n} bytes");
+                if (n <= ConfigText.MaxBytes) config = ConfigText.Read(r.Bytes(n));
+                kind = config?.Kind ?? (n > ConfigText.MaxBytes ? "large" : "other");
+            }
+            catch (InvalidDataException)
+            {
+                (name, kind) = ("", "unreadable");
+            }
+            formats[kind] = formats.GetValueOrDefault(kind) + 1;
+            if (config is not { } c) continue;
+            var file = bundle ? $"{label}/{f.Name}" : label;
+            var location = $"{(name.Length > 0 ? name : $"path id {o.PathId}")} (TextAsset)";
+            if (c.Values.Count > ConfigText.MaxValues) notes.Add($"{location}: the first {ConfigText.MaxValues:N0} values are read");
+            int count = Math.Min(c.Values.Count, ConfigText.MaxValues), room = Math.Max(0, maxTexts - texts.Count);
+            texts.AddRange(c.Values.Take(Math.Min(count, room)).Select(t => new AssetText(file, location, t)));
+            dropped += Math.Max(0, count - room);
+        }
+        notes.AddRange(context.Notes);
+        return new AssetStrings(texts, assets, read, partial, unknown, dropped, stopped, reasons, notes, formats);
+    }
+
+    // Whole numbers only, so names such as Il2Cpp keep their digits.
+    [GeneratedRegex(@"\b\d[\d,]*\b", RegexOptions.CultureInvariant)]
+    private static partial Regex Digits();
+
+    /// <summary>
+    /// The Il2Cpp build in <paramref name="directory"/> or up to 6 folders above it, preferring one with its binary; the
+    /// binary is "" when only the metadata is found; null when there is no build.
+    /// </summary>
+    internal static Il2CppBuildFiles? Il2CppBuildAbove(string directory)
+    {
+        foreach (var metadataOnly in new[] { false, true })
+        {
+            var dir = Path.GetFullPath(directory);
+            for (int i = 0; dir != null && i < MaxAncestors; i++, dir = Path.GetDirectoryName(dir))
+            {
+                try
+                {
+                    if (Il2CppBuildFiles.Find(dir, metadataOnly: metadataOnly) is { } build) return build;
+                }
+                catch (ToolError) { }
+            }
+        }
+        return null;
+    }
+
     /// <summary>The base fields of a MonoBehaviour: its name, script pointer and the class the script names (null when not found, with the reason).</summary>
     private sealed record Base(string? Name, UnityPointer? Pointer, UnityScriptClass? Script, string? Problem);
 
@@ -130,7 +257,7 @@ internal sealed class UnityFileView : IFileSummaryView
     /// The files a view reads beside the one asked for: serialized files a script pointer names (other entries of the
     /// bundle, or files in the same folder), and the Managed or Il2Cpp dummy assemblies of the build.
     /// </summary>
-    private sealed class Context(string path, IReadOnlyList<SerializedFile> files) : IDisposable
+    private sealed class Context(string path, IReadOnlyList<SerializedFile> files, string? il2cppCache = null) : IDisposable
     {
         public readonly List<string> Notes = [];
         private readonly string _directory = Path.GetDirectoryName(Path.GetFullPath(path))!;
@@ -221,22 +348,22 @@ internal sealed class UnityFileView : IFileSummaryView
             return (other, other == null ? $"the MonoScript is in {f.Externals[fileId - 1].Path}, which was not found beside the file" : null);
         }
 
-        public ScriptAsset Fields(SerializedFile f, UnityObject o, Base b, bool useTree = true)
+        public ScriptAsset Fields(SerializedFile f, UnityObject o, Base b, bool useTree = true, UnityTextSink? sink = null)
         {
             var asset = new ScriptAsset(f.Name, o.PathId, b.Name, b.Script?.FullName, b.Script?.Assembly, "none", "unknown", []);
             if (f.Data(o) is not { } r) return asset with { Reason = "the object's data is outside the file" };
-            if (useTree && o.Type?.Tree is { Count: > 1 } tree) return FromTree(asset with { Layout = "type tree" }, tree, r);
+            if (useTree && o.Type?.Tree is { Count: > 1 } tree) return FromTree(asset with { Layout = "type tree" }, tree, r, sink);
             if (b.Script is not { } script) return asset with { Reason = b.Problem ?? "the script class is not known" };
             var (type, source, problem) = Type(script);
             if (type == null) return asset with { Reason = problem };
             var layout = UnityScriptLayout.Build(type, f.Format, attributesKept: source == "assembly", f.UnityVersion);
-            return FromLayout(asset with { Layout = source }, layout, r);
+            return FromLayout(asset with { Layout = source }, layout, r, sink);
         }
 
         /// <summary>The fields through the file's own type tree; a field the data does not fit ends them, with the fields before it kept.</summary>
-        private static ScriptAsset FromTree(ScriptAsset asset, IReadOnlyList<UnityTypeNode> tree, UnityBinary r)
+        private static ScriptAsset FromTree(ScriptAsset asset, IReadOnlyList<UnityTypeNode> tree, UnityBinary r, UnityTextSink? sink)
         {
-            var (values, field, failure) = UnityTreeReader.ReadUntilFailure(tree, r);
+            var (values, field, failure) = UnityTreeReader.ReadUntilFailure(tree, r, sink);
             int size = r.End - r.Start, read = r.Position - r.Start;
             if (field == null && read != size)
                 return asset with { Reason = $"the type tree reads {read:N0} of the object's {size:N0} bytes, so its values are not shown" };
@@ -247,12 +374,12 @@ internal sealed class UnityFileView : IFileSummaryView
         }
 
         /// <summary>The fields through a layout built from an assembly, kept only when it reads exactly the object's size or ends at an unknown field.</summary>
-        private static ScriptAsset FromLayout(ScriptAsset asset, UnityScriptLayout.Layout layout, UnityBinary r)
+        private static ScriptAsset FromLayout(ScriptAsset asset, UnityScriptLayout.Layout layout, UnityBinary r, UnityTextSink? sink)
         {
             List<UnityFieldValue> values;
             try
             {
-                values = UnityTreeReader.Read(layout.Tree, r);
+                values = UnityTreeReader.Read(layout.Tree, r, sink);
             }
             catch (InvalidDataException e)
             {
@@ -327,22 +454,13 @@ internal sealed class UnityFileView : IFileSummaryView
         /// <summary>The Managed folder in or above the file's folder, and the cached Il2Cpp dummy assemblies of the build there.</summary>
         private (string?, string?) Assemblies()
         {
-            string? managed = null, dummies = null;
+            string? managed = null;
             var dir = _directory;
-            for (int i = 0; dir != null && i < MaxAncestors && (managed == null || dummies == null); i++, dir = Path.GetDirectoryName(dir))
-            {
-                if (managed == null && Directory.Exists(Path.Combine(dir, "Managed")) && Directory.EnumerateFiles(Path.Combine(dir, "Managed"), "*.dll").Any())
+            for (int i = 0; dir != null && i < MaxAncestors && managed == null; i++, dir = Path.GetDirectoryName(dir))
+                if (Directory.Exists(Path.Combine(dir, "Managed")) && Directory.EnumerateFiles(Path.Combine(dir, "Managed"), "*.dll").Any())
                     managed = Path.Combine(dir, "Managed");
-                if (dummies == null)
-                {
-                    try
-                    {
-                        if (Il2CppBuildFiles.Find(dir) is { } build) dummies = Il2CppRawLoader.CachedDummies(build);
-                    }
-                    catch (ToolError) { }
-                }
-            }
-            return (managed, dummies);
+            var build = Il2CppBuildAbove(_directory);
+            return (managed, build != null ? Il2CppRawLoader.CachedDummies(build, il2cppCache) : null);
         }
 
         public void Dispose()

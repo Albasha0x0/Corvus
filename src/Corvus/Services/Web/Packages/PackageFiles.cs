@@ -172,7 +172,10 @@ internal sealed class PackageFiles
         {
             ct.ThrowIfCancellationRequested();
             var rel = Path.GetRelativePath(root, file).Replace('\\', '/');
-            if (rel.StartsWith("node_modules/", StringComparison.Ordinal) || rel.StartsWith(".git/", StringComparison.Ordinal)) continue;
+            if (rel.StartsWith("node_modules/", StringComparison.Ordinal)) continue;
+            // Of .git, only the config and hooks run anything.
+            if (rel.StartsWith(".git/", StringComparison.Ordinal) && rel != ".git/config"
+                && !(rel.StartsWith(".git/hooks/", StringComparison.Ordinal) && rel.IndexOf('/', 11) < 0 && !rel.EndsWith(".sample", StringComparison.Ordinal))) continue;
             long size = new FileInfo(file).Length;
             Add(rel, size, () => ReadFile(file));
         }

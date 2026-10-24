@@ -1,8 +1,11 @@
 using System.Buffers.Binary;
 using System.Diagnostics;
 using System.Text;
+using AssetRipper.Primitives;
 using Corvus.Core;
+using Corvus.Services;
 using Corvus.Services.Analysis;
+using LibCpp2IL.Metadata;
 using Xunit.Abstractions;
 
 namespace Corvus.Tests;
@@ -238,12 +241,12 @@ public sealed class UnityOverviewTests : IDisposable
     }
 
     [Fact]
-    public void Not_a_unity_title_is_a_typed_error_saying_what_was_looked_for()
+    public void Not_a_unity_build_is_a_typed_error_saying_what_was_looked_for()
     {
         var e = Assert.Throws<ToolError>(() => UnityOverview.Inspect(Env.FixturePath, false, default));
         Assert.Equal(ErrorCode.Unsupported, e.Code);
-        Assert.Contains("not a Unity title (no UnityPlayer, libunity, GameAssembly or data folder", e.Message);
-        Assert.Contains("not_a_unity_title", e.Message);
+        Assert.Contains("not a Unity build (no UnityPlayer, libunity, GameAssembly or data folder", e.Message);
+        Assert.Contains("not_a_unity_build", e.Message);
         Assert.Contains("globalgamemanagers", System.Text.Json.JsonSerializer.Serialize(e.Details)); // the full list stays in details
         Assert.Equal(ErrorCode.NotFound, Assert.Throws<ToolError>(() => UnityOverview.Inspect(_dir.File("missing"), false, default)).Code);
     }
@@ -259,6 +262,177 @@ public sealed class UnityOverviewTests : IDisposable
         Assert.Contains("Next:\n  load_assembly path=", text);
     }
 
+    /// <summary>The layout a fixture is written in: definition sizes and whether rgctx entries precede the images section.</summary>
+    private sealed record LayoutSizes(int Header, bool Rgctx, int Image, int Type, int Method);
+
+    // One row per definition layout of metadata versions 24 to 39, with a Unity version that selects it for the reader.
+    public static TheoryData<string, int, string, string> Layouts => new()
+    {
+        { "v24.0", 24, "2018.2.0f1", "v24.0" },
+        { "v24.1", 24, "2018.3.0f1", "v24.1-24.15" },
+        { "v24.15", 24, "2018.4.34f1", "v24.1-24.15" },
+        { "v24.2", 24, "2019.1.0f1", "v24.2-24.5" },
+        { "v24.5", 24, "2019.4.21f1", "v24.2-24.5" },
+        { "v27", 27, "2020.1.0f1", "v27" },
+        { "v27.1", 27, "2020.2.4f1", "v27" },
+        { "v27.2", 27, "2021.1.0f1", "v27" },
+        { "v29", 29, "2021.3.0f1", "v29" },
+        { "v29.1", 29, "2022.1.0f1", "v29" },
+        { "v31", 31, "2022.2.0f1", "v31" },
+        { "v31.1", 31, "2022.3.33f1", "v31" },
+        { "v35", 35, "6000.0.0f1", "v35" },
+        { "v38", 38, "6000.1.0f1", "v38" },
+        { "v39", 39, "6000.2.0f1", "v39" },
+    };
+
+    private static LayoutSizes SizesOf(string name, int header) => name switch
+    {
+        "v24.0" => new(header, true, 32, 104, 56),
+        "v24.1" or "v24.15" => new(header, true, 40, 100, 52),
+        "v24.2" or "v24.5" => new(header, false, 40, 92, 32),
+        "v27" or "v27.1" or "v27.2" or "v29" or "v29.1" => new(header, false, 40, 88, 32),
+        "v31" or "v31.1" => new(header, false, 40, 88, 36),
+        "v35" => new(header, false, 40, 84, 36),
+        _ => new(header, false, 34, 81, 30),
+    };
+
+    /// <summary>
+    /// A global-metadata.dat in <paramref name="layout"/>: every header section present, a one-name string heap, images
+    /// of <paramref name="imageTypes"/> types each (2 and 3 by default), zero-filled type and method tables, and 4 KiB of
+    /// zeros after the data for the reader, which reads one record of an empty section.
+    /// </summary>
+    private static byte[] LayoutMetadata(LayoutSizes layout, int[]? imageTypes = null, int methods = 7)
+    {
+        imageTypes ??= [2, 3];
+        int types = imageTypes.Sum();
+        bool counted = layout.Header >= 38;
+        var names = new List<string>
+        {
+            "stringLiteral", "stringLiteralData", "string", "events", "properties", "methods", "parameterDefaultValues", "fieldDefaultValues",
+            "fieldAndParameterDefaultValueData", "fieldMarshaledSizes", "parameters", "fields", "genericParameters", "genericParameterConstraints",
+            "genericContainers", "nestedTypes", "interfaces", "vtableMethods", "interfaceOffsets", "typeDefinitions",
+        };
+        if (layout.Rgctx) names.Add("rgctxEntries");
+        names.AddRange(["images", "assemblies"]);
+        if (layout.Header < 27) names.AddRange(["metadataUsageLists", "metadataUsagePairs"]);
+        names.AddRange(["fieldRefs", "referencedAssemblies"]);
+        names.AddRange(layout.Header < 29 ? ["attributesInfo", "attributeTypes"] : ["attributeData", "attributeDataRange"]);
+        names.AddRange(["unresolvedVirtualCallParameterTypes", "unresolvedVirtualCallParameterRanges", "windowsRuntimeTypeNames"]);
+        if (layout.Header >= 27) names.Add("windowsRuntimeStrings");
+        names.Add("exportedTypeDefinitions");
+        int stride = counted ? 12 : 8, headerSize = 8 + names.Count * stride;
+
+        // From v38 an image's type indexes are 1 byte wide for up to 255 types.
+        int width = counted ? 1 : 4, first = 0;
+        var image = new byte[imageTypes.Length * layout.Image];
+        for (int i = 0; i < imageTypes.Length; i++)
+        {
+            var entry = image.AsSpan(i * layout.Image);
+            if (width == 1) entry[8] = (byte)first;
+            else BinaryPrimitives.WriteInt32LittleEndian(entry[8..], first);
+            BinaryPrimitives.WriteUInt32LittleEndian(entry[(8 + width)..], (uint)imageTypes[i]);
+            first += imageTypes[i];
+        }
+        var contents = new Dictionary<string, (byte[] Bytes, int Count)>
+        {
+            ["string"] = ("a\0"u8.ToArray(), 1),
+            ["images"] = (image, imageTypes.Length),
+            ["typeDefinitions"] = (new byte[types * layout.Type], types),
+            ["methods"] = (new byte[methods * layout.Method], methods),
+        };
+        // From v38 the reader sizes a type index by the interface offsets section: one 8-byte entry gives 4 bytes.
+        if (counted) contents["interfaceOffsets"] = (new byte[8], 1);
+        var body = new List<byte>();
+        var header = new byte[headerSize];
+        BinaryPrimitives.WriteUInt32LittleEndian(header, 0xFAB11BAF);
+        BinaryPrimitives.WriteInt32LittleEndian(header.AsSpan(4), layout.Header);
+        for (int i = 0; i < names.Count; i++)
+        {
+            var (bytes, count) = contents.TryGetValue(names[i], out var c) ? c : ([], 0);
+            var at = header.AsSpan(8 + i * stride);
+            BinaryPrimitives.WriteInt32LittleEndian(at, headerSize + body.Count);
+            BinaryPrimitives.WriteInt32LittleEndian(at[4..], bytes.Length);
+            if (counted) BinaryPrimitives.WriteInt32LittleEndian(at[8..], count);
+            body.AddRange(bytes);
+        }
+        return [.. header, .. body, .. new byte[4096]];
+    }
+
+    /// <summary>The image, type and method definitions the built-in metadata reader reads from <paramref name="bytes"/>.</summary>
+    private static (int Images, int Types, int Methods) ReaderCounts(byte[] bytes, string unity)
+    {
+        lock (Il2CppMetadataReader.Gate)
+        {
+            var meta = Il2CppMetadata.ReadFrom(bytes, UnityVersion.Parse(unity));
+            return (meta.imageDefinitions.Length, meta.typeDefs.Length, meta.methodDefs.Length);
+        }
+    }
+
+    [Theory]
+    [MemberData(nameof(Layouts))]
+    public void Il2Cpp_counts_match_the_metadata_reader_in_every_definition_layout(string name, int header, string unity, string layout)
+    {
+        var bytes = LayoutMetadata(SizesOf(name, header));
+        var b = UnityOverview.Inspect(Il2CppSample("Counts " + name, bytes), false, default).Backend;
+        Assert.Equal("readable", b.MetadataState);
+        Assert.Equal(new Il2CppMetadataCounts.Counts(2, 5, 7, layout, null), b.MetadataCounts);
+        Assert.Equal((2, 5, 7), ReaderCounts(bytes, unity));
+    }
+
+    [Fact]
+    public void Il2Cpp_counts_of_a_unity_2021_3_layout_match_the_metadata_reader()
+    {
+        var bytes = new Il2CppMetadataWriter().Assembly("Assembly-CSharp", "0.0.0.0").Assembly("mscorlib", "4.0.0.0")
+            .Field("value", "Example.MarkerAttribute").Build();
+        var (images, types, methods) = ReaderCounts(bytes, "2021.3.0f1");
+        // The writer points its empty first section past the data; the overview reads that offset as the header size.
+        BinaryPrimitives.WriteInt32LittleEndian(bytes.AsSpan(8), BinaryPrimitives.ReadInt32LittleEndian(bytes.AsSpan(8 + 2 * 8)));
+        var b = UnityOverview.Inspect(Il2CppSample("Writer", bytes), false, default).Backend;
+        Assert.Equal(new Il2CppMetadataCounts.Counts(images, types, methods, "v29", null), b.MetadataCounts);
+    }
+
+    [Fact]
+    public void Images_that_do_not_add_up_to_the_type_table_leave_the_counts_unknown_with_the_reason()
+    {
+        var bytes = LayoutMetadata(SizesOf("v29", 29));
+        // The second image's type count (3) becomes 4: its range runs one past the 5 types.
+        int images = BinaryPrimitives.ReadInt32LittleEndian(bytes.AsSpan(8 + 20 * 8));
+        BinaryPrimitives.WriteUInt32LittleEndian(bytes.AsSpan(images + 40 + 12), 4);
+        var b = UnityOverview.Inspect(Il2CppSample("Mismatch", bytes), false, default).Backend;
+        var c = b.MetadataCounts!;
+        Assert.Equal(((int?)null, (int?)null, (int?)null), (c.Images, c.Types, c.Methods));
+        Assert.StartsWith("v29: image 1 names types 2 to 5, outside the 5", c.Reason);
+    }
+
+    [Fact]
+    public void An_images_table_over_the_read_limit_leaves_the_counts_unknown_and_unread()
+    {
+        int entries = Il2CppMetadataCounts.MaxImagesTable / 40 + 1;
+        var bytes = LayoutMetadata(SizesOf("v29", 29), imageTypes: [5, .. new int[entries - 1]]);
+        UnityOverview.BytesRead = 0;
+        var b = UnityOverview.Inspect(Il2CppSample("Large", bytes), false, default).Backend;
+        Assert.Null(b.MetadataCounts!.Images);
+        Assert.Contains("over the 1,048,576-byte limit", b.MetadataCounts.Reason);
+        Assert.True(UnityOverview.BytesRead < Il2CppMetadataCounts.MaxImagesTable, $"{UnityOverview.BytesRead} bytes read");
+    }
+
+    [Fact]
+    [FuzzEntry(typeof(Il2CppMetadataCounts))]
+    public void Fuzzed_metadata_headers_never_throw_while_counting()
+    {
+        var failures = FormatFuzz.Run(LayoutMetadata(SizesOf("v29", 29)), b => Il2CppMetadataCounts.Read(b,
+            (offset, count) => offset < 0 || offset >= b.Length ? [] : b.AsSpan((int)offset, (int)Math.Min(count, b.Length - offset)).ToArray()), 300);
+        Assert.True(failures.Count == 0, string.Join("\n", failures.Take(20)));
+    }
+
+    [Fact]
+    public void Encrypted_metadata_is_not_counted()
+    {
+        var b = UnityOverview.Inspect(Il2CppSample("Encrypted counts", [0x12, 0x34, 0x56, 0x78, .. new byte[200]]), false, default).Backend;
+        Assert.Equal("encrypted", b.MetadataState);
+        Assert.Null(b.MetadataCounts);
+    }
+
     internal static byte[] SerializedHeader(int format, string version)
     {
         var bytes = new byte[(format >= 22 ? 48 : 20) + version.Length + 1 + 16];
@@ -268,7 +442,7 @@ public sealed class UnityOverviewTests : IDisposable
     }
 
     /// <summary>A metadata header (0x100 bytes of offset / size pairs) whose string heap holds <paramref name="names"/>.</summary>
-    private static byte[] Metadata(int version, string[] names)
+    internal static byte[] Metadata(int version, string[] names)
     {
         var heap = Encoding.UTF8.GetBytes(string.Join('\0', names) + "\0");
         var bytes = new byte[0x100 + heap.Length];
@@ -319,8 +493,18 @@ public sealed class UnityOverviewRealTests(ITestOutputHelper output)
                              (r.Backend.Kind == "il2cpp" ? $" | metadata v{r.Backend.MetadataVersion} {r.Backend.MetadataState} range {r.Engine.MetadataRange} {r.Engine.MetadataCheck}" : "") +
                              (r.Backend.Kind == "mono" ? $" | {r.Backend.MonoRuntime}; {r.Backend.DotnetProfile}; {r.Backend.ManagedAssemblies} DLLs {r.Backend.ManagedState}" : "") +
                              (r.Backend.UnreadableNameRatio is { } q ? $" | unreadable names {q:P1} of {r.Backend.NamesRead}" : ""));
-            // File heads, the string heap capped at 16 MiB and two JSON lists of at most 4 MiB: never a whole binary or data file.
+            // File heads, the string heap capped at 16 MiB, the images table capped at 1 MiB and two JSON lists of at most 4 MiB:
+            // never a whole binary or data file.
             Assert.InRange(UnityOverview.BytesRead, 1, 25L << 20);
+            if (r.Backend.MetadataCounts is { Images: { } images } counts && r.Engine.Version != null)
+                lock (Il2CppMetadataReader.Gate)
+                {
+                    var meta = Il2CppMetadata.ReadFrom(File.ReadAllBytes(r.Backend.Metadata!), UnityVersion.Parse(r.Engine.Version));
+                    Assert.Equal((meta.imageDefinitions.Length, meta.typeDefs.Length, (int?)meta.methodDefs.Length),
+                        (images, counts.Types!.Value, counts.Methods));
+                }
+            if (r.Backend.MetadataCounts is { } read)
+                output.WriteLine($"    metadata counts: {read.Images} images, {read.Types} types, {read.Methods} methods ({read.Layout}){(read.Reason is { } why ? "; " + why : "")}");
             output.WriteLine($"    markers: {string.Join("; ", r.Markers.Select(m => $"{m.Category}:{m.Name}"))}");
             output.WriteLine($"    next: {string.Join(" -> ", r.NextSteps.Select(s => s.Action + (s.Arguments.TryGetValue("path", out var p) ? $"({p})" : "")))}");
             foreach (var note in r.Notes) output.WriteLine($"    note: {note}");
@@ -345,7 +529,7 @@ public sealed class UnityOverviewRealTests(ITestOutputHelper output)
         {
             var r = await server.Client.CallToolAsync("unity_overview", new Dictionary<string, object?> { ["path"] = build });
             var text = string.Concat(r.Content.OfType<ModelContextProtocol.Protocol.TextContentBlock>().Select(b => b.Text));
-            if (r.IsError == true) { Assert.Contains("not_a_unity_title", text); continue; }
+            if (r.IsError == true) { Assert.Contains("not_a_unity_build", text); continue; }
             unity++;
             var record = r.StructuredContent!.Value;
             int budget = Corvus.Mcp.OutputClasses.Budget(Corvus.Mcp.ToolContract.Of("unity_overview").Output) * 105 / 100;

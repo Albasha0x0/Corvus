@@ -15,6 +15,10 @@ internal sealed class WalkResult
     public int Instructions;
     public int Blocks;
     public FunctionGraph? Graph;
+    /// <summary>(data address, byte length) pairs the code loads (<see cref="StringHints"/>).</summary>
+    public (uint Target, int Length)[] StringLengths = [];
+    /// <summary>Swift small strings in the code: the instruction that completes each, and its text.</summary>
+    public (uint Rva, string Text)[] InlineStrings = [];
 }
 
 /// <summary>
@@ -57,11 +61,13 @@ internal sealed class FunctionWalker
     private readonly HashSet<uint> _ownLiterals = [];
     /// <summary>ARM32: runs that hold a literal pool a run stopped at (extended once every load is known).</summary>
     private readonly List<int> _poolRuns = [];
+    private readonly StringHints? _hints;
 
     public FunctionWalker(CodeContext ctx)
     {
         _ctx = ctx;
         _dec = ctx.NewDecoder(computeAccess: true);
+        if (ctx.RustStrings || ctx.SwiftStrings) _hints = new StringHints(ctx.RustStrings, ctx.SwiftStrings, ctx.Image.Arch, ctx.Image.Format);
     }
 
     /// <param name="chunks">
@@ -94,6 +100,7 @@ internal sealed class FunctionWalker
         _conditionalReturn = false;
         _ownLiterals.Clear();
         _poolRuns.Clear();
+        _hints?.Clear();
         _dec.BeginFunction(start);
         // chained .pdata fragments only say which jumps stay inside the function: a fragment can begin with data
         // (a switch table), so fragments are reached by flow, never decoded from their begin
@@ -123,6 +130,7 @@ internal sealed class FunctionWalker
             }
             if (++checkCounter % 256 == 0) ct.ThrowIfCancellationRequested();
             _dec.BeginRun(bound);
+            _hints?.BeginRun();
             var run = new Run { Start = a, FirstInsn = _insns.Count };
             bool afterCall = false;
             bool pool = false;
@@ -142,6 +150,7 @@ internal sealed class FunctionWalker
                 _visited.Add(a);
                 _insns.Add(a);
                 RecordData(in insn);
+                _hints?.Observe(in insn, _dec);
                 if (HybridDecoder.PrimaryOf(_dec) is Arm32Decoder arm)
                 {
                     if (insn.HasMem && arm.LastLiteralSize is > 0 and var size)
@@ -453,6 +462,7 @@ internal sealed class FunctionWalker
         _calleeScratch.Clear();
         foreach (uint c in _callees.Items) if (c != start && !_ctx.ImportSlots.ContainsKey(c)) _calleeScratch.Add(c);
         result.Callees = _calleeScratch.ToArray();
+        if (_hints != null) (result.StringLengths, result.InlineStrings) = (_hints.Lengths.ToArray(), _hints.Inline.ToArray());
     }
 
     // Summarize scratch, reused across walks

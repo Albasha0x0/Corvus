@@ -137,15 +137,44 @@ public class ServerStatusTests
     }
 }
 
+public class WorkersStatusTests
+{
+    [Fact]
+    public void Many_child_programs_are_named_up_to_the_shown_count_and_the_rest_counted()
+    {
+        var start = new DateTimeOffset(2026, 10, 25, 0, 0, 0, TimeSpan.Zero);
+        var children = Enumerable.Range(0, 30).Select(i => (Id: 1000 + i, Program: $"program-{i % 10}.exe", Started: start.AddSeconds(i))).ToList();
+        var fields = Corvus.Tools.WorkersStatus.Fields(children).ToList();
+        Assert.Equal(["program-0.exe", "program-1.exe", "program-2.exe", "program-3.exe", "more"], fields.Select(f => f.Name));
+        Assert.Equal("pid 1000, started 2026-10-25T00:00:00Z; pid 1010, started 2026-10-25T00:00:10Z; pid 1020, started 2026-10-25T00:00:20Z", fields[0].Value);
+        Assert.Equal("6 more program(s), 18 process(es)", fields[^1].Value);
+    }
+}
+
 /// <summary>server_status with every external tool variable set: the largest default status.</summary>
 [Collection(ExternalToolEnvironmentCollection.Name)]
 public class ServerStatusToolVariableTests
 {
-    [Fact]
-    public async Task The_default_status_fits_with_every_external_tool_found_in_a_deep_folder()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task The_default_status_fits_with_every_external_tool_found_in_a_deep_folder(bool pending)
     {
         using var fake = new FakeTool();
         fake.On("--version", stdout: "TShark (Wireshark) 4.6.9");
+        // Pending: every program's version check runs until the test releases it, as on a loaded machine.
+        var release = Path.Combine(fake.Directory, "check.release");
+        var checks = Corvus.Native.Providers.ExternalTools.Table
+            .Where(t => !t.TestOracle && t.Kind == Corvus.Native.Providers.ExternalToolKind.Executable && t.VersionArguments.Length > 0).ToList();
+        if (pending)
+        {
+            var barriers = new JsonObject();
+            foreach (var arguments in checks.Select(t => string.Join(' ', t.VersionArguments)).Distinct())
+                barriers[arguments] = new JsonObject { ["touch"] = Path.Combine(fake.Directory, "check.started"), ["waitFor"] = release, ["seconds"] = 100 };
+            fake.Set("barriers", barriers);
+        }
+        var wait = Corvus.Native.Providers.ExternalTools.StatusWait;
+        if (pending) Corvus.Native.Providers.ExternalTools.StatusWait = TimeSpan.FromMilliseconds(300);
         var deep = Path.Combine([fake.Directory, .. Enumerable.Repeat("Some Folder-Name", 8)]);
         Directory.CreateDirectory(deep);
         string Place(string name)
@@ -171,13 +200,21 @@ public class ServerStatusToolVariableTests
             ["CORVUS_OSV_SCANNER"] = Place("osv-scanner"),
             ["CORVUS_CAPA"] = Place("capa"),
             ["CORVUS_EMULATOR"] = Place("speakeasy"),
+            ["CORVUS_GUARDDOG"] = Place("guarddog"),
         };
         var tools = Corvus.Native.Providers.ExternalTools.Table.Where(t => !t.TestOracle).ToList();
         Assert.Equal(tools.Select(t => t.Variable).Order(), variables.Keys.Order());
         using var scope = new EnvironmentScope().Set(FakeTool.ScriptVariable, fake.ScriptPath).Set("CORVUS_DIE", Place("diec"));
         foreach (var (name, value) in variables) scope.Set(name, value);
 
-        var (code, output, error) = await ToolCliTests.Run("server_status", "--json", "--no-index", "--max-output", "20000");
+        (int code, string output, string error) result;
+        try { result = await ToolCliTests.Run("server_status", "--json", "--no-index", "--max-output", "20000"); }
+        finally
+        {
+            Corvus.Native.Providers.ExternalTools.StatusWait = wait;
+            File.WriteAllText(release, "");
+        }
+        var (code, output, error) = result;
         // A version check the status stopped waiting for still runs a copy from the folder: each ends before it is deleted.
         foreach (var tool in tools) Corvus.Native.Providers.ExternalTools.Probe(tool);
         Assert.True(code == 0, error);
@@ -187,6 +224,9 @@ public class ServerStatusToolVariableTests
             var c = capabilities.FirstOrDefault(c => ((string)c!["name"]!).StartsWith(tool.Name, StringComparison.Ordinal));
             Assert.True(c is not null && (bool)c["available"]!, $"{tool.Name}: {c?["detail"]} {c?["remediation"]}");
         }
+        if (pending)
+            Assert.True(capabilities.Count(c => ((string)c!["detail"]!).EndsWith(Corvus.Native.Providers.ExternalTools.StillRunning + ")", StringComparison.Ordinal)) == checks.Count,
+                string.Join("\n", capabilities.Select(c => (string)c!["detail"]!)));
         ServerStatusTests.AssertFitsWithAFolderOf260Characters(output);
     }
 }

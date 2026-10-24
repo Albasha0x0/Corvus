@@ -3842,12 +3842,16 @@ MEMORY_MAX = 16 << 20
 
 
 def op_memory(args):
-    # the loaded bytes of [rva, rva + size) as runs [rva, base64]; bytes IDA has not loaded (uninitialized) are gaps
+    # the loaded bytes of [rva, rva + size) as runs [rva, base64]; bytes IDA has not loaded (uninitialized) are gaps;
+    # with page, pages [rva, length, digest] cut at multiples of page, the digest being the SHA-256's first 8 bytes in hex
     m = need_open()
     import base64
     size = int(args.get("size") or 0)
     if not 0 < size <= MEMORY_MAX:
         raise WorkerError("invalid_argument", "size must be 1 to %d bytes" % MEMORY_MAX)
+    page = int(args.get("page") or 0)
+    if not 0 <= page <= MEMORY_MAX:
+        raise WorkerError("invalid_argument", "page must be 0 to %d bytes" % MEMORY_MAX)
     ea, end = ea_of(args, "rva"), ea_of(args, "rva") + size
     runs = []
 
@@ -3880,10 +3884,66 @@ def op_memory(args):
                     add(lo + i, data[i:j])
                     i = j
         ea = hi
+    if page:
+        import hashlib
+        pages = []
+        for at, data in runs:
+            rva = rva_of(at)
+            if rva is None:
+                continue
+            i = 0
+            while i < len(data):
+                n = min(len(data) - i, ((rva + i) // page + 1) * page - (rva + i))
+                pages.append([rva + i, n, hashlib.sha256(bytes(data[i:i + n])).hexdigest()[:16]])
+                i += n
+        return {"pages": pages}
     return {"runs": [[rva_of(at), base64.b64encode(bytes(data)).decode("ascii")] for at, data in runs if rva_of(at) is not None]}
 
 
+def op_fixups(args):
+    # the fixups the loader recorded, at most max, in address order: rows [rva, size, type, symbol or None]; patched:
+    # runs [rva, base64 of the original bytes] of the bytes the database records as patched
+    m = need_open()
+    import base64
+    import ida_fixup
+    limit = int(args.get("max") or 1000000)
+    badaddr = m.idautils.ida_idaapi.BADADDR
+    rows, truncated = [], False
+    ea = ida_fixup.get_first_fixup_ea()
+    fd = ida_fixup.fixup_data_t()
+    while ea != badaddr:
+        rva = rva_of(ea)
+        if rva is not None and fd.get(ea):
+            if len(rows) >= limit:
+                truncated = True
+                break
+            size = ida_fixup.calc_fixup_size(fd.get_type())
+            desc = m.ida_lines.tag_remove(ida_fixup.get_fixup_desc(ea, fd) or "").strip()
+            target = None
+            try:
+                target = m.ida_name.get_name(fd.get_base() + fd.off) or None
+            except Exception:
+                pass
+            rows.append([rva, size if size and size > 0 else 1, desc or "type %d" % fd.get_type(), target])
+        ea = ida_fixup.get_next_fixup_ea(ea)
+    patched = []
+
+    def visit(at, fpos, org, val):
+        rva = rva_of(at)
+        if rva is not None:
+            if patched and patched[-1][0] + len(patched[-1][1]) == rva:
+                patched[-1][1].append(org & 0xFF)
+            else:
+                patched.append([rva, bytearray([org & 0xFF])])
+        return 0
+
+    m.ida_bytes.visit_patched_bytes(0, badaddr, visit)
+    return {"fixups": rows, "truncated": truncated,
+            "patched": [[rva, base64.b64encode(bytes(data)).decode("ascii")] for rva, data in patched]}
+
+
 OPS["memory"] = op_memory
+OPS["fixups"] = op_fixups
 OPS["analyzers"] = op_analyzers
 OPS["function_candidates"] = op_function_candidates
 OPS["reanalyze"] = op_reanalyze

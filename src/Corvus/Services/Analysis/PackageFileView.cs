@@ -12,6 +12,8 @@ namespace Corvus.Services.Analysis;
 /// </summary>
 internal sealed class PackageFileView : IFileSummaryView
 {
+    private static readonly HashSet<string> RepositoryKinds = new(StringComparer.Ordinal) { "git hook", "git config", "dev container", "direnv", "build step" };
+
     private static readonly string[] Manifests = ["package.json", "manifest.json", "setup.py", "pyproject.toml", "PKG-INFO", "extension.vsixmanifest"];
 
     public string Name => "package";
@@ -42,6 +44,9 @@ internal sealed class PackageFileView : IFileSummaryView
         catch (InvalidDataException) { return false; }
     }
 
+    /// <summary>The view of a report already read.</summary>
+    internal static FileView Of(PackageReport report) => new(report, Highlights(report));
+
     private static List<string> Highlights(PackageReport r)
     {
         var who = string.Join(" ", new[] { r.Ecosystem == "repository" ? r.Ecosystem : r.Ecosystem + " package", r.Name, r.Version }.Where(s => s != null));
@@ -51,8 +56,12 @@ internal sealed class PackageFileView : IFileSummaryView
             $"{who}: {r.Review}" + (r.Findings.Count > 0 ? $" ({r.Findings.Count} finding(s))" : "") +
             (install.Count > 0 ? $"; runs at install: {string.Join(", ", install)}" : "") + "; view=package lists scripts, entry points and findings.",
         };
-        if (r.Agents is { } agents)
-            list.Add("Agent configuration: " + string.Join(", ", agents.GroupBy(a => a.Kind).Select(g => $"{g.Count()} {g.Key}{(g.Count() > 1 ? "s" : "")}")) + ".");
+        static string Counts(IEnumerable<AgentEntry> entries) => string.Join(", ", entries.GroupBy(a => a.Kind).Select(g => $"{g.Count()} {g.Key}{(g.Count() > 1 ? "s" : "")}"));
+        if (r.Agents?.Where(a => !RepositoryKinds.Contains(a.Kind)).ToList() is { Count: > 0 } agents) list.Add("Agent configuration: " + Counts(agents) + ".");
+        if (r.Agents?.Where(a => RepositoryKinds.Contains(a.Kind)).ToList() is { Count: > 0 } runs) list.Add("Runs on open, checkout or build: " + Counts(runs) + ".");
+        foreach (var a in (r.Provenance ?? []).Take(3))
+            list.Add($"Provenance ({a.Format}): digest {a.Digest}, signature {a.Signature}" + (a.Chain != "not used" ? $", chain {a.Chain}" : "") + $", log {a.Log}"
+                + (a.Repository != null ? $"; built from {a.Repository}" + (a.Commit != null ? $" at {a.Commit[..Math.Min(12, a.Commit.Length)]}" : "") : a.Signer != null ? $"; signer {a.Signer}" : "") + ".");
         list.AddRange(r.Findings.Where(f => f.Level == "noteworthy").Take(5).Select(f => $"Noteworthy {f.Category}: {f.Detail}"
             + (f.Path != null ? $" ({f.Path}{(f.Line != null ? $":{f.Line}" : "")})" : "")));
         return list;

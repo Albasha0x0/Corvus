@@ -13,7 +13,7 @@ public sealed partial class NativeCodeIndex
     /// (new fields, new cross-reference kinds such as virtual-call edges) or the analysis gives different results for the
     /// same bytes: saved indexes of another version are ignored and rebuilt.
     /// </summary>
-    public const int PersistFormatVersion = 17;
+    public const int PersistFormatVersion = 18;
 
     /// <summary>Read from the code index cache instead of built; <see cref="CacheLoadTime"/> says how long that took.</summary>
     public bool LoadedFromCache { get; private set; }
@@ -114,6 +114,7 @@ public sealed partial class NativeCodeIndex
         w.DeltaUInts(rvas);
         w.Ints(lengths);
         w.Bytes(encodings);
+        w.Strings(_strings.Where(s => s.Encoding == StringEncoding.Inline).Select(s => InlineText[s.Rva]).ToList());
 
         // analysis state the walker consults when it decodes a function graph again
         w.DeltaUInts(Sorted(_ctx.FunctionStarts));
@@ -266,7 +267,17 @@ public sealed partial class NativeCodeIndex
         var lengths = r.Ints(sn);
         var encodings = r.Bytes(sn);
         var strings = new StringLiteral[sn];
-        for (int i = 0; i < sn; i++) strings[i] = new StringLiteral(rvas[i], lengths[i], (StringEncoding)encodings[i]);
+        for (int i = 0; i < sn; i++)
+        {
+            if (encodings[i] > (byte)StringEncoding.Inline) throw new InvalidDataException("unknown string encoding");
+            strings[i] = new StringLiteral(rvas[i], lengths[i], (StringEncoding)encodings[i]);
+        }
+        var texts = r.Strings();
+        var inlineText = new Dictionary<uint, string>();
+        foreach (var s in strings)
+            if (s.Encoding == StringEncoding.Inline)
+                inlineText[s.Rva] = inlineText.Count < texts.Count ? texts[inlineText.Count] : throw new InvalidDataException("inline string text missing");
+        if (inlineText.Count != texts.Count) throw new InvalidDataException("inline string texts differ from their strings");
 
         var functionStarts = r.DeltaUInts();
         var noReturn = r.DeltaUInts();
@@ -293,7 +304,10 @@ public sealed partial class NativeCodeIndex
         foreach (var f in functions)
             if ((f.Flags & FunctionFlags.Thunk) != 0 && ctx.Thunks.TryGetValue(f.Start, out var slot)) f.ThunkImport = ctx.ImportSlots.GetValueOrDefault(slot);
 
-        var index = new NativeCodeIndex(image, CodeSupport.Full, null, ctx, functions, rangeStarts, rangeEnds, xrefs, strings, truncations, stats, byTo);
+        var index = new NativeCodeIndex(image, CodeSupport.Full, null, ctx, functions, rangeStarts, rangeEnds, xrefs, strings, truncations, stats, byTo)
+        {
+            InlineText = inlineText,
+        };
         index.Apply(plan);
         index.SetVirtualCalls(virtualCalls, virtualEdges);
         index.MetadataVirtualCallsAdded = metadataAdded;

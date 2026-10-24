@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Text.Json.Nodes;
+using Corvus.Core;
 using ModelContextProtocol.Protocol;
 
 namespace Corvus.Setup;
@@ -31,10 +32,12 @@ internal static partial class ToolCli
         ["containerFiles"] = 500,
         ["strings"] = 500,
         ["yaraMatches"] = 500,
+        // Unity asset files read by the strings step; a direct extract_strings call reads up to 4 GiB.
+        ["assetBytes"] = 1 << 30,
         ["summaryHighlights"] = Corvus.Tools.ContainerText.MaxHighlights,
     };
 
-    private sealed record FileBatchStep(string Name, string Tool, string? Limit);
+    internal sealed record FileBatchStep(string Name, string Tool, string? Limit);
 
     private static readonly FileBatchStep[] FileBatchSteps =
     [
@@ -42,6 +45,7 @@ internal static partial class ToolCli
         new("container", "search_container", "containerFiles"),
         new("strings", "extract_strings", "strings"),
         new("yara", "search_container", "yaraMatches"),
+        new("unity", "unity_overview", null),
     ];
 
     /// <summary>
@@ -58,7 +62,7 @@ internal static partial class ToolCli
         {
             var (name, value) = spec.IndexOf('=') is var eq and > 0 ? (spec[..eq], spec[(eq + 1)..]) : (spec, "");
             if (!limits.ContainsKey(name) || name == "timeSeconds" || name == "summaryHighlights")
-                throw new UsageException($"Unknown limit '{name}'. Limits: containerFiles, strings, yaraMatches.");
+                throw new UsageException($"Unknown limit '{name}'. Limits: containerFiles, strings, yaraMatches, assetBytes.");
             limits[name] = int.TryParse(value, CultureInfo.InvariantCulture, out var n) && n > 0 ? n : throw new UsageException($"--limit {name} needs a positive count.");
         }
         if (a.TimeLimit != null)
@@ -69,6 +73,7 @@ internal static partial class ToolCli
 
         using var deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         deadline.CancelAfter(TimeSpan.FromSeconds(limits["timeSeconds"]));
+        var clock = System.Diagnostics.Stopwatch.StartNew();
         var sections = new JsonArray();
         JsonNode? summary = null;
         bool timedOut = false;
@@ -89,21 +94,20 @@ internal static partial class ToolCli
                     sections.Add(Section(step, SectionStatus.Timeout, "The time limit ended the run before this step."));
                     continue;
                 }
-                var (arguments, skip) = Arguments(step, path, rules, summary, limits);
+                var (arguments, skip) = Arguments(step, path, rules, summary, limits, limits["timeSeconds"] - clock.Elapsed.TotalSeconds);
                 if (skip != null)
                 {
                     sections.Add(skip);
                     continue;
                 }
-                CallToolResult? result;
-                try { result = await Invoke(session!, step.Tool, arguments!, io, deadline.Token); }
+                JsonObject section;
+                try { (section, timedOut) = await Step(session!, step, arguments!, io, deadline.Token, cancellationToken); }
                 catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
                 {
                     timedOut = true;
                     sections.Add(Section(step, SectionStatus.Timeout, "The time limit ended this step."));
                     continue;
                 }
-                var section = Section(step, result);
                 if (step.Name == "summary") summary = section["result"];
                 sections.Add(section);
             }
@@ -132,18 +136,34 @@ internal static partial class ToolCli
 
     /// <summary>A step's arguments, or the section that says why it does not run on this file.</summary>
     private static (Dictionary<string, object?>? Arguments, JsonObject? Skip) Arguments(FileBatchStep step, string path, string? rules, JsonNode? summary,
-        Dictionary<string, double> limits)
+        Dictionary<string, double> limits, double remaining)
     {
         if (step.Name == "summary") return (new() { ["path"] = path }, null);
         if (step.Name == "yara") return (new() { ["path"] = path, ["kind"] = "yara", ["query"] = rules, ["limit"] = (int)limits["yaraMatches"] }, null);
+        // A Unity build spans a folder: a single file holds a whole one only as a package or zip, and its neighbours are not read.
+        if (step.Name == "unity")
+            return Directory.Exists(path) || PackageFiles.IsUnityPackage(path)
+                ? (new() { ["path"] = path }, null)
+                : (null, Section(step, SectionStatus.NotApplicable, "A Unity build is read from a folder, package or zip that holds it."));
+        // Unity data needs no summary; extract_strings refuses a folder without a build as not_a_unity_build.
+        // The asset read gets half the time left, so the steps after it still run, and stops with the rows read.
+        if (step.Name == "strings" && (Directory.Exists(path) || PackageFiles.HoldsUnityData(path) || Core.Unity.SerializedFile.IsAssetFile(path)))
+            return (new()
+            {
+                ["path"] = path, ["limit"] = (int)limits["strings"], ["maxAssetBytes"] = (long)limits["assetBytes"],
+                ["timeLimit"] = Math.Max(1, Math.Round(remaining / 2, 1)),
+            }, null);
         if (summary == null) return (null, Section(step, SectionStatus.Error, "The summary failed, so whether this step applies is unknown."));
         if (step.Name == "container")
             return (string?)summary["container"] is { } container && !container.StartsWith("none", StringComparison.Ordinal)
                 ? (new() { ["path"] = path, ["kind"] = "file", ["query"] = "*", ["limit"] = (int)limits["containerFiles"] }, null)
                 : (null, Section(step, SectionStatus.NotApplicable, "The file is not a container."));
-        return ((string?)summary["type"])?.StartsWith(".NET assembly", StringComparison.Ordinal) == true
+        bool managed = ((string?)summary["type"])?.StartsWith(".NET assembly", StringComparison.Ordinal) == true
+                       || (!Directory.Exists(path) && (string?)summary["container"] is { } holder && !holder.StartsWith("none", StringComparison.Ordinal)
+                           && summary["assemblies"] is JsonArray { Count: > 0 });
+        return managed
             ? (new() { ["path"] = path, ["limit"] = (int)limits["strings"] }, null)
-            : (null, Section(step, SectionStatus.NotApplicable, "Typed strings are read from .NET assemblies."));
+            : (null, Section(step, SectionStatus.NotApplicable, "Typed strings are read from .NET assemblies, the files that hold them, and Unity builds and asset files."));
     }
 
     private static JsonObject Section(FileBatchStep step, string status, string reason)
@@ -155,18 +175,107 @@ internal static partial class ToolCli
     }
 
     /// <summary>
-    /// A finished step's section: an error result by its code, a page with more rows (or capped highlights) as partial
-    /// with the limit it reached; every row read is kept.
+    /// Runs one step. A paged tool is called again from its nextOffset until the step's limit or the last row, and the
+    /// rows of every page join one result. Throws OperationCanceledException when the time limit ends the first call; when
+    /// it ends a later page, the section keeps the rows read and TimedOut is true.
     /// </summary>
-    private static JsonObject Section(FileBatchStep step, CallToolResult? result)
+    private static async Task<(JsonObject Section, bool TimedOut)> Step(ToolSession session, FileBatchStep step, Dictionary<string, object?> arguments,
+        CliIo io, CancellationToken deadline, CancellationToken cancellationToken)
+    {
+        var result = await Invoke(session, step.Tool, arguments, io, deadline);
+        if (result == null || result.IsError == true || arguments.GetValueOrDefault("limit") is not int limit) return (Section(step, result), false);
+        var record = Structured(result);
+        var gaps = Gaps(record).ToList();
+        bool timedOut = false;
+        while (record?["items"] is JsonArray items && (bool?)record["hasMore"] == true && items.Count < limit)
+        {
+            int offset = (int?)arguments.GetValueOrDefault("offset") ?? 0;
+            if ((int?)record["nextOffset"] is not { } next || next <= offset)
+            {
+                gaps.Insert(0, $"The tool named no page after offset {offset}.");
+                break;
+            }
+            arguments["offset"] = next;
+            arguments["limit"] = limit - items.Count;
+            CallToolResult? page;
+            try { page = await Invoke(session, step.Tool, arguments, io, deadline); }
+            catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+            {
+                timedOut = true;
+                break;
+            }
+            if (page == null || page.IsError == true)
+            {
+                var failed = page == null ? "the server refused the call" : (string?)Split(page).Error?["message"] ?? Split(page).Text.Trim();
+                gaps.Insert(0, $"The page at offset {next} failed: {failed}");
+                break;
+            }
+            var more = Structured(page);
+            foreach (var row in (more?["items"] as JsonArray)?.ToArray() ?? []) items.Add(row?.DeepClone());
+            record["hasMore"] = more?["hasMore"]?.DeepClone();
+            if (more?["nextOffset"] is { } after) record["nextOffset"] = after.DeepClone();
+            else record.AsObject().Remove("nextOffset");
+            gaps.AddRange(Gaps(more));
+        }
+        if (arguments.ContainsKey("offset") && record != null) record["limit"] = limit;
+        var section = new JsonObject { ["name"] = step.Name, ["tool"] = step.Tool };
+        int read = (record?["items"] as JsonArray)?.Count ?? 0;
+        if (timedOut)
+        {
+            section["status"] = SectionStatus.Timeout;
+            section["reason"] = $"The time limit ended this step after {read} rows.";
+            section["result"] = record;
+        }
+        else Finish(section, step, record, (bool?)record?["hasMore"] == true && read >= limit, gaps);
+        return (section, timedOut);
+    }
+
+    private static JsonNode? Structured(CallToolResult result) => result.StructuredContent is { } s ? JsonNode.Parse(s.GetRawText()) : null;
+
+    /// <summary>
+    /// Why a record the tool returned says it is not whole: its coverage is partial or unknown, a facet is unavailable,
+    /// or the response cut rows to fit. Empty for a whole record or null.
+    /// </summary>
+    private static IEnumerable<string> Gaps(JsonNode? record)
+    {
+        if (record?["coverage"] is JsonObject coverage)
+        {
+            if ((string?)coverage["status"] is "partial" or "unknown")
+                yield return (string?)coverage["reason"] is { Length: > 0 } reason ? reason : $"coverage is {(string?)coverage["status"]}";
+            if (coverage["facets"] is JsonObject facets)
+                foreach (var (name, value) in facets)
+                    if ((string?)value is { } state && state.StartsWith("unavailable", StringComparison.Ordinal)) yield return $"{name} {state}";
+        }
+        if (record?["warnings"] is JsonArray warnings)
+            foreach (var warning in warnings)
+                if ((string?)warning is { } text && text.StartsWith("Cut to fit", StringComparison.Ordinal)) yield return text;
+    }
+
+    /// <summary>
+    /// Sets a successful step's status: partial with the limit it reached or with what else left rows unread, complete
+    /// otherwise. Every row read is kept.
+    /// </summary>
+    private static void Finish(JsonObject section, FileBatchStep step, JsonNode? record, bool reached, IReadOnlyCollection<string> gaps)
+    {
+        section["status"] = reached || gaps.Count > 0 ? SectionStatus.Partial : SectionStatus.Complete;
+        if (reached) section["limit"] = step.Limit;
+        if (gaps.Count > 0) section["reason"] = string.Join("; ", gaps.Distinct());
+        section["result"] = record;
+    }
+
+    /// <summary>A finished call's section: an error result by its code, otherwise as <see cref="Finish"/> sets it.</summary>
+    internal static JsonObject Section(FileBatchStep step, CallToolResult? result)
     {
         if (result == null) return Section(step, SectionStatus.Error, "The server refused the call.");
-        var structured = result.StructuredContent is { } s ? JsonNode.Parse(s.GetRawText()) : null;
+        var structured = Structured(result);
         var section = new JsonObject { ["name"] = step.Name, ["tool"] = step.Tool };
         if (result.IsError == true)
         {
             var (text, _, error) = Split(result);
             var code = (string?)error?["code"];
+            // An input that holds no Unity build is not one this step applies to.
+            if (code == "unsupported" && ((string?)error?["details"]?["reason"] == "not_a_unity_build" || text.Contains("reason not_a_unity_build", StringComparison.Ordinal)))
+                return Section(step, SectionStatus.NotApplicable, (string?)error?["message"] ?? text);
             section["status"] = code switch
             {
                 "timeout" => SectionStatus.Timeout,
@@ -179,10 +288,7 @@ internal static partial class ToolCli
             section["result"] = structured;
             return section;
         }
-        bool more = (bool?)structured?["hasMore"] == true || structured?["highlightTotal"] != null;
-        section["status"] = more ? SectionStatus.Partial : SectionStatus.Complete;
-        if (more) section["limit"] = step.Limit;
-        section["result"] = structured;
+        Finish(section, step, structured, (bool?)structured?["hasMore"] == true || structured?["highlightTotal"] != null, Gaps(structured).ToList());
         return section;
     }
 }

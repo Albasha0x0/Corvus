@@ -56,6 +56,49 @@ public static class CapabilityChanges
                 after.TryGetValue(k, out var n) ? Where(n) : null, null))];
     }
 
+    /// <summary>
+    /// The policy facts added or removed between two versions of a package, as rows keyed "endpoint: host", "native file:
+    /// path", "permission granted: name" and "runs: kind name"; and one line counting them with the findings rows by policy
+    /// group (finding keys are "category: detail", so fact keys use words no category does). Hosts
+    /// not read on a side (null) leave endpoints out, and the line says so.
+    /// </summary>
+    public static (IReadOnlyList<EvidenceChange> Rows, string Summary) Policy(PackageReport old, PackageReport @new, IReadOnlyList<EvidenceChange> findings)
+    {
+        static IEnumerable<string> Facts(PackageReport r) =>
+            (r.Hosts ?? []).Select(h => "endpoint: " + h)
+            .Concat((r.Binaries ?? []).Select(b => "native file: " + b))
+            .Concat((r.Permissions ?? []).Concat(r.HostPermissions ?? []).Select(p => "permission granted: " + p))
+            .Concat((r.Agents ?? []).Select(a => $"runs: {a.Kind} {a.Name}" + (a.Command != null ? $": {a.Command}" : "")))
+            // The signer without its ref, so a release tag that moves on is not a change.
+            .Concat((r.Provenance ?? []).Where(a => a.Signature == "verified").Select(a => $"signed provenance: {a.Format} by {a.Signer?.Split('@')[0]}"));
+        var before = Facts(old).ToHashSet(StringComparer.Ordinal);
+        var after = Facts(@new).ToHashSet(StringComparer.Ordinal);
+        var rows = before.Union(after, StringComparer.Ordinal).Where(k => before.Contains(k) != after.Contains(k)).Order(StringComparer.Ordinal)
+            .Select(k => new EvidenceChange(after.Contains(k) ? "added" : "removed", k, null, null, null)).ToList();
+
+        // Policy groups, in the order a reviewer reads them; findings rows count by their category.
+        (string Group, Func<string, bool> Has)[] groups =
+        [
+            ("install script(s)", k => k.StartsWith("install script: ", StringComparison.Ordinal)),
+            ("endpoint(s)", k => k.StartsWith("endpoint: ", StringComparison.Ordinal)),
+            ("native file(s)", k => k.StartsWith("native file: ", StringComparison.Ordinal)),
+            ("permission(s)", k => k.StartsWith("permission granted: ", StringComparison.Ordinal)),
+            ("run(s) on open, checkout or build", k => k.StartsWith("runs: ", StringComparison.Ordinal)),
+            ("signed provenance", k => k.StartsWith("signed provenance: ", StringComparison.Ordinal) || k.StartsWith("provenance: ", StringComparison.Ordinal)),
+            ("transformed or decoded code finding(s)", k => k.StartsWith("transformed code: ", StringComparison.Ordinal) || k.StartsWith("dynamic code: ", StringComparison.Ordinal)),
+            ("network, process or credential finding(s)", k => k.StartsWith("network: ", StringComparison.Ordinal) || k.StartsWith("process: ", StringComparison.Ordinal)
+                || k.StartsWith("credentials: ", StringComparison.Ordinal) || k.StartsWith("exfiltration: ", StringComparison.Ordinal)),
+            ("GuardDog rule match(es)", k => k.StartsWith("rule match: ", StringComparison.Ordinal)),
+        ];
+        var all = findings.Concat(rows).ToList();
+        string Count(string kind) => string.Join(", ", groups.Select(g => (g.Group, N: all.Count(r => r.Kind == kind && g.Has(r.Key)))).Where(g => g.N > 0).Select(g => $"{g.N} {g.Group}"));
+        var added = Count("added");
+        var removed = Count("removed");
+        var summary = $"package policy: review {old.Review} -> {@new.Review}; added: {(added.Length > 0 ? added : "nothing")}; removed: {(removed.Length > 0 ? removed : "nothing")}" +
+                      (old.Hosts == null || @new.Hosts == null ? "; endpoints not compared" : "");
+        return (rows, summary);
+    }
+
     /// <summary>Time both surveys of a comparison may add to it; past it the capabilities are reported not compared.</summary>
     private static readonly TimeSpan SurveyBudget = TimeSpan.FromSeconds(2);
 
@@ -74,14 +117,26 @@ public static class CapabilityChanges
     /// <summary>
     /// The capability rows of two loaded builds (assemblies or native images) and the text that reports them; null rows,
     /// with the reason in the text, when a build could not be surveyed or both surveys outlast <paramref name="budget"/>
-    /// (default <see cref="SurveyBudget"/>).
+    /// (default <see cref="SurveyBudget"/>); with the malcontent pack installed, its behaviours added or removed too.
     /// </summary>
     public static (IReadOnlyList<EvidenceChange>? Rows, string Text) Between(InspectionService inspection, string old, string @new, CancellationToken ct,
         TimeSpan? budget = null)
     {
+        var (rows, text) = Surveys(inspection, old, @new, ct, budget);
+        // malcontent behaviours join the survey rows; they run only with the pack installed.
+        var (behaviours, behaviourText) = MalcontentChanges.Between(inspection.BuildFile(old), inspection.BuildFile(@new), ct);
+        if (behaviourText == null) return (rows, text);
+        return (rows == null && behaviours.Count == 0 ? null : [.. rows ?? [], .. behaviours], text + behaviourText);
+    }
+
+    private static (IReadOnlyList<EvidenceChange>? Rows, string Text) Surveys(InspectionService inspection, string old, string @new, CancellationToken ct,
+        TimeSpan? budget)
+    {
         IReadOnlyList<EvidenceChange> rows;
         IReadOnlyList<string> notes;
         var limit = budget ?? SurveyBudget;
+        // Build the shared rule patterns before the timer starts: the budget bounds this comparison's own surveys.
+        Features.Prepare();
         using var timer = CancellationTokenSource.CreateLinkedTokenSource(ct);
         if (limit > TimeSpan.Zero) timer.CancelAfter(limit);
         else timer.Cancel();

@@ -3,7 +3,7 @@
   "name": "corvus",
   "display_name": "Corvus",
   "version": "2.5.1",
-  "description": "Reverse engineering of .NET assemblies and native binaries: decompile, search, compare builds, patch and save.",
+  "description": "Reverse engineering and security analysis of .NET assemblies and native binaries: decompile, search, compare builds, patch and save.",
   "long_description": "Corvus reads .NET assemblies and native PE, ELF and Mach-O binaries without running them: decompiled C#, IL, disassembly, cross-references and call graphs, build comparison, Il2Cpp metadata, containers and crash dumps. Edits (renames, patches, simplified obfuscated code) stay in memory until saved to a new file.",
   "author": {
     "name": "Albasha0x0",
@@ -16,7 +16,7 @@
   "homepage": "https://github.com/Albasha0x0/Corvus",
   "documentation": "https://github.com/Albasha0x0/Corvus/tree/main/docs",
   "support": "https://github.com/Albasha0x0/Corvus/issues",
-  "license": "MIT",
+  "license": "Apache-2.0",
   "keywords": ["decompiler", "reverse-engineering", "dotnet", "il2cpp", "disassembler", "native"],
   "server": {
     "type": "binary",

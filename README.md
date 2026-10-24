@@ -1,12 +1,12 @@
 # Corvus
 
-**Reverse engineering for AI agents.** Corvus is an MCP server that reads, traces, compares and patches compiled
+**Reverse engineering and security analysis for AI agents.** Corvus is an MCP server that reads, traces, compares and patches compiled
 programs: .NET assemblies and native PE, ELF and Mach-O binaries. One self-contained binary, no runtime to install,
 nothing uploaded; by default nothing it reads is executed.
 
 [![Release](https://img.shields.io/github/v/release/Albasha0x0/Corvus?style=flat-square)](https://github.com/Albasha0x0/Corvus/releases)
 [![CI](https://img.shields.io/github/actions/workflow/status/Albasha0x0/Corvus/ci.yml?branch=main&style=flat-square&label=CI)](https://github.com/Albasha0x0/Corvus/actions/workflows/ci.yml)
-[![License: MIT](https://img.shields.io/badge/license-MIT-blue?style=flat-square)](LICENSE)
+[![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue?style=flat-square)](LICENSE)
 [![GitHub stars](https://img.shields.io/github/stars/Albasha0x0/Corvus?style=flat-square)](https://github.com/Albasha0x0/Corvus/stargazers)
 
 > [!NOTE]
@@ -53,11 +53,11 @@ decompilers. Their databases and output are kept, so later calls on the same bin
 | Target | What you get | Needs |
 |---|---|---|
 | .NET assemblies | C# decompilation, IL, references, call graphs, build comparison, C# and IL patching, saving | nothing |
-| Unity and Il2Cpp applications | metadata, addresses, string literals, IDA / Ghidra scripts, C++ bindings | nothing |
 | Native binaries (PE, ELF, Mach-O) | functions, disassembly, CFG, cross-references, values, RTTI, PDB types, similar functions | nothing |
 | Native pseudocode | decompilation, engine types, frames, scripting, emulation, pseudocode search | IDA 9 (idalib) or Ghidra 12 |
 | WebAssembly | modules and components, disassembly, decompiled code | nothing |
 | NativeAOT and ReadyToRun | method names, MethodTables, strings, precompiled code | nothing |
+| Unity Il2Cpp builds | method names and addresses from the metadata, string literals, serialized asset fields, IDA / Ghidra scripts, C++ bindings | nothing |
 | Native patching | names, comments, byte patches, assembly patches (x86 and x64), patched copies, carried to new builds | nothing |
 | Containers | single-file bundles, NuGet, APK, IPA, ASAR, Unity WebGL, archives, installers (MSI, NSIS, Inno Setup, WiX Burn), frozen Python (PyInstaller, py2exe, cx_Freeze, Nuitka onefile; Nuitka standalone is described, not extracted), firmware images and filesystems, disk images (ISO/UDF, VHD/VHDX, NTFS, FAT, ext); CycloneDX SBOM, YARA-X matches | nothing |
 | Documents and scripts | Office VBA and Excel 4.0 macros, encrypted OOXML, PDF actions and JavaScript, OneNote, LNK; PowerShell, batch, VBScript and JavaScript deobfuscated without running them | nothing |
@@ -111,7 +111,7 @@ Guides: [first session](docs/guides/1-first-session.md) · [decode and patch](do
 Analyze software you own or are permitted to analyze. Decompiling, patching or redistributing third-party code can be
 restricted by its license and by law where you live.
 
-[Contributing](CONTRIBUTING.md) · [Security](SECURITY.md) · [MIT license](LICENSE)
+[Contributing](CONTRIBUTING.md) · [Security](SECURITY.md) · [Apache-2.0 license](LICENSE)
 
 ## Star history
 

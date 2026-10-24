@@ -12,6 +12,7 @@ import java.math.BigInteger;
 
 import ghidra.program.model.address.Address;
 import ghidra.program.model.mem.MemoryBlock;
+import ghidra.program.model.reloc.Relocation;
 import ghidra.program.model.lang.Register;
 import ghidra.program.model.listing.ContextChangeException;
 import ghidra.program.model.listing.ProgramContext;
@@ -168,12 +169,19 @@ final class ControlOps {
 
     private static final int MEMORY_MAX = 16 << 20;
 
-    /** The loaded, initialized bytes of [rva, rva + size) in address order: runs [rva, base64]; other bytes are gaps. */
+    /**
+     * The loaded, initialized bytes of [rva, rva + size) in address order: runs [rva, base64]; other bytes are gaps. With
+     * page, pages [rva, length, digest] cut at multiples of page instead, the digest being the first 8 bytes of the
+     * SHA-256 in hex.
+     */
     static JsonObject memory(Worker w, Worker.Request r) throws Exception {
         long size = r.args.has("size") ? r.args.get("size").getAsLong() : 0;
         if (size <= 0 || size > MEMORY_MAX) throw new Worker.WorkerError("invalid_argument", "size must be 1 to " + MEMORY_MAX + " bytes");
         long from = w.addr(r.args, "rva").getOffset(), to = from + size; // exclusive
-        JsonArray runs = new JsonArray();
+        int page = r.args.has("page") ? r.args.get("page").getAsInt() : 0;
+        if (page < 0 || page > MEMORY_MAX) throw new Worker.WorkerError("invalid_argument", "page must be 0 to " + MEMORY_MAX + " bytes");
+        java.security.MessageDigest sha = page > 0 ? java.security.MessageDigest.getInstance("SHA-256") : null;
+        JsonArray runs = new JsonArray(), pages = new JsonArray();
         for (MemoryBlock b : w.program.getMemory().getBlocks()) {
             if (!b.isInitialized() || !b.isLoaded() || b.getStart().getAddressSpace() != w.space()) continue;
             long lo = Math.max(from, b.getStart().getOffset()), hi = Math.min(to, b.getEnd().getOffset() + 1);
@@ -182,13 +190,57 @@ final class ControlOps {
             int got = b.getBytes(w.space().getAddress(lo), buf, 0, buf.length);
             Long rva = w.rva(w.space().getAddress(lo));
             if (rva == null || got <= 0) continue;
+            if (sha != null) {
+                for (long at = rva, end = rva + got; at < end;) {
+                    long next = Math.min(end, (at / page + 1) * page);
+                    sha.update(buf, (int) (at - rva), (int) (next - at));
+                    JsonArray p = new JsonArray();
+                    p.add(at);
+                    p.add(next - at);
+                    p.add(java.util.HexFormat.of().formatHex(sha.digest(), 0, 8));
+                    pages.add(p);
+                    at = next;
+                }
+                continue;
+            }
             JsonArray run = new JsonArray();
             run.add(rva);
             run.add(java.util.Base64.getEncoder().encodeToString(got == buf.length ? buf : java.util.Arrays.copyOf(buf, got)));
             runs.add(run);
         }
         JsonObject o = new JsonObject();
-        o.add("runs", runs);
+        o.add(sha != null ? "pages" : "runs", sha != null ? pages : runs);
+        return o;
+    }
+
+    /**
+     * The relocations the loader recorded, at most max, in address order: rows [rva, length, type, symbol or null]. The
+     * type names the relocation number and its status ("type 7, applied"). Ghidra keeps no patch record: patched is null.
+     */
+    static JsonObject fixups(Worker w, Worker.Request r) {
+        int max = r.args.has("max") ? r.args.get("max").getAsInt() : 1_000_000;
+        JsonArray rows = new JsonArray();
+        boolean truncated = false;
+        for (Iterator<Relocation> it = w.program.getRelocationTable().getRelocations(); it.hasNext();) {
+            Relocation rel = it.next();
+            Long rva = rel.getAddress().getAddressSpace() == w.space() ? w.rva(rel.getAddress()) : null;
+            if (rva == null) continue;
+            if (rows.size() >= max) {
+                truncated = true;
+                break;
+            }
+            JsonArray row = new JsonArray();
+            row.add(rva);
+            row.add(Math.max(1, rel.getLength()));
+            row.add("type " + rel.getType() + ", " + rel.getStatus().name().toLowerCase(java.util.Locale.ROOT).replace('_', ' '));
+            if (rel.getSymbolName() != null && !rel.getSymbolName().isEmpty()) row.add(rel.getSymbolName());
+            else row.add(com.google.gson.JsonNull.INSTANCE);
+            rows.add(row);
+        }
+        JsonObject o = new JsonObject();
+        o.add("fixups", rows);
+        o.add("patched", com.google.gson.JsonNull.INSTANCE);
+        o.addProperty("truncated", truncated);
         return o;
     }
 }

@@ -12,12 +12,16 @@ namespace Corvus.Services.Analysis;
 /// "field:PREFIX" (a field read); "str:REGEX" (a const-string); "class:PREFIX" (a class the app defines, counted as the
 /// app's whatever package it is in); "check:trust-all" (an X509TrustManager whose checkServerTrusted returns without a
 /// check) and "check:any-hostname" (a HostnameVerifier whose verify returns true). Methods are prefiltered on raw code
-/// units; only those that touch a feature are decoded. Arguments are followed through one method in code order.
+/// units; only those that touch a feature are decoded. Arguments are followed through one method in code order. Strings
+/// that string decoder calls return (<see cref="DexStringFolding"/>) count as const-strings and string arguments at the call.
 /// </summary>
 internal sealed class DexRuleScan
 {
     private const int MaxLocations = 5;
     private const int MaxStringChars = 512;
+
+    /// <summary>The time decoder calls may take within a survey; a search or a later survey continues the pass.</summary>
+    internal static readonly TimeSpan FoldTimeLimit = TimeSpan.FromSeconds(2);
 
     private sealed record CallFeature(string Feature, string Needle, Regex Target, int Arg, string? ArgKind, Regex? ArgText, long ArgInt);
 
@@ -42,6 +46,12 @@ internal sealed class DexRuleScan
     private readonly List<(string Feature, string Prefix)> _classes = [];
     private readonly Dictionary<string, Hits> _hits = new(StringComparer.Ordinal);
     private readonly Func<string, bool> _isLibrary;
+    private readonly DexIndex _index;
+    private readonly DexStringFolding _folding;
+    private readonly List<string> _notes = [];
+
+    /// <summary>What the scan could not read: decoder calls left unevaluated by the time limit.</summary>
+    public IReadOnlyList<string> Notes => _notes;
 
     /// <summary>Scans this thread built, and the methods they decoded (only those whose raw code touches a feature).</summary>
     [ThreadStatic]
@@ -51,6 +61,8 @@ internal sealed class DexRuleScan
     {
         Scans++;
         _isLibrary = isLibrary;
+        _index = index;
+        _folding = DexStringFolding.For(index);
         foreach (var f in features.Distinct(StringComparer.Ordinal))
         {
             _hits[f] = new Hits();
@@ -72,6 +84,22 @@ internal sealed class DexRuleScan
             ct.ThrowIfCancellationRequested();
             Scan(index, file, ct);
         }
+        if (_strings.Count > 0) Recovered(ct);
+    }
+
+    /// <summary>str: features over the strings decoder calls return, at the call.</summary>
+    private void Recovered(CancellationToken ct)
+    {
+        var folds = _folding.Package(ct, FoldTimeLimit);
+        foreach (var site in folds.Sites)
+        {
+            if (site.Fold is not { Status: DexFoldStatus.Simplified, Value: { Length: > 0 and <= MaxStringChars } value }) continue;
+            bool library = _isLibrary(site.Method[..Math.Max(0, site.Method.IndexOf("->", StringComparison.Ordinal))]);
+            foreach (var (f, regex) in _strings)
+                if (regex.IsMatch(value)) _hits[f].Add(library, $"{site.Method} +0x{site.Offset:x}: \"{Clip(value)}\" from {site.Decoder}");
+        }
+        if (folds.MethodsLeft > 0)
+            _notes.Add($"{folds.MethodsLeft} method(s) with string decoder calls not evaluated within {FoldTimeLimit.TotalSeconds:0} s; the strings they return are unknown to the dex rules (search_dex kind=string continues the pass).");
     }
 
     /// <summary>The evidence of one feature, or null when nothing matched.</summary>
@@ -185,6 +213,7 @@ internal sealed class DexRuleScan
         var instructions = Dalvik.Decode(code.Instructions);
         var regs = new object?[Math.Max(code.Registers, 1)];
         object? result = null;
+        IReadOnlyList<DexFoldSite>? folds = null;
         string Where(int offset) => $"{method} +0x{offset:x}";
         object? Reg(int r) => (uint)r < (uint)regs.Length ? regs[r] : null;
         void Set(int r, object? v) { if ((uint)r < (uint)regs.Length) regs[r] = v; }
@@ -214,12 +243,31 @@ internal sealed class DexRuleScan
                 case >= 0x52 and <= 0x58 or >= 0x60 and <= 0x66:
                     if (i.Index < fieldsOf.Length && fieldsOf[i.Index] is { } ff)
                         foreach (var f in ff) _hits[f].Add(library, $"{Where(i.Offset)}: reads {dex.Field(i.Index).Descriptor}");
+                    if (op == 0x62 && _folding.IsTable(dex.Field(i.Index).Descriptor))
+                        folds ??= _index.Methods.TryGetValue(method, out var entry) && entry.File == dex ? _folding.Method(entry) : [];
                     Set(i.A, null);
+                    break;
+                case 0x46:
+                    Set(i.A, folds?.FirstOrDefault(s => s.Offset == i.Offset)?.Fold is { Status: DexFoldStatus.Simplified, Value: { } element } ? element : null);
                     break;
                 case >= 0x6e and <= 0x72 or >= 0x74 and <= 0x78:
                 {
                     var target = dex.Method(i.Index);
                     result = Transform(target, i.Arguments, Reg);
+                    if (DexStringFolding.IsCall(op) && _folding.IsDecoder(target.Descriptor))
+                    {
+                        folds ??= _index.Methods.TryGetValue(method, out var entry) && entry.File == dex ? _folding.Method(entry) : [];
+                        result = folds.FirstOrDefault(s => s.Offset == i.Offset)?.Fold is { Status: DexFoldStatus.Simplified, Value: { } value } ? value : null;
+                    }
+                    else if (DexStringFolding.IsCall(op) && _folding.IsArrayDecoder(target.Descriptor))
+                        folds ??= _index.Methods.TryGetValue(method, out var entry) && entry.File == dex ? _folding.Method(entry) : [];
+                    else if (folds?.FirstOrDefault(s => s.WrapperOffset == i.Offset) is { } wrapped)
+                    {
+                        var value = wrapped.Fold is { Status: DexFoldStatus.Simplified, Value: { } v } ? v : null;
+                        // A String constructor leaves the string in its receiver; String.valueOf returns it.
+                        if (target.Name == "<init>") { if (i.Arguments.Count > 0) Set(i.Arguments[0], value); }
+                        else result = value;
+                    }
                     if (i.Index < callsOf.Length && callsOf[i.Index] is { } cs)
                         foreach (var c in cs)
                             if (Argument(c, i.Arguments, Reg) is { } shown)

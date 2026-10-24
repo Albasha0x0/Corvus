@@ -39,25 +39,31 @@ public sealed class FolderTools(FolderCompare folders)
     /// <summary>Finding changes repeated in the notes; Changes holds them all.</summary>
     private const int MaxPackageRows = 50;
 
-    // Package archives only: a folder would be reviewed as a source tree, which reads every file in it.
     private static readonly string[] PackageExtensions = [".tgz", ".tar.gz", ".whl", ".vsix", ".crx", ".xpi"];
 
+    // A folder is reviewed only with a package manifest at its root: the review reads every file in it.
+    private static readonly string[] FolderManifests = ["package.json", "pyproject.toml", "setup.py", "manifest.json"];
+
     /// <summary>
-    /// <paramref name="comparison"/> with the review findings added or removed as its changes when both paths are package
-    /// archives the review reads (npm, PyPI wheel, VS Code or browser extension); unchanged otherwise.
+    /// <paramref name="comparison"/> with the review findings and policy facts added or removed as its changes, and a policy
+    /// line first in its notes, when both paths are packages the review reads (npm, PyPI wheel, VS Code or browser extension,
+    /// or a folder with a manifest); unchanged otherwise.
     /// </summary>
     private static FolderCompare.Comparison WithPackageChanges(FolderCompare.Comparison comparison, string oldPath, string newPath, CancellationToken ct)
     {
-        static bool Package(string p) => File.Exists(p) && PackageExtensions.Any(e => p.EndsWith(e, StringComparison.OrdinalIgnoreCase));
+        static bool Package(string p) => File.Exists(p) && PackageExtensions.Any(e => p.EndsWith(e, StringComparison.OrdinalIgnoreCase))
+                                         || Directory.Exists(p) && FolderManifests.Any(m => File.Exists(Path.Combine(p, m)));
         if (!Package(oldPath) || !Package(newPath)) return comparison;
-        if (Services.Web.Packages.PackageReview.Review(oldPath, ct) is not { Ecosystem: not "repository" } old
-            || Services.Web.Packages.PackageReview.Review(newPath, ct) is not { Ecosystem: not "repository" } @new) return comparison;
-        var rows = CapabilityChanges.Of(old, @new);
+        if (Services.Web.Packages.PackageReview.Review(oldPath, ct, hosts: true) is not { Ecosystem: not "repository" } old
+            || Services.Web.Packages.PackageReview.Review(newPath, ct, hosts: true) is not { Ecosystem: not "repository" } @new) return comparison;
+        var findings = CapabilityChanges.Of(old, @new);
+        var (facts, summary) = CapabilityChanges.Policy(old, @new, findings);
+        var rows = findings.Concat(facts).ToList();
         return comparison with
         {
             Changes = rows,
-            Notes = [.. comparison.Notes, $"package review: {rows.Count(r => r.Kind == "added")} finding(s) added, {rows.Count(r => r.Kind == "removed")} removed " +
-                $"(review {old.Review} -> {@new.Review}); Changes lists them", .. rows.Take(MaxPackageRows).Select(r => $"{r.Kind} {r.Key}: {r.New ?? r.Old}")],
+            Notes = [summary, .. comparison.Notes, $"package review: {findings.Count(r => r.Kind == "added")} finding(s) added, {findings.Count(r => r.Kind == "removed")} removed, " +
+                $"{facts.Count} policy fact(s) changed; Changes lists them", .. rows.Take(MaxPackageRows).Select(r => $"{r.Kind} {r.Key}" + ((r.New ?? r.Old) is { } at ? $": {at}" : ""))],
         };
     }
 

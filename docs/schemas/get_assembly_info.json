@@ -85,7 +85,7 @@
       "type": "integer"
     },
     "transformers": {
-      "description": "The transformation tool, with evidence.",
+      "description": "The transformation tool, with evidence; view=transforms adds 'layer: ' rows.",
       "type": "array",
       "items": {
         "type": "object",

@@ -118,7 +118,8 @@ internal sealed class CallsStatus : IStatusSection
         if (services.GetService<AssemblyWorkspace>() is { } workspace)
         {
             var users = workspace.LockUsers();
-            yield return new("workspaceLock", users.Count == 0 ? "free" : string.Join("; ", users.Select(u => u.ToString())));
+            yield return new("workspaceLock", users.Count == 0 ? "free"
+                : string.Join("; ", users.Take(WorkersStatus.Shown).Select(u => u.ToString())) + (users.Count > WorkersStatus.Shown ? $"; {users.Count - WorkersStatus.Shown} more" : ""));
         }
     }
 }
@@ -129,11 +130,22 @@ internal sealed class WorkersStatus : IStatusSection
     public string Name => "workers";
     public int Order => 50;
 
-    // Programs are few; their instances are not, so each program is one field naming at most this many.
+    // Each program is one field naming at most this many instances.
     internal const int PidsPerProgram = 3;
 
-    public IEnumerable<StatusField> Fields(IServiceProvider services) =>
-        Native.Providers.ChildProcess.Live().GroupBy(w => w.Program, StringComparer.Ordinal).Select(g => new StatusField(g.Key, Describe([.. g])));
+    // Programs listed by name, oldest first; the rest are counted in one field, so a busy server's status keeps its budget.
+    internal const int Shown = 4;
+
+    public IEnumerable<StatusField> Fields(IServiceProvider services) => Fields(Native.Providers.ChildProcess.Live());
+
+    /// <summary>One field per program for the first <see cref="Shown"/> programs, then one "more" field counting the rest.</summary>
+    internal static IEnumerable<StatusField> Fields(IReadOnlyList<(int Id, string Program, DateTimeOffset Started)> children)
+    {
+        var programs = children.GroupBy(w => w.Program, StringComparer.Ordinal).ToList();
+        foreach (var g in programs.Take(Shown)) yield return new StatusField(g.Key, Describe([.. g]));
+        if (programs.Count > Shown)
+            yield return new StatusField("more", $"{programs.Count - Shown} more program(s), {programs.Skip(Shown).Sum(g => g.Count())} process(es)");
+    }
 
     /// <summary>One program's running children, oldest first: pid and start of each up to <see cref="PidsPerProgram"/>, then a count.</summary>
     internal static string Describe(IReadOnlyList<(int Id, string Program, DateTimeOffset Started)> children) =>

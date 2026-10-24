@@ -108,9 +108,8 @@ public sealed class ExternalToolEnvironmentCollection
 }
 
 /// <summary>
-/// Sets environment variables for one test and restores them. The external tool lookups of that test's flow see its
-/// values; those of every other flow see the values the run started with, so a test running beside it never runs its
-/// fakes.
+/// Sets environment variables for one test's flow and restores them. Its tool lookups and the tools it starts see its
+/// values; every other flow, and every worker another test starts, sees the values the run started with.
 /// </summary>
 internal sealed class EnvironmentScope : IDisposable
 {
@@ -126,19 +125,30 @@ internal sealed class EnvironmentScope : IDisposable
     private readonly Dictionary<string, string?>? _flowBefore = InFlow.Value;
 
     [System.Runtime.CompilerServices.ModuleInitializer]
-    internal static void PinToolLookups() => Corvus.Native.Providers.ExternalTools.ReadVariable = Read;
+    internal static void PinToolLookups()
+    {
+        Corvus.Native.Providers.ExternalTools.ReadVariable = Read;
+        Corvus.Native.Providers.ExternalTools.ChildVariables = () => InFlow.Value ?? [];
+    }
 
     /// <summary>A variable as this flow's scopes set it, else as the run started; null when unset.</summary>
     internal static string? Read(string name) =>
         InFlow.Value is { } set && set.TryGetValue(name, out var value) ? value : AtStart.GetValueOrDefault(name);
 
+    /// <summary>Sets <paramref name="name"/> in this flow only; the process environment is not changed.</summary>
     public EnvironmentScope Set(string name, string? value)
     {
-        if (!_saved.ContainsKey(name)) _saved[name] = System.Environment.GetEnvironmentVariable(name);
         // Copied on write: a flow started before this call keeps the values it started with.
         InFlow.Value = new Dictionary<string, string?>(InFlow.Value ?? [], Names) { [name] = value };
-        System.Environment.SetEnvironmentVariable(name, value);
         return this;
+    }
+
+    /// <summary>Sets <paramref name="name"/> in this flow and the process environment, which every test running sees.</summary>
+    public EnvironmentScope SetProcessWide(string name, string? value)
+    {
+        if (!_saved.ContainsKey(name)) _saved[name] = System.Environment.GetEnvironmentVariable(name);
+        System.Environment.SetEnvironmentVariable(name, value);
+        return Set(name, value);
     }
 
     public void Dispose()

@@ -24,8 +24,10 @@ public sealed record RawArch(string Name, NativeArch Arch, bool Thumb, bool BigE
         new("mips", NativeArch.Mips, false, true, 32, "mipsb", "MIPS:BE:32:default"),
         new("mipsel", NativeArch.Mips, false, false, 32, "mipsl", "MIPS:LE:32:default"),
         new("mips64", NativeArch.Mips, false, true, 64, "mipsb", "MIPS:BE:64:default"),
+        new("mips64el", NativeArch.Mips, false, false, 64, "mipsl", "MIPS:LE:64:default"),
         new("ppc", NativeArch.PowerPc, false, true, 32, "ppc", "PowerPC:BE:32:default"),
         new("ppc64", NativeArch.PowerPc, false, true, 64, "ppc", "PowerPC:BE:64:default"),
+        new("ppc64le", NativeArch.PowerPc, false, false, 64, "ppcl", "PowerPC:LE:64:default"),
         new("riscv32", NativeArch.RiscV, false, false, 32, "riscv", "RISCV:LE:32:RV32GC"),
         new("riscv64", NativeArch.RiscV, false, false, 64, "riscv", "RISCV:LE:64:RV64GC"),
         new("6502", NativeArch.Other, false, false, 16, "m6502", "6502:LE:16:default"),
@@ -36,7 +38,7 @@ public sealed record RawArch(string Name, NativeArch Arch, bool Thumb, bool BigE
     private static readonly Dictionary<string, string> Aliases = new(StringComparer.OrdinalIgnoreCase)
     {
         ["i386"] = "x86", ["x86_64"] = "x64", ["amd64"] = "x64", ["arm32"] = "arm", ["aarch64"] = "arm64", ["mipsbe"] = "mips",
-        ["mipsle"] = "mipsel", ["powerpc"] = "ppc", ["riscv"] = "riscv64", ["dos-com"] = "x86-16", ["x86_16"] = "x86-16",
+        ["mipsle"] = "mipsel", ["mips64le"] = "mips64el", ["powerpc"] = "ppc", ["ppc64el"] = "ppc64le", ["powerpc64le"] = "ppc64le", ["riscv"] = "riscv64", ["dos-com"] = "x86-16", ["x86_16"] = "x86-16",
     };
 
     public static RawArch Find(string? name)

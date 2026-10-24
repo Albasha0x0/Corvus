@@ -5,8 +5,11 @@ namespace Corvus.Services.Web.Packages;
 
 public static partial class PackageReview
 {
-    /// <summary>Lifecycle scripts npm runs when the package is installed from a registry (prepare runs only for git and folder installs).</summary>
+    /// <summary>Lifecycle scripts npm runs when the package is installed from a registry.</summary>
     private static readonly HashSet<string> NpmInstallScripts = new(StringComparer.Ordinal) { "preinstall", "install", "postinstall" };
+
+    /// <summary>Scripts npm also runs on npm install inside a source folder or git checkout.</summary>
+    private static readonly HashSet<string> NpmLocalInstallScripts = new(StringComparer.Ordinal) { "preprepare", "prepare", "postprepare" };
 
     private static readonly Regex NetworkCommand = new(@"(?:^|[\s;&|(`'""])(?:[\w.-]*/)*(?:curl|wget|nc|ncat|nslookup|dig|Invoke-WebRequest|iwr)(?:\.exe)?\s", RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
@@ -19,9 +22,11 @@ public static partial class PackageReview
         var findings = new List<PackageFinding>();
         var notes = new List<string>();
         var scripts = new List<PackageScript>();
+        bool source = files.Container is "folder" or "zip";
         if (pkg.TryGetProperty("scripts", out var s) && s.ValueKind == JsonValueKind.Object)
             foreach (var p in s.EnumerateObject())
-                if (p.Value.ValueKind == JsonValueKind.String) scripts.Add(new PackageScript(p.Name, p.Value.GetString()!, NpmInstallScripts.Contains(p.Name)));
+                if (p.Value.ValueKind == JsonValueKind.String)
+                    scripts.Add(new PackageScript(p.Name, p.Value.GetString()!, NpmInstallScripts.Contains(p.Name) || source && NpmLocalInstallScripts.Contains(p.Name)));
         // node-gyp builds a binding.gyp at install even without an install script
         bool gyp = files.Has(root + "binding.gyp") && !scripts.Any(x => x.Name is "install" or "preinstall");
         if (gyp) scripts.Add(new PackageScript("install", "node-gyp rebuild (binding.gyp)", true));

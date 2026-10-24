@@ -20,7 +20,11 @@ internal static class ReferencePacks
 
     public static string CacheRoot { get; } = Corvus.Native.Providers.DataFolder.Combine("packs");
 
-    public static bool Offline => Environment.GetEnvironmentVariable("CORVUS_OFFLINE") is "1" or "true";
+    /// <summary>1 or true: nothing is downloaded.</summary>
+    public const string OfflineVariable = "CORVUS_OFFLINE";
+
+    /// <summary>True when <see cref="OfflineVariable"/> is 1 or true.</summary>
+    public static bool Offline => Corvus.Native.Providers.ExternalTools.ReadVariable(OfflineVariable) is "1" or "true";
 
     /// <summary>Why the most recent failed download in this process gave no pack (network, or the hash check); null when none failed.</summary>
     public static string? LastProblem { get; private set; }

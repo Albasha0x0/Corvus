@@ -12,14 +12,23 @@ public sealed record ExtractedValue(string Type, string Value, int Count, IReadO
 
 /// <summary>
 /// Extracts typed values (network indicators, paths, registry keys, mutexes, user agents, crypto keys) from strings,
-/// resource text and decoded embedded text. Mutexes, user agents and keys are recognized by the APIs that consume them.
+/// resource text and decoded embedded text. Mutexes, user agents and keys are recognized by the APIs that consume them;
+/// encoded values (whole base64 or hex) are reported for field texts only.
 /// </summary>
 public static partial class Values
 {
     public static readonly IReadOnlyList<string> Types =
-        ["url", "domain", "ipv4", "ipv6", "email", "file_path", "named_pipe", "registry_key", "mutex", "user_agent", "crypto_key"];
+        ["url", "domain", "ipv4", "ipv6", "email", "file_path", "named_pipe", "registry_key", "mutex", "user_agent", "crypto_key", "encoded"];
 
-    private const int MaxLocations = 5;
+    /// <summary>Encoded rows kept per call of <see cref="Find"/> or <see cref="FromFields"/>; the rest are counted.</summary>
+    public const int MaxEncoded = 100;
+
+    // Shorter base64 runs are mostly identifiers and resource names.
+    private const int MinEncodedChars = 24;
+    // An encoded row shows this much of a longer value; its detail keeps the whole length.
+    private const int MaxEncodedShown = 256;
+
+    private const int MaxLocations = 5, MaxPassedTo = 5;
 
     // Texts run to 1 MB: NonBacktracking matches in linear time, so no match
     // timeout. Patterns that need lookarounds are generated regexes whose tails
@@ -84,20 +93,33 @@ public static partial class Values
             if (!Items.TryGetValue(key, out var item)) item = (0, [], new HashSet<string>(StringComparer.Ordinal), detail);
             item.Count++;
             if (item.Locations.Count < MaxLocations && !item.Locations.Contains(where.Where)) item.Locations.Add(where.Where);
-            foreach (var api in passedTo ?? []) if (item.PassedTo.Count < 5) item.PassedTo.Add(api);
+            foreach (var api in passedTo ?? []) if (item.PassedTo.Count < MaxPassedTo) item.PassedTo.Add(api);
             Items[key] = (item.Count, item.Locations, item.PassedTo, item.Detail ?? detail);
         }
     }
 
+    /// <summary>The typed values of the other overload, without the count of encoded values past the cap.</summary>
+    public static List<ExtractedValue> Find(ModuleScan scan, IReadOnlyList<EmbeddedContent> embedded, CancellationToken ct) => Find(scan, embedded, out _, ct);
+
+    /// <summary>
+    /// Typed values of an assembly's strings, resources and decoded embedded text; a whole base64 or hex literal is also
+    /// an encoded row with its decoded length, the first <see cref="MaxEncoded"/> distinct ones (<paramref name="encodedDropped"/>
+    /// counts the rest). Empty for no values.
+    /// </summary>
     /// <param name="embedded">Decoded embedded content; its text items are scanned too.</param>
-    public static List<ExtractedValue> Find(ModuleScan scan, IReadOnlyList<EmbeddedContent> embedded, CancellationToken ct)
+    public static List<ExtractedValue> Find(ModuleScan scan, IReadOnlyList<EmbeddedContent> embedded, out int encodedDropped, CancellationToken ct)
     {
         var b = new Builder();
+        var limits = AnalysisLimits.Default;
+        var encoded = new HashSet<string>(StringComparer.Ordinal);
+        encodedDropped = 0;
         foreach (var s in scan.Strings)
         {
             ct.ThrowIfCancellationRequested();
             FromText(b, s.Value, s.Location, s.Consumers);
             FromContext(b, s, scan);
+            // Embedded content already decodes literals, so the decoded text is not scanned again here.
+            AddEncoded(b, encoded, s.Value, s.Location, s.Consumers, ref encodedDropped, limits);
         }
         foreach (var r in scan.Resources)
         {
@@ -109,9 +131,94 @@ public static partial class Values
             FromText(b, Encoding.UTF8.GetString(p.Bytes), new Location($"{p.Source} (decoded: {string.Join(" > ", p.Encoding)})"), []);
         CryptoArrays(b, scan);
 
-        return [.. b.Items.Select(kv => new ExtractedValue(kv.Key.Type, kv.Key.Value, kv.Value.Count, kv.Value.Locations, [.. kv.Value.PassedTo], kv.Value.Detail))
-            .OrderBy(i => Array.IndexOf([.. Types], i.Type)).ThenByDescending(i => i.Count).ThenBy(i => i.Value, StringComparer.Ordinal)];
+        return Order(b.Items.Select(kv => new ExtractedValue(kv.Key.Type, kv.Key.Value, kv.Value.Count, kv.Value.Locations, [.. kv.Value.PassedTo], kv.Value.Detail)));
     }
+
+    /// <summary>
+    /// Typed values of field texts (Unity asset fields), located by each text's location: each text scanned as code
+    /// strings are, and a whole base64 or hex value reported as encoded with its decoded length (the first
+    /// <see cref="MaxEncoded"/> distinct ones; <paramref name="encodedDropped"/> counts the rest). Base64 or hex that
+    /// decodes to text is scanned too, located "(decoded: base64)". Nothing is decrypted. Empty for no values.
+    /// </summary>
+    public static List<ExtractedValue> FromFields(IEnumerable<(string Text, string Location)> fields, out int encodedDropped, CancellationToken ct)
+    {
+        var b = new Builder();
+        var limits = AnalysisLimits.Default;
+        var encoded = new HashSet<string>(StringComparer.Ordinal);
+        encodedDropped = 0;
+        foreach (var (text, location) in fields)
+        {
+            ct.ThrowIfCancellationRequested();
+            var where = new Location(location);
+            FromText(b, text, where, []);
+            // Asset GUIDs (32 hex digits) name other assets; a field named for one holds no encoded value.
+            if (location.AsSpan(location.LastIndexOf('.') + 1).Contains("guid", StringComparison.OrdinalIgnoreCase)) continue;
+            if (AddEncoded(b, encoded, text, where, null, ref encodedDropped, limits) is { } e && Blob.LooksLikeText(e.Bytes))
+                FromText(b, Encoding.UTF8.GetString(e.Bytes), new Location($"{location} (decoded: {e.Encoding})"), []);
+        }
+        return Order(b.Items.Select(kv => new ExtractedValue(kv.Key.Type, kv.Key.Value, kv.Value.Count, kv.Value.Locations, [.. kv.Value.PassedTo], kv.Value.Detail)));
+    }
+
+    /// <summary>
+    /// Adds <paramref name="text"/> as an encoded row when it is a whole hex or base64 value and fewer than
+    /// <see cref="MaxEncoded"/> distinct ones are in <paramref name="seen"/>; past the cap it counts it in
+    /// <paramref name="dropped"/>. Returns the decoding of a row added; null otherwise.
+    /// </summary>
+    private static (string Encoding, byte[] Bytes)? AddEncoded(Builder b, HashSet<string> seen, string text, Location where, IReadOnlyList<string>? passedTo,
+        ref int dropped, AnalysisLimits limits)
+    {
+        if (Encoded(text.Trim(), limits) is not { } e) return null;
+        var shown = e.Text.Length <= MaxEncodedShown ? e.Text : e.Text[..MaxEncodedShown] + "...";
+        if (!seen.Contains(shown) && seen.Count >= MaxEncoded)
+        {
+            dropped++;
+            return null;
+        }
+        seen.Add(shown);
+        b.Add("encoded", shown, where, passedTo, $"{e.Encoding}, {e.Bytes.Length:N0} bytes" + (e.Text.Length > MaxEncodedShown ? $", {e.Text.Length:N0} characters" : ""));
+        return (e.Encoding, e.Bytes);
+    }
+
+    /// <summary>
+    /// A whole value that is hex (32 digits or more) or standard base64 (24 characters or more, a multiple of 4, with
+    /// digits and both letter cases, or '=' padding): its encoding and bytes. Null for any other text.
+    /// </summary>
+    private static (string Text, string Encoding, byte[] Bytes)? Encoded(string text, AnalysisLimits limits)
+    {
+        if (text.Length < MinEncodedChars) return null;
+        // Hex first: hex is also valid base64.
+        if (text.All(char.IsAsciiHexDigit)) return Embedded.TryHex(text, limits) is { } hex ? (text, "hex", hex) : null;
+        if (text.Length % 4 != 0 || !text.All(c => char.IsAsciiLetterOrDigit(c) || c is '+' or '/' or '=')) return null;
+        if (!text.EndsWith('=') && !(text.Any(char.IsAsciiDigit) && text.Any(char.IsAsciiLetterUpper) && text.Any(char.IsAsciiLetterLower))) return null;
+        return Embedded.TryBase64(text, limits) is { } bytes ? (text, "base64", bytes) : null;
+    }
+
+    /// <summary>
+    /// The values of several assemblies as one list: one row per type and value with the counts added, each location
+    /// prefixed with its assembly's path ("App.dll: ..."), ordered as <see cref="Find"/> orders. Empty for no values.
+    /// </summary>
+    public static List<ExtractedValue> Join(IEnumerable<(string Assembly, IReadOnlyList<ExtractedValue> Values)> parts)
+    {
+        var rows = new Dictionary<(string Type, string Value), ExtractedValue>();
+        foreach (var (assembly, values) in parts)
+            foreach (var v in values)
+            {
+                var located = v.Locations.Select(l => $"{assembly}: {l}");
+                rows[(v.Type, v.Value)] = rows.TryGetValue((v.Type, v.Value), out var seen)
+                    ? seen with
+                    {
+                        Count = seen.Count + v.Count,
+                        Locations = [.. seen.Locations.Concat(located).Take(MaxLocations)],
+                        PassedTo = [.. seen.PassedTo.Union(v.PassedTo, StringComparer.Ordinal).Take(MaxPassedTo)],
+                        Detail = seen.Detail ?? v.Detail,
+                    }
+                    : v with { Locations = [.. located] };
+            }
+        return Order(rows.Values);
+    }
+
+    private static List<ExtractedValue> Order(IEnumerable<ExtractedValue> values) =>
+        [.. values.OrderBy(i => Array.IndexOf([.. Types], i.Type)).ThenByDescending(i => i.Count).ThenBy(i => i.Value, StringComparer.Ordinal)];
 
     private static IEnumerable<string> Matches(Regex regex, string text) => regex.Matches(text).Select(m => m.Value);
 

@@ -69,10 +69,10 @@ public sealed class Il2CppRawLoader(AssemblyWorkspace workspace, string? cacheRo
         catch (IOException) { return null; }
     }
 
-    /// <summary>The dummy assembly folder of <paramref name="files"/> when a load already read it into the default cache; null otherwise (nothing is read).</summary>
-    public static string? CachedDummies(Il2CppBuildFiles files)
+    /// <summary>The dummy assembly folder of <paramref name="files"/> when a load already read it into the cache under <paramref name="root"/> (null: the default); null otherwise (nothing is read).</summary>
+    public static string? CachedDummies(Il2CppBuildFiles files, string? root = null)
     {
-        var dir = Path.Combine(Path.GetFullPath(DefaultRoot), Key(files));
+        var dir = Path.Combine(Path.GetFullPath(root ?? DefaultRoot), Key(files));
         var dummy = Path.Combine(dir, DummyFolder);
         return Current(dir, files) && Directory.Exists(dummy) ? dummy : null;
     }

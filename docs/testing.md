@@ -268,10 +268,12 @@ describe.
 | `CORVUS_EXPORT_REAL` | `1` exports real libraries to projects and builds them. | ExportBuildTests |
 | `CORVUS_FIRMWARE_IMAGES` | A folder of firmware images whose filesystems are compared file by file with the reference extractors. | FirmwareComparisonTests |
 | `CORVUS_FIXTURE_HERMESC` | A folder with one subfolder per Hermes compiler release, for rebuilding the Hermes fixtures. | tests/Corvus.Tests/Web/HermesFixtures/build.ps1 |
-| `CORVUS_FIXTURE_LLVM` | A folder holding ld.lld, llvm-objcopy and llvm-nm, for rebuilding the CFI and instruction-set fixtures. | tests/Corvus.Tests/Dumps/CfiFixtures/build.ps1, tests/Corvus.Tests/Engines/IsaFixtures/build.ps1 |
+| `CORVUS_FIXTURE_LLVM` | A folder holding ld.lld, llvm-objcopy and llvm-nm, for rebuilding the CFI, instruction-set and string form fixtures. | tests/Corvus.Tests/Dumps/CfiFixtures/build.ps1, tests/Corvus.Tests/Engines/IsaFixtures/build.ps1, tests/Corvus.Tests/NativeAnalysis/StringFormFixtures/build.ps1 |
 | `CORVUS_FIXTURE_POWERSHELL_LAYERS` | The folder of the PowerShell transformation module the script fixtures are generated with; nothing runs the output. | tests/Corvus.Tests/Web/ScriptFixtures/generate.ps1 |
 | `CORVUS_FIXTURE_PYTHONS` | The Python interpreters (separated by the path separator) that compile the Python fixtures. | tests/Corvus.Tests/Containers/PythonFixtures/build.ps1 |
-| `CORVUS_FIXTURE_RUSTC` | The rustc that builds the CFI and instruction-set fixtures (default: rustc on PATH). | tests/Corvus.Tests/Dumps/CfiFixtures/build.ps1, tests/Corvus.Tests/Engines/IsaFixtures/build.ps1 |
+| `CORVUS_FIXTURE_RUSTC` | The rustc that builds the CFI, instruction-set and string form fixtures (default: rustc on PATH). | tests/Corvus.Tests/Dumps/CfiFixtures/build.ps1, tests/Corvus.Tests/Engines/IsaFixtures/build.ps1, tests/Corvus.Tests/NativeAnalysis/StringFormFixtures/build.ps1 |
+| `CORVUS_FIXTURE_SWIFT` | The swiftc that builds the Swift string form fixtures (default: swiftc on PATH). | tests/Corvus.Tests/NativeAnalysis/StringFormFixtures/build.ps1 |
+| `CORVUS_FIXTURE_SWIFT_STATIC_SDK` | The musl-1.2.5.sdk folder of the Swift Static Linux SDK, for the Linux Swift string form fixtures. | tests/Corvus.Tests/NativeAnalysis/StringFormFixtures/build.ps1 |
 | `CORVUS_FORMAT_FUZZ_ITERATIONS` | Mutated inputs per ELF and Mach-O fuzz test (default 300). | ElfFileTests, MachOFileTests |
 | `CORVUS_FS_REFERENCE` | The program that runs the firmware reference script as root: sh on Linux, wsl.exe on Windows. | FirmwareComparisonTests |
 | `CORVUS_FUZZ_CASES` | Mutated inputs per container and inspection fixture (defaults 40 and 30). | InspectionTests, UnpackTests |
@@ -282,7 +284,7 @@ describe.
 | `CORVUS_HEAVY_LOCK` | A script that takes and reports a machine-wide lock (`heavy <name> -OwnerPid <pid>`), held by whole-suite runs. | nightly.ps1, test-reuse.psm1 |
 | `CORVUS_HOSTAPI_PROJECT_DIR` | The root of a C/C++ project with a host function table, for `generate_cpp_binding style=hostapi`. | CppBindingTests |
 | `CORVUS_IDA_ORACLE_FILES` | Images (separated by `;`) whose functions are compared with IDA's (default: a fixed set of system DLLs). | NativeCodeOracleTests |
-| `CORVUS_IL2CPP_BUILD` | An Il2Cpp build folder or its global-metadata.dat. | Il2CppRawTests, ImportedNamesTests, LiveCompiledNamesRealTests, OutputBudgetTests, SessionFileTests |
+| `CORVUS_IL2CPP_BUILD` | An Il2Cpp build folder or its global-metadata.dat. | Il2CppRawTests, ImportedNamesTests, LiveCompiledNamesRealTests, OutputBudgetTests, SessionFileTests, UnityAssetStringsTests |
 | `CORVUS_IL2CPP_BUILD_DUMP` | Reference output for `CORVUS_IL2CPP_BUILD` (dummy assemblies, script.json, stringliteral.json), compared with the built-in reader. | Il2CppRawTests |
 | `CORVUS_IL2CPP_DUMMY_DIR` | A folder of dummy assemblies with `[Address]` attributes. | Il2CppExportTests, RealAssemblyTests |
 | `CORVUS_IL2CPP_GENERICS_BUILD` | A Windows Il2Cpp build whose code registration is filled at run time. | Il2CppRawTests |

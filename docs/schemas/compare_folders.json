@@ -419,7 +419,7 @@
         "type": "object",
         "properties": {
           "kind": {
-            "description": "changed, removed, added, or unknown (absent from a partial side).",
+            "description": "changed, removed, added, or unknown (absent from a partial side); engine memory: what wrote the range.",
             "type": "string"
           },
           "key": {
@@ -432,7 +432,7 @@
             "type": "string"
           },
           "fields": {
-            "description": "changed: the fields that differ.",
+            "description": "changed: the fields that differ; engine memory: the range's detail.",
             "type": "array",
             "items": {
               "type": "string"

@@ -133,6 +133,12 @@ public sealed partial class ElfFile
     {
         uint type = Is64Bit ? (uint)info : (uint)(info & 0xFF);
         int sym = (int)Math.Min(Is64Bit ? info >> 32 : (info >> 8) & 0xFFFFFF, int.MaxValue);
+        // MIPS64 packs r_sym (32 bits), then r_ssym, r_type3, r_type2 and r_type, a byte each, in file byte order.
+        if (Is64Bit && Machine == ElfNames.EmMips)
+        {
+            sym = (int)Math.Min(BigEndian ? info >> 32 : (uint)info, int.MaxValue);
+            type = BigEndian ? (uint)info & 0xFF : (uint)(info >> 56);
+        }
         var kind = ElfNames.Kind(Machine, type);
         string? name = sym > 0 && sym < symbols.Count ? symbols[sym].Name : null;
         return new ElfRelocation(offset, type, sym, name, addend, explicitAddend, kind, table);

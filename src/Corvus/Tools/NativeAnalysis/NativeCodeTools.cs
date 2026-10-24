@@ -446,9 +446,9 @@ public sealed partial class NativeCodeTools(AssemblyWorkspace workspace, NativeC
     }
 
     [McpServerTool(Name = "search_native_strings", Title = "Search native strings", UseStructuredContent = true, OutputSchemaType = typeof(NativeStringList))]
-    [Description("Strings (ASCII, UTF-16) referenced by the code or data of a native image, with address, reference count and first referencing " +
-                 "function. Also Il2Cpp literals (after apply_il2cpp_names) and NativeAOT frozen strings; an engine adds unreferenced strings in " +
-                 "other encodings.")]
+    [Description("Strings (ASCII, UTF-16, Rust, Swift) referenced by code or data of a native image, with address, reference count and first " +
+                 "referencing function. Also Il2Cpp literals (after apply_il2cpp_names), NativeAOT frozen strings; an engine adds unreferenced " +
+                 "strings in other encodings.")]
     public Task<string> SearchNativeStrings(
         [Description(NativeTools.ImageDescription)] string image,
         [Description("Case-insensitive substring, or regex with regex=true; omit for all.")] string? query = null,
@@ -494,11 +494,15 @@ public sealed partial class NativeCodeTools(AssemblyWorkspace workspace, NativeC
             var text = index.ReadString(s, Math.Max(400, clip + 1));
             bool match = query == null || (pattern != null ? timeouts.IsMatch(pattern, text) : text.Contains(query, StringComparison.OrdinalIgnoreCase));
             if (!match) continue;
-            var refs = index.RefsTo(s.Rva, 1);
-            var first = refs.Count > 0 && index.FunctionAt(refs[0].From) is { } f ? f.Name : null;
-            rows.Add($"{NativeAddress.Va(index.Image, s.Rva)}  {(s.Encoding == StringEncoding.Utf16 ? "L" : " ")}\"{Show(text)}\"  " +
-                     $"{index.CountRefsTo(s.Rva)} refs{(first != null ? $", first in {first}" : "")}");
-            if (rows.Count - 1 >= pageStart && rows.Count - 1 < pageEnd) items.Add(Entry(NativeAddress.Va(index.Image, s.Rva), s.Encoding == StringEncoding.Utf16 ? "utf16" : "ascii", text, index.CountRefsTo(s.Rva), first));
+            // An inline string is the instruction itself: its one reference is its own function.
+            bool inline = s.Encoding == StringEncoding.Inline;
+            var refs = inline ? [] : index.RefsTo(s.Rva, 1);
+            var first = (inline ? index.FunctionAt(s.Rva) : refs.Count > 0 ? index.FunctionAt(refs[0].From) : null)?.Name;
+            int count = inline ? 1 : index.CountRefsTo(s.Rva);
+            var encoding = s.Encoding switch { StringEncoding.Utf16 => "utf16", StringEncoding.Utf8 => "utf8", StringEncoding.Inline => "inline", _ => "ascii" };
+            rows.Add($"{NativeAddress.Va(index.Image, s.Rva)}  {s.Encoding switch { StringEncoding.Utf16 => "L", StringEncoding.Inline => "inline ", _ => " " }}\"{Show(text)}\"  " +
+                     $"{count} refs{(first != null ? $", first in {first}" : "")}");
+            if (rows.Count - 1 >= pageStart && rows.Count - 1 < pageEnd) items.Add(Entry(NativeAddress.Va(index.Image, s.Rva), encoding, text, count, first));
         }
         // Il2Cpp string literals live in the metadata file; code loads them through slots named by apply_il2cpp_names.
         if (Il2CppNativeNames.Of(native) is { } il2cpp)

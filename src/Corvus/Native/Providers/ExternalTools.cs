@@ -40,10 +40,24 @@ public static partial class ExternalTools
     private static readonly string Exe = OperatingSystem.IsWindows() ? ".exe" : "";
 
     /// <summary>
-    /// Reads a variable that locates a tool (its own, PATH, JAVA_HOME, the Android SDK's); null when unset. The process
+    /// Reads a variable that locates a tool (its own, PATH, JAVA_HOME, the Android SDK's) or sets whether and where it
+    /// downloads (CORVUS_OFFLINE, CORVUS_SYMBOL_CACHE, _NT_SYMBOL_PATH); null when unset. The process
     /// environment unless the host replaces it, as the tests do to keep one test's settings from another's lookups.
     /// </summary>
     internal static Func<string, string?> ReadVariable { get; set; } = Environment.GetEnvironmentVariable;
+
+    /// <summary>
+    /// Values a host adds to the environment of the children it starts; empty in the server. The tests give their flow's
+    /// settings, so a tool one test starts sees them and a worker another test starts does not.
+    /// </summary>
+    internal static Func<IReadOnlyDictionary<string, string?>> ChildVariables { get; set; } = () => new Dictionary<string, string?>();
+
+    /// <summary>The <see cref="ChildVariables"/> a child keeps: <see cref="KeptVariables"/> and ADB_*.</summary>
+    internal static Dictionary<string, string?> KeptChildVariables() =>
+        ChildVariables().Where(v => Kept(v.Key)).ToDictionary(v => v.Key, v => v.Value);
+
+    private static bool Kept(string name) =>
+        KeptVariables.Contains(name, StringComparer.OrdinalIgnoreCase) || name.StartsWith("ADB_", StringComparison.OrdinalIgnoreCase);
 
     public static readonly ExternalTool Java = new("java", "Java (JDK 17+)", "CORVUS_JAVA", ExternalToolKind.Executable, ["java" + Exe], ["-version"], 17,
         "decompile_java", false,
@@ -161,8 +175,13 @@ public static partial class ExternalTools
             ("entry", ["--entry-point", "{rva}"]),
             ("report", ["-o", "{report}"])));
 
+    // Tested with GuardDog 3.2.0 on Linux; its rule engine and sandbox do not build on Windows.
+    public static readonly ExternalTool GuardDog = new("guarddog", "GuardDog", "CORVUS_GUARDDOG", ExternalToolKind.Executable,
+        ["guarddog" + Exe], ["--version"], 3, "summarize_file view=package rules", false,
+        Ops(("scan", ["{ecosystem}", "scan", "{file}", "--output-format=json"])));
+
     /// <summary>Every external program, in display order.</summary>
-    public static readonly IReadOnlyList<ExternalTool> Table = [Java, JavaDecompiler, JavaDecompiler2, PythonDecompiler, Adb, TShark, OsvScanner, Emulator, Capa, Aapt2, ApkSigner, DexDisassembler, ProtoCompiler, WasmText, WasmValidator, HbcDisassembler];
+    public static readonly IReadOnlyList<ExternalTool> Table = [Java, JavaDecompiler, JavaDecompiler2, PythonDecompiler, Adb, TShark, OsvScanner, GuardDog, Emulator, Capa, Aapt2, ApkSigner, DexDisassembler, ProtoCompiler, WasmText, WasmValidator, HbcDisassembler];
 
     private static IEnumerable<(string, string)> WiresharkDirectories()
     {
@@ -230,7 +249,7 @@ public static partial class ExternalTools
 
     public static string Remediation(ExternalTool tool) => tool.Kind == ExternalToolKind.Jar
         ? $"set {tool.Variable} to the jar or its folder (run by {Java.Variable}, JAVA_HOME or PATH java)"
-        : $"set {tool.Variable} to the program or its folder, or put it on PATH";
+        : $"set {tool.Variable} (the program or its folder) or PATH";
 
     /// <summary>How long a version check may take; tests shorten it.</summary>
     internal static TimeSpan VersionTimeout { get; set; } = TimeSpan.FromSeconds(15);
@@ -274,7 +293,7 @@ public static partial class ExternalTools
     internal static TimeSpan StatusWait { get; set; } = TimeSpan.FromSeconds(5);
 
     /// <summary>The unknown-version note of a check still running when a bounded probe stopped waiting.</summary>
-    public const string StillRunning = "its version check is still running; call server_status again";
+    public const string StillRunning = "check running; call server_status again";
 
     private static string Stamp(string path)
     {
@@ -293,7 +312,7 @@ public static partial class ExternalTools
         if (run.StartError != null) return new(tool.Id, tool.Name, tool.Purpose, true, path, source, null, $"cannot be started: {run.StartError}", Remediation(tool));
         // A slow version check on a busy machine says nothing against the tool: it stays usable, its version unknown.
         if (run.TimedOut)
-            return new(tool.Id, tool.Name, tool.Purpose, true, path, source, null, null, Remediation(tool)) { VersionUnknown = $"its version check timed out after {(VersionTimeout < TimeSpan.FromSeconds(1) ? $"{VersionTimeout.TotalMilliseconds:0} ms" : $"{VersionTimeout.TotalSeconds:0} s")}" };
+            return new(tool.Id, tool.Name, tool.Purpose, true, path, source, null, null, Remediation(tool)) { VersionUnknown = $"check timed out after {(VersionTimeout < TimeSpan.FromSeconds(1) ? $"{VersionTimeout.TotalMilliseconds:0} ms" : $"{VersionTimeout.TotalSeconds:0} s")}" };
         var version = VersionPattern().Match(run.Text + "\n" + run.Stderr) is { Success: true } m ? m.Value : null;
         string? problem = null;
         if (tool.MinimumMajorVersion > 0)
@@ -318,16 +337,19 @@ public static partial class ExternalTools
         "ANDROID_ADB_SERVER_ADDRESS",
     ];
 
-    /// <summary>The overrides that reduce the server's environment to <see cref="KeptVariables"/> and ADB_* (null removes), plus <paramref name="extra"/>.</summary>
+    /// <summary>
+    /// The overrides that reduce the server's environment to <see cref="KeptVariables"/> and ADB_* (null removes), then
+    /// the kept <see cref="ChildVariables"/>, then <paramref name="extra"/>.
+    /// </summary>
     public static Dictionary<string, string?> MinimalEnvironment(IReadOnlyDictionary<string, string?>? extra = null)
     {
         var result = new Dictionary<string, string?>(OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal);
         foreach (System.Collections.DictionaryEntry e in Environment.GetEnvironmentVariables())
         {
             var name = (string)e.Key;
-            bool keep = KeptVariables.Contains(name, StringComparer.OrdinalIgnoreCase) || name.StartsWith("ADB_", StringComparison.OrdinalIgnoreCase);
-            if (!keep) result[name] = null;
+            if (!Kept(name)) result[name] = null;
         }
+        foreach (var (k, v) in KeptChildVariables()) result[k] = v;
         foreach (var (k, v) in extra ?? new Dictionary<string, string?>()) result[k] = v;
         return result;
     }

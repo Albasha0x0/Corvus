@@ -162,6 +162,125 @@ public sealed class MobileRulesTests(ITestOutputHelper output) : IDisposable
         Assert.Equal(["SHA-256/7HIpactkIAq2Y49orFOOQKurWxmmSFZhBCoQYcRhJ3Y="], pinned.Pins);
     }
 
+    /// <summary>
+    /// A string decoder (StringBuilder reverse) and two calls of it: one returns a su path, the other an MD5 digest name
+    /// passed straight to MessageDigest.getInstance. Neither string is in the DEX as a literal.
+    /// </summary>
+    private static byte[] DecoderDex()
+    {
+        const string Sb = "Ljava/lang/StringBuilder;", S = "Ljava/lang/String;", Rev = "Lcom/example/app/Text;->r(Ljava/lang/String;)Ljava/lang/String;";
+        var b = new DexBuilder();
+        b.Class("Lcom/example/app/Text;").Method("r", S, [S], 9,
+            Asm.NewInstance(0, Sb), Asm.Invoke(0x70, Sb + "-><init>(Ljava/lang/String;)V", 0, 1), Asm.Invoke(0x6e, Sb + "->reverse()Ljava/lang/StringBuilder;", 0),
+            Asm.Op11x(0x0c, 0), Asm.Invoke(0x6e, Sb + "->toString()Ljava/lang/String;", 0), Asm.Op11x(0x0c, 0), Asm.Return(0x11, 0)).Registers = 2;
+        b.Class("Lcom/example/app/Check;").Method("run", "V", [], 9,
+            Asm.ConstString(0, "us/nibx/metsys/"), Asm.Invoke(0x71, Rev, 0), Asm.Op11x(0x0c, 0),
+            Asm.ConstString(1, "5DM"), Asm.Invoke(0x71, Rev, 1), Asm.Op11x(0x0c, 1),
+            Asm.Invoke(0x71, "Ljava/security/MessageDigest;->getInstance(Ljava/lang/String;)Ljava/security/MessageDigest;", 1),
+            Asm.ReturnVoid()).Registers = 2;
+        return b.Build();
+    }
+
+    /// <summary>Check.run passes getInstance a new String(char[]) over Text.c("5DM"), which returns the reversed characters.</summary>
+    private static byte[] ArrayDecoderDex()
+    {
+        const string Sb = "Ljava/lang/StringBuilder;", S = "Ljava/lang/String;";
+        var b = new DexBuilder();
+        b.Class("Lcom/example/app/Text;").Method("c", "[C", [S], 9,
+            Asm.NewInstance(0, Sb), Asm.Invoke(0x70, Sb + "-><init>(Ljava/lang/String;)V", 0, 1), Asm.Invoke(0x6e, Sb + "->reverse()Ljava/lang/StringBuilder;", 0),
+            Asm.Op11x(0x0c, 0), Asm.Invoke(0x6e, Sb + "->toString()Ljava/lang/String;", 0), Asm.Op11x(0x0c, 0), Asm.Invoke(0x6e, S + "->toCharArray()[C", 0),
+            Asm.Op11x(0x0c, 0), Asm.Return(0x11, 0)).Registers = 2;
+        b.Class("Lcom/example/app/Check;").Method("run", "V", [], 9,
+            Asm.ConstString(0, "5DM"), Asm.Invoke(0x71, "Lcom/example/app/Text;->c(Ljava/lang/String;)[C", 0), Asm.Op11x(0x0c, 0),
+            Asm.NewInstance(1, S), Asm.Invoke(0x70, S + "-><init>([C)V", 1, 0),
+            Asm.Invoke(0x71, "Ljava/security/MessageDigest;->getInstance(Ljava/lang/String;)Ljava/security/MessageDigest;", 1),
+            Asm.ReturnVoid()).Registers = 2;
+        return b.Build();
+    }
+
+    /// <summary>Holder's static initializer stores Text.r("5DM") in K[0]; Check.run passes K[0] to getInstance.</summary>
+    private static byte[] TableDex()
+    {
+        const string Sb = "Ljava/lang/StringBuilder;", S = "Ljava/lang/String;", K = "Lcom/example/app/Holder;->K:[Ljava/lang/String;";
+        var b = new DexBuilder();
+        b.Class("Lcom/example/app/Text;").Method("r", S, [S], 9,
+            Asm.NewInstance(0, Sb), Asm.Invoke(0x70, Sb + "-><init>(Ljava/lang/String;)V", 0, 1), Asm.Invoke(0x6e, Sb + "->reverse()Ljava/lang/StringBuilder;", 0),
+            Asm.Op11x(0x0c, 0), Asm.Invoke(0x6e, Sb + "->toString()Ljava/lang/String;", 0), Asm.Op11x(0x0c, 0), Asm.Return(0x11, 0)).Registers = 2;
+        b.Class("Lcom/example/app/Holder;").Field("K", "[" + S, 0x18).Method("<clinit>", "V", [], 8,
+            Asm.Const4(0, 1), new DexInsn(p => [0x23, (ushort)p.Type("[" + S)], [], ["[" + S], [], []), Asm.ConstString(1, "5DM"),
+            Asm.Invoke(0x71, "Lcom/example/app/Text;->r(Ljava/lang/String;)Ljava/lang/String;", 1), Asm.Op11x(0x0c, 1), Asm.Const4(2, 0), Asm.Op23x(0x4d, 1, 0, 2),
+            Asm.Static(0x69, 0, K), Asm.ReturnVoid()).Registers = 3;
+        b.Class("Lcom/example/app/Check;").Method("run", "V", [], 9,
+            Asm.Static(0x62, 0, K), Asm.Const4(1, 0), Asm.Op23x(0x46, 0, 0, 1),
+            Asm.Invoke(0x71, "Ljava/security/MessageDigest;->getInstance(Ljava/lang/String;)Ljava/security/MessageDigest;", 0),
+            Asm.ReturnVoid()).Registers = 2;
+        return b.Build();
+    }
+
+    /// <summary>Check.run passes getInstance the string Text.INSTANCE.r("5DM") returns, Text being a final class without instance fields.</summary>
+    private static byte[] ObjectDecoderDex()
+    {
+        const string Sb = "Ljava/lang/StringBuilder;", S = "Ljava/lang/String;", T = "Lcom/example/app/Text;";
+        var b = new DexBuilder();
+        var text = b.Class(T, access: 0x11).Field("INSTANCE", T, 0x19);
+        text.Method("<clinit>", "V", [], 8,
+            Asm.NewInstance(0, T), Asm.Invoke(0x70, T + "-><init>()V", 0), Asm.Static(0x69, 0, T + "->INSTANCE:" + T), Asm.ReturnVoid()).Registers = 1;
+        text.Method("<init>", "V", [], 2, Asm.Invoke(0x70, "Ljava/lang/Object;-><init>()V", 0), Asm.ReturnVoid()).Registers = 1;
+        text.Method("r", S, [S], 0x11,
+            Asm.NewInstance(0, Sb), Asm.Invoke(0x70, Sb + "-><init>(Ljava/lang/String;)V", 0, 2), Asm.Invoke(0x6e, Sb + "->reverse()Ljava/lang/StringBuilder;", 0),
+            Asm.Op11x(0x0c, 0), Asm.Invoke(0x6e, Sb + "->toString()Ljava/lang/String;", 0), Asm.Op11x(0x0c, 0), Asm.Return(0x11, 0)).Registers = 3;
+        b.Class("Lcom/example/app/Check;").Method("run", "V", [], 9,
+            Asm.Static(0x62, 0, T + "->INSTANCE:" + T), Asm.ConstString(1, "5DM"), Asm.Invoke(0x6e, T + "->r(Ljava/lang/String;)Ljava/lang/String;", 0, 1),
+            Asm.Op11x(0x0c, 1), Asm.Invoke(0x71, "Ljava/security/MessageDigest;->getInstance(Ljava/lang/String;)Ljava/security/MessageDigest;", 1),
+            Asm.ReturnVoid()).Registers = 2;
+        return b.Build();
+    }
+
+    [Fact]
+    public void A_call_argument_rule_reads_a_string_an_object_decoder_returns()
+    {
+        var path = _dir.File("app.dex");
+        File.WriteAllBytes(path, ObjectDecoderDex());
+        Assert.Equal(["Lcom/example/app/Check;->run()V +0x8: Ljava/security/MessageDigest;->getInstance(\"MD5\")"],
+            Locations(Rule(Survey(path), "android-weak-hash")));
+    }
+
+    [Fact]
+    public void A_call_argument_rule_reads_a_string_from_a_table_the_static_initializer_fills()
+    {
+        var path = _dir.File("app.dex");
+        File.WriteAllBytes(path, TableDex());
+        Assert.Equal(["Lcom/example/app/Check;->run()V +0x5: Ljava/security/MessageDigest;->getInstance(\"MD5\")"],
+            Locations(Rule(Survey(path), "android-weak-hash")));
+    }
+
+    [Fact]
+    public void A_call_argument_rule_reads_a_string_built_from_an_array_decoder_result()
+    {
+        var path = _dir.File("app.dex");
+        File.WriteAllBytes(path, ArrayDecoderDex());
+        Assert.Equal(["Lcom/example/app/Check;->run()V +0xb: Ljava/security/MessageDigest;->getInstance(\"MD5\")"],
+            Locations(Rule(Survey(path), "android-weak-hash")));
+    }
+
+    [Fact]
+    public void A_dex_string_rule_matches_a_string_a_decoder_call_returns()
+    {
+        var path = _dir.File("app.dex");
+        File.WriteAllBytes(path, DecoderDex());
+        Assert.Equal(["Lcom/example/app/Check;->run()V +0x2: \"/system/xbin/su\" from Lcom/example/app/Text;->r(Ljava/lang/String;)Ljava/lang/String;"],
+            Locations(Rule(Survey(path), "android-root-detection")));
+    }
+
+    [Fact]
+    public void A_call_argument_rule_reads_a_string_a_decoder_call_returns()
+    {
+        var path = _dir.File("app.dex");
+        File.WriteAllBytes(path, DecoderDex());
+        Assert.Equal(["Lcom/example/app/Check;->run()V +0xc: Ljava/security/MessageDigest;->getInstance(\"MD5\")"],
+            Locations(Rule(Survey(path), "android-weak-hash")));
+    }
+
     private static byte[] PinnedConfig() =>
         AxmlWriter.Write(new AxmlWriter.Node("network-security-config").Add(
             new AxmlWriter.Node("base-config").Add(new AxmlWriter.Node("trust-anchors").Add(

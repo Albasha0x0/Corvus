@@ -19,6 +19,7 @@ public partial class DocFactsTests
         new[] { "README.md", "CONTRIBUTING.md", "SECURITY.md" }
             .Concat(Directory.EnumerateFiles(Path.Combine(Root, "docs"), "*.md").Select(f => Path.GetRelativePath(Root, f)))
             .Concat(SampleDocsTests.Pages().Select(f => Path.GetRelativePath(Root, f)))
+            .Concat(RecipePages())
             .Concat(Directory.EnumerateFiles(Path.Combine(Root, "skills"), "*.md", SearchOption.AllDirectories).Select(f => Path.GetRelativePath(Root, f)))
             .Select(f => f.Replace('\\', '/'));
 
@@ -156,6 +157,40 @@ public partial class DocFactsTests
         Assert.True(problems.Count == 0, string.Join("\n", problems));
     }
 
+    /// <summary>The recipes under docs/recipes, relative to the repository root.</summary>
+    private static IEnumerable<string> RecipePages() =>
+        Directory.EnumerateFiles(Path.Combine(Root, "docs", "recipes"), "*.md").Select(f => Path.GetRelativePath(Root, f).Replace('\\', '/')).Order(StringComparer.Ordinal);
+
+    [Fact]
+    public void RecipesRunRealCommandsWithRealOptions()
+    {
+        // A recipe's other tools are checked by running it once; its Corvus command lines are checked here.
+        var options = new[] { "Setup/CliArgs.cs", "Core/ServerOptions.cs", "Core/Toolsets.cs", "Core/ClientProfiles.cs" }
+            .SelectMany(f => OptionLiteral().Matches(Read("src/Corvus/" + f)).Select(m => m.Groups[1].Value))
+            .ToHashSet(StringComparer.Ordinal);
+        var pages = RecipePages().ToList();
+        Assert.True(pages.Count >= 3, $"only {pages.Count} recipes");
+        var problems = new List<string>();
+        foreach (var page in pages)
+        {
+            var text = Read(page);
+            var calls = CliCall().Matches(text).ToList();
+            if (calls.Count == 0) problems.Add($"{page}: runs no corvus command");
+            foreach (Match call in calls)
+            {
+                var word = call.Groups[1].Value;
+                if (ToolCli.FindTool(word) == null && !ToolCli.Commands.Contains(word)) { problems.Add($"{page}: corvus has no command {word}"); continue; }
+                problems.AddRange(OptionWord().Matches(call.Groups[2].Value).Select(o => o.Groups[1].Value).Where(o => !options.Contains(o))
+                    .Select(o => $"{page}: corvus {word} has no option {o}"));
+            }
+            // An argument list written for another tool (a Velociraptor execve argv) quotes each option.
+            foreach (Match argv in Argv().Matches(text))
+                problems.AddRange(OptionLiteral().Matches(argv.Value).Select(o => o.Groups[1].Value).Where(o => !options.Contains(o))
+                    .Select(o => $"{page}: corvus has no option {o}"));
+        }
+        Assert.True(problems.Count == 0, string.Join("\n", problems));
+    }
+
     [Fact]
     public void DocsNameOnlyRegisteredTools()
     {
@@ -206,4 +241,11 @@ public partial class DocFactsTests
 
     [GeneratedRegex(@"(?:^|\s)([A-Za-z_][A-Za-z0-9_]*):?=")]
     private static partial Regex Assignment();
+
+    [GeneratedRegex(@"(?:^|\s)(--[a-z][a-z0-9-]*)")]
+    private static partial Regex OptionWord();
+
+    /// <summary>A quoted argument list that runs corvus batch: argv=[..., "batch", ...].</summary>
+    [GeneratedRegex(@"argv=\[[^\]]*""batch""[^\]]*\]")]
+    private static partial Regex Argv();
 }

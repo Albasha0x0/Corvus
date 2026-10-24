@@ -51,6 +51,7 @@
     <None Include="Containers\TlsSessions.txt" CopyToOutputDirectory="PreserveNewest" />
     <None Include="TokenCorpus\**" CopyToOutputDirectory="PreserveNewest" />
     <None Include="Engines\IsaFixtures\*.elf;Engines\IsaFixtures\*.bin" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="NativeAnalysis\StringFormFixtures\*.elf;NativeAnalysis\StringFormFixtures\*.exe" CopyToOutputDirectory="PreserveNewest" />
     <None Include="Dumps\CfiFixtures\*.so" CopyToOutputDirectory="PreserveNewest" />
     <None Include="Web\HermesFixtures\*.hbc" CopyToOutputDirectory="PreserveNewest" />
     <None Include="Containers\PythonFixtures\*.pyc;Containers\PythonFixtures\*.dis" CopyToOutputDirectory="PreserveNewest" />

@@ -4,10 +4,10 @@ using System.Text.Json;
 namespace Corvus.Services.Web.Packages;
 
 /// <summary>
-/// Agent configuration a package or repository carries: an instruction file, a Claude Code hook, an MCP server or a VS
-/// Code task that runs on folder open, at its file and line (null when the entry is the whole file).
+/// Configuration a package or repository carries that runs or steers code, at its file and line (null when the entry is
+/// the whole file).
 /// </summary>
-/// <param name="Kind">instruction file, hook, mcp server, or folder-open task.</param>
+/// <param name="Kind">instruction file, hook, mcp server, folder-open task, git hook, git config, dev container, direnv, or build step.</param>
 public sealed record AgentEntry(string Kind, string Name, string? Command, string Path, int? Line = null);
 
 // Kept apart from PackageReview, whose regex tables every file read would otherwise build: summarize_file asks

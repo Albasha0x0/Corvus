@@ -15,7 +15,7 @@ public class IlHealthTests : IDisposable
     public void Dispose() => _dir.Dispose();
 
     /// <summary>Overwrites the bodies of the selected types' methods with bytes that are not IL.</summary>
-    private static byte[] Corrupt(byte[] image, Func<string, bool> declaringType)
+    internal static byte[] Corrupt(byte[] image, Func<string, bool> declaringType)
     {
         var copy = (byte[])image.Clone();
         using var pe = new PEReader(new MemoryStream(image));

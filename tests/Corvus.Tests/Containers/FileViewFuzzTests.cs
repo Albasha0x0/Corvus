@@ -71,6 +71,20 @@ public sealed class FileViewFuzzTests : IDisposable
     public void Native() => Fuzz(new NativeFileView(), "lib.bin", 300, NativePeTests.KitchenSink(true), FormatWriterTests.SampleElf().Build(), FormatWriterTests.SampleMachO().Build());
 
     [Fact]
+    [FuzzEntry(typeof(RawCodeFileView))]
+    public void Raw()
+    {
+        // 8 KiB of arm64 frames (stp x29, x30; mov x29, sp; ret) with a string after each, so the view finds code and a base.
+        var code = new List<byte>();
+        while (code.Count < 8192)
+        {
+            foreach (uint word in new uint[] { 0xA9BF7BFD, 0x910003FD, 0xD65F03C0 }) code.AddRange(BitConverter.GetBytes(word));
+            code.AddRange(Encoding.ASCII.GetBytes("format string\0\0\0"));
+        }
+        Fuzz(new RawCodeFileView(), "flash.bin", 200, [.. code]);
+    }
+
+    [Fact]
     [FuzzEntry(typeof(PlistFileView))]
     public void Plist() => Fuzz(new PlistFileView(), "Info.plist", 500,
         Encoding.UTF8.GetBytes("<?xml version=\"1.0\"?><plist><dict><key>a</key><array><integer>1</integer><data>AAEC</data></array></dict></plist>"));

@@ -354,14 +354,15 @@ public sealed class DexService
     /// <summary>Hits for the strings decoder calls return: kind recovered, the call's opcode with its decoder; a note counts the calls not simplified.</summary>
     private static void Recovered(DexIndex index, Func<string, bool> pattern, List<DexHit> hits, List<string> notes, int maxHits, CancellationToken ct)
     {
-        var folds = DexStringFolding.For(index).Package(ct);
+        var folding = DexStringFolding.For(index);
+        var folds = folding.Package(ct);
         // A decoder that returns a literal argument as it is recovers nothing the literal hit does not show.
         var literals = hits.Select(h => (h.Method, h.Value)).ToHashSet();
         int recovered = 0;
         foreach (var site in folds.Sites)
             if (site.Fold is { Status: DexFoldStatus.Simplified, Value: { } value } && pattern(value) && hits.Count < maxHits && !literals.Contains((site.Method, value)))
             {
-                hits.Add(new("recovered", value, site.Method, site.Offset, "invoke-static " + site.Decoder, null));
+                hits.Add(new("recovered", value, site.Method, site.Offset, folding.Opcode(site) + " " + site.Decoder, null));
                 recovered++;
             }
         int other = folds.Sites.Count(s => s.Evaluated && s.Fold.Status != DexFoldStatus.Simplified);

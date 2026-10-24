@@ -44,7 +44,7 @@ public static partial class ParameterDomains
         ["find_references"] = new Dictionary<string, Domain> { ["kind"] = Of(["type", "method", "field", "property", "event", "overrides"], [.. KindAliases, "any", "member"]) },
         ["get_type_info"] = new Dictionary<string, Domain> { ["section"] = Of(["summary", "nested", "fields", "properties", "events", "methods", "all"]) },
         ["get_attributes"] = new Dictionary<string, Domain> { ["format"] = Of(["rows", "csharp"], "c#") },
-        ["get_assembly_info"] = new Dictionary<string, Domain> { ["view"] = Of(["summary", "references", "metadata", "all"]) },
+        ["get_assembly_info"] = new Dictionary<string, Domain> { ["view"] = Of(["summary", "references", "metadata", "all", "transforms"]) },
         ["decompile_member"] = new Dictionary<string, Domain> { ["kind"] = Of(["any", "method", "field", "property", "event"], [.. KindAliases, "type", "member"]) },
         ["list_types"] = new Dictionary<string, Domain> { ["kind"] = Of(["class", "struct", "interface", "enum", "delegate"], "static class") },
         ["get_call_tree"] = new Dictionary<string, Domain> { ["direction"] = Of(Direction.Values, "caller", "callee", "up", "down", "in", "out") },

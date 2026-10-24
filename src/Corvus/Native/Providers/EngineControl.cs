@@ -34,6 +34,28 @@ public sealed record NativeMarkResult(int Set, int Removed, int Failed, IReadOnl
 /// <summary>Bytes the engine has loaded at <see cref="Rva"/> (relocations and loader fixups applied).</summary>
 public sealed record NativeMemoryRun(uint Rva, byte[] Bytes);
 
+/// <summary>
+/// A page of engine memory by digest: [<see cref="Rva"/>, + <see cref="Length"/>) is initialized in the engine and
+/// <see cref="Hash"/> is the first 8 bytes of the SHA-256 of those bytes, as 16 lowercase hex digits.
+/// </summary>
+public sealed record NativeMemoryPage(uint Rva, int Length, string Hash)
+{
+    /// <summary>The digest of <paramref name="bytes"/> in the form <see cref="Hash"/> has.</summary>
+    public static string Digest(ReadOnlySpan<byte> bytes) => Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(bytes).AsSpan(0, 8));
+}
+
+/// <summary>
+/// A location the engine's loader wrote: <see cref="Size"/> bytes at <see cref="Rva"/>, the relocation or fixup type as
+/// the engine names it, and the symbol it resolves to (null when the engine names none).
+/// </summary>
+public sealed record EngineFixup(uint Rva, int Size, string Type, string? Target);
+
+/// <summary>
+/// The engine's fixups in address order and the bytes its database records as patched, with their original values
+/// (null when the engine keeps no patch record); <see cref="Truncated"/> when the list stopped at the requested maximum.
+/// </summary>
+public sealed record EngineFixupList(IReadOnlyList<EngineFixup> Fixups, IReadOnlyList<NativeByteRange>? Patched, bool Truncated);
+
 /// <summary>Engine requests beyond <see cref="INativeDecompilerSession"/>: analysis control, function candidates, marks, memory.</summary>
 public interface INativeEngineControl
 {
@@ -58,6 +80,17 @@ public interface INativeEngineControl
     /// <summary>The initialized bytes of [rva, rva + length) as the engine holds them, in address order; gaps are not loaded.</summary>
     Task<IReadOnlyList<NativeMemoryRun>> MemoryAsync(uint rva, uint length, CancellationToken cancellationToken = default) =>
         throw new ToolError(ErrorCode.Unsupported, "This engine does not read its memory.", "use memory=file");
+
+    /// <summary>
+    /// The initialized bytes of [rva, rva + length) as digests of pages aligned to <paramref name="page"/> bytes, in address
+    /// order; gaps are not loaded. The default reads the bytes and digests them here.
+    /// </summary>
+    async Task<IReadOnlyList<NativeMemoryPage>> MemoryPagesAsync(uint rva, uint length, int page, CancellationToken cancellationToken = default) =>
+        EngineControl.Digest(await MemoryAsync(rva, length, cancellationToken).ConfigureAwait(false), page);
+
+    /// <summary>The engine's relocations and loader fixups, at most <paramref name="max"/>; Unsupported when the engine cannot list them.</summary>
+    Task<EngineFixupList> FixupsAsync(int max, CancellationToken cancellationToken = default) =>
+        throw new ToolError(ErrorCode.Unsupported, "This engine does not list its fixups.");
 }
 
 /// <summary>The engine control of a session, and a per-session analysis generation that reanalysis advances (for caches of engine output).</summary>
@@ -110,22 +143,57 @@ public static class EngineControl
 
     internal static JsonObject MemoryArgs(uint rva, uint length) => WorkerRows.Args(("rva", rva), ("size", length));
 
+    /// <summary>Runs cut at multiples of <paramref name="page"/> and digested.</summary>
+    internal static IReadOnlyList<NativeMemoryPage> Digest(IReadOnlyList<NativeMemoryRun> runs, int page)
+    {
+        var pages = new List<NativeMemoryPage>();
+        foreach (var run in runs)
+            for (long at = run.Rva, end = run.Rva + (long)run.Bytes.Length; at < end;)
+            {
+                long next = Math.Min(end, (at / page + 1) * page);
+                pages.Add(new NativeMemoryPage((uint)at, (int)(next - at), NativeMemoryPage.Digest(run.Bytes.AsSpan((int)(at - run.Rva), (int)(next - at)))));
+                at = next;
+            }
+        return pages;
+    }
+
+    /// <summary>A memory reply with page digests; a worker that ignores the page argument returns runs, digested here.</summary>
+    internal static IReadOnlyList<NativeMemoryPage> Pages(JsonElement r, int page) =>
+        r.TryGetProperty("pages", out var pages)
+            ? pages.EnumerateArray().Select(x => new NativeMemoryPage(x[0].GetUInt32(), x[1].GetInt32(), x[2].GetString() ?? "")).ToList()
+            : Digest(Memory(r), page);
+
+    internal static JsonObject PageArgs(uint rva, uint length, int page) => WorkerRows.Args(("rva", rva), ("size", length), ("page", page));
+
+    internal static EngineFixupList Fixups(JsonElement r) =>
+        new(r.GetProperty("fixups").EnumerateArray().Select(x => new EngineFixup(x[0].GetUInt32(), x[1].GetInt32(), x[2].GetString() ?? "",
+                x[3].ValueKind == JsonValueKind.String ? x[3].GetString() : null)).ToList(),
+            r.TryGetProperty("patched", out var p) && p.ValueKind == JsonValueKind.Array
+                ? p.EnumerateArray().Select(x => new NativeByteRange(x[0].GetUInt32(), Convert.FromBase64String(x[1].GetString() ?? ""))).ToList()
+                : null,
+            r.GetProperty("truncated").GetBoolean());
+
+    /// <summary>The fixup list of a session; a worker without the request reports Unsupported.</summary>
+    internal static async Task<EngineFixupList> FixupsAsync(WorkerSessionBase session, string engine, int max, CancellationToken cancellationToken)
+    {
+        try { return Fixups(await session.CallAsync("fixups", WorkerRows.Args(("max", max)), cancellationToken).ConfigureAwait(false)); }
+        catch (ToolError e) when (e.Message.Contains("unknown op", StringComparison.Ordinal))
+        {
+            throw new ToolError(ErrorCode.Unsupported, $"This {engine} worker does not list its fixups.");
+        }
+    }
+
     /// <summary>A reanalysis may take the whole budget plus the save.</summary>
     internal static TimeSpan ReanalysisTimeout(double seconds) => TimeSpan.FromSeconds(seconds + 300);
 
-    private sealed class IdaControl(IdaSession session) : INativeEngineControl
+    /// <summary>The verbs both engine workers answer the same way, keyed by the engine's name in errors.</summary>
+    private abstract class WorkerControl(WorkerSessionBase session, string engine) : INativeEngineControl
     {
         public async Task<IReadOnlyList<NativeAnalyzerOption>> AnalyzersAsync(CancellationToken cancellationToken = default) =>
             Analyzers(await session.CallAsync("analyzers", new JsonObject(), cancellationToken).ConfigureAwait(false));
 
-        public async Task<NativeReanalysis> ReanalyzeAsync(IReadOnlyList<KeyValuePair<string, string>> options, uint? start, uint? end, double seconds,
-            CancellationToken cancellationToken = default)
-        {
-            var args = WorkerRows.Args(("options", Pairs(options)), ("start", start), ("end", end), ("budget_seconds", seconds));
-            var result = Reanalysis(await session.CallAsync("reanalyze", args, cancellationToken, saves: true, timeout: ReanalysisTimeout(seconds)).ConfigureAwait(false));
-            session.Reanalyzed(result.Complete);
-            return result;
-        }
+        public abstract Task<NativeReanalysis> ReanalyzeAsync(IReadOnlyList<KeyValuePair<string, string>> options, uint? start, uint? end, double seconds,
+            CancellationToken cancellationToken = default);
 
         public async Task<NativeCandidateScan> FunctionCandidatesAsync(int maxInstructions, CancellationToken cancellationToken = default) =>
             Candidates(await session.CallAsync("function_candidates", WorkerRows.Args(("max_scan", maxInstructions)), cancellationToken).ConfigureAwait(false));
@@ -135,16 +203,31 @@ public static class EngineControl
 
         public async Task<IReadOnlyList<NativeMemoryRun>> MemoryAsync(uint rva, uint length, CancellationToken cancellationToken = default) =>
             Memory(await session.CallAsync("memory", MemoryArgs(rva, length), cancellationToken).ConfigureAwait(false));
+
+        public async Task<IReadOnlyList<NativeMemoryPage>> MemoryPagesAsync(uint rva, uint length, int page, CancellationToken cancellationToken = default) =>
+            Pages(await session.CallAsync("memory", PageArgs(rva, length, page), cancellationToken).ConfigureAwait(false), page);
+
+        public Task<EngineFixupList> FixupsAsync(int max, CancellationToken cancellationToken = default) => EngineControl.FixupsAsync(session, engine, max, cancellationToken);
     }
 
-    private sealed class GhidraControl(GhidraSession session) : INativeEngineControl
+    private sealed class IdaControl(IdaSession session) : WorkerControl(session, "IDA")
+    {
+        public override async Task<NativeReanalysis> ReanalyzeAsync(IReadOnlyList<KeyValuePair<string, string>> options, uint? start, uint? end, double seconds,
+            CancellationToken cancellationToken = default)
+        {
+            var args = WorkerRows.Args(("options", Pairs(options)), ("start", start), ("end", end), ("budget_seconds", seconds));
+            var result = Reanalysis(await session.CallAsync("reanalyze", args, cancellationToken, saves: true, timeout: ReanalysisTimeout(seconds)).ConfigureAwait(false));
+            session.Reanalyzed(result.Complete);
+            return result;
+        }
+    }
+
+    // Listed again so its DecompileLanes replaces the interface default.
+    private sealed class GhidraControl(GhidraSession session) : WorkerControl(session, "Ghidra"), INativeEngineControl
     {
         public int DecompileLanes => session.DecompilerPool;
 
-        public async Task<IReadOnlyList<NativeAnalyzerOption>> AnalyzersAsync(CancellationToken cancellationToken = default) =>
-            Analyzers(await session.CallAsync("analyzers", new JsonObject(), cancellationToken).ConfigureAwait(false));
-
-        public async Task<NativeReanalysis> ReanalyzeAsync(IReadOnlyList<KeyValuePair<string, string>> options, uint? start, uint? end, double seconds,
+        public override async Task<NativeReanalysis> ReanalyzeAsync(IReadOnlyList<KeyValuePair<string, string>> options, uint? start, uint? end, double seconds,
             CancellationToken cancellationToken = default)
         {
             var args = WorkerRows.Args(("options", Pairs(options)), ("start", start), ("end", end), ("budget_seconds", seconds));
@@ -153,14 +236,5 @@ public static class EngineControl
             session.Reanalyzed(r.GetProperty("analysis_complete").GetBoolean(), result.FunctionsAfter);
             return result;
         }
-
-        public async Task<NativeCandidateScan> FunctionCandidatesAsync(int maxInstructions, CancellationToken cancellationToken = default) =>
-            Candidates(await session.CallAsync("function_candidates", WorkerRows.Args(("max_scan", maxInstructions)), cancellationToken).ConfigureAwait(false));
-
-        public async Task<NativeMarkResult> SetMarksAsync(IReadOnlyList<NativeMark> marks, string stamp, CancellationToken cancellationToken = default) =>
-            Marks(await session.CallAsync("set_marks", MarkArgs(marks, stamp), cancellationToken, journal: true).ConfigureAwait(false));
-
-        public async Task<IReadOnlyList<NativeMemoryRun>> MemoryAsync(uint rva, uint length, CancellationToken cancellationToken = default) =>
-            Memory(await session.CallAsync("memory", MemoryArgs(rva, length), cancellationToken).ConfigureAwait(false));
     }
 }

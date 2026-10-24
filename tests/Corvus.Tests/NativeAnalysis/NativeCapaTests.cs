@@ -162,7 +162,18 @@ public sealed class NativeCapaTests(ITestOutputHelper output) : IDisposable
         _owned.Add(fake);
         fake.On("^--version$", stdout: "capa.exe 10.0.0\n");
         fake.On(@"^-j .+$", stdout: result);
-        return new EnvironmentScope().Set("CORVUS_CAPA", fake.CopyAs("capa")).Set(FakeTool.ScriptVariable, fake.ScriptPath).Set("CORVUS_WORKER_HOST", "0");
+        var env = new EnvironmentScope().Set("CORVUS_CAPA", fake.CopyAs("capa")).Set(FakeTool.ScriptVariable, fake.ScriptPath);
+        // A pool that is off in this flow only: CORVUS_WORKER_HOST=0 would turn off the workers of every test running now.
+        return new Scopes(env, WorkerPool.UseShared(new WorkerPool(new WorkerPoolOptions { Enabled = false })));
+    }
+
+    /// <summary>Disposes its scopes, last first.</summary>
+    private sealed class Scopes(params IDisposable[] scopes) : IDisposable
+    {
+        public void Dispose()
+        {
+            foreach (var scope in scopes.Reverse()) scope.Dispose();
+        }
     }
 
     [Fact]

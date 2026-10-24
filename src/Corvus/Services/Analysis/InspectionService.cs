@@ -24,7 +24,24 @@ public sealed class InspectionService(AssemblyWorkspace workspace, NativeCodeSer
 
     public sealed record FeatureReport(string Assembly, int MethodsScanned, IReadOnlyList<Feature> Features, IReadOnlyList<string> Notes);
 
-    public sealed record ValueReport(string Assembly, int Total, IReadOnlyList<ExtractedValue> Values, IReadOnlyList<string> Notes);
+    public sealed record ValueReport(string Assembly, int Total, IReadOnlyList<ExtractedValue> Values, IReadOnlyList<string> Notes)
+    {
+        /// <summary>Why some assemblies or assets were not read; null when every one meant to be read was.</summary>
+        public string? Partial { get; init; }
+
+        /// <summary>What Partial counts: "assemblies", "assets" or both, as the coverage record names its limitations.</summary>
+        public IReadOnlyList<string> PartialIn { get; init; } = ["assemblies"];
+    }
+
+    /// <summary>
+    /// Bounds of a Unity asset read: bytes of asset files read (at most <see cref="UnityAssetStrings.MaxBytes"/>), an
+    /// optional time after which extraction and reading stop with what was read, and the Il2Cpp cache folder script
+    /// layouts are read from and written to (null: the default).
+    /// </summary>
+    public sealed record AssetReadLimits(long MaxBytes, TimeSpan? Time = null, string? Il2CppCache = null)
+    {
+        public static readonly AssetReadLimits Default = new(UnityAssetStrings.MaxBytes);
+    }
 
     public sealed record EmbeddedReport(string Assembly, IReadOnlyList<EmbeddedContent> Contents,
         string? OutputDirectory, IReadOnlyList<string> Notes);
@@ -173,6 +190,15 @@ public sealed class InspectionService(AssemblyWorkspace workspace, NativeCodeSer
     }
 
     /// <summary>The file for summarize_file: any size, streamed above <see cref="FileInput.StreamAbove"/>.</summary>
+    /// <summary>A source folder (a cloned repository) summarized by its package view: what it runs on open, install, checkout or build.</summary>
+    private static FileSummary SourceFolder(string folder, CancellationToken ct)
+    {
+        var view = PackageFileView.Of(Web.Packages.PackageReview.Review(folder, ct)!);
+        var facts = new FileFacts(folder, 0, "", "", "", "folder", 0, new CertificateInfo(false));
+        return new FileSummary(facts, "folder", [], [.. view.Highlights, "A folder: list_assemblies with path lists the assemblies it holds."], [])
+            { Views = new Dictionary<string, FileView> { ["package"] = view } };
+    }
+
     private FileInput OpenInput(string path)
     {
         if (Directory.Exists(Path.GetFullPath(path))) throw new ToolError(ErrorCode.InvalidArgument, $"{Path.GetFullPath(path)} is a directory; pass a file (list_assemblies with path lists the assemblies a folder or container holds).");
@@ -212,6 +238,13 @@ public sealed class InspectionService(AssemblyWorkspace workspace, NativeCodeSer
         _surveys.AddOrUpdate(subject, new KeptSurvey(generation, index, capa, report));
         return (report, capa);
     }
+
+    /// <summary>The file of a loaded assembly or native image (a managed assembly of that name wins); not_found when neither is loaded.</summary>
+    public string BuildFile(string assembly) => workspace.Read(() =>
+    {
+        try { return workspace.Get(assembly).FilePath; }
+        catch (ToolError) when (workspace.FindNative(assembly) is { } n) { return n.FilePath; }
+    });
 
     /// <summary>The last build survey of each loaded assembly or native image, valid while its key matches.</summary>
     private readonly System.Runtime.CompilerServices.ConditionalWeakTable<object, KeptSurvey> _surveys = new();
@@ -429,7 +462,7 @@ public sealed class InspectionService(AssemblyWorkspace workspace, NativeCodeSer
             catch (ToolError e) { notes.Add($"manifest not read: {e.Message}"); }
         var subject = new MobileSubject { Platform = "android", Dex = index, Manifest = manifest, NetworkConfig = config, NetworkConfigFile = configFile };
         var found = Features.Detect(subject, ct);
-        return MobileReport(Path.GetFileName(full), index.Methods.Count, found, [.. notes, .. index.Notes.Take(5)]);
+        return MobileReport(Path.GetFileName(full), index.Methods.Count, found, [.. notes, .. index.Notes.Take(5), .. subject.Notes]);
     }
 
     private FeatureReport IpaSurvey(string full, CancellationToken ct)
@@ -456,19 +489,319 @@ public sealed class InspectionService(AssemblyWorkspace workspace, NativeCodeSer
         return new FeatureReport(label, methods, [.. found.Except(libraryOnly)], notes);
     }
 
-    /// <summary>Typed values sorted by type (in <see cref="Values.Types"/> order), count descending, then value.</summary>
-    public ValueReport ExtractStrings(string? assembly, string? path, IReadOnlyCollection<string>? types, CancellationToken ct)
+    /// <summary>
+    /// Typed values sorted by type (in <see cref="Values.Types"/> order), count descending, then value. Unity inputs are
+    /// read within <paramref name="assets"/> (default <see cref="AssetReadLimits.Default"/>).
+    /// </summary>
+    public ValueReport ExtractStrings(string? assembly, string? path, IReadOnlyCollection<string>? types, CancellationToken ct, AssetReadLimits? assets = null)
     {
         types = types?.Select(t => t.Trim().ToLowerInvariant()).Where(t => t.Length > 0).ToList();
         var unknown = types?.Where(t => !Values.Types.Contains(t)).ToList();
         if (unknown is { Count: > 0 })
             throw new ToolError(ErrorCode.InvalidArgument, $"Unknown value type(s): {string.Join(", ", unknown)}.", $"pass types from: {string.Join(", ", Values.Types)}");
+        if (assembly == null && path != null && (File.Exists(path) || Directory.Exists(path)))
+        {
+            assets ??= AssetReadLimits.Default;
+            // The time limit stops extraction and reading with what was read; ct still cancels.
+            using var time = new CancellationTokenSource();
+            if (assets.Time is { } t)
+            {
+                if (t > TimeSpan.Zero) time.CancelAfter(t);
+                else time.Cancel();
+            }
+            if (UnityInput(path, time.Token, ct) is { } unity)
+            {
+                var key = UnityReadKey(path, unity, types, assets);
+                lock (LastUnityRead)
+                    if (LastUnityRead.Key == key && DateTime.UtcNow - LastUnityRead.At < UnityReadReuse) return LastUnityRead.Report!;
+                var report = StringsInUnity(unity, types, assets, time.Token, ct);
+                lock (LastUnityRead) (LastUnityRead.Key, LastUnityRead.At, LastUnityRead.Report) = (key, DateTime.UtcNow, report);
+                return report;
+            }
+        }
+        if (assembly == null && ContainerInput(path) is { } container) return StringsInContainer(container, types, ct);
         return WithAssembly(assembly, path, s =>
         {
-            var found = Values.Find(s.Scan, Embedded.Find(s.Scan, Limits, ct), ct);
+            var found = Values.Find(s.Scan, Embedded.Find(s.Scan, Limits, ct), out int encodedDropped, ct);
             if (types is { Count: > 0 }) found = [.. found.Where(i => types.Contains(i.Type))];
-            return new ValueReport(s.Label, found.Count, found, s.Scan.Notes);
+            return new ValueReport(s.Label, found.Count, found, s.Scan.Notes) { Partial = encodedDropped > 0 ? EncodedGap(encodedDropped) : null };
         }, ct);
+    }
+
+    /// <summary>
+    /// Typed values of a container's own assemblies (host, main, then libraries; the framework ones only when it has no
+    /// others), at most <see cref="MaxSummarizedAssemblies"/>; satellite assemblies and repeated builds are skipped. Each
+    /// location starts with the assembly's inner path; Partial names the assemblies not read.
+    /// </summary>
+    private static ValueReport StringsInContainer((string Full, string Sha, List<UnpackService.ManagedAssembly> Assemblies, List<string> Notes) container,
+        IReadOnlyCollection<string>? types, CancellationToken ct)
+    {
+        var notes = new List<string>(container.Notes);
+        var ranked = container.Assemblies.DistinctBy(a => a.Sha256).Select((a, i) => (a, i, Rank: Rank(a, container.Full)))
+            .Where(r => r.Rank != AssemblyRank.Satellite).OrderBy(r => r.Rank).ThenBy(r => r.i).ToList();
+        var own = ranked.Where(r => r.Rank != AssemblyRank.Framework).Select(r => r.a).ToList();
+        int framework = ranked.Count - own.Count;
+        var chosen = own.Count > 0 ? own : ranked.Select(r => r.a).ToList();
+        var unread = new List<string>();
+        var parts = AssemblyValues(chosen.Take(MaxSummarizedAssemblies), notes, unread, out int encodedDropped, ct);
+        var found = Values.Join(parts);
+        if (types is { Count: > 0 }) found = [.. found.Where(i => types.Contains(i.Type))];
+        int read = Math.Min(chosen.Count, MaxSummarizedAssemblies) - unread.Count;
+        notes.Insert(0, $"{read} of the container's {chosen.Count} {(own.Count > 0 ? "own" : "framework")} assemblies read" +
+                        (own.Count > 0 && framework > 0 ? $"; {framework} framework assemblies skipped" : "") + ".");
+        var gaps = new List<string>();
+        if (chosen.Count > MaxSummarizedAssemblies) gaps.Add($"the first {MaxSummarizedAssemblies} of {chosen.Count} assemblies are read, host and main first");
+        if (unread.Count > 0) gaps.Add($"{unread.Count} assemblies are unreadable ({string.Join(", ", unread.Take(3))})");
+        if (encodedDropped > 0) gaps.Add(EncodedGap(encodedDropped));
+        return new ValueReport(Path.GetFileName(container.Full), found.Count, found, notes) { Partial = gaps.Count > 0 ? string.Join("; ", gaps) : null };
+    }
+
+    // The last Unity read is kept briefly: a caller paging its rows calls again, and a read the time limit stopped
+    // would otherwise stop at another point and give other rows.
+    private static readonly TimeSpan UnityReadReuse = TimeSpan.FromMinutes(5);
+    private static readonly UnityRead LastUnityRead = new();
+
+    private sealed class UnityRead
+    {
+        public string? Key;
+        public DateTime At;
+        public ValueReport? Report;
+    }
+
+    /// <summary>The key of <see cref="LastUnityRead"/>: the input path, a hash of each asset file's path, size and write time, of the assemblies read and of the Il2Cpp build, the types and the limits.</summary>
+    private static string UnityReadKey(string path, UnityStringsInput input, IReadOnlyCollection<string>? types, AssetReadLimits assets)
+    {
+        // Keyed on every file the read takes, not on a folder's write time: a changed asset file in a subfolder
+        // leaves its parents' times as they were, and an old read of changed input is never reported.
+        var files = new System.Text.StringBuilder();
+        foreach (var piece in input.Files.SelectMany(f => f.Pieces)) Stamp(piece);
+        foreach (var a in input.Assemblies) files.Append(a.Path).Append('|').Append(a.Sha256).Append('\n');
+        // Script layouts come from the Il2Cpp build and its cache entry, so both are part of the key.
+        if (input.Il2CppBuild is { } build)
+        {
+            Stamp(build.Metadata);
+            if (build.Binary.Length > 0) Stamp(build.Binary);
+            files.Append(assets.Il2CppCache).Append('|').Append(Il2CppRawLoader.CachedDummies(build, assets.Il2CppCache) != null).Append('\n');
+        }
+        return $"{Path.GetFullPath(path)}|{Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(files.ToString())))}" +
+               $"|{string.Join(",", types ?? [])}|{assets.MaxBytes}|{assets.Time?.Ticks}";
+
+        void Stamp(string file)
+        {
+            var info = new FileInfo(file);
+            files.Append(file).Append('|').Append(info.Exists ? info.Length : -1).Append('|').Append(info.Exists ? info.LastWriteTimeUtc.Ticks : 0).Append('\n');
+        }
+    }
+
+    /// <summary>The typed values of each assembly, by its path; an unreadable one is added to <paramref name="unread"/> with its error in the notes.</summary>
+    private static List<(string, IReadOnlyList<ExtractedValue>)> AssemblyValues(IEnumerable<UnpackService.ManagedAssembly> assemblies, List<string> notes,
+        List<string> unread, out int encodedDropped, CancellationToken ct)
+    {
+        var parts = new List<(string, IReadOnlyList<ExtractedValue>)>();
+        int dropped = 0;
+        foreach (var a in assemblies)
+        {
+            ct.ThrowIfCancellationRequested();
+            try
+            {
+                using var module = LoadModule(a.Bytes, a.Path);
+                parts.Add((a.Path, Guard(a.Path, () =>
+                {
+                    var scan = ModuleScan.Of(module, Limits, ct);
+                    notes.AddRange(scan.Notes.Select(n => $"{a.Path}: {n}"));
+                    var values = Values.Find(scan, Embedded.Find(scan, Limits, ct), out int over, ct);
+                    if (over > 0) notes.Add($"{a.Path}: {over:N0} encoded values past the first {Values.MaxEncoded} are not listed");
+                    dropped += over;
+                    return values;
+                })));
+            }
+            catch (ToolError ex)
+            {
+                unread.Add(a.Path);
+                notes.Add(ex.Message);
+            }
+        }
+        encodedDropped = dropped;
+        return parts;
+    }
+
+    private static string EncodedGap(int dropped) => $"{dropped:N0} encoded values past {Values.MaxEncoded} per assembly are not listed";
+
+    /// <summary>Unity data to read: the label, the Il2Cpp build at or above it (null: none), its asset files, the build's own assemblies, whether it is Il2Cpp, and notes.</summary>
+    private sealed record UnityStringsInput(string Label, Il2CppBuildFiles? Il2CppBuild, List<UnityAssetStrings.AssetFile> Files, List<UnpackService.ManagedAssembly> Assemblies, int OtherAssemblies,
+        bool Il2Cpp, List<string> Notes, string? Partial);
+
+    /// <summary>
+    /// A serialized file or bundle; a folder holding a Unity build; or an application package or zip holding one, its
+    /// data folder extracted to the package cache. Null for any other input, and for a package whose extraction found no
+    /// Unity data. A folder without a build is refused with reason not_a_unity_build, as unity_overview refuses it.
+    /// </summary>
+    private static UnityStringsInput? UnityInput(string? path, CancellationToken stop, CancellationToken ct)
+    {
+        if (path == null) return null;
+        var full = Path.GetFullPath(path);
+        var notes = new List<string>();
+        string? partial = null;
+        if (File.Exists(full) && Core.Unity.SerializedFile.IsAssetFile(full))
+        {
+            full = InputFiles.RequireRegularFile(path);
+            return new(Path.GetFileName(full), UnityFileView.Il2CppBuildAbove(Path.GetDirectoryName(full)!), [new(Path.GetFileName(full), [full])], [], 0, false, notes, null);
+        }
+        string root;
+        if (Directory.Exists(full)) root = full;
+        else if (PackageFiles.HoldsUnityData(full))
+        {
+            if (Il2CppPackages.Extract(full, null, ct: ct, assets: true, stop: stop) is not { } app) return null;
+            root = app;
+            notes.Add($"Read from the data folder of {Path.GetFileName(full)}, extracted to {app}.");
+            var skipped = Il2CppPackages.SkippedAssets(app);
+            if (skipped.Count > 0)
+                partial = $"{skipped.Count} package entries are not extracted ({string.Join("; ", skipped.Take(3))})";
+        }
+        else return null;
+        var data = UnityOverview.DataFolder(root, ct);
+        if (data == null)
+        {
+            if (!Directory.Exists(full)) return null;
+            throw new ToolError(ErrorCode.Unsupported,
+                $"{full} is a folder without a Unity build (no <Product>_Data, assets/bin/Data or .app/Data folder in it or 4 folders above): reason not_a_unity_build.",
+                "pass a file, or the folder of a Unity build") { Details = new { reason = "not_a_unity_build", path = full } };
+        }
+        notes.AddRange(data.Value.Notes);
+        var files = UnityAssetStrings.Files(data.Value.Data, data.Value.Streaming, notes);
+        var managed = Path.Combine(data.Value.Data, "Managed");
+        var (own, others) = Directory.Exists(managed) ? UnityOwnAssemblies(managed, data.Value.Data) : (new List<UnpackService.ManagedAssembly>(), 0);
+        bool il2cpp = Il2CppBuildFiles.MetadataIn(data.Value.Data) != null || Directory.Exists(Path.Combine(data.Value.Data, "il2cpp_data"))
+                      || File.Exists(Path.Combine(managed, "Metadata", Il2CppBuildFiles.MetadataFileName));
+        return new(Path.GetFileName(full), UnityFileView.Il2CppBuildAbove(data.Value.Data), files, own, others, il2cpp, notes, partial);
+    }
+
+    // Engine, editor and class library assemblies of a Managed folder; their strings are the engine's, not the build's.
+    private static readonly string[] EnginePrefixes = ["UnityEngine", "UnityEditor", "Unity.", "Mono.", "System", "Microsoft.", "mscorlib", "netstandard", "Boo.", "UnityScript"];
+
+    /// <summary>
+    /// The script assemblies of a Managed folder (Assembly-CSharp, Assembly-CSharp-firstpass, then the rest by name, the
+    /// engine and class library left out), the first <see cref="MaxSummarizedAssemblies"/>, each by its path under
+    /// <paramref name="data"/>, with the number not read. Empty for none.
+    /// </summary>
+    private static (List<UnpackService.ManagedAssembly>, int) UnityOwnAssemblies(string managed, string data)
+    {
+        var own = Directory.EnumerateFiles(managed, "*.dll")
+            .Where(f => !EnginePrefixes.Any(p => Path.GetFileName(f).StartsWith(p, StringComparison.OrdinalIgnoreCase)))
+            .OrderBy(f => Path.GetFileNameWithoutExtension(f) switch { "Assembly-CSharp" => 0, "Assembly-CSharp-firstpass" => 1, _ => 2 })
+            .ThenBy(f => Path.GetFileName(f), StringComparer.OrdinalIgnoreCase).ToList();
+        var read = new List<UnpackService.ManagedAssembly>();
+        foreach (var f in own.Take(MaxSummarizedAssemblies))
+        {
+            var bytes = File.ReadAllBytes(f);
+            read.Add(new UnpackService.ManagedAssembly(Path.GetRelativePath(data, f).Replace('\\', '/'), bytes, Blob.Sha256(bytes), "unity"));
+        }
+        return (read, own.Count - read.Count);
+    }
+
+    // Il2Cpp files a script layout read is attempted on; larger ones are named in a note and left to load_assembly.
+    private const long MaxIl2CppMetadataBytes = 512L << 20, MaxIl2CppBinaryBytes = 2L << 30;
+
+    /// <summary>
+    /// Reads the Il2Cpp build into the dummy assembly cache when no earlier load did, so script fields are laid out as
+    /// after load_assembly; nothing stays loaded in the workspace. Field types and attributes are in the binary, so a
+    /// build without one is not read. The read is bounded by file size and the time limit; a read that does not finish
+    /// is named in the notes, and the scripts it would lay out stay unknown. True when this call read the build.
+    /// </summary>
+    private static bool ReadIl2CppLayouts(Il2CppBuildFiles build, string? cache, List<string> notes, CancellationToken stop, CancellationToken ct)
+    {
+        const string NotRead = "Il2Cpp build not read for the script layouts";
+        if (Il2CppRawLoader.CachedDummies(build, cache) != null) return false;
+        if (build.Binary.Length == 0)
+        {
+            notes.Add($"{NotRead}: field types are in the Il2Cpp binary, which is not beside the metadata.");
+            return false;
+        }
+        long metadata = new FileInfo(build.Metadata).Length, binary = new FileInfo(build.Binary).Length;
+        if (metadata > MaxIl2CppMetadataBytes || binary > MaxIl2CppBinaryBytes)
+        {
+            notes.Add(metadata > MaxIl2CppMetadataBytes
+                ? $"{NotRead}: the metadata is {metadata:N0} bytes, over {MaxIl2CppMetadataBytes:N0}; load_assembly the build folder reads it."
+                : $"{NotRead}: the binary is {binary:N0} bytes, over {MaxIl2CppBinaryBytes:N0}; load_assembly the build folder reads it.");
+            return false;
+        }
+        if (stop.IsCancellationRequested)
+        {
+            notes.Add($"{NotRead}: the time limit had passed.");
+            return false;
+        }
+        var watch = System.Diagnostics.Stopwatch.StartNew();
+        using var linked = CancellationTokenSource.CreateLinkedTokenSource(ct, stop);
+        try
+        {
+            using var scratch = new AssemblyWorkspace();
+            new Il2CppRawLoader(scratch, cache).Load(build, loadBinary: false, null, linked.Token);
+            notes.Add($"Il2Cpp build read for the script layouts in {watch.Elapsed.TotalSeconds:0.0} s; load_assembly reuses the read.");
+            return true;
+        }
+        catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+        {
+            notes.Add($"{NotRead}: the time limit ended the read after {watch.Elapsed.TotalSeconds:0.0} s.");
+        }
+        catch (ToolError e)
+        {
+            notes.Add($"{NotRead}: {e.Message}");
+        }
+        return false;
+    }
+
+    /// <summary>
+    /// Typed values of a Unity input as one list: the own assemblies' code strings ("Managed/Assembly-CSharp.dll: ...")
+    /// and the asset field strings ("sharedassets0.assets: Holder (Script: Net.Config).endpoint"). Partial names the
+    /// limits reached, the time limit and the assets whose layout did not read.
+    /// </summary>
+    private static ValueReport StringsInUnity(UnityStringsInput input, IReadOnlyCollection<string>? types, AssetReadLimits limits,
+        CancellationToken stop, CancellationToken ct)
+    {
+        var notes = new List<string>(input.Notes);
+        var gaps = new List<string>();
+        var partialIn = new List<string>();
+        if (input.Partial != null)
+        {
+            gaps.Add(input.Partial);
+            partialIn.Add("assets");
+        }
+        var unread = new List<string>();
+        var parts = AssemblyValues(input.Assemblies, notes, unread, out int encodedDropped, ct);
+        if (input.Assemblies.Count > 0 || input.OtherAssemblies > 0)
+            notes.Add($"{input.Assemblies.Count - unread.Count} of the build's {input.Assemblies.Count + input.OtherAssemblies} script assemblies read; engine and class library assemblies skipped.");
+        if (input.OtherAssemblies > 0 || unread.Count > 0)
+        {
+            if (input.OtherAssemblies > 0) gaps.Add($"the first {MaxSummarizedAssemblies} script assemblies are read, Assembly-CSharp first");
+            if (unread.Count > 0) gaps.Add($"{unread.Count} assemblies are unreadable ({string.Join(", ", unread.Take(3))})");
+            partialIn.Add("assemblies");
+        }
+        if (encodedDropped > 0)
+        {
+            gaps.Add(EncodedGap(encodedDropped));
+            if (!partialIn.Contains("assemblies")) partialIn.Add("assemblies");
+        }
+        var il2cpp = input.Il2CppBuild;
+        if ((input.Il2Cpp || il2cpp != null) && input.Assemblies.Count == 0)
+            notes.Add("Il2Cpp build: code strings are in global-metadata.dat and are not read here; load_assembly the build folder, then search_strings.");
+        var assets = UnityAssetStrings.Read(input.Files, limits.MaxBytes, stop, ct, limits.Il2CppCache);
+        // The Il2Cpp read takes seconds to minutes, so it runs only when an asset needs a layout from it.
+        if (il2cpp != null && assets.Unread > 0 && ReadIl2CppLayouts(il2cpp, limits.Il2CppCache, notes, stop, ct))
+            assets = UnityAssetStrings.Read(input.Files, limits.MaxBytes, stop, ct, limits.Il2CppCache);
+        parts.AddRange(assets.Parts);
+        notes.AddRange(assets.Notes);
+        if (assets.Partial != null)
+        {
+            gaps.Add(assets.Partial);
+            if (!partialIn.Contains("assets")) partialIn.Add("assets");
+        }
+        var found = Values.Join(parts);
+        if (types is { Count: > 0 }) found = [.. found.Where(i => types.Contains(i.Type))];
+        return new ValueReport(input.Label, found.Count, found, notes)
+        {
+            Partial = gaps.Count > 0 ? string.Join("; ", gaps) : null,
+            PartialIn = partialIn.Count > 0 ? partialIn : ["assemblies"],
+        };
     }
 
     /// <summary>
@@ -574,6 +907,7 @@ public sealed class InspectionService(AssemblyWorkspace workspace, NativeCodeSer
 
         // an .app, .appex or .framework folder: its main executable, whose apple view describes the bundle
         if (AppleFileView.MainExecutable(path!) is { } executable) path = executable;
+        else if (Directory.Exists(Path.GetFullPath(path!))) return SourceFolder(Path.GetFullPath(path!), ct);
         var input = OpenInput(path!);
         input.Options = options ?? FileViewOptions.None;
         var full = input.Path;
@@ -814,7 +1148,8 @@ public sealed class InspectionService(AssemblyWorkspace workspace, NativeCodeSer
                 Evidence = f.Evidence.OrderBy(e => e.Feature.StartsWith("api:", StringComparison.Ordinal) ? 1 : 0).Take(1)
                     .Select(e => e with { Locations = e.Locations.Take(1).ToList() }).ToList(),
             }).ToList();
-        var values = Values.Find(scan, contents, ct);
+        var values = Values.Find(scan, contents, out int encodedDropped, ct);
+        if (encodedDropped > 0) notes.Add($"{encodedDropped:N0} encoded values past the first {Values.MaxEncoded} are not counted");
         var valueSummary = new ValueSummary(values.Count, values.GroupBy(i => i.Type).ToDictionary(g => g.Key, g => g.Count()), values.Take(TopValues).ToList());
         var entryPoints = EntryPoints.Find(module, image);
         var health = IlHealth.Assess(image, ct);
