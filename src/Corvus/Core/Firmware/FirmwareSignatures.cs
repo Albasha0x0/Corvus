@@ -573,8 +573,11 @@ internal static class FirmwareSignatures
         return hits;
     }
 
+    /// <summary>The window a streamed file is scanned in: a summary may scan one file twice (its firmware view and a carve).</summary>
+    public const int StreamWindow = 16 << 20, StreamOverlap = 1 << 20;
+
     /// <summary>Every signature of a file read from a stream in windows of <paramref name="window"/> bytes, each overlapping the next by <paramref name="overlap"/>.</summary>
-    public static List<SignatureHit> Scan(Stream s, long length, int maxHits, CancellationToken ct, int window = 64 << 20, int overlap = 1 << 20)
+    public static List<SignatureHit> Scan(Stream s, long length, int maxHits, CancellationToken ct, int window = StreamWindow, int overlap = StreamOverlap)
     {
         var hits = new List<SignatureHit>();
         byte[] ReadAt(long at, int n)

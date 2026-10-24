@@ -19,8 +19,7 @@ internal sealed class FirmwareFileView : IFileSummaryView
 
     public string Name => "firmware";
 
-    /// <summary>A streamed file is scanned in windows this large, each overlapping the next by <see cref="Overlap"/>.</summary>
-    private const int Window = 64 << 20, Overlap = 1 << 20;
+    private const int Window = FirmwareSignatures.StreamWindow, Overlap = FirmwareSignatures.StreamOverlap;
 
     public FileView? Inspect(FileInput file, CancellationToken ct)
     {
