@@ -10,11 +10,17 @@
     <InvariantGlobalization>true</InvariantGlobalization>
     <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
     <Version>2.5.1</Version>
+    <!-- The release targets (release.yml's matrix), so the lock file covers each RID-specific publish; a test keeps
+         the lists equal. Restore and RID-specific builds only: listed for a RID-neutral pack, .NET 10 packs the tool
+         without its program. -->
+    <RuntimeIdentifiers Condition="'$(MSBuildIsRestoring)' == 'true' or '$(RuntimeIdentifier)' != ''">win-x64;win-arm64;linux-x64;linux-arm64;linux-musl-x64;linux-musl-arm64;osx-x64;osx-arm64</RuntimeIdentifiers>
   </PropertyGroup>
 
   <!-- The NuGet .NET tool (dotnet pack): framework-dependent and RID-neutral; the release archives stay self-contained. -->
   <PropertyGroup>
     <PackAsTool>true</PackAsTool>
+    <!-- And during restore, where RuntimeIdentifiers is listed, no RID-specific tool packages either. -->
+    <CreateRidSpecificToolPackages>false</CreateRidSpecificToolPackages>
     <ToolCommandName>corvus</ToolCommandName>
     <PackageId>CorvusRE</PackageId>
     <PackageType>McpServer</PackageType>

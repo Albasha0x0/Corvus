@@ -6,7 +6,9 @@
     <TargetFramework>net48</TargetFramework>
     <PlatformTarget>x86</PlatformTarget>
     <RuntimeIdentifier>win-x86</RuntimeIdentifier>
-    <RuntimeIdentifiers>win-x86</RuntimeIdentifiers>
+    <!-- Restore of a RID-specific publish of Corvus passes its RID here too, so the lock file also covers the release
+         targets (Corvus.csproj's list). -->
+    <RuntimeIdentifiers>win-x86;win-x64;win-arm64;linux-x64;linux-arm64;linux-musl-x64;linux-musl-arm64;osx-x64;osx-arm64</RuntimeIdentifiers>
     <SelfContained>false</SelfContained>
     <AppendRuntimeIdentifierToOutputPath>false</AppendRuntimeIdentifierToOutputPath>
     <LangVersion>latest</LangVersion>
@@ -29,6 +31,9 @@
   <ItemGroup>
     <PackageReference Include="Microsoft.Diagnostics.Runtime" Version="3.1.512801" />
     <PackageReference Include="System.Reflection.Metadata" Version="8.0.1" />
+    <!-- The SDK adds this only where no .NET Framework targeting pack is installed (not on Windows): named here, the
+         lock file is the same on every OS. -->
+    <PackageReference Include="Microsoft.NETFramework.ReferenceAssemblies" Version="1.0.3" PrivateAssets="all" />
   </ItemGroup>
 
 </Project>
