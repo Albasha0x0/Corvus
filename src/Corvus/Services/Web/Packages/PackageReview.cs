@@ -5,8 +5,9 @@ using Corvus.Services.Web.Scripts;
 namespace Corvus.Services.Web.Packages;
 
 /// <param name="Level">noteworthy (worth a close look before installing) or review (expected in some packages, worth a look).</param>
-/// <param name="Category">install script, network, process, dynamic code, credentials, host details, exfiltration, persistence, publishing, transformed code, binary, name, permission, activation, remote code.</param>
-public sealed record PackageFinding(string Level, string Category, string Detail, string? Path = null);
+/// <param name="Category">install script, network, process, dynamic code, credentials, host details, exfiltration, persistence, publishing, transformed code, binary, name, permission, activation, remote code, hidden text, agent configuration.</param>
+/// <param name="Line">1-based line in <paramref name="Path"/>, when the finding has one.</param>
+public sealed record PackageFinding(string Level, string Category, string Detail, string? Path = null, int? Line = null);
 
 /// <param name="AtInstall">True when the package manager runs it while installing.</param>
 public sealed record PackageScript(string Name, string Command, bool AtInstall);
@@ -39,6 +40,9 @@ public sealed record PackageReport(string Ecosystem, string? Name, string? Versi
     [Description("noteworthy, worth reviewing, or none: the strongest finding.")]
     public string Review { get; init; } = "none";
 
+    [Description("Agent configuration: instruction files, Claude Code hooks, MCP servers and tasks run on folder open, at file and line.")]
+    public IReadOnlyList<AgentEntry>? Agents { get; init; }
+
     public IReadOnlyList<PackageFinding> Findings { get; init; } = [];
     public IReadOnlyList<string> Notes { get; init; } = [];
 }
@@ -46,7 +50,8 @@ public sealed record PackageReport(string Ecosystem, string? Name, string? Versi
 /// <summary>
 /// Reviews npm, PyPI, VS Code (VSIX) and browser extension packages without installing or running them: install-time
 /// scripts and what their code reaches (network, processes, dynamic code, credential files), entry points, permissions,
-/// native binaries, transformed code (its layers peeled by the script readers) and names close to popular packages.
+/// native binaries, transformed code (its layers peeled by the script readers) and names close to popular packages; and
+/// the agent configuration a package or repository carries (hidden text in instruction files, hooks, MCP servers, tasks).
 /// </summary>
 public static partial class PackageReview
 {
@@ -59,7 +64,12 @@ public static partial class PackageReview
             : Root(files, "package.json") != null ? Npm(files, ct)
             : files.Paths.Any(p => p.EndsWith(".dist-info/METADATA", StringComparison.Ordinal) || IsSdistFile(p)) ? Python(files, ct)
             : null;
-        if (report == null) return null;
+        // A source tree with no package manifest is reviewed for its agent configuration alone.
+        var agent = AgentConfig(files, standalone: report == null, ct);
+        if (report == null && agent == null) return null;
+        report ??= new PackageReport("repository", null, null);
+        if (agent != null)
+            report = report with { Agents = agent.Entries.Count > 0 ? agent.Entries : null, Findings = [.. report.Findings, .. agent.Findings], Notes = [.. report.Notes, .. agent.Notes] };
         var findings = report.Findings.Distinct().OrderBy(f => f.Level == "noteworthy" ? 0 : 1).ThenBy(f => f.Category, StringComparer.Ordinal).ToList();
         var review = findings.Any(f => f.Level == "noteworthy") ? "noteworthy" : findings.Count > 0 ? "worth reviewing" : "none";
         return report with { Findings = findings, Review = review, Files = files.Count, Notes = [.. files.Notes, .. report.Notes] };

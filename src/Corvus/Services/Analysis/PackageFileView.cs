@@ -7,7 +7,8 @@ namespace Corvus.Services.Analysis;
 /// view=package: an npm tarball, a PyPI wheel or sdist, a VS Code extension (.vsix) or a browser extension (.crx, .xpi,
 /// or a zip or folder with its manifest.json) reviewed before installing, nothing run: install-time scripts and what
 /// their code reaches, entry points, permissions, native binaries, transformed code and names close to popular packages,
-/// each finding marked noteworthy or worth reviewing.
+/// each finding marked noteworthy or worth reviewing. A repository archive, or one of its agent configuration files,
+/// is reviewed for its agent configuration: hidden text in instruction files, hooks, MCP servers and folder-open tasks.
 /// </summary>
 internal sealed class PackageFileView : IFileSummaryView
 {
@@ -29,27 +30,31 @@ internal sealed class PackageFileView : IFileSummaryView
         var name = Path.GetFileName(file.Path).ToLowerInvariant();
         var ext = Path.GetExtension(name);
         if (ext is ".crx" or ".vsix" or ".whl" or ".xpi" or ".tgz" || name.EndsWith(".tar.gz", StringComparison.Ordinal)) return true;
-        if (Manifests.Contains(Path.GetFileName(file.Path), StringComparer.Ordinal)) return true;
+        if (Manifests.Contains(Path.GetFileName(file.Path), StringComparer.Ordinal) || PackageFiles.AgentRoot(file.Path) != null) return true;
         if (file.Kind != "zip" || file.Streamed) return false;
         try
         {
             using var zip = new ZipArchive(new MemoryStream(file.Head, writable: false), ZipArchiveMode.Read);
             return zip.Entries.Take(20_000).Any(e => e.FullName.Count(c => c == '/') <= 1 && Manifests.Contains(e.Name, StringComparer.Ordinal)
-                                                     || e.FullName.EndsWith(".dist-info/METADATA", StringComparison.Ordinal));
+                                                     || e.FullName.EndsWith(".dist-info/METADATA", StringComparison.Ordinal)
+                                                     || e.FullName.Count(c => c == '/') <= 3 && PackageReview.AgentFileKind(e.FullName) != null);
         }
         catch (InvalidDataException) { return false; }
     }
 
     private static List<string> Highlights(PackageReport r)
     {
-        var who = string.Join(" ", new[] { r.Name, r.Version }.Where(s => s != null));
+        var who = string.Join(" ", new[] { r.Ecosystem == "repository" ? r.Ecosystem : r.Ecosystem + " package", r.Name, r.Version }.Where(s => s != null));
         var install = r.Scripts.Where(s => s.AtInstall).Select(s => s.Name).ToList();
         var list = new List<string>
         {
-            $"{r.Ecosystem} package {who}: {r.Review}" + (r.Findings.Count > 0 ? $" ({r.Findings.Count} finding(s))" : "") +
+            $"{who}: {r.Review}" + (r.Findings.Count > 0 ? $" ({r.Findings.Count} finding(s))" : "") +
             (install.Count > 0 ? $"; runs at install: {string.Join(", ", install)}" : "") + "; view=package lists scripts, entry points and findings.",
         };
-        list.AddRange(r.Findings.Where(f => f.Level == "noteworthy").Take(5).Select(f => $"Noteworthy {f.Category}: {f.Detail}" + (f.Path != null ? $" ({f.Path})" : "")));
+        if (r.Agents is { } agents)
+            list.Add("Agent configuration: " + string.Join(", ", agents.GroupBy(a => a.Kind).Select(g => $"{g.Count()} {g.Key}{(g.Count() > 1 ? "s" : "")}")) + ".");
+        list.AddRange(r.Findings.Where(f => f.Level == "noteworthy").Take(5).Select(f => $"Noteworthy {f.Category}: {f.Detail}"
+            + (f.Path != null ? $" ({f.Path}{(f.Line != null ? $":{f.Line}" : "")})" : "")));
         return list;
     }
 }

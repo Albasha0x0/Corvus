@@ -6,7 +6,7 @@ namespace Corvus.Services.Web.Packages;
 
 /// <summary>
 /// The files of a package: a zip (.whl, .vsix, .xpi, .zip), a tar.gz (npm tarball, Python sdist), a .crx (its header
-/// read, the zip after it), a folder, or one manifest file. Entries are read within limits: entry count, size per file
+/// read, the zip after it), a folder, one manifest file, or an agent configuration file (its repository's agent files). Entries are read within limits: entry count, size per file
 /// and in total; a file over the per-file limit is listed with its size and not read.
 /// </summary>
 internal sealed class PackageFiles
@@ -86,7 +86,43 @@ internal sealed class PackageFiles
             files.ReadFolder(Path.GetDirectoryName(Path.GetFullPath(path))!, ct, only: name);
             return files;
         }
+        if (AgentRoot(path) is { } root)
+        {
+            files.Container = "folder";
+            files.ReadAgentFolder(root, ct);
+            return files;
+        }
         return null;
+    }
+
+    /// <summary>
+    /// The folder an agent configuration file belongs to (the parent of .claude, .cursor, .vscode or .github when it sits
+    /// in one), or null when <paramref name="path"/> is no agent configuration file.
+    /// </summary>
+    internal static string? AgentRoot(string path)
+    {
+        var parts = Path.GetFullPath(path).Replace('\\', '/').Split('/');
+        if (PackageReview.AgentFileKind(string.Join('/', parts[Math.Max(0, parts.Length - 3)..])) == null) return null;
+        int folder = Array.FindLastIndex(parts, parts.Length - 1, Math.Min(3, parts.Length), p => PackageReview.AgentFolders.Contains(p, StringComparer.Ordinal));
+        return string.Join(Path.DirectorySeparatorChar, parts[..(folder > 0 ? folder : parts.Length - 1)]);
+    }
+
+    /// <summary>A repository's agent configuration: its root files, and the agent files in its configuration folders.</summary>
+    private void ReadAgentFolder(string root, CancellationToken ct)
+    {
+        var top = new EnumerationOptions { IgnoreInaccessible = true, AttributesToSkip = FileAttributes.ReparsePoint };
+        var deep = new EnumerationOptions { IgnoreInaccessible = true, AttributesToSkip = FileAttributes.ReparsePoint, RecurseSubdirectories = true };
+        var found = Directory.EnumerateFiles(root, "*", top).Select(f => (File: f, Rel: Path.GetFileName(f)))
+            .Where(f => f.Rel.EndsWith(".md", StringComparison.OrdinalIgnoreCase) || PackageReview.AgentFileKind(f.Rel) != null);
+        foreach (var dir in PackageReview.AgentFolders.Select(d => Path.Combine(root, d)).Where(Directory.Exists))
+            found = found.Concat(Directory.EnumerateFiles(dir, "*", deep).Select(f => (File: f, Rel: Path.GetRelativePath(root, f).Replace('\\', '/')))
+                .Where(f => PackageReview.AgentFileKind(f.Rel) != null));
+        foreach (var (file, rel) in found)
+        {
+            ct.ThrowIfCancellationRequested();
+            Add(rel, new FileInfo(file).Length, () => ReadFile(file));
+        }
+        Notes.Add($"agent configuration read from {Path.GetFileName(root)}'s root files and its {string.Join(", ", PackageReview.AgentFolders)} folders; instruction files in other subfolders are not read");
     }
 
     private void Add(string path, long size, Func<byte[]?> read)
