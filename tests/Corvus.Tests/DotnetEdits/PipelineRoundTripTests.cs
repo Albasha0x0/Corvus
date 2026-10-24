@@ -38,12 +38,14 @@ public abstract class PipelineRoundTripTests(ITestOutputHelper output, int part)
     public const string ToolVariable = "CORVUS_PIPELINE_TOOL";
 
     /// <summary>Classes the round trips are dealt to; each takes a reference-tool permit of its own.</summary>
-    public const int Parts = 4;
+    public const int Parts = 6;
 
     public sealed class Part1(ITestOutputHelper output) : PipelineRoundTripTests(output, 0);
     public sealed class Part2(ITestOutputHelper output) : PipelineRoundTripTests(output, 1);
     public sealed class Part3(ITestOutputHelper output) : PipelineRoundTripTests(output, 2);
     public sealed class Part4(ITestOutputHelper output) : PipelineRoundTripTests(output, 3);
+    public sealed class Part5(ITestOutputHelper output) : PipelineRoundTripTests(output, 4);
+    public sealed class Part6(ITestOutputHelper output) : PipelineRoundTripTests(output, 5);
 
     /// <summary>
     /// The sample and option pairs no part has taken yet, per pair list: a part takes the next one whenever it is free, so

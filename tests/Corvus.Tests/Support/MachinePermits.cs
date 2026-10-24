@@ -33,10 +33,11 @@ public static class MachinePermits
     /// <summary>The permits a machine with <see cref="LargeMemory"/> or more adds to <see cref="Counts"/>.</summary>
     public static readonly IReadOnlyDictionary<string, int> LargeMachineExtra = new Dictionary<string, int>
     {
-        ["engine-ida"] = 1, ["engine-ghidra"] = 1,
+        ["engine-ida"] = 1, ["engine-ghidra"] = 1, ["reference-tool"] = 2,
     };
 
     // A third engine of each kind keeps more than 20 GB free in a push run on an 80 GB machine; 16 GB hosts stay at two.
+    // Six reference tools let all six pipeline round trip parts start at once in a full run.
     private const long LargeMemory = 64L << 30;
 
     /// <summary>The permits per resource on this machine: <see cref="Counts"/>, plus <see cref="LargeMachineExtra"/> on a large one.</summary>
