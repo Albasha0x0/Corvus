@@ -2,221 +2,234 @@
 
 ## Two sets
 
-- **Quick set** (`dotnet test`): every test not marked `[Trait("Speed", "Slow")]`. It runs while iterating and stays under
-  50 seconds on an idle machine (a ceiling against creep: about 30 s of parallel work and the timing and process-wide
-  tests that run alone after it), so a quick test uses the small fixtures in `tests/TestFixture` and builds nothing external.
-  Before each commit, `./test.ps1` runs the quick tests of the families the change touches (since `origin/main`,
-  uncommitted files included; by the coverage map where it knows a file), plus the contract tests; shared code runs
-  the whole quick set, and `./test.ps1 -All` runs it anyway.
-- **Full set** (`CORVUS_ALL_TESTS=1 dotnet test`, or `dotnet test -p:CORVUS_ALL_TESTS=1`): adds real-library builds, whole-server
-  runs over stdio, sweeps, fuzzing and the large runtime packs. A push needs the commit gate above; the full set then runs off
-  the critical path: the pre-push hook (`.githooks/pre-push`, enabled per clone with `git config core.hooksPath
-  .githooks`) starts `./test.ps1 -Full -Background -Commit <sha>` on the commit pushed to main (a push of another branch
-  starts none; a push while a run is going queues the newest pushed commit), in a worktree of its own (`-Status`
-  shows the result; the worktree goes under `CORVUS_BACKGROUND_DIR`, else the temp folder, so it can sit where the
-  antivirus does not quarantine the script fixtures; it is kept between runs, so each run checks out its commit there and
-  builds incrementally), and a failure is fixed in the next commit. Every 10 s of the run, a sampler records how late
-  the run woke for the sample, the time a normal-priority helper takes to create a small file in the permit folder and
-  in the temp folder, with that volume's disk queue and idle time, free memory and pages/s
-  (`.git/corvus-background.log.io`); `-Status` names each window in which a file took over 1 s or the run woke over 1 s
-  late, so a run starved of CPU is told apart from a slow disk. A push while a run is going is queued: when the run
-  ends, one run starts on the newest commit, at the strongest strength asked meanwhile. `./test.ps1 -Wait` returns
-  when the run and any run queued behind it end, prints the result and exits 0 on a pass, so a script or agent waits
-  on it instead of polling `-Status`. A whole-suite run without reuse (the nightly run, a release gate) holds an exclusive machine lock while it runs when `CORVUS_HEAVY_LOCK` names a lock script
-  (called as `heavy <name> -OwnerPid <pid>`, which waits for the lock, and `release <name>`), so other load on the machine waits for it; a push run (`-Reuse`) takes none and relies on the machine-wide permits. Every test run except `-Perf`, in the
-  foreground or the background, runs at below-normal priority (nice 10 on Linux and macOS; its builds, test hosts and
-  engine workers inherit it), so the desktop stays responsive; `CORVUS_TEST_PRIORITY=normal` keeps normal priority. A
-  background run reuses family passes; it is routine strength, a quarter of the sweeps
-  without the `Tier=Release` tests (`-Exhaustive`: release strength; `-Whole`: release strength without reuse). `./test.ps1 -Affected` runs the quick set plus the slow
-  tests of the families changed since `origin/main` in the foreground (shared code such as `Core`, `Mcp` or test
-  `Support` runs everything). Releases gate on the full set: a routine `./test.ps1 -Full` sweeps an evenly spread
-  quarter of the real images and leaves out the tests marked `[Trait("Tier", "Release")]` (measurements, accuracy
-  oracles against IDA, the largest inputs); `-Exhaustive` (gates and releases, `CORVUS_SWEEP=exhaustive`) takes
-  every image and those tests. A `-Filter` given on the command line keeps them. `./test.ps1 -Full` records the clean tree it
-  passed on (in `.git`), and `-IfChanged` and `release.ps1` skip a second full run on that tree. A run keeps its results
-  until the next one: if recording them fails, `./test.ps1 -Stamp` records them without a rerun, on the same tree only. Each full run on a
-  clean tree also records which test families passed, under a key of the family's own folders, all shared code, the
-  repository files its tests read, the SDK, the OS build and the `CORVUS_*` settings, with the state of each tool,
-  engine install or data folder a setting names (a file's size and write time, a folder's files to three levels down;
-  and the IDA install IDA's own configuration names) and of each external tool found on PATH or in a default folder,
-  so a tool installed or updated in place reruns everything (`test-reuse.psm1`). A run that reuses nothing checks the selection: a family
-  that fails under the key of a recorded pass is a selection miss, logged in `.git/corvus-selection-misses.txt` and shown
-  by `-Status`.
-  `./test.ps1 -Full -Reuse` then runs only the families whose key changed, plus the contract tests and the classes
-  known to be flaky under load; its stamp is marked `reused`. `./test.ps1 -CoverageMap` (one instrumented run
-  per family; a whole background run refreshes a map 6 days old) records which source files each family's tests run, and for a week the keys follow it: a shared file
-  keys only the families that ran it, and a file no family ran keeps the folder rules. The slow test classes of the last full run (30 s or more)
-  get a coverage run of their own and a key of their own: a change reruns such a class only when a source file it ran,
-  a file of its test folder or a setting changed, so a reader change reruns the comparisons against that reader alone. `release.ps1` runs the suite through `test.ps1` before
-  the version bump, so every release run records its passes: patch releases take a reused pass; minor releases (`x.y.0`)
-  want a whole exhaustive pass, or a reused one when only documentation changed since the last whole pass. With
-  `CORVUS_SECOND_GHIDRA_DIR` set (another Ghidra, such as the oldest supported one), every whole-suite full run (and
-  `./test.ps1 -SecondGhidra`) runs the `Engines` tests again with that Ghidra (the IDA-only tests skip: `CORVUS_TEST_ENGINE=ghidra`), keyed like a family
-  with that Ghidra in the settings: unchanged inputs skip it, and a retry runs only the tests that failed. After
-  publishing, `release.ps1` installs the previous release with `install.sh` in WSL under a throwaway home and checks
-  that `corvus update` reaches the new one.
-- **Failures, hangs and quarantine.** A failure fails the run; nothing is retried to green. A full run reruns each
-  failed test once (25 at most) only to label it, "failed" or "failed, passed on rerun (suspected flaky)", printed and
-  kept in `.git/corvus-last-run-labels.txt`; the run stays failed. Each failure's first message lines are printed with
-  the labels, and the run's results and its rerun's are kept in `.git/corvus-failed-runs` (the newest 10 runs). A
-  test that runs past its hang limit (2 minutes in a quick run, 30 minutes in a full run) ends the run with a dump of
-  the test host, kept with the test sequence in
-  `.git/corvus-hang-<time>`. `tests/Corvus.Tests/Ratchets/quarantine.txt` lists quarantined tests, one
-  `Class.Method | owner | issue | yyyy-MM-dd` line each, the date by which the test is fixed or removed: a quarantined
-  test still runs and its failure is reported, but it alone does not fail a run that completed; past its date the
-  entry no longer applies, and `QuarantineListTests` fails until it is removed.
-- **Releases.** `release.ps1` runs no suite in the foreground: it ships when a full pass (background, nightly or
-  `./test.ps1 -Full`, each recorded in `.git/corvus-full-passes.txt`) is on the release commit or an ancestor at most
-  `-MaxBehind` (50) commits back, stops on a background failure after that pass on its history (`-SkipTests` overrides), names the families not
-  yet verified on the current inputs, and runs the quick set after the version bump. A failure found later goes into a
-  patch release. For release-strength passes, start `./test.ps1 -Full -Background -Exhaustive` (or `-Whole`).
-- **Offloaded classes.** Every push to main also runs three groups of heavy classes on GitHub-hosted runners: the
-  engine-free sweeps, matrices and reference comparisons (the table in `test-remote.psm1`), the classes that use only
-  Ghidra (the release pinned in `Support/remote-tools-assets.json`, on a pinned JDK), and the live family (Frida
-  17.24.3). A class that uses both engines goes with the Ghidra group and keeps its IDA tests here (the trait
-  `Engine=ida` or `Engine=ghidra` of each engine fact); the two halves join per test. Tests that need real data never
-  go to GitHub. The groups are the `offload` job of `ci.yml`, dealt to Windows shards by the seconds each class took
-  in earlier offload runs on that platform, longest first (`Support/offload-seconds.json`; `Save-OffloadSeconds` in `test-remote.psm1`
-  rebuilds it from the jobs' `offload.trx` artifacts), with the cross-platform classes
-  on Linux as a check (`./test.ps1 -RemoteRun -Group <group> -Shard <i>/<n>` runs one shard). A routine whole-suite run here on a
-  commit that has that job (the background push run, or `-Full` on a commit on `origin/main`) leaves those classes out,
-  waits for the run with `gh`, and joins its TRX results, so family passes and the tree stamp need both halves. A class
-  runs once more here when it failed a test there on any platform, skipped a test there that ran here in the last whole
-  run (for a class using both engines: skipped a test on both sides that ran here then), or has no results there (a run
-  that does not appear within 2 minutes, a failed or cancelled job); its result here is the one that counts. `-Status`
-  shows one `github` line, and it and the time report name each class that failed there with its result here;
-  `CORVUS_TEST_OFFLOAD=0` runs everything here.
-- **Test host.** Prepare a second machine for test runs: `./test-remote-setup.ps1 -Target user@host` sets up a Windows
-  machine over OpenSSH with the PowerShell 7, MinGit, Python, JDK and Ghidra releases pinned with their SHA-256 in
-  `Support/remote-tools-assets.json` (under `~/corvus-test-host/tools`), the reference tools the real-data classes
-  compare against from the same table (wabt, baksmali, jadx-headless-mcp, Vineflower, the Hermes CLI releases and
-  TShark, the last from the Wireshark installer package by an administrative extract, with their variables set), the
-  Frida release the server pins, a clone of
-  the repository, the .NET SDK `global.json` names with the x64 and x86 runtimes the tests start programs on (checked
-  against Microsoft's release metadata), and the Visual C++ build tools (the bootstrapper's Microsoft signature is
-  checked). A step keeps what is already there, so running it again fills only the gaps; `-Check` changes nothing and
-  names what is missing. Two changes reach beyond the host folder, so setup only names them with the command that
-  makes them: the .NET Framework 4.8 Developer Pack and a Microsoft Defender exclusion for the host folder (Defender
-  quarantines some benign script fixtures). The host needs OpenSSH Server, an administrator account and this machine's key in its
-  authorized keys; its engine and live permits are its own. With `CORVUS_TEST_REMOTE` naming such a host (`user@host`)
-  and the host answering over ssh, a whole-suite run sends its offloaded classes there instead of waiting for GitHub:
-  one `dotnet test` run, one at a time, at below-normal priority in a worktree of the host's clone, with the TRX results
-  copied back by scp and joined as above. A release-strength run (`-Exhaustive`, `-Whole`, the nightly run) sends them
-  to the host at that strength; without a host it runs them here, since GitHub runs routine strength. A commit origin does not have yet (a push run starts before its push lands)
-  goes to the host as a git bundle with the run, and `-Status` says so; only when that fails too do the classes run
-  here. A run that finds another one going on the host says it waits (`-Remote` prints it as it comes), and the
-  offload note, the host tier's record and `-Status` name how long it waited. A test host also takes the host group, which never goes to GitHub: the
-  Program Files sweep and the timed and working-set classes, which need a machine no other run loads, and the classes
-  with real-data facts whose variables the host has set: copy the real data there with
-  `./test-remote-setup.ps1 -Target user@host -Data` (the folders and files the real-data variables name here, links
-  followed, into `~/corvus-data` with the variables set to the copies; a copy whose size and name still match is kept,
-  and a copy that would leave under 10 GB free is refused; `-Check` names what is missing). Variables that name a
-  program the tests run (the tool table in `test-remote.psm1`) are not copied. A class whose variable the host lacks,
-  data or program, stays here, and the run names it. A host with its own licensed IDA Pro 9 or newer
-  (`./test-remote-setup.ps1 -Target user@host -IdaDirectory <folder there>` sets `CORVUS_IDA_DIR` there; setup never
-  installs IDA) also takes about half the classes with IDA facts, dealt longest first by their recorded times so the
-  IDA tests run on both machines at once; it runs them whole, Ghidra facts included. IDA classes in files with
-  real-data facts stay here. A push run leaves the host group's classes that no test host
-  takes, and those a host left without a failure, to the nightly whole run: it records no family pass for their
-  families, and `-Status` names them. A class that failed on the host still runs again here. Run a filter repeatedly on the host:
-  `./test.ps1 -Remote -Filter <filter> -Repeat <n>` sends the working tree as it is (uncommitted changes included, as a
-  git bundle; nothing is pushed), builds it there once and runs the filter `n` times, printing each run's exit code and
-  copying the TRX files of failed runs to `TestResults/remote`.
-- **Run times.** Every run but a coverage run records its test times from its TRX results in
-  `.git/corvus-test-history.jsonl` (the last 30 runs of each mode: commit gate, push, full, perf and filtered runs; a
-  test that passed in under a second is kept in its class's total) and rewrites `.git/corvus-time-report.md`: each
-  mode's latest run against its target (the commit gate under 2 minutes with its build, a push's background run under
-  15 minutes, a whole run under 30 minutes) with the tests that keep a missed target out of reach, and per mode the wall
-  and summed time, the tests running in each 5-minute bucket, the critical path, the 20 slowest classes and tests with
-  their median and 90th percentile, regressions (over 5 s and 1.5 times the median in each of the last two runs), heavy
-  lock and permit waits, and the failed tests. A run prints one line from it; `./test.ps1 -Status` shows each mode's
-  latest run against its target. The tests start the longest classes first, by their median time in the history's runs
-  of the same mode (`Support/CollectionOrder.cs`).
-- **Machine-wide permits.** A test class that runs IDA (`[IdaFact]`), Ghidra (`[GhidraFact]`) or another heavy
-  resource (`[Permit("live")]`, `[Permit("reference-tool")]`) waits for a permit before it starts and holds it until its
-  last test ends (`Support/MachinePermits.cs`: IDA 2, Ghidra 2, live 2, reference tools 4). Every test process on the
-  machine takes the same permits, so lanes' runs and the background run together never exceed them. The wait stays out
-  of the tests' times, and the time report lists it per resource.
-- **Tests in a process of their own.** A test that measures the whole process (heap growth, retained memory, working
-  set) or sets a variable of the process reruns its body in a process of its own (`Support/ChildTest.cs`), so it runs
-  beside the parallel classes instead of alone after them. The sweeps, fuzzers and timed tests run in parallel too; a
-  timing budget holds only in the perf run, which runs alone. What still runs alone after the parallel classes:
-  deadline and cancellation timings (parallel classes starve the thread pool), tests that rebuild `samples/` and the
-  relay's real-server run.
-- **Shared engine analyses.** IDA and Ghidra tests on the System32 sample start from a copy of one saved analysis per
-  engine, engine install and server build (`Support/EngineSeed.cs`, kept under `corvus-test-data/engine-seed` in the
-  temporary folder), instead of analysing it again in every empty cache: about half the time of those classes. Tests
-  that measure or check a cold open keep an empty cache.
-- **Timing budgets.** A test that times its work against a budget also asserts the mechanism that makes the work fast:
-  a cache hit, a process not started, one worker request. It carries `[Trait("Perf", "Timing")]` and reports each
-  measurement through `PerfBudget.Time`, `AtMost` or `AtLeast` as one line, `perf: <name> <value> <unit> (budget <= <limit>
-  <unit>)`. Gating runs only record the line. The perf run (`./test.ps1 -Perf`, nightly after a full run: `CORVUS_PERF=1`,
-  filter `Perf=Timing`, one test at a time) enforces the budgets. It runs alone on the machine: it holds the heavy lock
-  and every test permit. Work that takes no lock still slows it: when processes outside the run use over 25% of the
-  machine's CPU in more than a tenth of its 10 s samples, the run is partial; it names that load, records no verdict and
-  exits 3, and the nightly log calls it partial. A test over its budget runs up to 4 more times and counts as over
-  only when most of the 5 samples are. Each measurement is also compared with `tests/Corvus.Tests/Ratchets/perf-baseline.txt`, one baseline per
-  name and OS (a new measurement name needs a line there): a value past 1.5 times its baseline (below a rate's baseline
-  divided by 1.5) runs its tests 4 more times, and the measurement regresses when the median of each sample's worst
-  value is past it. The run fails only on a test over budget or a regressed measurement that was also so in the perf
-  run before (`.git/corvus-perf-verdicts.json`), so a single slow run is reported but does not fail the run; `-Status`
-  shows the last verdict. The baselines start at the budgets and change only by a commit that tightens them.
-- **Host tier.** The host tier in `test-remote.psm1` names the stable families (test folders) whose tests change
-  least: Accuracy, Builds, Containers, DotnetEdits, Dumps, Il2Cpp, Mobile, NativeAot, NativeEdits, NativeFormats,
-  Support and Web. A push run leaves their classes out, here and on the test host, and runs only their smoke tests
-  (trait `Smoke=push`: one or two fast tests on each family's main path; Accuracy has none); it records no family
-  pass for the tier's families. The tier runs nightly on the test host: `./host-tier.ps1 -Register [-At 02:00]` adds a
-  Windows scheduled task for the current user (opt-in; `-Unregister` removes it) that runs `./test.ps1 -HostTier` on
-  HEAD in a worktree of its own. That run builds here only for the family keys, sends the tier's classes to the test
-  host `CORVUS_TEST_REMOTE` names (the commit as a bundle when origin lacks it), and records a pass for each family
-  whose classes all went there and passed with a full result: no test skipped there that ran in the last whole run
-  here (`.git/corvus-last-whole.trx`, kept by every run without `-Reuse`), and no class far shorter there. A class whose inputs are this machine's own, whose file
-  has live real data, or whose real-data or engine variables the host does not set stays unsent and is named; its
-  family records no pass from this run. A family with a class that failed there returns to push runs, which run it
-  whole again (`-Status` names it) until a later tier run passes it with a full result. The task has no idle condition, since it costs this machine only the build,
-  and a night the machine was off runs when it is on again; a recorded pass stays valid until its family's inputs
-  change. The run goes to `.git/corvus-host-tier.log` (the test output to `.git/corvus-host-tier.log.run`), the host's
-  results to `.git/corvus-host-tier.trx`, and `-Status` shows the last run: what it recorded, what failed there, the
-  classes without a full result and those kept here.
-- **Nightly run.** `./nightly.ps1 -Register [-At 02:00]` adds a Windows scheduled task for the current user (opt-in;
-  `-Unregister` removes it). Each night, once the machine has been idle for 10 minutes, it starts a full run of HEAD in
-  the background worktree (`-Strength`, whole by default, which holds the heavy lock; a run going then takes it from
-  the queue, on the newest commit queued), waits for that run alone, not the push runs queued behind it, and logs its
-  result with the commit it tested and the commit asked for. It then runs `./test.ps1 -Perf` in a worktree of its own
-  (`corvus-perf-worktree`) on the tested commit, unless another full run holds or waits for the heavy lock by then. The
-  night's run also compares 3 engine seeds with a cold analysis (`CORVUS_SEED_VALIDATE=3`, left out of the reuse
-  keys so a push run's pass still counts). Each step goes to `.git/corvus-nightly.log`, the test output to
-  `.git/corvus-nightly.log.run`, and `-Status` shows the last step.
+| Command | Runs |
+|---|---|
+| `dotnet test` | Quick set: every test not marked `[Trait("Speed", "Slow")]`. |
+| `CORVUS_ALL_TESTS=1 dotnet test` (or `-p:CORVUS_ALL_TESTS=1`) | Full set: adds real-library builds, whole-server stdio runs, sweeps, fuzzing and the large runtime packs. |
+| `./test.ps1` | Commit gate: quick tests of the families changed since `origin/main` (uncommitted and untracked files included; by the coverage map where it knows a file), plus the contract tests. Shared code runs the whole quick set. |
+| `./test.ps1 -All` | The whole quick set. |
+| `./test.ps1 -Affected` | Quick set plus the slow tests of the changed families, in the foreground; shared code (`Core`, `Mcp`, test `Support`) runs everything. |
+| `./test.ps1 -Full` | Full set, routine strength: an evenly spread quarter of the real-image sweeps, without `[Trait("Tier", "Release")]` tests (measurements, IDA accuracy oracles, the largest inputs). Names the engines whose tests skip (set `CORVUS_GHIDRA_DIR`, `CORVUS_IDA_DIR`). |
+| `./test.ps1 -Full -Exhaustive` | Release strength (`CORVUS_SWEEP=exhaustive`): every sweep input and the `Tier=Release` tests. |
+| `./test.ps1 -Full -IfChanged` | Skips when a full run already passed on this clean tree (`release.ps1` uses the same stamp). |
+| `./test.ps1 -Full -Reuse` | Only the families whose input key changed, plus the contract tests and the classes flaky under load; its stamp is marked `reused`. |
+| `./test.ps1 -Full -Background [-Commit <sha>]` | `-Full -Reuse` on the committed HEAD (or `<sha>`) in a worktree of its own; returns at once. `-Exhaustive`: release strength with reuse; `-Whole`: release strength without reuse. |
+| `./test.ps1 -Status` | The last background run and the offload, host tier, nightly and perf state. |
+| `./test.ps1 -Wait` | Returns when the background run and any run queued behind it end; exit 0 on a pass. Wait on this, not on `-Status`. |
+| `./test.ps1 -Stamp` | Records the last full run's passes when its recording step failed (same tree only). |
+| `./test.ps1 -Filter <expr>` | Any `dotnet test` filter; a filter given on the command line keeps the `Tier=Release` tests. |
+| `./test.ps1 -CoverageMap` | One instrumented run per family recording the source files its tests run. |
+| `./test.ps1 -SecondGhidra` | The `Engines` tests on `CORVUS_SECOND_GHIDRA_DIR`. |
+| `./test.ps1 -Perf` | The timing budgets, enforced, alone on the machine. |
+| `./test.ps1 -Mutation [-Target sqlite,pe]`, `-Full -Coverage` | See [Mutation testing](#mutation-testing-client-checks-and-the-token-benchmark) and [Guard tests](#guard-tests). |
+| `./test.ps1 -RemoteRun -Group <group> -Shard <i>/<n>` | One shard of an offload group, as CI runs it. |
+| `./test.ps1 -Remote -Filter <filter> -Repeat <n>` | A filter `n` times on the test host. |
+| `./test.ps1 -HostTier` | The host tier's classes on the test host. |
 
-CI (`.github/workflows/ci.yml`) runs the quick set as a smoke lane; the release workflow builds the release archives.
-The full set and the real-application runs are done locally. To run the Live family (slow tests included) on macOS
-and Windows ARM64, start ci.yml by hand with its `live` input: `gh workflow run ci.yml --ref <branch> -f live=true`.
-The manual job installs 64-bit Python and the tested Frida release on macos-latest, windows-11-arm, ubuntu-latest and
-windows-latest, and uploads one TRX per machine (`live-results-<os>`).
+- **Quick set.** Run while iterating. It stays under 50 s on an idle machine (about 30 s of parallel work, then the
+  timing and process-wide tests that run alone), so a quick test uses the small fixtures in `tests/TestFixture` and
+  builds nothing external.
+- **Background run after a push.** The pre-push hook (`.githooks/pre-push`; enable per clone with
+  `git config core.hooksPath .githooks`) starts `./test.ps1 -Full -Background -Commit <sha>` for a push to main; other
+  branches start nothing. A failure is fixed in the next commit.
+  - The worktree lives under `CORVUS_BACKGROUND_DIR` (default: the temp folder; pick a folder the antivirus does not
+    scan, as it quarantines script fixtures). It is kept between runs and builds incrementally.
+  - A push while a run is going is queued: when the run ends, one run starts on the newest queued commit at the
+    strongest strength asked.
+  - Every 10 s a sampler records how late the run woke, how long a normal-priority helper takes to create a small file
+    in the permit folder and the temp folder, that volume's disk queue and idle time, free memory and pages/s
+    (`.git/corvus-background.log.io`). `-Status` names each window where a file took over 1 s or the run woke over 1 s
+    late, so CPU starvation is told apart from a slow disk.
+  - A whole run refreshes a coverage map older than 6 days.
+- **Variables.** On Windows, full, background, perf, remote and host-tier runs take `CORVUS_*` and `GHIDRA_INSTALL_DIR`
+  user variables a shell started earlier lacks.
+- **Priority and locks.** Every run except `-Perf` runs below normal priority (nice 10 on Linux and macOS; builds,
+  test hosts and engine workers inherit it); `CORVUS_TEST_PRIORITY=normal` keeps normal priority. A whole-suite run
+  without reuse (nightly, release gate) holds an exclusive machine lock when `CORVUS_HEAVY_LOCK` names a lock script
+  (called as `heavy <name> -OwnerPid <pid>`, which waits for the lock, and `release <name>`); a push run (`-Reuse`)
+  takes none and relies on the machine-wide permits.
+- **Stamps and reuse** (`test-reuse.psm1`). A full run on a clean tree records the tree it passed on (in `.git`) and
+  each test family that passed, under a key of: the family's own folders, all shared code, the repository files its
+  tests read, the SDK, the OS build, the `CORVUS_*` settings with the state of each path they name (a file's size and
+  write time, a folder's files to three levels down, the IDA install IDA's own configuration names) and each external
+  tool found on PATH or in a default folder. A tool installed or updated in place therefore reruns everything.
+  - A run that reuses nothing checks the selection: a family failing under the key of a recorded pass is a selection
+    miss, logged in `.git/corvus-selection-misses.txt` and shown by `-Status`.
+  - For a week after `-CoverageMap`, keys follow the map: a shared file keys only the families that ran it; a file no
+    family ran keeps the folder rules. Slow classes of the last full run (30 s or more) get their own coverage run and
+    key, so a change reruns such a class only when a source file it ran, a file of its test folder or a setting changed.
+  - A run keeps its results until the next one; if recording fails, `-Stamp` records them without a rerun.
+- **Second Ghidra.** With `CORVUS_SECOND_GHIDRA_DIR` set (such as the oldest supported Ghidra), every whole-suite full
+  run and `-SecondGhidra` rerun the `Engines` tests on it (`CORVUS_TEST_ENGINE=ghidra`: IDA-only tests skip), keyed
+  like a family with that Ghidra in the settings: unchanged inputs skip it; a retry runs only the failed tests.
+- **Failures, hangs and quarantine.** A failure fails the run; nothing is retried to green.
+  - A full run reruns each failed test once (25 at most) only to label it "failed" or "failed, passed on rerun
+    (suspected flaky)"; labels are printed and kept in `.git/corvus-last-run-labels.txt`. Each failure's first message
+    lines are printed; the run's and rerun's results are kept in `.git/corvus-failed-runs` (newest 10 runs).
+  - A test past its hang limit (2 min in a quick run, 30 min in a full run) ends the run with a dump of the test host
+    (mini in a quick run, full in a full run), kept with the test sequence in `.git/corvus-hang-<time>`. Dumps over
+    100 MB are kept in the newest three hang folders only.
+  - `tests/Corvus.Tests/Ratchets/quarantine.txt` lists quarantined tests, one `Class.Method | owner | issue |
+    yyyy-MM-dd` line each (the date by which it is fixed or removed). A quarantined test still runs and is reported,
+    but its failure alone does not fail a completed run. Past its date the entry no longer applies and
+    `QuarantineListTests` fails until it is removed.
+- **Releases.** `release.ps1` runs no suite in the foreground. It ships when a full pass (background, nightly or
+  `./test.ps1 -Full`, each recorded in `.git/corvus-full-passes.txt`) is on the release commit or an ancestor at most
+  `-MaxBehind` (50) commits back; it stops on a background failure after that pass on its history (`-SkipTests`
+  overrides), names the families not yet verified on the current inputs, and runs the quick set after the version
+  bump. A failure found later goes into a patch release. By policy, patch releases take a reused pass and minor
+  releases (`x.y.0`) a whole pass (`./test.ps1 -Full -Background -Whole`; `-Exhaustive` for a reused release-strength
+  pass); `release.ps1` does not check the strength. After publishing, `release.ps1` installs the previous release with
+  `install.sh` in WSL under a throwaway home and checks that `corvus update` reaches the new one.
+- **Offloaded classes** (`test-remote.psm1`). Every push to main also runs three groups of heavy classes on
+  GitHub-hosted runners (the `offload` job of `ci.yml`; skipped for documentation-only commits):
+  - `sweep`: engine-free sweeps, matrices and reference comparisons (the patterns in `test-remote.psm1`);
+  - `ghidra`: classes that use only Ghidra (the release pinned in `Support/remote-tools-assets.json`, on a pinned JDK);
+    a class using both engines goes here and keeps its IDA tests local (trait `Engine=ida` or `Engine=ghidra` on each
+    engine fact), the two halves joined per test;
+  - `live`: the live family (Frida 17.24.3).
+
+  Tests that need real data never go to GitHub. Groups are dealt to Windows shards longest first by the seconds each
+  class took in earlier offload runs (`Support/offload-seconds.json`; `Save-OffloadSeconds` rebuilds it from the jobs'
+  `offload.trx` artifacts), with the cross-platform classes also on Linux as a check. A routine whole-suite run on a
+  commit that has that job (the push run, or `-Full` on a commit on `origin/main`) leaves those classes out, waits
+  for the GitHub run with `gh` and joins its TRX results; family passes and the tree stamp need both halves. A class
+  reruns here, and its local result counts, when there it failed a test on any platform, skipped a test that ran here
+  in the last whole run (a class using both engines: skipped on both sides), took under 20% of its local time (when
+  that was 30 s or more), or has no results (a run that does not appear within 2 minutes, a failed or cancelled job).
+  `-Status` shows one `github` line; it and the time report name each class that failed there with its result here.
+  `CORVUS_TEST_OFFLOAD=0` runs everything here.
+- **Test host.** `./test-remote-setup.ps1 -Target user@host` prepares a Windows machine over OpenSSH:
+  - the PowerShell 7, MinGit, Python, JDK and Ghidra releases pinned with their SHA-256 in
+    `Support/remote-tools-assets.json` (under `~/corvus-test-host/tools`), the reference tools the real-data classes
+    compare against (wabt, baksmali, jadx-headless-mcp, Vineflower, the Hermes CLI releases, TShark by an
+    administrative extract of the Wireshark installer) with their variables set, the Frida release the server pins, a
+    clone of the repository, the .NET SDK `global.json` names with the x64 and x86 runtimes (checked against
+    Microsoft's release metadata) and the Visual C++ build tools (bootstrapper signature checked);
+  - each step keeps what is there, so a rerun fills gaps; `-Check` changes nothing and names what is missing;
+  - the .NET Framework 4.8 Developer Pack and a Microsoft Defender exclusion for the host folder (Defender quarantines
+    some benign script fixtures) are only named, with the command that adds them;
+  - the host needs OpenSSH Server, an administrator account and this machine's key authorized; its engine and live
+    permits are its own.
+
+  With `CORVUS_TEST_REMOTE=user@host` answering over ssh, a whole-suite run sends its offloaded classes there instead
+  of GitHub: one `dotnet test` run at a time, below normal priority, in a worktree of the host's clone, TRX copied back
+  by scp and joined as above. A release-strength run (`-Exhaustive`, `-Whole`, nightly) sends them at that strength;
+  without a host it runs them here, since GitHub runs routine strength. A commit origin lacks (a push run starts before
+  its push lands) goes as a git bundle (`-Status` says so); only if that fails do the classes run here. A run that
+  finds another on the host waits and reports how long (`-Remote` prints it live; the offload note, the tier record and
+  `-Status` name it). Live classes the host left without a full result take the push's GitHub live results where
+  those prove them; a class that failed on the host still reruns here.
+
+  The test host also takes:
+  - the host group, which never goes to GitHub: the Program Files sweep, the timed and working-set classes (they need
+    an otherwise idle machine), and the real-data classes whose variables the host has set, dealt between here and
+    the host longest first. Copy real data with `./test-remote-setup.ps1 -Target user@host -Data` (the folders and
+    files the real-data variables name, links followed, into `~/corvus-data`, variables set to the copies; a copy
+    whose name and size match is kept; a copy leaving under 10 GB free is refused; `-Check` names what is missing).
+    Variables naming a program the tests run (the tool table in `test-remote.psm1`) are not copied. A class whose
+    variable the host lacks stays here and is named;
+  - about half the classes with IDA facts, dealt longest first, when the host has its own licensed IDA Pro 9 or newer
+    (`-IdaDirectory <folder there>` sets `CORVUS_IDA_DIR` there; setup never installs IDA). They run whole there,
+    Ghidra facts included; IDA classes in files with real-data facts stay here. In turn about half the Ghidra-only
+    classes stay here.
+
+  A push run leaves the host group's classes no host takes, and those a host left without a failure, to the nightly
+  whole run; their families record no pass and `-Status` names them. `./test.ps1 -Remote -Filter <filter> -Repeat <n>`
+  sends the working tree as is (uncommitted changes included, as a git bundle; nothing is pushed), builds once there,
+  runs the filter `n` times, prints each exit code and copies failed runs' TRX files to `TestResults/remote`.
+- **Run times** (`test-time.psm1`). Every run but a coverage run records its TRX times in
+  `.git/corvus-test-history.jsonl` (last 30 runs per mode: commit gate, push, full, perf, filter; a test that passed
+  in under a second counts only in its class total) and rewrites `.git/corvus-time-report.md`:
+  - each mode's latest run against its target: commit gate with build under 2 min, push run under 15 min, whole run
+    under 30 min, with the tests keeping a missed target out of reach;
+  - per mode: wall and summed time, tests running per bucket (1 minute; 5 minutes for runs of 15 min or more), the
+    critical path, the 20 slowest classes and tests with median and 90th percentile, regressions (over 5 s and 1.5
+    times the median in each of the last two runs), heavy lock and permit waits, and the failed tests.
+
+  A run prints one line from it; `-Status` shows each mode's latest run against its target. Classes start longest
+  first by their median time in the same mode (`Support/CollectionOrder.cs`).
+- **Machine-wide permits** (`Support/MachinePermits.cs`). A class using IDA (`[IdaFact]`), Ghidra (`[GhidraFact]`) or
+  another heavy resource (`[Permit("live")]`, `[Permit("reference-tool")]`) waits for a permit before it starts and
+  holds it until its last test ends: IDA 2, Ghidra 2, live 2, reference tools 4; a machine with 64 GB or more adds
+  one IDA, one Ghidra and two reference-tool permits. Every test process on the machine shares them. The wait is left
+  out of test times and listed per resource in the time report.
+- **Tests in a process of their own.** A test that measures the whole process (heap growth, retained memory, working
+  set) or sets a process variable reruns its body in a child process (`Support/ChildTest.cs`), so it runs beside the
+  parallel classes. Sweeps, fuzzers and timed tests run in parallel too; budgets hold only in the perf run. Still run
+  alone after the parallel classes: deadline and cancellation timings (parallel classes starve the thread pool), tests
+  that rebuild `samples/`, and the relay's real-server run.
+- **Shared engine analyses.** IDA and Ghidra tests on the System32 sample start from a copy of one saved analysis per
+  engine, engine install and server build (`Support/EngineSeed.cs`, under `corvus-test-data/engine-seed` in the temp
+  folder): about half the time of those classes. Tests that measure or check a cold open keep an empty cache.
+- **Timing budgets.** A test timing its work against a budget also asserts the mechanism that makes it fast (a cache
+  hit, a process not started, one worker request). It carries `[Trait("Perf", "Timing")]` and reports each measurement
+  through `PerfBudget.Time`, `AtMost` or `AtLeast` as `perf: <name> <value> <unit> (budget <= <limit> <unit>)`.
+  Gating runs only record the line. The perf run (`./test.ps1 -Perf`; nightly after a full run; `CORVUS_PERF=1`,
+  filter `Perf=Timing`, one test at a time) enforces budgets:
+  - it holds the heavy lock and every test permit. When processes outside the run use over 25% of the CPU in more
+    than a tenth of its 10 s samples, the run is partial: it names that load, records no verdict and exits 3;
+  - a test over budget runs up to 4 more times and counts as over only when most of the 5 samples are;
+  - each measurement is compared with `tests/Corvus.Tests/Ratchets/perf-baseline.txt` (one baseline per name and OS;
+    a new name needs a line). A value past 1.5 times its baseline (below baseline / 1.5 for a rate) reruns its tests 4
+    times, and it regresses when the median of each sample's worst value is past it;
+  - the run fails only on an over-budget test or regressed measurement that was also so in the previous perf run
+    (`.git/corvus-perf-verdicts.json`); `-Status` shows the last verdict. Baselines start at the budgets and change
+    only by a commit that tightens them.
+- **Host tier.** The stable families in `test-remote.psm1`: Accuracy, Builds, Containers, DotnetEdits, Dumps, Il2Cpp,
+  Mobile, NativeAot, NativeEdits, NativeFormats, Support and Web. A push run leaves their classes out (here and on the
+  test host) and runs only their smoke tests (trait `Smoke=push`: one or two fast tests per family; Accuracy has
+  none); it records no pass for these families.
+  - `./host-tier.ps1 -Register [-At 02:00]` adds an opt-in Windows scheduled task for the current user (`-Unregister`
+    removes it) running `./test.ps1 -HostTier` on HEAD in its own worktree. It builds here only for the family keys,
+    sends the tier's classes to `CORVUS_TEST_REMOTE` (as a bundle when origin lacks the commit), and records a pass for
+    each family whose classes all ran there and passed with a full result: no test skipped that ran in the last whole
+    run here (`.git/corvus-last-whole.trx`, kept by every run without `-Reuse`), no class far shorter there.
+  - A class whose inputs are this machine's own, whose file has live real data, or whose real-data or engine variables
+    the host lacks stays unsent and is named; its family records no pass. A family with a class that failed there
+    returns to push runs, which run it whole (`-Status` names it) until a tier run passes it with a full result.
+  - No idle condition (it costs this machine only the build); a missed night runs when the machine is on again; a
+    pass stays valid until its family's inputs change. Logs: `.git/corvus-host-tier.log` (test output in `.log.run`),
+    host results in `.git/corvus-host-tier.trx`; `-Status` shows what the last run recorded, what failed, the classes
+    without a full result and those kept here.
+- **Nightly run.** `./nightly.ps1 -Register [-At 02:00]` adds an opt-in Windows scheduled task for the current user
+  (`-Unregister` removes it). Each night, once the machine has been idle 10 minutes, it starts a full run of HEAD in
+  the background worktree (`-Strength`, `whole` by default, which holds the heavy lock; while another run is going,
+  the request is queued and runs on the newest queued commit), waits for that run only, and logs its result with the commit tested and the
+  commit asked for. Then it runs `./test.ps1 -Perf` in its own worktree (`corvus-perf-worktree`) on the tested commit,
+  unless another full run holds or waits for the heavy lock. The night's run compares 3 engine seeds with a cold
+  analysis (`CORVUS_SEED_VALIDATE=3`, left out of reuse keys so a push run's pass still counts). Logs:
+  `.git/corvus-nightly.log` (test output in `.log.run`); `-Status` shows the last step.
+
+CI (`.github/workflows/ci.yml`) runs the quick set as a smoke lane plus the offload job; `release.yml` builds the
+release archives. The full set and real-application runs are local. To run the Live family (slow tests included) on
+macOS and Windows ARM64, start ci.yml by hand: `gh workflow run ci.yml --ref <branch> -f live=true`. That job installs
+64-bit Python and the tested Frida release on macos-latest, windows-11-arm, ubuntu-latest and windows-latest and
+uploads one TRX per machine (`live-results-<os>`).
 
 ## Layout
 
 `tests/Corvus.Tests` has one folder per tool family, so a change's tests are found by folder: `Dotnet`, `DotnetEdits`,
 `NativeAnalysis`, `NativeFormats`, `Engines` (IDA and Ghidra), `NativeEdits`, `Builds`, `Containers`, `Mobile`, `Dumps`,
-`Il2Cpp`, `NativeAot`, `Session` (workspace, notes, server, setup), `Contract` (catalog, ratchets, protocol, sweeps of the
-output contract) and `Support` (builders, fixtures and shared harnesses). Namespaces do not follow the folders.
-Long engine classes are split into nested classes (by engine and topic) because xUnit runs one class's tests in sequence.
+`Live`, `Il2Cpp`, `NativeAot`, `Web`, `Accuracy`, `Session` (workspace, notes, server, setup), `Contract` (catalog,
+ratchets, protocol, output-contract sweeps) and `Support` (builders, fixtures, shared harnesses). Namespaces do not
+follow folders. Long engine classes are split into nested classes (by engine and topic), since xUnit runs one class's
+tests in sequence.
 
 ## Test data
 
 - Real libraries come from `<PackageDownload>` items in the test project, read through `RealPackages.Lib`; tests never
   read paths of one machine.
 - Data that cannot be redistributed (application folders, Il2Cpp games, external tools) is found through `CORVUS_*`
-  environment variables (the table below), and a test without its data is skipped.
-- A new external tool used by tests is wired through an environment variable with a neutral name, with its command-line
-  options kept in one table.
+  variables (below); a test without its data is skipped.
+- A new external tool is wired through a variable with a neutral name, its command-line options kept in one table.
 
 ### Test data variables
 
-Every `CORVUS_*` variable the tests and test scripts read, except the server's own (in [configuration](configuration.md)).
-`TestDataVariablesTests` checks the list against the code: a variable read and not listed, a listed variable no longer
-read, or a "Read by" cell that differs from the classes and scripts that read it fails the test. With
-`CORVUS_UPDATE_DOCS=1` it rewrites the "Read by" cells and adds a missing variable as a row to describe.
+Every `CORVUS_*` variable the tests and test scripts read, except the server's own ([configuration](configuration.md)).
+`TestDataVariablesTests` fails on a variable read but not listed, a listed one no longer read, or a "Read by" cell that
+differs from its readers. `CORVUS_UPDATE_DOCS=1` rewrites the "Read by" cells and adds missing variables as rows to
+describe.
 
 | Variable | What it names | Read by |
 |---|---|---|
@@ -356,101 +369,98 @@ read, or a "Read by" cell that differs from the classes and scripts that read it
 
 ## Guard tests
 
-These fail when a change misses one of its follow-up steps (CONTRIBUTING.md lists them):
+These fail when a change misses a follow-up step (CONTRIBUTING.md lists them):
 
 - catalog audit and size ceiling, toolsets, parameter domains, contract sweep and tool effects;
 - layering (which namespaces may use which);
-- README sync (tool tables, tool and prompt counts) and docs facts (clients, release targets, commands, environment
+- README sync (tool tables, tool and prompt counts) and doc facts (clients, release targets, commands, environment
   variables, release-notes version, links, command-line examples);
 - guide coverage (every tool is named in the guide; the guide, skill and docs name only registered tools);
 - community files (SECURITY.md names every call that starts a process or reaches the network; CONTRIBUTING.md, issue
   forms; no machine path in a tracked file);
 - ratchets: each list in `tests/Corvus.Tests/Ratchets` may only shrink, and every entry states a `# permanent:` reason;
-  the measured lists (`coverage.txt`, `duplicate-lines.txt`; `CountRatchet`) hold one value
-  per key that moves one way only, and `CORVUS_UPDATE_RATCHETS=1` records a tighter value;
+  the measured lists (`coverage.txt`, `duplicate-lines.txt`; `CountRatchet`) hold one value per key that moves one way
+  only, and `CORVUS_UPDATE_RATCHETS=1` records a tighter value;
 - dead code and copies: unused or never-read private members (IDE0051, IDE0052) are build errors; the full set counts
-  the significant lines (no blanks, comments, lone braces or usings) of `src/` that lie in a copied block of 8 or more,
-  per file pair, against `Ratchets/duplicate-lines.txt` (`DuplicateCodeTests`);
+  the significant lines of `src/` (no blanks, comments, lone braces or usings) in copied blocks of 8 or more, per file
+  pair, against `Ratchets/duplicate-lines.txt` (`DuplicateCodeTests`);
 - coverage floor: `./test.ps1 -Full -Coverage` collects line coverage of the server (coverlet, `corvus` only) over the
   whole suite and checks each source area (`src/Corvus/<folder>`, a level deeper under `Native`, `Services` and
-  `Tools`) and the total against `Ratchets/coverage.txt`, floors set one point below the run that recorded them;
+  `Tools`) and the total against `Ratchets/coverage.txt`, floors one point below the recording run;
 - format fuzzing: every format reader (found by reflection) has a quick fuzz test marked `[FuzzEntry]`, or a reviewed
   entry in `Ratchets/format-fuzz.txt`;
 - protocol matrix: every MCP protocol version the SDK speaks is negotiated and answered;
 - real-data speed: a test that reads real-world data (a real-data attribute, or a `CORVUS_*` data variable in its code)
   carries `Speed=Slow` on the method or class, so setting the variable never slows the quick set (`RealDataSpeedTests`);
-- process environment: a test class that sets a `CORVUS_*` variable of the test process runs in the
-  `ProcessEnvironment` collection (nothing beside it), sets an external tool's variable in that tool's collection, or
-  sets it in a body that `ChildTest` reruns in a process of its own (`EnvironmentCollectionTests`);
+- process environment: a class that sets a `CORVUS_*` variable of the test process runs in the `ProcessEnvironment`
+  collection (alone), sets an external tool's variable in that tool's collection, or sets it in a body `ChildTest`
+  reruns in a child process (`EnvironmentCollectionTests`);
 - leaks: once every test has run, child processes of the test process still running, or files left in the run's own
   temporary folder (TMP, TEMP and TMPDIR point there for the tests and the servers they start), fail the run with
-  their names. A folder a test class keeps for the whole run is registered with `LeakGuard.DeleteAtEnd`.
+  their names. A folder a class keeps for the whole run is registered with `LeakGuard.DeleteAtEnd`.
 
 ## Mutation testing, client checks and the token benchmark
 
-These run on demand (gates and releases), never in the quick or full set by default, and skip with the reason when
-their tool is missing:
+On demand (gates and releases), never in the quick or full set by default; each skips with the reason when its tool is
+missing.
 
 - **Mutation testing** (`./test.ps1 -Mutation [-Target sqlite,pe]`): Stryker.NET (`CORVUS_STRYKER`, else
-  `dotnet-stryker` on PATH) mutates the files of the targets in `tests/mutation.json` (the core readers: SQLite,
-  pcap, PE, ELF, Mach-O, the ARM decoders; the file holds every Stryker option) in one run, with the tests that read
-  them. Stryker compiles the whole project once per run (about an hour here, whatever is mutated), so targets share a
-  run. Surviving mutants (survived or not covered) per target are checked against `Ratchets/mutation-survivors.txt`
-  (`MutationTests`), and the score per target is printed.
-- **Installer listings against reference tools** (`InstallerComparisonTests`): with `CORVUS_INSTALLERS` naming a
-  folder of real installers in `nsis`, `inno`, `msi` and `burn` subfolders, each installer's files (name and size)
-  are compared with a reference tool's listing: `CORVUS_ARCHIVE_LISTER` (7-Zip), `CORVUS_SETUP_LISTER` (innounp),
-  `CORVUS_MSI_LISTER` (lessmsi), `CORVUS_BUNDLE_EXTRACTOR` (the WiX `wix` tool). A format whose tool is unset is
-  skipped; each installer must match at least 99% of the reference rows.
-- **Dependencies against a reference SBOM tool** (`DependencyListerComparisonTests`): with `CORVUS_DEPENDENCY_LISTER`
-  naming syft, an app with two NuGet packages is published as a framework-dependent single-file bundle and as a folder;
-  `view=dependencies` must list every NuGet package URL the tool lists, and both packages on each. A built Android
-  package must list every package URL the tool lists for it, and every Maven URL the tool lists for the same bytes read
-  as a Java archive.
-- **Advisories against osv-scanner** (`OsvAdvisoriesTests`): with `CORVUS_OSV_SCANNER` naming osv-scanner and its
-  offline databases downloaded, an app with an old Newtonsoft.Json and NLog is published with a lock file; the
-  advisories of `view=dependencies` must equal the ones osv-scanner reports for that packages.lock.json.
-- **Compiled XAML against the XAML compiler** (`XbfCompilerTests`): with `CORVUS_WINDOWS_APP_SDK` naming a
-  Microsoft.WindowsAppSDK package version, a WinUI app with an application, a window and a page of resources, styles,
-  templates, visual states and conditional XAML is built; each `.xbf` read with `view=xbf` must be complete, declare
-  the source's elements in order, and resolve every event handler the source names.
-- **Il2Cpp capabilities against capa** (`Il2CppCapaTests`): with `CORVUS_CAPA` naming the standalone capa 10.0.0, the
-  freeze file written for a built x64 game binary, whose functions call methods named as the class library's
-  `File.WriteAllText`, `RegistryKey.GetValue` and `HttpClient.GetAsync`, must load in capa and match "write file in
-  .NET", "query or enumerate registry value" and "send HTTP request" at the calling functions. Run it for each new capa release: the freeze
-  format is capa's own and changes between releases.
-- **Whole-program emulation against speakeasy** (`ProgramEmulationRealTests`): with `CORVUS_EMULATOR` naming speakeasy
-  2.0.0b9, a small x86 program built by the test allocates a page, decodes a fixed text into it, writes it to a file and
-  exits; `emulate_native engine=speakeasy` must list its five kernel32 calls in order, save the file with the text, and
-  hold the text at the allocation in its region set. A second build calls a function no emulator models and must stop
-  by that function's name.
-- **Capture HTTP objects against Wireshark** (`CaptureObjectsTSharkTests`): with `CORVUS_TSHARK` set, synthetic
-  captures (Content-Length, chunked, gzip / deflate / brotli, pipelining, resent segments, ranges, bodies ending at
-  close, request bodies) must export exactly the files `tshark --export-objects http` exports, by SHA-256. With
-  `CORVUS_CAPTURES` naming a folder of captures (key logs beside them as `<name>*.keys`), every object TShark exports
-  must be among ours; TShark's `object<frame>` files from frames that start no HTTP message are counted apart.
-- **Package review on real packages** (`PackageDatasetTests`): `CORVUS_PACKAGES_BAD` names a folder of known-bad npm,
-  PyPI and VS Code packages and `CORVUS_PACKAGES_GOOD` one of ordinary packages, each grouped in subfolders; prints the
-  noteworthy share per subfolder and checks both against floors. `CORVUS_PACKAGES_REPORT` names a file for one line
-  per package with its findings.
-- **Repeated snapshots of a .NET program** (`LiveDotnetRealTests`, full set): `CORVUS_SNAPSHOT_RUNS` names a number of
-  runs (such as 30); each run starts the readers program on a new server, snapshots it while it reads, and checks that
-  it finishes every open and exits with code 0, per architecture (Windows x64 and x86, Linux x64).
+  `dotnet-stryker` on PATH) mutates the targets in `tests/mutation.json` (the core readers: SQLite, pcap, PE, ELF,
+  Mach-O, the ARM decoders; the file holds every Stryker option) in one run, with the tests that read them. Stryker
+  compiles the whole project once per run (about an hour, whatever is mutated), so targets share a run. Surviving
+  mutants (survived or not covered) per target are checked against `Ratchets/mutation-survivors.txt`
+  (`MutationTests`); the score per target is printed.
+- **Installer listings** (`InstallerComparisonTests`): with `CORVUS_INSTALLERS` naming a folder with `nsis`, `inno`,
+  `msi` and `burn` subfolders, each installer's files (name and size) are compared with `CORVUS_ARCHIVE_LISTER`
+  (7-Zip), `CORVUS_SETUP_LISTER` (innounp), `CORVUS_MSI_LISTER` (lessmsi) or `CORVUS_BUNDLE_EXTRACTOR` (the WiX `wix`
+  tool). A format whose tool is unset is skipped; each installer must match at least 99% of the reference rows.
+- **Dependencies against syft** (`DependencyListerComparisonTests`, `CORVUS_DEPENDENCY_LISTER`): an app with two NuGet
+  packages, published as a framework-dependent single-file bundle and as a folder, must list in `view=dependencies`
+  every NuGet package URL syft lists, and both packages on each. A built Android package must list every package URL
+  syft lists for it, and every Maven URL it lists for the same bytes read as a Java archive.
+- **Advisories against osv-scanner** (`OsvAdvisoriesTests`, `CORVUS_OSV_SCANNER`, offline databases downloaded): an
+  app with an old Newtonsoft.Json and NLog, published with a lock file, must report in `view=dependencies` the same
+  advisories osv-scanner reports for that packages.lock.json.
+- **Compiled XAML** (`XbfCompilerTests`, `CORVUS_WINDOWS_APP_SDK` naming a Microsoft.WindowsAppSDK version): a WinUI
+  app (application, window, a page of resources, styles, templates, visual states, conditional XAML) is built; each
+  `.xbf` read with `view=xbf` must be complete, declare the source's elements in order and resolve every event handler
+  the source names.
+- **Il2Cpp capabilities against capa** (`Il2CppCapaTests`, `CORVUS_CAPA` naming standalone capa 10.0.0): the freeze
+  file for a built x64 game binary whose functions call methods named as `File.WriteAllText`, `RegistryKey.GetValue`
+  and `HttpClient.GetAsync` must load in capa and match "write file in .NET", "query or enumerate registry value" and
+  "send HTTP request" at the calling functions. Rerun for each capa release: the freeze format changes between them.
+- **Whole-program emulation against speakeasy** (`ProgramEmulationRealTests`, `CORVUS_EMULATOR` naming speakeasy
+  2.0.0b9): a small x86 program allocates a page, decodes a fixed text into it, writes it to a file and exits;
+  `emulate_native engine=speakeasy` must list its five kernel32 calls in order, save the file with the text and hold
+  the text at the allocation in its region set. A second build calls a function no emulator models and must stop by
+  that function's name.
+- **Capture HTTP objects against Wireshark** (`CaptureObjectsTSharkTests`, `CORVUS_TSHARK`): synthetic captures
+  (Content-Length, chunked, gzip / deflate / brotli, pipelining, resent segments, ranges, bodies ending at close,
+  request bodies) must export exactly the files `tshark --export-objects http` exports, by SHA-256. With
+  `CORVUS_CAPTURES` (key logs beside them as `<name>*.keys`), every object TShark exports must be among ours; TShark's
+  `object<frame>` files from frames that start no HTTP message are counted apart.
+- **Package review on real packages** (`PackageDatasetTests`): `CORVUS_PACKAGES_BAD` (known-bad npm, PyPI and VS Code
+  packages) and `CORVUS_PACKAGES_GOOD` (ordinary ones), each grouped in subfolders; prints the noteworthy share per
+  subfolder and checks both against floors. `CORVUS_PACKAGES_REPORT` names a file for one line per package.
+- **Repeated snapshots of a .NET program** (`LiveDotnetRealTests`, full set, `CORVUS_SNAPSHOT_RUNS` such as 30): each
+  run starts the readers program on a new server, snapshots it while it reads, and checks that it finishes every open
+  and exits with code 0, per architecture (Windows x64 and x86, Linux x64).
 - **Real-client checks** (`tests/agents/run-tasks.ps1`, or the full set with `CORVUS_CLIENT_CHECKS=1`): each installed
-  agent client (Claude Code, Codex, Gemini CLI; `CORVUS_CLIENT_CLAUDE`, `CORVUS_CLIENT_CODEX`,
-  `CORVUS_CLIENT_GEMINI` name other executables) gets one known-answer question about the Notes sample through this
-  build's server, graded by the facts in `tests/agents/tasks.json`. Every client option lives in
-  `tests/agents/clients.json`. A client that is not installed or not signed in is skipped.
-- **Token benchmark** (`run-tasks.ps1 -Set bench -Server corvus,reference -Runs 3`): ten known-answer tasks, per
-  client and server: correctness, tools called, input tokens (with the cached part), output tokens, cost and wall time,
-  in `results.jsonl`. `CORVUS_REFERENCE_SERVER` holds the server to compare against (JSON
+  agent client (Claude Code, Codex, Gemini CLI; `CORVUS_CLIENT_CLAUDE`, `CORVUS_CLIENT_CODEX`, `CORVUS_CLIENT_GEMINI`
+  name other executables) gets one known-answer question about the Notes sample through this build's server, graded
+  by the facts in `tests/agents/tasks.json`. Client options live in `tests/agents/clients.json`. A client that is not
+  installed or not signed in is skipped.
+- **Token benchmark** (`run-tasks.ps1 -Set bench -Server corvus,reference -Runs 3`): ten known-answer tasks per client
+  and server; records correctness, tools called, input tokens (with the cached part), output tokens, cost and wall
+  time in `results.jsonl`. `CORVUS_REFERENCE_SERVER` is the server to compare against (JSON
   `{"command": ..., "args": [...]}`); `CORVUS_AGENT_SERVER` replaces this build.
 
 ## Generated documents
 
-`docs/errors.md`, `docs/simplify.md`, `docs/saving.md`, `docs/tools.md`, the client table of `docs/installation.md`
-and the skill in `skills/corvus` are generated from the code and compared by tests. After changing their
-sources, regenerate them and commit the result:
+Generated from the code and compared by tests: `docs/errors.md`, `docs/limitations.md`, `docs/migration-reasons.md`,
+`docs/simplify.md`, `docs/saving.md`, `docs/tools.md`, `docs/schemas`, the client table of `docs/installation.md`, the
+skill in `skills/corvus`, the protocol samples and the "Read by" cells above. After changing their sources, regenerate
+and commit:
 
 ```sh
 CORVUS_UPDATE_DOCS=1 dotnet test
@@ -458,14 +468,13 @@ CORVUS_UPDATE_DOCS=1 dotnet test
 
 ## Guides and showcases
 
-`docs/guides` and `docs/showcase` run on the sample in `samples/Notes`, which the test project builds. Each
-`<!-- check: ... -->` comment marks the fenced block after it: `setup` commands must succeed, a `batch` runs its steps
-in one session, a `run` starts the sample, and the `output` block that follows must equal what they print, with
-repository paths made relative and each SHA-256 and GUID replaced by a label (`<sha256-1>`). The quick set checks the
-blocks' shape; the full set runs them (`SampleDocsTests`), and `CORVUS_UPDATE_DOCS=1` with the full set rewrites the
-output blocks.
+`docs/guides` and `docs/showcase` run on `samples/Notes`, which the test project builds. Each `<!-- check: ... -->`
+comment marks the fenced block after it: `setup` commands must succeed, a `batch` runs its steps in one session, a
+`run` starts the sample, and the following `output` block must equal what they print (repository paths made relative,
+each SHA-256 and GUID replaced by a label such as `<sha256-1>`). The quick set checks block shape; the full set runs
+them (`SampleDocsTests`); `CORVUS_UPDATE_DOCS=1` with the full set rewrites the output blocks.
 
 ## Command-line tests
 
-The command line is tested in process: `ToolCli.RunAsync` with string writers and a server over in-memory streams, so
-these tests cost one server start each and need no published program.
+The command line is tested in process (`ToolCli.RunAsync` with in-memory I/O and a server over in-memory streams):
+one server start per test, no published program needed.
