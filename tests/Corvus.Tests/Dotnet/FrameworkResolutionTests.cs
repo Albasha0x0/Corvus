@@ -20,6 +20,22 @@ public class FrameworkResolutionTests : IDisposable
         return path;
     }
 
+    // Regression: on a GitHub runner a call waited over 20 s while a downloaded pack was written out (CI on e579b9a2).
+    [Fact]
+    public void A_reference_pack_is_written_without_its_documentation_files()
+    {
+        var bytes = new MemoryStream();
+        using (var zip = new System.IO.Compression.ZipArchive(bytes, System.IO.Compression.ZipArchiveMode.Create, leaveOpen: true))
+            foreach (var name in new[] { "ref/net6.0/System.Runtime.dll", "ref/net6.0/System.Runtime.xml", "data/FrameworkList.xml", "lib/net6.0/x.dll", "Microsoft.NETCore.App.Ref.nuspec" })
+                using (var w = new StreamWriter(zip.CreateEntry(name).Open())) w.Write(name);
+        bytes.Position = 0;
+        var folder = Folder("pack");
+        using (var zip = new System.IO.Compression.ZipArchive(bytes, System.IO.Compression.ZipArchiveMode.Read))
+            ReferencePacks.Extract(zip, folder);
+        Assert.Equal(["data/FrameworkList.xml", "ref/net6.0/System.Runtime.dll"],
+            Directory.EnumerateFiles(folder, "*", SearchOption.AllDirectories).Select(f => Path.GetRelativePath(folder, f).Replace('\\', '/')).Order(StringComparer.Ordinal));
+    }
+
     [Fact]
     public void AnOlderMajorVersion_ResolvesToThatFramework_WhenInstalled()
     {

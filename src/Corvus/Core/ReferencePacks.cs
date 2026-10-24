@@ -45,6 +45,23 @@ internal static class ReferencePacks
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { return null; }
     }
 
+    /// <summary>Writes the pack's reference assemblies and data files under <paramref name="folder"/>; other entries are left out.</summary>
+    internal static void Extract(ZipArchive zip, string folder)
+    {
+        foreach (var entry in zip.Entries)
+        {
+            var name = entry.FullName.Replace('\\', '/');
+            if (!(name.StartsWith("ref/", StringComparison.OrdinalIgnoreCase) || name.StartsWith("data/", StringComparison.OrdinalIgnoreCase))
+                || name.EndsWith('/') || name.Contains("..", StringComparison.Ordinal)) continue;
+            // The documentation files are 82% of a pack's bytes (6.0.36: 23.6 of 28.6 MB) and nothing reads them; calls
+            // wait on this extraction.
+            if (name.StartsWith("ref/", StringComparison.OrdinalIgnoreCase) && name.EndsWith(".xml", StringComparison.OrdinalIgnoreCase)) continue;
+            var path = Path.Combine(folder, name);
+            Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+            entry.ExtractToFile(path, overwrite: true);
+        }
+    }
+
     private static string? Download(string packId, int major)
     {
         var id = packId.ToLowerInvariant();
@@ -66,17 +83,7 @@ internal static class ReferencePacks
             var target = Path.Combine(CacheRoot, id, version);
             var staging = target + ".tmp-" + Guid.NewGuid().ToString("N");
             using (var zip = new ZipArchive(new MemoryStream(bytes), ZipArchiveMode.Read))
-            {
-                foreach (var entry in zip.Entries)
-                {
-                    var name = entry.FullName.Replace('\\', '/');
-                    if (!(name.StartsWith("ref/", StringComparison.OrdinalIgnoreCase) || name.StartsWith("data/", StringComparison.OrdinalIgnoreCase))
-                        || name.EndsWith('/') || name.Contains("..", StringComparison.Ordinal)) continue;
-                    var path = Path.Combine(staging, name);
-                    Directory.CreateDirectory(Path.GetDirectoryName(path)!);
-                    entry.ExtractToFile(path, overwrite: true);
-                }
-            }
+                Extract(zip, staging);
             Directory.CreateDirectory(Path.GetDirectoryName(target)!);
             try { SafeFile.WhenReleased(() => Directory.Move(staging, target), lost: () => Directory.Exists(target)); }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException && Directory.Exists(target)) { Directory.Delete(staging, recursive: true); } // another process finished first
