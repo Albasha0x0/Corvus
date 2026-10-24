@@ -16,7 +16,7 @@ public sealed class EngineRealDataTests(ITestOutputHelper output) : IDisposable
 
     public void Dispose() => _dir.Dispose();
 
-    /// <summary>A copy in this test's folder, so the engine's database lands beside it and never in the package folder.</summary>
+    /// <summary>A copy in this test's folder, so the engine never reads the package folder.</summary>
     private string Image()
     {
         var copy = _dir.File("jitinterface_x64.dll");
@@ -35,7 +35,10 @@ public sealed class EngineRealDataTests(ITestOutputHelper output) : IDisposable
     public async Task Ida_tools_work_on_a_real_dll()
     {
         var image = Image();
-        await using var c = await _phases.Run("server start", () => McpProtocolTests.StartServerInAsync(_dir.Path, "--ida-scripting"));
+        // The test's edits are saved into the database, so it gets an analysis cache of its own: the shared one would
+        // hand the next run the renamed frame.
+        await using var c = await _phases.Run("server start", () => McpProtocolTests.StartServerAsync(_dir.Path, null, ["--ida-scripting"],
+            new Dictionary<string, string?> { [Corvus.Native.Providers.AnalysisCache.RootVariable] = _dir.File("cache") }));
         var (_, exports) = await _phases.Run("list_exports", () => Call(c, "list_exports", new() { ["image"] = image }));
         var function = exports.GetProperty("items")[0].GetProperty("name").GetString()!;
         Dictionary<string, object?> On(params (string Key, object? Value)[] more) =>
