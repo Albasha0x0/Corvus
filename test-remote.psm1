@@ -649,7 +649,7 @@ function Get-OffloadTarget([string]$repo, [bool]$releaseTier) {
         if ($LASTEXITCODE -ne 0) { return $null }
     }
     $remote = "$([Environment]::GetEnvironmentVariable($script:HostVariable))".Trim()
-    if ($remote -and (Test-RemoteHost $remote)) { return @{ Name = $remote; Kind = 'ssh'; Host = $remote; Variables = @(Get-HostVariables $remote) } }
+    if ($remote -and (Test-RemoteHost $remote)) { return @{ Name = $remote; Kind = 'ssh'; Host = $remote; Variables = @(Get-HostVariables $remote); Processors = Get-HostProcessors $remote } }
     Get-GitHubTarget $repo
 }
 
@@ -772,6 +772,13 @@ function Get-HostVariables([string]$remoteHost) {
     $names = @(Invoke-Transport $script:SshVariable 'ssh' (@($script:SshOptions) + @($remoteHost, "powershell -NoProfile -NonInteractive -EncodedCommand $encoded")) $script:ShortCallSeconds)
     if ($LASTEXITCODE -ne 0) { return @() }
     @($names | ForEach-Object { "$_".Trim() } | Where-Object { $_ -match '^CORVUS_\w+$' } | Sort-Object -Unique)
+}
+
+# The logical processor count of the test host $remoteHost; 0 when it cannot be read.
+function Get-HostProcessors([string]$remoteHost) {
+    $count = @(Invoke-Transport $script:SshVariable 'ssh' (@($script:SshOptions) + @($remoteHost, 'powershell -NoProfile -NonInteractive -Command [Environment]::ProcessorCount')) $script:ShortCallSeconds)
+    if ($LASTEXITCODE -ne 0) { return 0 }
+    $n = 0; if ([int]::TryParse("$($count | Select-Object -Last 1)".Trim(), [ref]$n)) { $n } else { 0 }
 }
 
 # The script a test host runs: wait for $commit on origin (or take it from the bundle sent beside the script), check it
