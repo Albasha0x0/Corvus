@@ -202,7 +202,9 @@
   `.git/corvus-nightly.log` (test output in `.log.run`); `-Status` shows the last step.
 
 CI (`.github/workflows/ci.yml`) runs the quick set as a smoke lane plus the offload job; `release.yml` builds the
-release archives. The full set and real-application runs are local. To run the Live family (slow tests included) on
+release archives; `codeql.yml` and `scorecard.yml` scan the code and the repository weekly and on each push, and
+Dependabot proposes weekly package and action updates. Every workflow is read-only by default and pins actions by
+commit SHA (`ReleaseProvenanceTests`). The full set and real-application runs are local. To run the Live family (slow tests included) on
 macOS and Windows ARM64, start ci.yml by hand: `gh workflow run ci.yml --ref <branch> -f live=true`. That job installs
 64-bit Python and the tested Frida release on macos-latest, windows-11-arm, ubuntu-latest and windows-latest and
 uploads one TRX per machine (`live-results-<os>`).
