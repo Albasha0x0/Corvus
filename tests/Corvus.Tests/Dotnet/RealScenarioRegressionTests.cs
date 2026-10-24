@@ -733,8 +733,10 @@ public sealed class RealScenarioRegressionTests
         using var dir = new TempDir();
         using var env = new Env();
         var inspection = new Corvus.Services.Analysis.InspectionService(env.Workspace);
-        var error = Assert.Throws<ToolError>(() => inspection.Summarize(null, dir.Path, default)).Message;
+        var error = Assert.Throws<ToolError>(() => inspection.SurveyFeatures(null, dir.Path, null, default)).Message;
         Assert.Contains("is a directory", error);
+        // summarize_file reads a folder as a source folder and still names the tool for its assemblies.
+        Assert.Contains(inspection.Summarize(null, dir.Path, default).Highlights, h => h.Contains("list_assemblies with path", StringComparison.Ordinal));
     }
 
     [Trait("Speed", "Slow")]

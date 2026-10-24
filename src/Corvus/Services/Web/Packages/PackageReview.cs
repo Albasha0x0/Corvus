@@ -5,7 +5,7 @@ using Corvus.Services.Web.Scripts;
 namespace Corvus.Services.Web.Packages;
 
 /// <param name="Level">noteworthy (worth a close look before installing) or review (expected in some packages, worth a look).</param>
-/// <param name="Category">install script, network, process, dynamic code, credentials, host details, exfiltration, persistence, publishing, transformed code, binary, name, permission, activation, remote code, hidden text, agent configuration.</param>
+/// <param name="Category">install script, network, process, dynamic code, credentials, host details, exfiltration, persistence, publishing, transformed code, binary, name, permission, activation, remote code, hidden text, agent configuration, repository hook, build step, rule match (GuardDog), provenance.</param>
 /// <param name="Line">1-based line in <paramref name="Path"/>, when the finding has one.</param>
 public sealed record PackageFinding(string Level, string Category, string Detail, string? Path = null, int? Line = null);
 
@@ -40,11 +40,17 @@ public sealed record PackageReport(string Ecosystem, string? Name, string? Versi
     [Description("noteworthy, worth reviewing, or none: the strongest finding.")]
     public string Review { get; init; } = "none";
 
-    [Description("Agent configuration: instruction files, Claude Code hooks, MCP servers and tasks run on folder open, at file and line.")]
+    [Description("What runs without being asked, at file and line: agent files, hooks, MCP servers, folder-open tasks, git hooks and config, dev container commands, build steps.")]
     public IReadOnlyList<AgentEntry>? Agents { get; init; }
+
+    [Description("Signed provenance beside the package file (Sigstore bundle, npm attestations, PyPI provenance): digest, signature, certificate chain and log entry, checked offline.")]
+    public IReadOnlyList<PackageAttestation>? Provenance { get; init; }
 
     public IReadOnlyList<PackageFinding> Findings { get; init; } = [];
     public IReadOnlyList<string> Notes { get; init; } = [];
+
+    /// <summary>Hosts the package's code files name in URLs, for comparing two versions; null when not read.</summary>
+    internal IReadOnlyList<string>? Hosts { get; init; }
 }
 
 /// <summary>
@@ -55,10 +61,15 @@ public sealed record PackageReport(string Ecosystem, string? Name, string? Versi
 /// </summary>
 public static partial class PackageReview
 {
-    public static PackageReport? Review(string path, CancellationToken ct)
+    public static PackageReport? Review(string path, CancellationToken ct) => Review(path, ct, hosts: false);
+
+    /// <summary>The review of <paramref name="path"/>; with <paramref name="hosts"/>, also the hosts its code files name.</summary>
+    internal static PackageReport? Review(string path, CancellationToken ct, bool hosts)
     {
         var files = PackageFiles.Open(path, ct);
-        if (files == null || files.Count == 0) return null;
+        // A folder always gets a report, so an empty one says nothing runs rather than that the folder was not read.
+        bool folder = Directory.Exists(path);
+        if (files == null || files.Count == 0 && !folder) return null;
         PackageReport? report = files.Crx != null || ManifestJson(files) != null && Root(files, "manifest.json") is { } m && IsExtensionManifest(files, m) ? Extension(files, ct)
             : Root(files, "extension.vsixmanifest") != null || files.Has("extension/package.json") ? Vsix(files, ct)
             : Root(files, "package.json") != null ? Npm(files, ct)
@@ -66,13 +77,28 @@ public static partial class PackageReview
             : null;
         // A source tree with no package manifest is reviewed for its agent configuration alone.
         var agent = AgentConfig(files, standalone: report == null, ct);
-        if (report == null && agent == null) return null;
+        var hooks = RepositoryHooks(files, ct);
+        if (report == null && agent == null && hooks == null && !folder) return null;
         report ??= new PackageReport("repository", null, null);
-        if (agent != null)
-            report = report with { Agents = agent.Entries.Count > 0 ? agent.Entries : null, Findings = [.. report.Findings, .. agent.Findings], Notes = [.. report.Notes, .. agent.Notes] };
+        foreach (var found in new[] { agent, hooks }.OfType<AgentReview>())
+            report = report with { Agents = [.. report.Agents ?? [], .. found.Entries], Findings = [.. report.Findings, .. found.Findings], Notes = [.. report.Notes, .. found.Notes] };
+        if (report.Agents is { Count: 0 }) report = report with { Agents = null };
+        var (rules, ruleNote) = GuardDogRules.Scan(path, report.Ecosystem, ct);
+        if (rules.Count > 0 || ruleNote != null) report = report with { Findings = [.. report.Findings, .. rules], Notes = ruleNote != null ? [.. report.Notes, ruleNote] : report.Notes };
+        if (!folder)
+        {
+            var (attestations, provenanceNotes) = PackageProvenance.Read(path, ct);
+            if (attestations.Count > 0 || provenanceNotes.Count > 0)
+                report = report with
+                {
+                    Provenance = attestations.Count > 0 ? attestations : null,
+                    Findings = [.. report.Findings, .. attestations.SelectMany(ProvenanceFindings)],
+                    Notes = [.. report.Notes, .. provenanceNotes],
+                };
+        }
         var findings = report.Findings.Distinct().OrderBy(f => f.Level == "noteworthy" ? 0 : 1).ThenBy(f => f.Category, StringComparer.Ordinal).ToList();
         var review = findings.Any(f => f.Level == "noteworthy") ? "noteworthy" : findings.Count > 0 ? "worth reviewing" : "none";
-        return report with { Findings = findings, Review = review, Files = files.Count, Notes = [.. files.Notes, .. report.Notes] };
+        return report with { Findings = findings, Review = review, Files = files.Count, Notes = [.. files.Notes, .. report.Notes], Hosts = hosts ? Hosts(files, ct) : null };
     }
 
     // an sdist holds one top folder; some archives carry setup.py at their root
@@ -327,6 +353,32 @@ public static partial class PackageReview
     /// <summary>Signs of a transformation layer worth reading through: string arrays, eval / exec of decoded text, packers, encoded commands.</summary>
     private static readonly Regex Transformed = R(@"\b_0x[0-9a-f]{4,6}\b.{0,200}\b_0x[0-9a-f]{4,6}\b|\beval\s*\(\s*(?:atob|unescape|Buffer\.from|String\.fromCharCode|decodeURIComponent|function\s*\(p,a,c,k)|\bFunction\s*\(\s*(?:atob|unescape|String\.fromCharCode)|(?i:\b(?:iex|invoke-expression)\b|-enc(?:odedcommand)?\s+[A-Za-z0-9+/]{40})|\bExecute(?:Global)?\s*\(?\s*(?:Chr|StrReverse)");
 
+    private static readonly Regex UrlHost = R(@"\b(?:https?|wss?|ftp)://([A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+|\[[0-9A-Fa-f:]+\])");
+    private static readonly HashSet<string> CodeExtensions = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ".js", ".mjs", ".cjs", ".ts", ".jsx", ".tsx", ".py", ".sh", ".ps1", ".bat", ".cmd", ".vbs", ".rb", ".pl", ".php", ".lua", ".go", ".rs", ".cs", ".java", ".kt",
+    };
+    private const int MaxHosts = 1000;
+    private const long MaxHostText = 64L << 20;
+
+    /// <summary>Hosts named in URLs in the code files (and install scripts of package.json), at most <see cref="MaxHosts"/>, over the first 64 MiB of code.</summary>
+    private static List<string> Hosts(PackageFiles files, CancellationToken ct)
+    {
+        var hosts = new SortedSet<string>(StringComparer.Ordinal);
+        long read = 0;
+        foreach (var path in files.Paths.Where(p => CodeExtensions.Contains(Path.GetExtension(p)) || p == "package.json" || p.EndsWith("/package.json", StringComparison.Ordinal))
+                     .Where(p => !p.Contains("node_modules/", StringComparison.Ordinal)).Order(StringComparer.Ordinal))
+        {
+            ct.ThrowIfCancellationRequested();
+            if (read > MaxHostText || hosts.Count >= MaxHosts) break;
+            if (files.Text(path) is not { } text) continue;
+            read += text.Length;
+            foreach (Match m in UrlHost.Matches(text))
+                if (hosts.Count < MaxHosts) hosts.Add(m.Groups[1].Value.ToLowerInvariant());
+        }
+        return [.. hosts];
+    }
+
     /// <summary>Native and executable files a package carries.</summary>
     internal static List<string> Binaries(PackageFiles files) =>
         files.Paths.Where(p => Regex.IsMatch(p, @"\.(node|so|dylib|dll|exe|pyd|wasm|jar|bin|msi|scr|com)$", RegexOptions.IgnoreCase)
@@ -374,4 +426,10 @@ public static partial class PackageReview
             }
         return d[a.Length, b.Length];
     }
+
+    // A check that failed is noteworthy: the file differs from what was signed, or the signature does not hold.
+    private static IEnumerable<PackageFinding> ProvenanceFindings(PackageAttestation a) =>
+        new[] { ("digest", a.Digest), ("signature", a.Signature), ("certificate chain", a.Chain), ("log entry", a.Log) }
+            .Where(c => c.Item2.StartsWith("failed", StringComparison.Ordinal))
+            .Select(c => new PackageFinding("noteworthy", "provenance", $"{a.Format} {c.Item1} {c.Item2}", a.File));
 }

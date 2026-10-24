@@ -55,7 +55,7 @@
       }
     },
     "view": {
-      "description": "pairs, changed, unmatched or ambiguous.",
+      "description": "pairs, changed, unmatched or ambiguous; memory with engine.",
       "type": "string"
     },
     "items": {
@@ -273,13 +273,13 @@
       ]
     },
     "changes": {
-      "description": "Results or capabilities that differ.",
+      "description": "Results or capabilities that differ; engine=: the ranges where the file and the engine's memory differ.",
       "type": "array",
       "items": {
         "type": "object",
         "properties": {
           "kind": {
-            "description": "changed, removed, added, or unknown (absent from a partial side).",
+            "description": "changed, removed, added, or unknown (absent from a partial side); engine memory: what wrote the range.",
             "type": "string"
           },
           "key": {
@@ -292,7 +292,7 @@
             "type": "string"
           },
           "fields": {
-            "description": "changed: the fields that differ.",
+            "description": "changed: the fields that differ; engine memory: the range's detail.",
             "type": "array",
             "items": {
               "type": "string"

@@ -193,7 +193,7 @@ public sealed class ManagedDumpRealTests(ITestOutputHelper output)
     {
         if (!OperatingSystem.IsWindows()) return;
         using var dir = new TempDir();
-        using var env = new EnvironmentScope().Set(Native.Pdb.PdbLocator.CacheVariable, dir.File("cache")).Set("CORVUS_OFFLINE", null)
+        using var env = new EnvironmentScope().Set(Native.Pdb.PdbLocator.CacheVariable, dir.File("cache")).Set(Core.ReferencePacks.OfflineVariable, null)
             .Set("_NT_SYMBOL_PATH", null).Set("_NT_ALT_SYMBOL_PATH", null);
         var dump = Crash(Build(dir), dir.File("mini.dmp"), 1);
         var request = new Native.Dump.Managed.DacRequest(Download: true) { DownloadOnly = true };

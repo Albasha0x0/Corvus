@@ -132,7 +132,8 @@ public static class PythonLocator
         ChildProcess child;
         try
         {
-            child = ChildProcess.Start(new ChildProcessStart(exe, args) { Environment = environment ?? new Dictionary<string, string?>() });
+            // Without an environment the child inherits the server's, plus the host's kept child variables (none in the server).
+            child = ChildProcess.Start(new ChildProcessStart(exe, args) { Environment = environment ?? ExternalTools.KeptChildVariables() });
         }
         catch (Exception ex) when (ex is System.ComponentModel.Win32Exception or IOException or UnauthorizedAccessException)
         {

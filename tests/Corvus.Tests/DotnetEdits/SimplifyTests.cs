@@ -905,6 +905,93 @@ public sealed class SimplifyTests : IDisposable
         Assert.Empty(env.Fixture.Edits);
     }
 
+    /// <summary>The Obf assembly XALZ-compressed in the assembly store of an APK, unpacked and loaded from there.</summary>
+    [Fact]
+    public void An_assembly_unpacked_from_an_apk_assembly_store_is_simplified_and_saved()
+    {
+        var store = ContainerFixtures.AssemblyStore(ContainerFixtures.Module("StoreRaw"), CompileRelease("Obf", ObfSource));
+        var apk = _dir.File("app.apk");
+        File.WriteAllBytes(apk, ContainerFixtures.Zip(
+            ("AndroidManifest.xml", [0x03, 0x00, 0x08, 0x00]), ("lib/arm64-v8a/libassemblies.arm64-v8a.blob.so", store), ("classes.dex", "dex\n035"u8.ToArray())));
+        using var env = new Env();
+        var unpacked = new Corvus.Services.Analysis.UnpackService(env.Workspace).Unpack(apk, _dir.File("out"), load: true, AnalysisLimits.Default, default);
+        Assert.Contains(unpacked.Files, f => f.LoadedAs == "Obf");
+
+        Assert.Contains("folded Obf.Strings::Greeting() -> \"Hello, World!\"", Simplify(env, "Obf.Strings::UseAll"));
+        var saved = _dir.File("Obf.simplified.dll");
+        env.Edits.Save(env.One("Obf.Strings::UseAll").Assembly, saved, overwrite: false);
+        using var module = ModuleDefMD.Load(saved);
+        var body = module.Find("Obf.Strings", false).FindMethod("UseAll").Body.Instructions;
+        Assert.Equal("Hello, World!|secret-keyacegi-ok", Assert.Single(body, i => i.OpCode == OpCodes.Ldstr).Operand);
+    }
+
+    [Fact]
+    public void The_transforms_view_counts_restored_and_kept_sites_without_editing()
+    {
+        using var env = new Env(ObfFixture());
+        var before = Il(env, "Obf.Strings::UseAll");
+        Corvus.Services.AssemblyReport.Summary summary = null!;
+        var text = env.Workspace.Read(() => env.Report.Build(env.Fixture, "transforms", out summary));
+
+        // Io.ReadConfig reads a file and Calc builds a string from arithmetic: neither has a decoder shape, so neither counts.
+        var constants = Assert.Single(summary.Transformers!, t => t.Name == "layer: " + TransformLayers.Constants);
+        Assert.Equal("restored", constants.Confidence);
+        Assert.Matches(@"^(\d+) site\(s\), \1 restored$", constants.Evidence[0]);
+        Assert.DoesNotContain(constants.Evidence, e => e.StartsWith("external-io", StringComparison.Ordinal));
+        Assert.Contains("Transforms (a simplify_methods dry run; nothing is changed):", text);
+        Assert.Empty(env.Fixture.Edits);
+        Assert.Equal(before, Il(env, "Obf.Strings::UseAll"));
+    }
+
+    private const string HelperSource = """
+        using System.IO;
+
+        namespace Helpers
+        {
+            public static class Labels
+            {
+                public static string Item(int n) => "Item " + n;
+                public static string Pair() => string.Concat("a", "b") + Item(3);
+            }
+
+            public static class Keyed
+            {
+                public static string Get(int salt)
+                {
+                    var key = File.ReadAllBytes("key-that-does-not-exist.bin");
+                    var chars = new char[4];
+                    for (int i = 0; i < 4; i++) chars[i] = (char)(key[i] ^ salt);
+                    return new string(chars);
+                }
+
+                public static string Use() => Get(7);
+            }
+        }
+        """;
+
+    [Fact]
+    public void Only_helpers_with_a_decoder_shape_make_a_constants_layer()
+    {
+        var path = _dir.File("Helpers.dll");
+        File.WriteAllBytes(path, CompileRelease("Helpers", HelperSource));
+        using var env = new Env(path);
+        var constants = Assert.Single(env.Workspace.Read(() => TransformLayers.Read(env.Fixture, default)), l => l.Layer == TransformLayers.Constants);
+        Assert.Equal("unknown", constants.State);
+        Assert.Equal((1, 0), (constants.Sites, constants.Restored));
+        Assert.Equal("external-io: 1", constants.Reasons[0]);
+        Assert.Contains("Keyed::Use", constants.Evidence);
+    }
+
+    [Fact]
+    public void Layers_the_time_limit_stops_are_unknown_and_name_the_limit()
+    {
+        using var env = new Env(ObfFixture());
+        var layers = env.Workspace.Read(() => TransformLayers.Read(env.Fixture, default, TimeSpan.Zero));
+        Assert.Equal([TransformLayers.Constants, TransformLayers.Proxies, TransformLayers.ControlFlow], layers.Select(l => l.Layer));
+        Assert.All(layers, l => Assert.Equal("unknown", l.State));
+        Assert.All(layers, l => Assert.Matches(@"^time-limit: \d+ method\(s\) not reached within 0 s$", Assert.Single(l.Reasons)));
+    }
+
     [Fact]
     public void SimplifiedAssembliesSaveAndReloadCleanly()
     {

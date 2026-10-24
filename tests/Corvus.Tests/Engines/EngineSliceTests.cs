@@ -244,6 +244,65 @@ public sealed class EngineSliceTests(ITestOutputHelper output) : IDisposable
         Assert.True(placed >= located / 2, $"location: {placed} of {located}");
     }
 
+    // The linker's delay-load tail-merge stub: it saves and restores every argument register, then jumps to RAX.
+    private const string DelayLoadSource = """
+        #include <windows.h>
+        __declspec(dllexport) int CallDelayed(void) { return GetSystemMetrics(SM_CXSCREEN); }
+        """;
+
+    [GhidraFact]
+    [Trait("Speed", "Slow")]
+    public async Task Ghidra_marks_arguments_of_an_indirect_call_without_a_prototype_as_inferred()
+    {
+        var vcvars = VisualStudio.VcVarsAll();
+        if (vcvars == null) return;
+        File.WriteAllText(_dir.File("delayload.c"), DelayLoadSource);
+        var (exit, log) = Tools.Run(new ProcessStartInfo("cmd.exe")
+        {
+            WorkingDirectory = _dir.Path,
+            Arguments = $"/s /c \"\"{vcvars}\" x64 >nul && cl /nologo /O2 /LD delayload.c /link /DELAYLOAD:user32.dll user32.lib delayimp.lib /OUT:delayload.dll\"",
+        }, 300_000);
+        Assert.True(exit == 0, log);
+
+        var options = new ServerOptions { TimeoutSeconds = 600, BackgroundIndexing = false };
+        using var ws = new AssemblyWorkspace(options);
+        var code = new NativeCodeService(ws, options, null, new Native.Annotations.AnnotationStore(_dir.File("ann")));
+        using var engines = new NativeEngineService(new IdaProviderOptions { CacheRoot = _dir.File("cache") }, code, ws, options,
+            new GhidraProviderOptions { CacheRoot = _dir.File("cache") });
+        var native = ws.LoadAny(_dir.File("delayload.dll")).Native!;
+        var (stub, call, jump) = TailMergeStub(native.Image);
+        var session = await engines.Session(native, "ghidra", null, default);
+
+        var inferred = await session.ValueSliceAsync(new EngineSliceRequest(stub, "argument", jump, Forward: true, Index: 0));
+        Assert.True(inferred.Nodes.Single(n => n.Kind == "argument").Derived, inferred.Note);
+        Assert.Equal($"argument registers of the indirect call at 0x{jump:X} are inferred by the decompiler and can differ between runs", inferred.Note);
+
+        var direct = await session.ValueSliceAsync(new EngineSliceRequest(stub, "argument", call, Forward: true, Index: 0));
+        Assert.False(direct.Nodes.Single(n => n.Kind == "argument").Derived);
+        Assert.Null(direct.Note);
+    }
+
+    /// <summary>The stub's start, its call to the delay-load helper and its JMP RAX, found by its first instructions.</summary>
+    private static (uint Stub, uint Call, uint Jump) TailMergeStub(INativeImage image)
+    {
+        byte[] prologue = [0x48, 0x89, 0x4C, 0x24, 0x08, 0x48, 0x89, 0x54, 0x24, 0x10, 0x4C, 0x89, 0x44, 0x24, 0x18, 0x4C, 0x89, 0x4C, 0x24, 0x20];
+        var text = image.Sections.First(s => s.IsExecutable);
+        var bytes = new byte[text.MappedSize];
+        image.Read(text.Rva, bytes);
+        int at = bytes.AsSpan().IndexOf(prologue);
+        Assert.True(at >= 0, "no tail-merge stub in the image");
+        uint stub = text.Rva + (uint)at, call = 0;
+        var decoder = Iced.Intel.Decoder.Create(64, new Iced.Intel.ByteArrayCodeReader(bytes, at, bytes.Length - at), stub);
+        for (int i = 0; i < 40; i++)
+        {
+            var insn = decoder.Decode();
+            if (insn.Mnemonic == Iced.Intel.Mnemonic.Call && call == 0) call = (uint)insn.IP;
+            if (insn.Mnemonic == Iced.Intel.Mnemonic.Jmp && insn.Op0Kind == Iced.Intel.OpKind.Register && insn.Op0Register == Iced.Intel.Register.RAX)
+                return (stub, call, (uint)insn.IP);
+        }
+        throw new InvalidOperationException("the tail-merge stub has no JMP RAX");
+    }
+
     /// <summary>ARM64 (an ELF from the runtime packages): constant call arguments through the engine against the built-in AAPCS64 slices.</summary>
     private async Task Arm64ConstantsAgree(string engine)
     {

@@ -9,7 +9,8 @@ namespace Corvus.Tests;
 /// <summary>String decoder calls of DEX code evaluated by DalvikEvaluator, shown by disassemble_dex and search_dex, on built DEX files.</summary>
 public sealed class DexStringFoldingTests : IDisposable
 {
-    private const string Dec = "Lp/Dec;", Main = "Lp/Main;", Tab = "Lp/Tab;", Util = "Lp/Util;", Bad = "Lp/Bad;", Cnt = "Lp/Cnt;", Cfg = "Lp/Cfg;";
+    private const string Dec = "Lp/Dec;", Main = "Lp/Main;", Tab = "Lp/Tab;", Util = "Lp/Util;", Bad = "Lp/Bad;", Cnt = "Lp/Cnt;", Cfg = "Lp/Cfg;", Tbl = "Lp/Tbl;", Obj = "Lp/Obj;";
+    private const string Rev = Dec + "->r(Ljava/lang/String;)Ljava/lang/String;";
     private const string S = "Ljava/lang/String;", Sb = "Ljava/lang/StringBuilder;";
     private const int Key = 0x5a, ByteKey = 0x11;
     private const string Wide = "héllo";
@@ -63,6 +64,13 @@ public sealed class DexStringFoldingTests : IDisposable
             Asm.Op11x(0x0c, 0), Asm.Invoke(0x6e, Sb + "->toString()Ljava/lang/String;", 0), Asm.Op11x(0x0c, 0), Asm.Return(0x11, 0));
         // n(String): a nested helper of another class shifts each character by one.
         Method(dec, "n", [S], 2, Asm.Const4(0, 1), Asm.Invoke(0x71, Util + "->rot(Ljava/lang/String;I)Ljava/lang/String;", 1, 0), Asm.Op11x(0x0c, 0), Asm.Return(0x11, 0));
+        // c(String) returns r(s).toCharArray(); y(String) returns r(s).getBytes("UTF-8"). Callers turn them into strings.
+        dec.Method("c", "[C", [S], 9,
+            Asm.Invoke(0x71, Dec + "->r(Ljava/lang/String;)Ljava/lang/String;", 1), Asm.Op11x(0x0c, 0), Asm.Invoke(0x6e, S + "->toCharArray()[C", 0),
+            Asm.Op11x(0x0c, 0), Asm.Return(0x11, 0)).Registers = 2;
+        dec.Method("y", "[B", [S], 9,
+            Asm.Invoke(0x71, Dec + "->r(Ljava/lang/String;)Ljava/lang/String;", 2), Asm.Op11x(0x0c, 0), Asm.ConstString(1, "UTF-8"),
+            Asm.Invoke(0x6e, S + "->getBytes(Ljava/lang/String;)[B", 0, 1), Asm.Op11x(0x0c, 0), Asm.Return(0x11, 0)).Registers = 3;
 
         var util = b.Class(Util);
         Method(util, "rot", [S, "I"], 6,
@@ -97,7 +105,42 @@ public sealed class DexStringFoldingTests : IDisposable
         Method(cfg, "g", [S], 2, Asm.Static(0x62, 0, Cfg + "->name:Ljava/lang/String;"), Asm.Invoke(0x6e, S + "->concat(Ljava/lang/String;)Ljava/lang/String;", 1, 0),
             Asm.Op11x(0x0c, 0), Asm.Return(0x11, 0));
 
+        // Tbl: z = { r("rehpic"), "nialp" } and w = { r("rehpic") } from the static initializer; set() also stores into w.
+        var tbl = b.Class(Tbl).Field("z", "[" + S, 0x18).Field("w", "[" + S, 0x18);
+        tbl.Method("<clinit>", "V", [], 8,
+            Asm.Const4(0, 2), NewArray(0, 0, "[" + S), Asm.Const4(1, 0), Asm.ConstString(2, "rehpic"), Asm.Invoke(0x71, Rev, 2), Asm.Op11x(0x0c, 2),
+            Asm.Op23x(0x4d, 2, 0, 1), Asm.Const4(1, 1), Asm.ConstString(2, "nialp"), Asm.Op23x(0x4d, 2, 0, 1), Asm.Static(0x69, 0, Tbl + "->z:[" + S),
+            Asm.Const4(0, 1), NewArray(0, 0, "[" + S), Asm.Const4(1, 0), Asm.ConstString(2, "rehpic"), Asm.Invoke(0x71, Rev, 2), Asm.Op11x(0x0c, 2),
+            Asm.Op23x(0x4d, 2, 0, 1), Asm.Static(0x69, 0, Tbl + "->w:[" + S), Asm.ReturnVoid()).Registers = 3;
+        tbl.Method("set", "V", [], 9,
+            Asm.Static(0x62, 0, Tbl + "->w:[" + S), Asm.Const4(1, 0), Asm.ConstString(2, "x"), Asm.Op23x(0x4d, 2, 0, 1), Asm.ReturnVoid()).Registers = 3;
+
+        // Obj, a Kotlin-style object: INSTANCE and K = "!" from the static initializer; d(s) is this.h(s) + K, h(s) is r(s).
+        var obj = b.Class(Obj, access: 0x11).Field("INSTANCE", Obj, 0x19).Field("K", S, 0x19);
+        obj.Method("<clinit>", "V", [], 8,
+            Asm.NewInstance(0, Obj), Asm.Invoke(0x70, Obj + "-><init>()V", 0), Asm.Static(0x69, 0, Obj + "->INSTANCE:" + Obj), Asm.ConstString(0, "!"),
+            Asm.Static(0x69, 0, Obj + "->K:" + S), Asm.ReturnVoid()).Registers = 1;
+        obj.Method("<init>", "V", [], 2, Asm.Invoke(0x70, "Ljava/lang/Object;-><init>()V", 0), Asm.ReturnVoid()).Registers = 1;
+        obj.Method("d", S, [S], 0x11,
+            Asm.Invoke(0x6e, Obj + "->h(Ljava/lang/String;)Ljava/lang/String;", 1, 2), Asm.Op11x(0x0c, 0), Asm.Static(0x62, 1, Obj + "->K:" + S),
+            Asm.Invoke(0x6e, S + "->concat(Ljava/lang/String;)Ljava/lang/String;", 0, 1), Asm.Op11x(0x0c, 0), Asm.Return(0x11, 0)).Registers = 3;
+        obj.Method("h", S, [S], 0x11, Asm.Invoke(0x71, Rev, 2), Asm.Op11x(0x0c, 0), Asm.Return(0x11, 0)).Registers = 3;
+        // Box keeps an int field: its instance method is no decoder.
+        var box = b.Class("Lp/Box;").Field("v", "I", 0x1);
+        box.Method("<init>", "V", [], 1, Asm.Invoke(0x70, "Ljava/lang/Object;-><init>()V", 0), Asm.ReturnVoid()).Registers = 1;
+        box.Method("b", S, [S], 0x1, Asm.Invoke(0x71, Rev, 2), Asm.Op11x(0x0c, 0), Asm.Return(0x11, 0)).Registers = 3;
+
         var main = b.Class(Main);
+        Method(main, "kobject", [], 2,
+            Asm.Static(0x62, 0, Obj + "->INSTANCE:" + Obj), Asm.ConstString(1, "tcejbo"), Asm.Invoke(0x6e, Obj + "->d(Ljava/lang/String;)Ljava/lang/String;", 0, 1),
+            Asm.Op11x(0x0c, 0), Asm.Return(0x11, 0));
+        Method(main, "boxed", [], 2,
+            Asm.NewInstance(0, "Lp/Box;"), Asm.Invoke(0x70, "Lp/Box;-><init>()V", 0), Asm.ConstString(1, "xob"),
+            Asm.Invoke(0x6e, "Lp/Box;->b(Ljava/lang/String;)Ljava/lang/String;", 0, 1), Asm.Op11x(0x0c, 0), Asm.Return(0x11, 0));
+        Method(main, "computed", [], 2, Asm.Static(0x62, 0, Tbl + "->z:[" + S), Asm.Const4(1, 0), Asm.Op23x(0x46, 0, 0, 1), Asm.Return(0x11, 0));
+        Method(main, "element", [], 2,
+            Asm.Static(0x62, 0, Tbl + "->z:[" + S), Asm.Const4(1, 1), Asm.Op23x(0x46, 0, 0, 1), Asm.Invoke(0x71, Rev, 0), Asm.Op11x(0x0c, 0), Asm.Return(0x11, 0));
+        Method(main, "stored", [], 2, Asm.Static(0x62, 0, Tbl + "->w:[" + S), Asm.Const4(1, 0), Asm.Op23x(0x46, 0, 0, 1), Asm.Return(0x11, 0));
         main.Method("setup", "V", [], 9, Asm.ConstString(0, "y"), Asm.Static(0x69, 0, Cfg + "->name:Ljava/lang/String;"), Asm.ReturnVoid()).Registers = 1;
         Method(main, "xor", [], 2,
             Asm.Const4(0, 3), NewArray(0, 0, "[C"), Asm.FillArrayData(0, 11), Asm.Const16(1, Key), Asm.Invoke(0x71, Dec + "->x([CI)Ljava/lang/String;", 0, 1),
@@ -109,6 +152,21 @@ public sealed class DexStringFoldingTests : IDisposable
         Method(main, "table", [], 4,
             Asm.Const4(0, 4), Asm.Const4(1, 2), Asm.Const4(2, 3), Asm.Const4(3, 0), FilledNewArray("[I", 0, 1, 2, 3), Asm.Op11x(0x0c, 0),
             Asm.Invoke(0x71, Tab + "->t([I)Ljava/lang/String;", 0), Asm.Op11x(0x0c, 0), Asm.Return(0x11, 0));
+        Method(main, "chars", [], 1,
+            Asm.ConstString(0, "rahc"), Asm.Invoke(0x71, Dec + "->c(Ljava/lang/String;)[C", 0), Asm.Op11x(0x0c, 0),
+            Asm.Invoke(0x71, S + "->valueOf([C)Ljava/lang/String;", 0), Asm.Op11x(0x0c, 0), Asm.Return(0x11, 0));
+        Method(main, "bytes", [], 3,
+            Asm.ConstString(0, "etyb"), Asm.Invoke(0x71, Dec + "->y(Ljava/lang/String;)[B", 0), Asm.Op11x(0x0c, 0), Asm.NewInstance(1, S),
+            Asm.Static(0x62, 2, "Ljava/nio/charset/StandardCharsets;->UTF_8:Ljava/nio/charset/Charset;"),
+            Asm.Invoke(0x70, S + "-><init>([BLjava/nio/charset/Charset;)V", 1, 0, 2), Asm.Return(0x11, 1));
+        // branch(I): the string is loaded before a branch both of whose paths reach the call.
+        Method(main, "branch", ["I"], 3,
+            Asm.ConstString(0, "dlrow"), Asm.Raw((ushort)(0x38 | 2 << 8), 3), Asm.Const4(1, 1), Asm.Invoke(0x71, Dec + "->r(Ljava/lang/String;)Ljava/lang/String;", 0),
+            Asm.Op11x(0x0c, 0), Asm.Return(0x11, 0));
+        // paths(I): each path loads another string into the register the call reads.
+        Method(main, "paths", ["I"], 2,
+            Asm.Raw((ushort)(0x38 | 1 << 8), 5), Asm.ConstString(0, "eno"), Asm.Goto(3), Asm.ConstString(0, "owt"),
+            Asm.Invoke(0x71, Dec + "->r(Ljava/lang/String;)Ljava/lang/String;", 0), Asm.Op11x(0x0c, 0), Asm.Return(0x11, 0));
         // The argument is the caller's own parameter: not a constant.
         Method(main, "use", [S], 1, Asm.Invoke(0x71, Dec + "->r(Ljava/lang/String;)Ljava/lang/String;", 0), Asm.Op11x(0x0c, 0), Asm.Return(0x11, 0));
         main.Method("bad", "V", [], 9, Asm.ConstString(0, "x"), Asm.Invoke(0x71, Bad + "->refl(Ljava/lang/String;)Ljava/lang/String;", 0),
@@ -147,8 +205,54 @@ public sealed class DexStringFoldingTests : IDisposable
     public void A_table_the_static_initializer_fills_is_read_by_index() => Assert.Equal("word", Value(Assert.Single(Sites("table"))));
 
     [Fact]
+    public void A_char_array_decoder_result_passed_to_value_of_is_simplified()
+    {
+        var site = Assert.Single(Sites("chars"));
+        Assert.Equal("char", Value(site));
+        Assert.Equal((2, Dec + "->c(Ljava/lang/String;)[C", S + "->valueOf([C)Ljava/lang/String;", 6), (site.Offset, site.Decoder, site.Wrapper, site.WrapperOffset));
+    }
+
+    [Fact]
+    public void A_byte_array_decoder_result_passed_to_a_string_constructor_with_a_charset_is_simplified() =>
+        Assert.Equal("byte", Value(Assert.Single(Sites("bytes"))));
+
+    [Fact]
+    public void A_table_element_the_static_initializer_computes_is_a_site_at_the_read()
+    {
+        var site = Assert.Single(Sites("computed"));
+        Assert.Equal("cipher", Value(site));
+        Assert.Equal((3, Tbl + "->z:[" + S), (site.Offset, site.Decoder));
+    }
+
+    [Fact]
+    public void A_literal_table_element_is_no_site_but_reaches_a_decoder_call() =>
+        Assert.Equal([(5, "plain")], Sites("element").Select(s => (s.Offset, Value(s))));
+
+    [Fact]
+    public void A_table_another_method_stores_into_is_refused() =>
+        Assert.Equal($"Unknown: mutable-static: elements of {Tbl}->w:[{S} are written by {Tbl}->set()V", Value(Assert.Single(Sites("stored"))));
+
+    [Fact]
+    public void An_object_decoder_runs_on_an_instance_its_static_initializer_creates()
+    {
+        var site = Assert.Single(Sites("kobject"));
+        Assert.Equal("object!", Value(site));
+        Assert.Equal((4, Obj + "->d(Ljava/lang/String;)Ljava/lang/String;"), (site.Offset, site.Decoder));
+    }
+
+    [Fact]
+    public void An_instance_method_of_a_class_with_instance_fields_is_no_decoder() => Assert.Empty(Sites("boxed"));
+
+    [Fact]
+    public void A_string_loaded_before_a_branch_reaches_the_call_on_both_paths() => Assert.Equal("world", Value(Assert.Single(Sites("branch"))));
+
+    [Fact]
+    public void Paths_that_load_different_strings_leave_the_argument_unknown() =>
+        Assert.Equal("Unknown: not-constant: argument 1 (v0) is not the same constant on every path to the call", Value(Assert.Single(Sites("paths"))));
+
+    [Fact]
     public void A_parameter_passed_on_is_not_a_constant() =>
-        Assert.Equal("Unknown: not-constant: argument 1 (v0) is not a constant in the call's block", Value(Assert.Single(Sites("use"))));
+        Assert.Equal("Unknown: not-constant: argument 1 (v0) is not the same constant on every path to the call", Value(Assert.Single(Sites("use"))));
 
     [Fact]
     public void Reflection_a_static_counter_an_endless_loop_and_a_static_written_at_run_time_are_refused()
@@ -162,7 +266,7 @@ public sealed class DexStringFoldingTests : IDisposable
             "Unknown: cache-dependent: called again on the static state the first call left, it returns another string",
             $"Partial: instruction-budget: more than {DalvikEvaluator.MaxSteps:N0} instructions",
             $"Unknown: mutable-static: {Cfg}->name:Ljava/lang/String; is also written by {Main}->setup()V",
-            "Unknown: not-constant: argument 1 (v0) is not a constant in the call's block",
+            "Unknown: not-constant: argument 1 (v0) is not the same constant on every path to the call",
         ], sites.Select(Value));
     }
 
@@ -180,10 +284,10 @@ public sealed class DexStringFoldingTests : IDisposable
     public void Disassembly_shows_each_decoder_call_result_after_the_call_and_counts_them()
     {
         var text = _dex.Disassemble(_path, Main, annotated: false, default, simplified: true);
-        Assert.Contains("# string decoder calls: 5 simplified, 1 partial, 3 unknown, 2 with arguments that are not constants\n", text);
+        Assert.Contains("# string decoder calls: 11 simplified, 1 partial, 4 unknown, 3 with arguments that are not constants\n", text);
         Assert.Contains($"    invoke-static {{v0, v1}}, {Dec}->x([CI)Ljava/lang/String;\n    # simplified: \"abc\"\n", text);
         Assert.Contains("    # simplified: \"h\\u00e9llo\"\n", text);
-        Assert.Contains("    # not simplified: not-constant: argument 1 (v0) is not a constant in the call's block\n", text);
+        Assert.Contains("    # not simplified: not-constant: argument 1 (v0) is not the same constant on every path to the call\n", text);
         Assert.DoesNotContain("# simplified", _dex.Disassemble(_path, Main, annotated: false, default));
     }
 
@@ -196,7 +300,7 @@ public sealed class DexStringFoldingTests : IDisposable
             ("recovered", "hello", Main + "->nested()Ljava/lang/String;", "invoke-static " + Dec + "->n(Ljava/lang/String;)Ljava/lang/String;"),
             ("recovered", "hello", Main + "->reverse()Ljava/lang/String;", "invoke-static " + Dec + "->r(Ljava/lang/String;)Ljava/lang/String;"),
         ], r.Items.Select(h => (h.Kind, h.Value, h.Method!, h.Opcode!)));
-        Assert.Equal("2 matching string(s) recovered from string decoder calls; 4 call(s) with constant arguments not simplified (disassemble_dex format=simplified says why).",
+        Assert.Equal("2 matching string(s) recovered from string decoder calls; 5 call(s) with constant arguments not simplified (disassemble_dex format=simplified says why).",
             Assert.Single(r.Notes, n => n.Contains("recovered", StringComparison.Ordinal)));
         var literal = Assert.Single(_dex.Search(_path, "string", "olleh", 0, 10, default).Items);
         Assert.Equal(("string", "const-string"), (literal.Kind, literal.Opcode));

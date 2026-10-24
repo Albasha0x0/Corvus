@@ -1,3 +1,4 @@
+using System.Buffers.Binary;
 using System.Collections.Concurrent;
 using System.Diagnostics;
 
@@ -158,6 +159,7 @@ public sealed partial class NativeCodeIndex : ICodeSymbols
         return new NativeCodeIndex(image, Support, SupportNote, ctx, _functions, _rangeStarts, _rangeEnds, _xrefs, _strings, [.. Truncations], Stats, _byTo)
         {
             Issues = Issues,
+            InlineText = InlineText,
         };
     }
 
@@ -495,7 +497,12 @@ public sealed partial class NativeCodeIndex : ICodeSymbols
         return null;
     }
 
-    public string ReadString(StringLiteral s, int maxChars = 1024) => StringDetector.Read(Image, s, maxChars);
+    public string ReadString(StringLiteral s, int maxChars = 1024) =>
+        s.Encoding == StringEncoding.Inline ? InlineText.GetValueOrDefault(s.Rva, "") is var t && t.Length > maxChars ? t[..maxChars] : t
+        : StringDetector.Read(Image, s, maxChars);
+
+    /// <summary>The text of each inline string (<see cref="StringEncoding.Inline"/>) by its instruction.</summary>
+    internal IReadOnlyDictionary<uint, string> InlineText { get; init; } = new Dictionary<uint, string>();
 
     // Names and comments by source (user annotations mirrored from NativeAnnotations, imported pdb / il2cpp layers);
     // the highest source wins over discovered names, and KnownName of the matching function is updated so
@@ -773,6 +780,8 @@ public sealed partial class NativeCodeIndex : ICodeSymbols
             var code = new ImageCode(image);
             _truncations.AddRange(code.Truncations);
             _ctx = new CodeContext(image, code, options);
+            _ctx.RustStrings = StringForms.HasRustStrings(image);
+            _ctx.SwiftStrings = StringForms.HasSwiftStrings(image);
             var baseNoReturn = new HashSet<uint>(_ctx.NoReturn);
             if (image.Format is ImageFormat.Elf or ImageFormat.MachO) ReadLandingPads();
 
@@ -998,14 +1007,14 @@ public sealed partial class NativeCodeIndex : ICodeSymbols
 
             var functionCode = new CodeCover(rangeStarts, rangeEnds);
             var xrefs = CollectXrefs(results, xrefCount, functionCode);
-            var strings = FindStrings(xrefs, functionCode);
+            var (strings, inlineText) = FindStrings(xrefs, functionCode, results);
             int switches = 0;
             foreach (var r in results) foreach (var x in r.Xrefs) if (x.Kind == XrefKind.JumpTable) switches++;
             var stats = new CodeIndexStats(functions.Length, thunks, noReturn, instructions, blocks, xrefs.Length, strings.Length,
                 switches, unresolved, invalid, _passes, _rounds, _sw.Elapsed);
             report.Done();
             return new NativeCodeIndex(image, CodeSupport.Full, null, _ctx, functions, rangeStarts, rangeEnds, xrefs, strings, _truncations, stats,
-                parallelism: options.MaxParallelism);
+                parallelism: options.MaxParallelism) { InlineText = inlineText };
         }
 
         /// <summary>
@@ -1101,10 +1110,13 @@ public sealed partial class NativeCodeIndex : ICodeSymbols
 
         /// <summary>
         /// Strings at data addresses that code reads or takes, or that relocated pointers point at; in executable
-        /// sections (data merged into code) only outside the decoded functions.
+        /// sections (data merged into code) only outside the decoded functions. In a Rust build a length the code or a
+        /// pointer and length pair in data gives wins over the NUL-terminated run. Swift small strings join at the
+        /// instructions that complete them.
         /// </summary>
-        private StringLiteral[] FindStrings(CodeXref[] xrefs, CodeCover functionCode)
+        private (StringLiteral[] Strings, Dictionary<uint, string> InlineText) FindStrings(CodeXref[] xrefs, CodeCover functionCode, WalkResult[] results)
         {
+            var lengths = StringLengths(xrefs, results);
             report.Report("finding strings", 0, 0);
             var targets = new HashSet<uint>();
             foreach (var x in xrefs)
@@ -1117,9 +1129,42 @@ public sealed partial class NativeCodeIndex : ICodeSymbols
             foreach (var t in sorted)
             {
                 if ((++i & 0x3FFF) == 0) { ct.ThrowIfCancellationRequested(); report.Report("finding strings", i, sorted.Length); }
-                if (StringDetector.Detect(image, t, options.MaxStringLength, buffer) is { } s) result.Add(s);
+                var s = StringDetector.Detect(image, t, options.MaxStringLength, buffer);
+                if (lengths.TryGetValue(t, out int length) && length <= options.MaxStringLength)
+                {
+                    var bytes = new byte[length];
+                    if (image.Read(t, bytes) == length && StringDetector.IsText(bytes)) s = new StringLiteral(t, length, StringEncoding.Utf8);
+                }
+                if (s != null) result.Add(s.Value);
             }
-            return result.ToArray();
+            var inlineText = new Dictionary<uint, string>();
+            foreach (var r in results)
+                foreach (var (rva, text) in r.InlineStrings)
+                    if (inlineText.TryAdd(rva, text)) result.Add(new StringLiteral(rva, System.Text.Encoding.UTF8.GetByteCount(text), StringEncoding.Inline));
+            if (inlineText.Count > 0) result.Sort((a, b) => a.Rva.CompareTo(b.Rva));
+            return (result.ToArray(), inlineText);
+        }
+
+        /// <summary>
+        /// The byte length of each data address that code loads beside it or a pointer and length pair in data gives
+        /// (Rust builds; empty otherwise); of several, the most frequent, then the longest.
+        /// </summary>
+        private Dictionary<uint, int> StringLengths(CodeXref[] xrefs, WalkResult[] results)
+        {
+            var seen = new Dictionary<(uint, int), int>();
+            foreach (var r in results)
+                foreach (var pair in r.StringLengths) seen[pair] = seen.GetValueOrDefault(pair) + 1;
+            if (_ctx.RustStrings && image.Is64Bit)
+            {
+                Span<byte> word = stackalloc byte[8];
+                foreach (var x in xrefs)
+                    if (x.Kind == XrefKind.Pointer && image.Read(x.From + 8, word) == 8 && BinaryPrimitives.ReadUInt64LittleEndian(word) is >= 1 and <= StringHints.MaxLength and var n)
+                        seen[(x.To, (int)n)] = seen.GetValueOrDefault((x.To, (int)n)) + 1;
+            }
+            var best = new Dictionary<uint, (int Length, int Count)>();
+            foreach (var ((target, length), count) in seen)
+                if (!best.TryGetValue(target, out var b) || count > b.Count || count == b.Count && length > b.Length) best[target] = (length, count);
+            return best.ToDictionary(kv => kv.Key, kv => kv.Value.Length);
         }
     }
 }

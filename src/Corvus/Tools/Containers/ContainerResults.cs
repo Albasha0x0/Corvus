@@ -81,6 +81,8 @@ public sealed record AssemblyRow(string Path, string Name, string Kind, string A
 
 internal static class ContainerText
 {
+    private static string Count(int? n) => n is { } v ? v.ToString("N0", System.Globalization.CultureInfo.InvariantCulture) : "unknown";
+
     public static string Unity(UnityOverview.Report r)
     {
         var sb = new StringBuilder($"{Escape(r.Product ?? Path.GetFileName(r.AppDirectory))}{(r.Company != null ? " by " + Escape(r.Company) : "")}: Unity " +
@@ -97,6 +99,9 @@ internal static class ContainerText
         if (b.ScriptingAssemblies is { } s) sb.Append($", {s} scripting assemblies");
         if (b.UnreadableNameRatio is { } ratio) sb.Append($", {Corvus.Core.Format.Percent(ratio)} unreadable names of {b.NamesRead}");
         sb.Append('\n');
+        if (b.MetadataCounts is { } counts)
+            sb.Append($"  metadata: {Count(counts.Images)} images, {Count(counts.Types)} types, {Count(counts.Methods)} methods" +
+                      (counts.Layout != null ? $" (layout {counts.Layout})" : "") + (counts.Reason != null ? $"; {Escape(counts.Reason)}" : "") + "\n");
         foreach (var e in b.Evidence) sb.Append("  evidence: ").Append(Escape(e)).Append('\n');
         if (r.Markers.Count > 0) sb.Append("Markers:\n");
         foreach (var m in r.Markers) sb.Append($"  {m.Category} {Escape(m.Name)}: {Escape(m.Evidence)} ({m.Source})\n");

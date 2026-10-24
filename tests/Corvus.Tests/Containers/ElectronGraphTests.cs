@@ -4,7 +4,7 @@ using Corvus.Tests.NativeFormats;
 
 namespace Corvus.Tests;
 
-/// <summary>The Electron graph on the syntax tree: the alias, wrapper and pairing shapes of REA issues #3535, #3315, #3551, #3536, #3539 and #3431.</summary>
+/// <summary>The Electron graph on the syntax tree: the alias, wrapper and pairing shapes that break syntax-tree readers.</summary>
 public sealed class ElectronGraphTests : IDisposable
 {
     private readonly TempDir _dir = new();

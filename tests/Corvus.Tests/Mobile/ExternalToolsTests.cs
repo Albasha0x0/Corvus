@@ -87,11 +87,28 @@ public class ExternalToolsTests : IDisposable
     }
 
     [Fact]
+    public async Task A_scoped_variable_reaches_the_tools_this_flow_starts_and_no_other_flow()
+    {
+        using var fake = new FakeTool();
+        fake.On("script", printEnv: FakeTool.ScriptVariable);
+        var before = Environment.GetEnvironmentVariable(FakeTool.ScriptVariable);
+        using var env = new EnvironmentScope().Set(FakeTool.ScriptVariable, fake.ScriptPath);
+        Assert.Equal(fake.ScriptPath, ExternalTools.Run(FakeTool.Executable, ["script"], TimeSpan.FromSeconds(30), 1000, default).Text);
+        Assert.Equal(before, Environment.GetEnvironmentVariable(FakeTool.ScriptVariable));
+        Task<string> other;
+        // A flow started without this one's context, as a worker another test starts.
+        using (ExecutionContext.SuppressFlow())
+            other = Task.Run(() => ExternalTools.Run(FakeTool.Executable, ["script"], TimeSpan.FromSeconds(30), 1000, default).Text);
+        Assert.DoesNotContain(fake.ScriptPath, await other);
+    }
+
+    [Fact]
     public void Run_GivesTheChildAMinimalEnvironment()
     {
         using var fake = new FakeTool();
         fake.On("secret", printEnv: "CORVUS_TEST_SECRET").On("script", printEnv: FakeTool.ScriptVariable);
-        using var env = new EnvironmentScope().Set("CORVUS_TEST_SECRET", "s3cret");
+        // Process-wide: the check is that the minimal environment strips the server's own variables.
+        using var env = new EnvironmentScope().SetProcessWide("CORVUS_TEST_SECRET", "s3cret");
         Assert.Equal("<unset>", ExternalTools.Run(FakeTool.Executable, ["secret"], TimeSpan.FromSeconds(30), 1000, default, fake.Environment).Text);
         Assert.Equal(fake.ScriptPath, ExternalTools.Run(FakeTool.Executable, ["script"], TimeSpan.FromSeconds(30), 1000, default, fake.Environment).Text);
         Assert.Contains("CORVUS_TEST_SECRET", ExternalTools.MinimalEnvironment().Keys);

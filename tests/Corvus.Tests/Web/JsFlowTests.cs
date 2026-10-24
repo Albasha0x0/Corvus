@@ -3,7 +3,7 @@ using Corvus.Services.Web;
 
 namespace Corvus.Tests;
 
-/// <summary>analyze_js view=flow: data flow on the syntax tree, with the alias and crash shapes of REA issues #3535, #3551, #3315, #3536, #3539, #3431 and #3839.</summary>
+/// <summary>analyze_js view=flow: data flow on the syntax tree, with the alias and crash shapes that break syntax-tree readers.</summary>
 public sealed class JsFlowTests(Xunit.Abstractions.ITestOutputHelper output) : IDisposable
 {
     private readonly TempDir _dir = new();
@@ -263,7 +263,7 @@ public sealed class JsFlowTests(Xunit.Abstractions.ITestOutputHelper output) : I
 
 /// <summary>
 /// Data flow on pdf.js from the pdfjs-dist npm package: every effect sink traced back, timed and with the bytes the walk
-/// allocates. wasm/openjpeg_nowasm_fallback.js (5.3.x, 462,316 bytes) is the file of REA #2498 (84 s, 1.24 GB there).
+/// allocates. wasm/openjpeg_nowasm_fallback.js (5.3.x, 462,316 bytes) is a large input that another reader took 84 s and 1.24 GB to read.
 /// </summary>
 [Trait("Speed", "Slow")]
 [Trait("Data", "Real")]

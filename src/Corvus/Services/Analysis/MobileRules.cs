@@ -32,6 +32,12 @@ public sealed class MobileSubject
         lock (_lock) return _dex ??= new DexRuleScan(Dex!, MobileRules.DexFeatures, IsLibrary, ct);
     }
 
+    /// <summary>What the DEX scan could not read; empty before it runs.</summary>
+    internal IReadOnlyList<string> Notes
+    {
+        get { lock (_lock) return _dex?.Notes ?? []; }
+    }
+
     internal AppleObjcMetadata? Objc(INativeImage image, CancellationToken ct)
     {
         if (image is not MachOFile macho) return null;

@@ -570,4 +570,86 @@ public sealed class PackageReviewTests : IDisposable
         Assert.DoesNotContain(report.Findings, f => f.Path == "src/deep/CLAUDE.md");
         Assert.Contains(report.Notes, n => n.Contains("instruction files in other subfolders are not read", StringComparison.Ordinal));
     }
+
+    // --- what a source folder runs on open, checkout or build ---
+
+    // Commands are inert: each echoes or names a script the folder does not hold.
+    private string ClonedRepository() => Repository("cloned",
+        ("README.md", "# Sample\n"),
+        ("package.json", """{"name":"sample","version":"1.0.0","scripts":{"prepare":"husky","test":"node test.js"}}"""),
+        (".git/config", "[core]\n\trepositoryformatversion = 0\n\tfsmonitor = node .git/watch.js\n[alias]\n\tst = status\n\tup = !sh tools/up.sh\n"),
+        (".git/hooks/post-checkout", "#!/bin/sh\necho checked out\n"),
+        (".git/hooks/pre-commit.sample", "#!/bin/sh\nexit 0\n"),
+        (".husky/pre-commit", "npm test\n"),
+        (".devcontainer/devcontainer.json", """
+            {
+              "name": "sample",
+              "initializeCommand": ["sh", "tools/init.sh"],
+              "postCreateCommand": { "deps": "npm ci", "tools": "dotnet tool restore" }
+            }
+            """),
+        ("src/App/App.csproj", """
+            <Project Sdk="Microsoft.NET.Sdk">
+              <Target Name="Stamp" BeforeTargets="CoreCompile">
+                <Exec Command="echo stamp" />
+              </Target>
+              <Target Name="Pack" AfterTargets="Publish">
+                <Exec Command="echo pack" />
+              </Target>
+              <UsingTask TaskName="Hello" TaskFactory="RoslynCodeTaskFactory" AssemblyFile="$(MSBuildToolsPath)\Microsoft.Build.Tasks.Core.dll" />
+            </Project>
+            """),
+        ("native/build.rs", "fn main() { println!(\"cargo:rerun-if-changed=build.rs\"); }\n"),
+        ("native/Cargo.toml", "[package]\nname = \"native\"\nversion = \"0.1.0\"\n"),
+        ("android/gradle/wrapper/gradle-wrapper.properties", "distributionBase=GRADLE_USER_HOME\ndistributionUrl=https\\://example.invalid/gradle-9.0-bin.zip\n"),
+        ("android/build.gradle", "tasks.register('stamp') {\n  doLast { exec { commandLine 'echo', 'stamp' } }\n}\n"),
+        ("cpp/CMakeLists.txt", "cmake_minimum_required(VERSION 3.20)\nexecute_process(COMMAND echo configured)\n"));
+
+    [Fact]
+    public void A_cloned_repository_names_what_runs_on_open_checkout_and_build_at_file_and_line()
+    {
+        var r = Review(ClonedRepository());
+        Assert.Equal(("npm", "noteworthy"), (r.Ecosystem, r.Review));
+        Assert.Contains(r.Scripts, s => s is { Name: "prepare", AtInstall: true });
+        Assert.Contains(r.Scripts, s => s is { Name: "test", AtInstall: false });
+        var kinds = r.Agents!.GroupBy(a => a.Kind).ToDictionary(g => g.Key, g => g.Count());
+        Assert.Equal(new Dictionary<string, int> { ["git config"] = 2, ["git hook"] = 2, ["dev container"] = 3, ["build step"] = 7 }, kinds);
+
+        Assert.Contains(r.Findings, f => f is { Level: "noteworthy", Category: "repository hook", Path: ".git/config", Line: 3 } && f.Detail.Contains("core.fsmonitor runs on every status", StringComparison.Ordinal));
+        Assert.Contains(r.Agents!, a => a is { Kind: "git config", Name: "alias.up", Command: "!sh tools/up.sh", Line: 6 });
+        Assert.DoesNotContain(r.Agents!, a => a.Name == "alias.st");
+        Assert.Contains(r.Findings, f => f is { Level: "noteworthy", Path: ".git/hooks/post-checkout" } && f.Detail.Contains("checkout, switch and clone", StringComparison.Ordinal));
+        Assert.DoesNotContain(r.Agents!, a => a.Path.EndsWith(".sample", StringComparison.Ordinal));
+        Assert.Contains(r.Findings, f => f is { Level: "review", Path: ".husky/pre-commit" } && f.Detail.Contains("husky installs it", StringComparison.Ordinal));
+
+        Assert.Contains(r.Findings, f => f is { Level: "noteworthy", Path: ".devcontainer/devcontainer.json", Line: 3 } && f.Detail.StartsWith("initializeCommand runs on the host", StringComparison.Ordinal));
+        Assert.Contains(r.Agents!, a => a is { Kind: "dev container", Name: "postCreateCommand (tools)", Command: "dotnet tool restore" });
+
+        Assert.Contains(r.Findings, f => f is { Level: "noteworthy", Category: "build step", Path: "src/App/App.csproj", Line: 3 } && f.Detail.Contains("design-time build", StringComparison.Ordinal));
+        Assert.Contains(r.Findings, f => f is { Level: "review", Category: "build step", Line: 6 } && f.Detail.EndsWith("echo pack at build", StringComparison.Ordinal));
+        Assert.Contains(r.Findings, f => f is { Level: "noteworthy", Line: 8 } && f.Detail.StartsWith("inline MSBuild task Hello", StringComparison.Ordinal));
+        Assert.Contains(r.Findings, f => f is { Path: "native/build.rs" } && f.Detail.Contains("rust-analyzer", StringComparison.Ordinal));
+        Assert.Contains(r.Findings, f => f is { Level: "noteworthy", Line: 2 } && f.Detail.Contains("https://example.invalid/gradle-9.0-bin.zip, not services.gradle.org", StringComparison.Ordinal));
+        Assert.Contains(r.Agents!, a => a is { Kind: "build step", Path: "android/build.gradle", Line: 2 });
+        Assert.Contains(r.Agents!, a => a is { Kind: "build step", Path: "cpp/CMakeLists.txt", Line: 2 });
+    }
+
+    [Fact]
+    public void A_source_folder_opens_in_summarize_file_as_its_package_view()
+    {
+        using var workspace = new AssemblyWorkspace(new ServerOptions());
+        var summary = new InspectionService(workspace).Summarize(null, ClonedRepository(), default);
+        Assert.Equal(("folder", "folder"), (summary.File.Type, summary.Container));
+        Assert.Contains(summary.Highlights, h => h == "Runs on open, checkout or build: 2 git configs, 2 git hooks, 3 dev containers, 7 build steps.");
+        Assert.IsType<PackageReport>(summary.Views["package"].Detail);
+    }
+
+    [Fact]
+    public void A_folder_that_runs_nothing_reports_none_rather_than_unread()
+    {
+        var r = Review(Repository("plain", ("README.md", "# Plain\n"), ("src/main.c", "int main(void) { return 0; }\n"), ("Makefile", "all:\n\tcc src/main.c\n")));
+        Assert.Equal(("repository", "none"), (r.Ecosystem, r.Review));
+        Assert.Null(r.Agents);
+        Assert.Empty(r.Findings);
+    }
 }

@@ -97,7 +97,7 @@ public sealed class SessionTools(AssemblyWorkspace workspace, IndexingService in
             new(".NET decompilation, search, navigation, editing", true, "built in", null),
             ReferencePacks.Offline
                 ? new("reference pack download", false, "CORVUS_OFFLINE is set: assemblies targeting an uninstalled .NET version resolve fewer references", "unset CORVUS_OFFLINE")
-                : new("reference pack download", true, "on demand, for an uninstalled target framework, SHA-512 checked against nuget.org" +
+                : new("reference pack download", true, "on demand for an uninstalled framework, SHA-512 checked" +
                     (ReferencePacks.LastProblem is { } problem ? $"; last: {problem}" : ""), null),
         ];
         capabilities.Add(new("native PE analysis", true, "built in", null));
@@ -136,7 +136,7 @@ public sealed class SessionTools(AssemblyWorkspace workspace, IndexingService in
                 EngineMode.Ours => "default ours: the built-in index",
                 EngineMode.Ida => "default ida: IDA's analysis, started or waited for",
                 EngineMode.Ghidra => "default ghidra: Ghidra's analysis, started or waited for",
-                _ => "default auto: the first engine (IDA, then Ghidra) with an analysis of the image, else the built-in index",
+                _ => "default auto: IDA, then Ghidra, whichever analyzed the image, else the built-in index",
             } + $"; set by --engine (or {ServerOptions.EngineVariable}), per call by engine=", null));
         capabilities.AddRange(external.GetAwaiter().GetResult());
         if (options.AllowLive)

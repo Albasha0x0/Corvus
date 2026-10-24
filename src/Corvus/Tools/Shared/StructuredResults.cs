@@ -115,7 +115,7 @@ internal static class EngineDoc
     public const string Note = "Why that engine answered (the engine parameter or server default, and for auto whether an engine's analysis of the image was complete).";
 }
 
-public sealed record NativeStringEntry(string Address, [property: Description("ascii, utf16, il2cpp (a string literal slot), nativeaot (a frozen String object) or engine:type (e.g. ghidra:unicode).")] string Encoding,
+public sealed record NativeStringEntry(string Address, [property: Description("ascii, utf16, utf8 (a Rust literal, by the length its code or data gives), inline (a Swift string of up to 15 bytes held in instructions; Address is the instruction), il2cpp (a string literal slot), nativeaot (a frozen String object) or engine:type (e.g. ghidra:unicode).")] string Encoding,
     [property: Description("Text, clipped at maxLength.")] string Text, int References, string? FirstFunction)
 {
     [Description("The full length in characters when Text is clipped.")] public int? Length { get; init; }

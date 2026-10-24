@@ -2,7 +2,7 @@
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-10-17/server.schema.json",
   "name": "io.github.Albasha0x0/corvus",
   "title": "Corvus",
-  "description": "Reverse engineering of .NET assemblies and native binaries: decompile, search, compare, patch.",
+  "description": "Reverse engineering and security analysis of .NET and native binaries: decompile, compare, patch.",
   "version": "2.5.1",
   "websiteUrl": "https://github.com/Albasha0x0/Corvus",
   "repository": {

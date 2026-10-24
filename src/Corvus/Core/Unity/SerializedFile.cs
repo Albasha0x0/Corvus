@@ -29,7 +29,7 @@ public sealed record UnityExternal(string Path, Guid Guid);
 /// </summary>
 public sealed class SerializedFile
 {
-    public const int ClassMonoBehaviour = 114, ClassMonoScript = 115, ClassGameObject = 1;
+    public const int ClassMonoBehaviour = 114, ClassMonoScript = 115, ClassGameObject = 1, ClassTextAsset = 49;
     private const int MaxTypes = 100_000, MaxObjects = 10_000_000, MaxNodes = 100_000;
 
     public string Name { get; }
@@ -103,6 +103,23 @@ public sealed class SerializedFile
             f._issues.Add(e.Message);
         }
         return f;
+    }
+
+    /// <summary>
+    /// True when the file's head is a serialized file or a UnityFS bundle, its size checked against <paramref name="length"/>
+    /// (the whole of a split file) or the file's own; false for any other or unreadable file.
+    /// </summary>
+    public static bool IsAssetFile(string path, long? length = null)
+    {
+        try
+        {
+            if (!File.Exists(path)) return false;
+            var head = new byte[64];
+            length ??= new FileInfo(path).Length;
+            using (var s = File.OpenRead(path)) s.ReadAtLeast(head, head.Length, throwOnEndOfStream: false);
+            return UnityFsBundle.IsBundle(head) || IsSerializedFile(head, length.Value);
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException) { return false; }
     }
 
     /// <summary>The object with this path id, or null.</summary>

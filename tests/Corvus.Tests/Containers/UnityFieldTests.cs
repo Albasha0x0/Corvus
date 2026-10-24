@@ -333,6 +333,16 @@ public sealed class UnityFieldTests : IDisposable
     }
 
     [Fact]
+    public void Strings_from_the_type_tree_match_those_laid_out_from_the_assembly()
+    {
+        static List<string> Texts(string path) =>
+            [.. UnityFileView.Strings(path, File.ReadAllBytes(path), "level0", 1_000, default, default).Texts.Select(t => $"{t.Location} = {t.Text}")];
+        var tree = Texts(Folder("level0", SensorFile(typeTrees: true)));
+        Assert.Equal(["Unit (Script: Sensor).title = Intake", "Unit (Script: Sensor).readings[0].label = min", "Unit (Script: Sensor).readings[1].label = max"], tree);
+        Assert.Equal(tree, Texts(Folder("level0", SensorFile(typeTrees: false))));
+    }
+
+    [Fact]
     public void The_overview_lists_the_view_and_counts_the_assets()
     {
         var path = Folder("level0", SensorFile(typeTrees: true));
@@ -354,6 +364,8 @@ public sealed class UnityFieldTests : IDisposable
                 SerializedFile.Read(b, name);
                 UnityFsBundle.Read(b, 1 << 20);
                 try { new UnityFileView().Inspect(new FileInput(path, b, Blob.Identify(b)) { Options = new FileViewOptions("unity") }, default); }
+                catch (ToolError) { }
+                try { UnityFileView.Strings(path, b, name, 1_000, default, default); }
                 catch (ToolError) { }
             }, 300);
             Assert.True(failures.Count == 0, name + ": " + string.Join("\n", failures.Take(10)));

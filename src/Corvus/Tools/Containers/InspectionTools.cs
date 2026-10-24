@@ -15,15 +15,15 @@ public sealed class InspectionTools(InspectionService inspection, AssemblyWorksp
     Native.Providers.Worker.WorkerPool? workers = null)
 {
     private const string AssemblyParam = "A loaded assembly; pass this or path.";
-    private const string PathParam = "A .NET assembly file to analyze without loading; pass this or assembly.";
+    private const string PathParam = "A .NET assembly or container, a Unity build folder, package or zip, or a serialized file or bundle; pass this or assembly.";
 
     [McpServerTool(Name = "summarize_file", Title = "Summarize file", UseStructuredContent = true, OutputSchemaType = typeof(FileSummaryRecord))]
-    [Description("First look at a file or loaded assembly, not run: type, hashes, signature, containers, assemblies, highlights (toolchain, " +
+    [Description("First look at a file or assembly, not run: type, hashes, signature, containers, assemblies, highlights (toolchain, " +
                  "capabilities, packaging tools), entry points. view=: managed, dependencies, native, android, apple, electron, flutter, go, layers, nib, " +
-                 "pcap, package (pre-install review), plist, protobuf, rust, script (layers peeled), sqlite (table= pages rows), sqlite-recover, unity (MonoBehaviour fields), " +
+                 "pcap, package (pre-install review), plist, protobuf, raw (headerless code), rust, script (layers peeled), sqlite (table= pages), sqlite-recover, unity (MonoBehaviour fields), " +
                  "all; views lists those that apply.")]
     public Task<string> SummarizeFile(
-        [Description("File (assembly, bundle, .nupkg, .apk, .ipa, zip, .asar, executable) or .app folder.")] string? path = null,
+        [Description("File (assembly, executable, bundle, package, zip, .asar), .app or source folder.")] string? path = null,
         [Description(AssemblyParam)] string? assembly = null,
         [Description("A view the overview lists.")] string view = "overview",
         [Description("sqlite, sqlite-recover: table to page.")] string? table = null,
@@ -112,9 +112,9 @@ public sealed class InspectionTools(InspectionService inspection, AssemblyWorksp
     }
 
     [McpServerTool(Name = "extract_strings", Title = "Extract typed strings", UseStructuredContent = true, OutputSchemaType = typeof(ValuePage))]
-    [Description("Typed values (URLs, domains, IPs, emails, file paths, pipes, registry keys, mutexes, user agents, crypto keys) from assembly " +
-                 "literals, constants, resource text and decoded base64 / hex / compressed text, with count, locations and receiving APIs. " +
-                 "read_result outputPath exports all (text: CSV).")]
+    [Description("Typed values (URLs, domains, IPs, emails, file paths, pipes, registry keys, mutexes, user agents, crypto keys, encoded base64 / " +
+                 "hex) from assembly literals, constants, resource and decoded text, and Unity script fields and TextAssets, with count, locations " +
+                 "and receiving APIs. read_result outputPath exports all (text: CSV).")]
     public async Task<string> ExtractStrings(
         [Description(AssemblyParam)] string? assembly = null,
         [Description(PathParam)] string? path = null,
@@ -122,9 +122,16 @@ public sealed class InspectionTools(InspectionService inspection, AssemblyWorksp
         [Description(ToolSupport.RowOffsetDescription)] int offset = 0,
         [Description(ToolSupport.LimitDescription)] int limit = 100,
         [Description(ToolSupport.MaxTokensDescription)] int? maxTokens = null,
+        [Description("Unity: asset bytes read; at most 4 GiB (default).")] long? maxAssetBytes = null,
+        [Description("Unity: seconds until the read stops with what it read.")] double? timeLimit = null,
         CancellationToken cancellationToken = default)
     {
-        var report = await Task.Run(() => inspection.ExtractStrings(assembly, path, types, cancellationToken), cancellationToken);
+        if (maxAssetBytes is <= 0) throw new ToolError(ErrorCode.InvalidArgument, "maxAssetBytes must be above 0.");
+        if (timeLimit is not null and (<= 0 or > 86_400)) throw new ToolError(ErrorCode.InvalidArgument, "timeLimit must be above 0 seconds, at most 86400.");
+        var assets = new InspectionService.AssetReadLimits(Math.Min(maxAssetBytes ?? UnityAssetStrings.MaxBytes, UnityAssetStrings.MaxBytes),
+            timeLimit is { } seconds ? TimeSpan.FromSeconds(seconds) : null);
+        var report = await Task.Run(() => inspection.ExtractStrings(assembly, path, types, cancellationToken, assets), cancellationToken);
+        if (report.Partial is { } partial) ToolOutput.Coverage("partial", partial, [.. report.PartialIn]);
         string? kept = null;
         if (results != null && report.Total > 0)
             kept = results.Keep(Values.ToCsv(report.Values), new KeptOrigin("extract_strings"),

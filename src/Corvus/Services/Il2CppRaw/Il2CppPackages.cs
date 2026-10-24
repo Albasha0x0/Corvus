@@ -20,23 +20,31 @@ public static partial class Il2CppPackages
     private const int VersionHeaderBytes = 1 << 16;
     private const long MaxEntryBytes = 2L << 30;
     private const int ExtractFormat = 4; // bump when what is extracted changes
+    /// <summary>Assets mode: bytes extracted per entry and in total; entries past either are not extracted and are listed as skipped.</summary>
+    public const long MaxAssetEntryBytes = 1L << 30, MaxAssetBytes = 4L << 30;
+    /// <summary>Assets mode: data folder entries extracted at most.</summary>
+    public const int MaxAssetEntries = 2_000;
 
-    private static readonly string[] Extensions = [".apk", ".xapk", ".apks", ".apkm", ".aab", ".ipa"];
+    /// <summary>An extraction: the package, its hash and ABI, when it was made, and in assets mode the entries left out and whether a stop ended it.</summary>
+    public sealed record Marker(string Package, string Sha256, string? Slice, DateTime Created, IReadOnlyList<string>? Skipped = null, bool Stopped = false);
 
-    public sealed record Marker(string Package, string Sha256, string? Slice, DateTime Created);
+    public static bool IsPackage(string path) => PackageFiles.IsAppPackage(path);
 
-    public static bool IsPackage(string path) => Extensions.Contains(Path.GetExtension(path).ToLowerInvariant()) && File.Exists(path);
-
-    /// <summary>A package unity_overview reads in place: the Il2Cpp packages, plus zipped desktop titles.</summary>
-    public static bool IsUnityPackage(string path) => IsPackage(path) || Path.GetExtension(path).Equals(".zip", StringComparison.OrdinalIgnoreCase) && File.Exists(path);
+    /// <summary>A package unity_overview reads in place: an application package, or a zip of a desktop build.</summary>
+    public static bool IsUnityPackage(string path) => PackageFiles.IsUnityPackage(path);
 
     /// <summary>
     /// The extracted root of the Il2Cpp build in <paramref name="package"/>, or null when the package holds none
     /// (no global-metadata.dat). <paramref name="slice"/> picks the Android ABI. <paramref name="anyBackend"/> (unity_overview):
-    /// a Mono build's assemblies and libraries too, and zipped desktop titles.
+    /// a Mono build's assemblies and libraries too, and zipped desktop titles. <paramref name="assets"/> (extract_strings,
+    /// implies anyBackend): the data folder's serialized files and bundles and the streaming assets too, bounded by
+    /// <see cref="MaxAssetEntryBytes"/>, <see cref="MaxAssetBytes"/> and <see cref="MaxAssetEntries"/>; <paramref name="stop"/>
+    /// ends it between entries, and an extraction a stop ended is made again on the next call.
     /// </summary>
-    public static string? Extract(string package, string? slice, string? cacheRoot = null, CancellationToken ct = default, bool anyBackend = false)
+    public static string? Extract(string package, string? slice, string? cacheRoot = null, CancellationToken ct = default, bool anyBackend = false,
+        bool assets = false, CancellationToken stop = default)
     {
+        anyBackend |= assets;
         var full = Path.GetFullPath(package);
         string sha;
         try
@@ -47,8 +55,8 @@ public static partial class Il2CppPackages
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { throw new ToolError(ErrorCode.IoError, $"Cannot read {full}: {ex.Message}"); }
         var abi = slice != null ? Il2CppBuildFiles.AndroidAbi(slice) : null;
         var root = Path.Combine(Path.GetFullPath(cacheRoot ?? Il2CppRawLoader.DefaultRoot), FolderName);
-        var dir = Path.Combine(root, $"{sha[..16]}-{ExtractFormat}" + (abi != null ? "-" + abi : "") + (anyBackend ? "-u" : ""));
-        if (File.Exists(Path.Combine(dir, MarkerFileName)))
+        var dir = Path.Combine(root, $"{sha[..16]}-{ExtractFormat}" + (abi != null ? "-" + abi : "") + (assets ? "-s" : anyBackend ? "-u" : ""));
+        if (File.Exists(Path.Combine(dir, MarkerFileName)) && !(assets && ReadMarker(dir) is { Stopped: true }))
         {
             Touch(dir);
             return Directory.Exists(Path.Combine(dir, "app")) ? Path.Combine(dir, "app") : null;
@@ -61,11 +69,13 @@ public static partial class Il2CppPackages
             Directory.CreateDirectory(app);
             bool found;
             var splits = Path.Combine(staging, "splits");
+            var skipped = assets ? new List<string>() : null;
+            bool stopped = false;
             using (var zip = OpenZip(full))
-                found = ExtractApp(zip, IsAppBundle(zip) ? ".aab" : Path.GetExtension(full).ToLowerInvariant(), app, splits, abi, ct, anyBackend);
+                found = ExtractApp(zip, IsAppBundle(zip) ? ".aab" : Path.GetExtension(full).ToLowerInvariant(), app, splits, abi, ct, anyBackend, skipped, stop, ref stopped);
             TryDelete(splits);
             if (!found) Directory.Delete(app, true);
-            File.WriteAllText(Path.Combine(staging, MarkerFileName), JsonSerializer.Serialize(new Marker(full, sha, abi, DateTime.UtcNow)));
+            File.WriteAllText(Path.Combine(staging, MarkerFileName), JsonSerializer.Serialize(new Marker(full, sha, abi, DateTime.UtcNow, skipped, stopped)));
             TryDelete(dir);
             SafeFile.WhenReleased(() => Directory.Move(staging, dir));
             Trim(root, dir);
@@ -83,6 +93,20 @@ public static partial class Il2CppPackages
         }
     }
 
+    /// <summary>The marker of the extraction in <paramref name="dir"/>, or null when it is missing or does not read.</summary>
+    private static Marker? ReadMarker(string dir)
+    {
+        try { return JsonSerializer.Deserialize<Marker>(File.ReadAllText(Path.Combine(dir, MarkerFileName))); }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException) { return null; }
+    }
+
+    /// <summary>
+    /// The asset entries an assets-mode extraction at <paramref name="app"/> left out, each with its reason (a stop names
+    /// itself); empty for another mode or a complete extraction.
+    /// </summary>
+    internal static IReadOnlyList<string> SkippedAssets(string app) =>
+        Path.GetDirectoryName(Path.GetFullPath(app)) is { } dir && ReadMarker(dir) is { Skipped: { } skipped } ? skipped : [];
+
     /// <summary>An Android App Bundle by its content (BundleConfig.pb, base/manifest/), whatever the file is called.</summary>
     private static bool IsAppBundle(ZipArchive zip) =>
         zip.GetEntry("BundleConfig.pb") != null || zip.Entries.Any(e => e.FullName.StartsWith("base/manifest/", StringComparison.Ordinal));
@@ -96,7 +120,12 @@ public static partial class Il2CppPackages
     /// <summary>A file of the app as the package lays it out: its path inside the app, and how to open it.</summary>
     private sealed record Item(string Path, ZipArchiveEntry Entry);
 
-    private static bool ExtractApp(ZipArchive zip, string extension, string destination, string splits, string? abi, CancellationToken ct, bool anyBackend = false)
+    /// <summary>
+    /// Extracts the wanted files; <paramref name="skipped"/> non-null is assets mode, which adds the asset files and
+    /// lists those left out. Stopped is set when <paramref name="stop"/> ended the asset entries early.
+    /// </summary>
+    private static bool ExtractApp(ZipArchive zip, string extension, string destination, string splits, string? abi, CancellationToken ct, bool anyBackend,
+        List<string>? skipped, CancellationToken stop, ref bool stopped)
     {
         var items = new List<Item>();
         var nested = new List<ZipArchive>();
@@ -128,10 +157,39 @@ public static partial class Il2CppPackages
                 ".zip" => DesktopFiles(items),
                 _ => AndroidFiles(items, abi) is { Count: > 0 } il2cpp ? il2cpp : anyBackend ? MonoAndroidFiles(items) : [],
             };
-            if (wanted.Count == 0) return false;
-            foreach (var (item, limit) in wanted)
+            var assetItems = skipped != null ? AssetFiles(items, extension, skipped) : [];
+            if (wanted.Count == 0 && assetItems.Count == 0) return false;
+            // An asset entry replaces the version header item of the same path, so data.unity3d is extracted whole.
+            var assetPaths = assetItems.Select(i => i.Path).ToHashSet(StringComparer.Ordinal);
+            wanted = [.. wanted.Where(w => !assetPaths.Contains(w.Item1.Path))];
+            long assetBytes = 0;
+            int assetCount = 0;
+            foreach (var item in assetItems)
             {
+                if (item.Entry.Length > MaxAssetEntryBytes)
+                    skipped!.Add($"{item.Path}: {item.Entry.Length:N0} bytes, over the {MaxAssetEntryBytes:N0} byte limit per entry");
+                else if (assetBytes + item.Entry.Length > MaxAssetBytes)
+                    skipped!.Add($"{item.Path}: past the {MaxAssetBytes:N0} byte limit of extracted assets");
+                else if (assetCount >= MaxAssetEntries)
+                    skipped!.Add($"{item.Path}: past the {MaxAssetEntries:N0} entry limit of extracted assets");
+                else
+                {
+                    assetBytes += item.Entry.Length;
+                    assetCount++;
+                    wanted.Add((item, 0));
+                }
+            }
+            for (int w = 0; w < wanted.Count; w++)
+            {
+                var (item, limit) = wanted[w];
                 ct.ThrowIfCancellationRequested();
+                // Asset entries come last, so a stop leaves the build files whole.
+                if (skipped != null && stop.IsCancellationRequested && assetPaths.Contains(item.Path))
+                {
+                    stopped = true;
+                    skipped.Add($"{item.Path} and {wanted.Count - w - 1} more asset entries: the time limit ended the extraction");
+                    break;
+                }
                 if (item.Entry.Length > MaxEntryBytes)
                     throw new ToolError(ErrorCode.LimitExceeded, $"{item.Path} is {item.Entry.Length} bytes; entries up to {MaxEntryBytes} bytes are extracted");
                 var target = Path.GetFullPath(Path.Combine(destination, item.Path.Replace('/', Path.DirectorySeparatorChar)));
@@ -214,6 +272,58 @@ public static partial class Il2CppPackages
             .Select(i => (i, 0)).ToList();
         Version(under, dataRel, wanted);
         return wanted;
+    }
+
+    /// <summary>
+    /// Assets mode: the data folder's entries except code, native libraries and resource streams, and Android streaming
+    /// assets (assets/ outside bin/) that start as a UnityFS bundle, laid out as the other modes lay them out and
+    /// ordered as the asset reader reads them.
+    /// </summary>
+    private static List<Item> AssetFiles(List<Item> items, string extension, List<string> skipped)
+    {
+        // Streaming assets are checked by their first bytes, so their number is bounded.
+        const int maxChecked = 4_000;
+        string data;
+        IEnumerable<Item> pool = items;
+        if (extension == ".zip")
+        {
+            var marker = items.Select(i => DataMarker().Match(i.Path)).Where(m => m.Success).OrderBy(m => m.Value.Length).FirstOrDefault();
+            if (marker == null) return [];
+            var top = marker.Groups[1].Value;
+            pool = items.Where(i => i.Path.StartsWith(top, StringComparison.Ordinal)).Select(i => new Item(i.Path[top.Length..], i.Entry)).ToList();
+            data = marker.Groups[2].Value + "_Data/";
+        }
+        else if (extension == ".ipa")
+        {
+            var app = items.Select(i => i.Path).FirstOrDefault(p => p.IndexOf(".app/Data/", StringComparison.Ordinal) is var at and > 0 && p.IndexOf('/') == at + 4);
+            if (app == null) return [];
+            data = app[..(app.IndexOf(".app/", StringComparison.Ordinal) + 4)] + "/Data/";
+        }
+        else data = "assets/bin/Data/";
+        var found = pool.Where(i => i.Path.StartsWith(data, StringComparison.Ordinal) && Analysis.UnityAssetStrings.IsAssetPath(i.Path[data.Length..])).ToList();
+        if (extension is not (".zip" or ".ipa"))
+        {
+            var streaming = pool.Where(i => i.Path.StartsWith("assets/", StringComparison.Ordinal) && !i.Path.StartsWith("assets/bin/", StringComparison.Ordinal)
+                                            && Analysis.UnityAssetStrings.IsAssetPath(i.Path["assets/".Length..])).ToList();
+            if (streaming.Count > maxChecked) skipped.Add($"assets/: {streaming.Count - maxChecked:N0} streaming asset entries past the first {maxChecked:N0} are not checked");
+            found.AddRange(streaming.Take(maxChecked).Where(i => StartsAsBundle(i.Entry)));
+        }
+        return [.. found.DistinctBy(i => i.Path)
+            .OrderBy(i => i.Path.StartsWith(data, StringComparison.Ordinal) ? Analysis.UnityAssetStrings.Rank(i.Path[data.Length..]) : int.MaxValue)
+            .ThenBy(i => i.Path, StringComparer.Ordinal)];
+    }
+
+    /// <summary>True when the entry starts with the UnityFS signature; false when it does not or does not read.</summary>
+    private static bool StartsAsBundle(ZipArchiveEntry entry)
+    {
+        if (entry.Length < 8) return false;
+        try
+        {
+            using var s = entry.Open();
+            Span<byte> head = stackalloc byte[8];
+            return s.ReadAtLeast(head, 8, throwOnEndOfStream: false) == 8 && head.SequenceEqual("UnityFS\0"u8);
+        }
+        catch (InvalidDataException) { return false; }
     }
 
     // "<top>/<Product>_Data/globalgamemanagers" (or data.unity3d, mainData)

@@ -21,10 +21,18 @@ internal sealed class FirmwareFileView : IFileSummaryView
 
     private const int Window = FirmwareSignatures.StreamWindow, Overlap = FirmwareSignatures.StreamOverlap;
 
-    public FileView? Inspect(FileInput file, CancellationToken ct)
+    /// <summary>Gaps between signatures smaller than this are padding, not regions of their own.</summary>
+    public const long MinGap = 4096;
+
+    /// <summary>A file region no signature claims: <see cref="Offset"/> and <see cref="Size"/> in the file.</summary>
+    public sealed record Gap(long Offset, long Size);
+
+    private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<FileInput, List<SignatureHit>> Scanned = new();
+
+    /// <summary>The signatures in <paramref name="file"/>, scanned once per file for every view that reads them.</summary>
+    internal static List<SignatureHit> Hits(FileInput file, CancellationToken ct)
     {
-        // firmware is opaque data; an executable or a known container gets its own views
-        if (file.Length < 4096 || file.Kind != "data" || Core.Pcap.PcapReader.Looks(file.Head) || SqliteDatabase.Looks(file.Head)) return null;
+        if (Scanned.TryGetValue(file, out var kept)) return kept;
         List<SignatureHit> found;
         if (!file.Streamed) found = FirmwareSignatures.Scan(file.Bytes, MaxHits, ct);
         else
@@ -32,6 +40,38 @@ internal sealed class FirmwareFileView : IFileSummaryView
             using var s = file.OpenRead();
             found = FirmwareSignatures.Scan(s, file.Length, MaxHits, ct, Window, Overlap);
         }
+        Scanned.AddOrUpdate(file, found);
+        return found;
+    }
+
+    /// <summary>Firmware is opaque data; an executable or a known container gets its own views.</summary>
+    internal static bool Applies(FileInput file) =>
+        file.Length >= 4096 && file.Kind == "data" && !Core.Pcap.PcapReader.Looks(file.Head) && !SqliteDatabase.Looks(file.Head);
+
+    /// <summary>
+    /// The regions of at least <see cref="MinGap"/> bytes that no signature claims, in file order: before the first one and
+    /// after each sized one. An unsized format runs to the next signature, as unpack_container carves it.
+    /// </summary>
+    internal static List<Gap> Gaps(IReadOnlyList<SignatureHit> hits, long length)
+    {
+        var gaps = new List<Gap>();
+        long covered = 0;
+        bool open = false;
+        foreach (var h in hits.OrderBy(h => h.Offset))
+        {
+            if (!open && h.Offset - covered >= MinGap) gaps.Add(new Gap(covered, h.Offset - covered));
+            if (h.Offset + (h.Size ?? 0) < covered) continue;
+            open = h.Size == null;
+            covered = h.Offset + (h.Size ?? 0);
+        }
+        if (!open && length - covered >= MinGap) gaps.Add(new Gap(covered, length - covered));
+        return gaps;
+    }
+
+    public FileView? Inspect(FileInput file, CancellationToken ct)
+    {
+        if (!Applies(file)) return null;
+        var found = Hits(file, ct);
 
         // the file's own format at offset 0 alone is not firmware
         if (found.Count == 0 || found.All(h => h.Offset == 0)) return null;
@@ -41,6 +81,8 @@ internal sealed class FirmwareFileView : IFileSummaryView
         if (file.Streamed) notes.Add($"read in {Window >> 20} MiB windows");
         notes.Add($"{FirmwareSignatures.Count} formats are checked, each against its own header; inside a filesystem, boot image or archive with a known size nothing more is searched.");
         notes.Add("unpack_container carves out the filesystems, boot images and archives and reads each with its own reader; headerless code loads with load_assembly format=raw (arch, base, entry).");
+        foreach (var g in Gaps(found, file.Length).Take(RawCodeFileView.MaxRegions))
+            notes.Add($"0x{g.Offset:X}-0x{g.Offset + g.Size:X} ({g.Size:N0} bytes): no signature; view=raw reads it for an instruction set and load base.");
         var formats = sorted.GroupBy(h => h.Format).Select(g => g.Count() > 1 ? $"{g.Count()} {g.Key}" : $"{g.Key} at {g.First().Offset}");
         return new FileView(new Facts(sorted, notes), [$"Embedded formats: {string.Join(", ", formats.Take(8))}" + (formats.Count() > 8 ? ", ..." : "") + "."]);
     }

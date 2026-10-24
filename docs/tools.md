@@ -31,7 +31,7 @@ Workspace and server state.
 
 **Load assembly** (edit, idempotent, long-running)
 
-Load a .NET assembly or a folder's assemblies (app, Unity *_Data/Managed, dummy assemblies). PE, ELF, Mach-O or wasm files load as native images (universal Mach-O: one slice, name[slice]); format=raw maps headerless code; folder loads skip native files. An Il2Cpp build (folder, global-metadata.dat, .apk/.xapk/.aab/.ipa/.app, memory dump) loads as dummy assemblies with addresses (metadata v24-39) plus the native binary. A .gzf or .gpr program (copied) opens in Ghidra. A repeat load is a no-op.
+Load a .NET assembly or a folder's assemblies (app, Unity *_Data/Managed, dummy assemblies). PE, ELF, Mach-O or wasm files load as native images (universal Mach-O: name[slice]); format=raw maps headerless code; folder loads skip native files. An Il2Cpp build (folder, global-metadata.dat, .apk/.xapk/.aab/.ipa/.app, memory dump) loads as dummy assemblies with addresses (metadata v24-39) plus its binary. A .gzf or .gpr program (copied) opens in Ghidra. A repeat load is a no-op.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -230,12 +230,12 @@ Structured output: `type`, `declaration`, `counts`, `section`, `items`, `offset`
 
 **Assembly overview** (read-only, idempotent)
 
-Assembly overview: identity (MVID, SHA-256), framework, entry point, counts, Il2Cpp, invalid IL, protection product, edits; view=references: where references resolve; metadata: PE headers, streams, tables, heaps, metadata problems.
+Assembly overview: identity, framework, entry point, counts, Il2Cpp, invalid IL, transformer, edits; view=references: resolution; metadata: PE headers, streams, tables, heaps, problems; transforms: dry-run layers.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `assembly` | string | yes |  | Assembly id, name or path. |
-| `view` | string |  | `summary` | What to show. Values: summary, references, metadata, all. |
+| `view` | string |  | `summary` | What to show. Values: summary, references, metadata, all, transforms. |
 
 Structured output: `id`, `fullName`, `file`, `sha256`, `mvid`, `runtime`, `kind`, `machine`, `targetFramework`, `entryPoint`, `types`, `nestedTypes`, `namespaces`, `methods`, `fields`, `resources`, `referenceAssembly`, `il2CppAddressedMethods`, `invalidBodies`, `invalidExceptionClauses`, `unsavedEdits`, `referenceCount`, `unresolvedReferences`, `metadataIssueCount`, `transformers`, `references`, `attributes`, `tables`, `heaps`, `metadataIssues`.
 
@@ -553,13 +553,13 @@ File inspection, containers and wrapped apps, Unity overview.
 
 **Summarize file** (read-only, idempotent)
 
-First look at a file or loaded assembly, not run: type, hashes, signature, containers, assemblies, highlights (toolchain, capabilities, packaging tools), entry points. view=: managed, dependencies, native, android, apple, electron, flutter, go, layers, nib, pcap, package (pre-install review), plist, protobuf, rust, script (layers peeled), sqlite (table= pages rows), sqlite-recover, unity (MonoBehaviour fields), all; views lists those that apply.
+First look at a file or assembly, not run: type, hashes, signature, containers, assemblies, highlights (toolchain, capabilities, packaging tools), entry points. view=: managed, dependencies, native, android, apple, electron, flutter, go, layers, nib, pcap, package (pre-install review), plist, protobuf, raw (headerless code), rust, script (layers peeled), sqlite (table= pages), sqlite-recover, unity (MonoBehaviour fields), all; views lists those that apply.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `path` | string |  |  | File (assembly, bundle, .nupkg, .apk, .ipa, zip, .asar, executable) or .app folder. |
+| `path` | string |  |  | File (assembly, executable, bundle, package, zip, .asar), .app or source folder. |
 | `assembly` | string |  |  | A loaded assembly; pass this or path. |
-| `view` | string |  | `overview` | A view the overview lists. Values: overview, managed, dependencies, android, apple, electron, firmware, flutter, go, hermes, installer, layers, lnk, native, nib, office, package, pcap, pdf, plist, protobuf, python, rust, script, sqlite, sqlite-recover, unity, wasm, xbf, all. |
+| `view` | string |  | `overview` | A view the overview lists. Values: overview, managed, dependencies, android, apple, electron, firmware, flutter, go, hermes, installer, layers, lnk, native, nib, office, package, pcap, pdf, plist, protobuf, python, raw, rust, script, sqlite, sqlite-recover, unity, wasm, xbf, all. |
 | `table` | string |  |  | sqlite, sqlite-recover: table to page. |
 | `columns` | string[] |  |  | With table=: these columns (rowid too). |
 | `script` | string |  |  | unity: only assets of this script class. |
@@ -590,16 +590,18 @@ Structured output: `assembly`, `methodsScanned`, `features`, `category`, `notes`
 
 **Extract typed strings** (read-only, idempotent)
 
-Typed values (URLs, domains, IPs, emails, file paths, pipes, registry keys, mutexes, user agents, crypto keys) from assembly literals, constants, resource text and decoded base64 / hex / compressed text, with count, locations and receiving APIs. read_result outputPath exports all (text: CSV).
+Typed values (URLs, domains, IPs, emails, file paths, pipes, registry keys, mutexes, user agents, crypto keys, encoded base64 / hex) from assembly literals, constants, resource and decoded text, and Unity script fields and TextAssets, with count, locations and receiving APIs. read_result outputPath exports all (text: CSV).
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `assembly` | string |  |  | A loaded assembly; pass this or path. |
-| `path` | string |  |  | A .NET assembly file to analyze without loading; pass this or assembly. |
+| `path` | string |  |  | A .NET assembly or container, a Unity build folder, package or zip, or a serialized file or bundle; pass this or assembly. |
 | `types` | string[] |  |  | Only these types. |
 | `offset` | integer |  |  |  |
 | `limit` | integer |  | `100` |  |
 | `maxTokens` | integer |  |  |  |
+| `maxAssetBytes` | integer |  |  | Unity: asset bytes read; at most 4 GiB (default). |
+| `timeLimit` | number |  |  | Unity: seconds until the read stops with what it read. |
 
 Structured output: `assembly`, `items`, `offset`, `total`, `byType`, `valuesResultId`, `notes`, `limit`, `totalExact`, `hasMore`, `nextOffset`.
 
@@ -1295,7 +1297,7 @@ Structured output: `image`, `sites`, `exact`, `possible`, `unresolved`, `edges`,
 
 **Search native strings** (read-only, idempotent, open-world, long-running)
 
-Strings (ASCII, UTF-16) referenced by the code or data of a native image, with address, reference count and first referencing function. Also Il2Cpp literals (after apply_il2cpp_names) and NativeAOT frozen strings; an engine adds unreferenced strings in other encodings.
+Strings (ASCII, UTF-16, Rust, Swift) referenced by code or data of a native image, with address, reference count and first referencing function. Also Il2Cpp literals (after apply_il2cpp_names), NativeAOT frozen strings; an engine adds unreferenced strings in other encodings.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -1865,9 +1867,9 @@ Structured output: `old`, `new`, `hashBasis`, `caseSensitive`, `counts`, `view`,
 
 ### compare_native_images
 
-**Compare native builds** (read-only, idempotent, long-running)
+**Compare native builds** (read-only, idempotent, open-world, long-running)
 
-Match functions of two native builds (x86, x64, ARM64) in tiers: 1 same name, import or bytes; 2 control flow; 3 imports, strings, constants; 4 call neighbours; 5 fuzzy over minScore; unique pairs only. Per-tier counts, rows by old address, capabilities added or removed. oldResult / newResult: kept results.
+Match functions of two native builds (x86, x64, ARM64) in tiers: 1 same name, import or bytes; 2 control flow; 3 imports, strings, constants; 4 call neighbours; 5 fuzzy over minScore; unique pairs only. Per-tier counts, rows by old address, capabilities added or removed. oldResult / newResult: kept results. engine: oldImage's file bytes against that engine's memory per section, as ranges patched, engine_fixup, relocation_applied, uninitialized, unknown or differs.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -1882,6 +1884,7 @@ Match functions of two native builds (x86, x64, ARM64) in tiers: 1 same name, im
 | `maxTokens` | integer |  |  |  |
 | `oldResult` | string |  |  | Instead: a kept result (r-...), last:N (recent call) or bundle entry (file.json#r-...). |
 | `newResult` | string |  |  | The new side, from the same tool. |
+| `engine` | string |  |  | ida or ghidra: compare oldImage's file with that engine's memory instead (no newImage). Values: ida, ghidra. |
 
 Structured output: `oldImage`, `newImage`, `oldFunctions`, `newFunctions`, `matched`, `identical`, `changed`, `unmatchedOld`, `unmatchedNew`, `ambiguous`, `tiers`, `view`, `items`, `offset`, `total`, `notes`, `evidence`, `changes`, `limit`, `totalExact`, `hasMore`, `nextOffset`.
 

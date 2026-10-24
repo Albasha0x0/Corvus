@@ -13,7 +13,7 @@
             "type": "string"
           },
           "encoding": {
-            "description": "ascii, utf16, il2cpp (a string literal slot), nativeaot (a frozen String object) or engine:type (e.g. ghidra:unicode).",
+            "description": "ascii, utf16, utf8 (a Rust literal, by the length its code or data gives), inline (a Swift string of up to 15 bytes held in instructions; Address is the instruction), il2cpp (a string literal slot), nativeaot (a frozen String object) or engine:type (e.g. ghidra:unicode).",
             "type": "string"
           },
           "text": {

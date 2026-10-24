@@ -103,6 +103,9 @@ public sealed partial class DalvikEvaluator(IDexProgram program)
     /// <summary>A value the interpreter does not model, kept in a static field until something reads it.</summary>
     private sealed record Unmodeled(string What);
 
+    /// <summary>An instance of a program class without instance fields whose superclass is Object: all instances behave alike.</summary>
+    private sealed record Stateless(string Class);
+
     /// <summary>The object of new-instance before its constructor runs.</summary>
     private sealed record Uninitialized(string Type);
 
@@ -116,6 +119,7 @@ public sealed partial class DalvikEvaluator(IDexProgram program)
 
     private readonly Dictionary<string, Statics> _classes = new(StringComparer.Ordinal);
     private readonly Dictionary<(DexFile, uint), Body?> _bodies = [];
+    private readonly Dictionary<string, bool> _statelessClasses = new(StringComparer.Ordinal);
     private readonly List<string> _initializing = [];
     // Static fields one evaluation read, and the methods it ran.
     private readonly HashSet<string> _reads = new(StringComparer.Ordinal), _executed = new(StringComparer.Ordinal);
@@ -123,18 +127,20 @@ public sealed partial class DalvikEvaluator(IDexProgram program)
     private bool _stateChanged;
 
     /// <summary>
-    /// Runs <paramref name="decoder"/> (a static method of the program returning a string) on constant arguments, twice: the
+    /// Runs <paramref name="decoder"/> (a method of the program returning a string: static, or an instance method of a class
+    /// whose instances all behave alike, run on a new instance) on constant arguments, twice: the
     /// string is Simplified only when both runs end within the limits and the second run, on the static state the first one
-    /// left, returns the same string.
+    /// left, returns the same string. With <paramref name="wrapper"/>, a String constructor or static String method, the
+    /// decoder returns an array and the wrapper, called with it and <paramref name="wrapperArguments"/>, makes the string.
     /// </summary>
-    public DexFold Fold(string decoder, IReadOnlyList<object?> arguments)
+    public DexFold Fold(string decoder, IReadOnlyList<object?> arguments, DexMethodRef? wrapper = null, IReadOnlyList<object?>? wrapperArguments = null)
     {
         _reads.Clear();
         _executed.Clear();
         try
         {
-            var first = Run(decoder, arguments);
-            var second = Run(decoder, arguments);
+            var first = Wrap(Run(decoder, arguments), wrapper, wrapperArguments);
+            var second = Wrap(Run(decoder, arguments), wrapper, wrapperArguments);
             if (OtherWriter() is { } writer) return new(DexFoldStatus.Unknown, null, "mutable-static: " + writer);
             if (first is not string s) return new(DexFoldStatus.Unknown, null, first == null ? "unsupported-value: returns null" : "unsupported-value: returns no string");
             if (second is not string t || !string.Equals(s, t, StringComparison.Ordinal))
@@ -153,7 +159,10 @@ public sealed partial class DalvikEvaluator(IDexProgram program)
         }
     }
 
-    /// <summary>The value of a static field of the program as its class's static initializer leaves it; false when that is not known.</summary>
+    /// <summary>
+    /// The value of a static field of the program as its class's static initializer leaves it, or of a standard charset
+    /// field; false when that is not known.
+    /// </summary>
     public bool TryReadStatic(string field, out object? value)
     {
         value = null;
@@ -165,7 +174,11 @@ public sealed partial class DalvikEvaluator(IDexProgram program)
             _stepLimit = MaxSteps;
             _elements = 0;
             var f = ParseField(field);
-            if (program.FindClass(f.Class) == null) return false;
+            if (program.FindClass(f.Class) == null)
+            {
+                value = f.Class == "Ljava/nio/charset/StandardCharsets;" ? FrameworkStatic(field) : null;
+                return value != null;
+            }
             value = ReadStatic(f.Class, f.Name, f.Type, null);
             return value is not Unmodeled && OtherWriter() == null;
         }
@@ -183,9 +196,28 @@ public sealed partial class DalvikEvaluator(IDexProgram program)
         var target = program.FindMethod(decoder) ?? throw new Stop(DexFoldStatus.Unknown, "unsupported-call", decoder + " is not defined in the package");
         // Arrays the caller builds are new on every call; arrays from static state are shared between calls.
         var args = arguments.Select(a => a is DalvikArray { Shared: false } array ? DeepCopy(array) : a).ToArray();
+        if ((target.Method.Access & 0x8) == 0)
+        {
+            if (!IsStateless(target.Class.Descriptor)) throw new Stop(DexFoldStatus.Unknown, "instance-object", decoder + " is an instance method of a class with state");
+            args = [new Stateless(target.Class.Descriptor), .. args];
+        }
         try
         {
             return Interpret(target.File, target.Class, target.Method, args, 0);
+        }
+        catch (Exception e) when (e is IndexOutOfRangeException or ArgumentException or InvalidCastException or OverflowException or FormatException)
+        {
+            throw new Stop(DexFoldStatus.Unknown, "invalid-code", e.Message);
+        }
+    }
+
+    private object? Wrap(object? result, DexMethodRef? wrapper, IReadOnlyList<object?>? arguments)
+    {
+        if (wrapper == null) return result;
+        List<object?> args = [result, .. arguments ?? []];
+        try
+        {
+            return wrapper.Name == "<init>" ? Construct(new Uninitialized(wrapper.Class), wrapper, args) : Intrinsic(wrapper, true, null, [.. args]);
         }
         catch (Exception e) when (e is IndexOutOfRangeException or ArgumentException or InvalidCastException or OverflowException or FormatException)
         {
@@ -220,19 +252,21 @@ public sealed partial class DalvikEvaluator(IDexProgram program)
         var descriptor = file.Method(method.MethodIndex).Descriptor;
         _executed.Add(descriptor);
         if (depth > MaxDepth) throw new Stop(DexFoldStatus.Partial, "call-depth", $"nested calls deeper than {MaxDepth} at {descriptor}");
-        if ((method.Access & 0x8) == 0) throw new Stop(DexFoldStatus.Unknown, "instance-object", descriptor + " is an instance method");
+        bool instance = (method.Access & 0x8) == 0;
+        if (instance && args is not [Stateless, ..]) throw new Stop(DexFoldStatus.Unknown, "instance-object", descriptor + " is an instance method");
         if ((method.Access & 0x100) != 0) throw new Stop(DexFoldStatus.Unknown, "no-code", descriptor + " is a native method");
         var body = method.CodeOffset == 0 ? null : Load(file, cls, method);
         if (body == null) throw new Stop(DexFoldStatus.Unknown, "no-code", descriptor + " has no code");
         var proto = file.Method(method.MethodIndex).Proto;
         var regs = new object?[body.Code.Registers];
         int r = body.Code.Registers - body.Code.Ins;
-        if (r < 0 || args.Length != proto.Parameters.Count) throw Invalid(descriptor, "its parameters do not fit its registers");
+        int receivers = instance ? 1 : 0;
+        if (r < 0 || args.Length != proto.Parameters.Count + receivers) throw Invalid(descriptor, "its parameters do not fit its registers");
         for (int k = 0; k < args.Length; k++)
         {
             if (r >= regs.Length) throw Invalid(descriptor, "its parameters do not fit its registers");
             regs[r] = args[k];
-            r += proto.Parameters[k] is "J" or "D" ? 2 : 1;
+            r += k >= receivers && proto.Parameters[k - receivers] is "J" or "D" ? 2 : 1;
         }
         return Execute(body, regs, depth, descriptor);
     }
@@ -288,7 +322,7 @@ public sealed partial class DalvikEvaluator(IDexProgram program)
                 case 0x22:
                 {
                     var type = body.File.Type(i.Index);
-                    if (type is not ("Ljava/lang/String;" or "Ljava/lang/StringBuilder;" or "Ljava/lang/StringBuffer;" or "Ljava/lang/Object;"))
+                    if (type is not ("Ljava/lang/String;" or "Ljava/lang/StringBuilder;" or "Ljava/lang/StringBuffer;" or "Ljava/lang/Object;") && !IsStateless(type))
                         throw Unsupported(program.FindClass(type) != null ? "instance-object" : "unsupported-call", $"new-instance {type}");
                     Set(i.A, new Uninitialized(type));
                     break;
@@ -414,7 +448,7 @@ public sealed partial class DalvikEvaluator(IDexProgram program)
                     }
                     if (receiver is Uninitialized pending && m.Name == "<init>")
                     {
-                        var created = Construct(pending, m, args);
+                        var created = program.FindClass(pending.Type) != null ? Initialized(pending, m, args, depth) : Construct(pending, m, args);
                         // The verifier keeps an uninitialized object in this frame's registers only.
                         for (int x = 0; x < regs.Length; x++)
                             if (ReferenceEquals(regs[x], pending)) regs[x] = created;
@@ -477,6 +511,7 @@ public sealed partial class DalvikEvaluator(IDexProgram program)
         DalvikArray a => "an array " + a.Type,
         StringBuilder => "a StringBuilder",
         Uninitialized u => "an uninitialized " + u.Type,
+        Stateless s => "an instance of " + s.Class,
         int or long => "a number",
         _ => "a " + v.GetType().Name,
     };
@@ -493,26 +528,53 @@ public sealed partial class DalvikEvaluator(IDexProgram program)
                 || (type.StartsWith("[L", StringComparison.Ordinal) && a.Type.StartsWith("[L", StringComparison.Ordinal) && type == "[Ljava/lang/Object;"),
             Charset => type == "Ljava/nio/charset/Charset;",
             Base64Coder c => type == (c.Encoder ? "Ljava/util/Base64$Encoder;" : "Ljava/util/Base64$Decoder;"),
+            Stateless s => type == s.Class,
             _ => false,
         };
     }
 
     private object? Invoke(DexMethodRef m, bool isStatic, object? receiver, object?[] args, int depth)
     {
-        if (isStatic && ResolveStatic(m) is { } target)
+        if (isStatic && Resolve(m, m.Class) is { } target)
         {
             // A static initializer runs when its class's static state is first read, not on the first call.
             return Interpret(target.File, target.Class, target.Method, args, depth + 1);
+        }
+        if (receiver is Stateless s)
+        {
+            if (m.Descriptor == "Ljava/lang/Object;-><init>()V") return null;
+            // Dispatch starts at the instance's class: the decoder class has no subclass, so that is its exact type.
+            if (Resolve(m, s.Class) is { } method && (method.Method.Access & 0x8) == 0)
+                return Interpret(method.File, method.Class, method.Method, [s, .. args], depth + 1);
+            throw Unsupported("unsupported-call", $"{m.Descriptor} on {Describe(s)}");
         }
         if (!isStatic && program.FindClass(m.Class) != null && receiver is not (string or StringBuilder or DalvikArray))
             throw Unsupported("instance-object", m.Descriptor);
         return Intrinsic(m, isStatic, receiver, args);
     }
 
-    private (DexFile File, DexClass Class, DexEncodedMethod Method)? ResolveStatic(DexMethodRef m)
+    /// <summary>A constructor call on a new instance of a program class whose instances all behave alike.</summary>
+    private Stateless Initialized(Uninitialized pending, DexMethodRef m, List<object?> args, int depth)
+    {
+        if (m.Class != pending.Type || program.FindMethod(m.Descriptor) is not { } ctor) throw Unsupported("unsupported-call", $"{m.Descriptor} on a new {pending.Type}");
+        var created = new Stateless(pending.Type);
+        Interpret(ctor.File, ctor.Class, ctor.Method, [created, .. args], depth + 1);
+        return created;
+    }
+
+    /// <summary>A program class without instance fields whose superclass is Object, not an interface or abstract.</summary>
+    private bool IsStateless(string cls)
+    {
+        if (_statelessClasses.TryGetValue(cls, out var known)) return known;
+        return _statelessClasses[cls] = program.FindClass(cls) is { } c && c.Class.SuperClass == "Ljava/lang/Object;" && (c.Class.Access & 0x600) == 0
+            && c.File.ClassData(c.Class).Fields.All(f => f.IsStatic);
+    }
+
+    /// <summary>The program method <paramref name="m"/> names, looked up from class <paramref name="from"/> through its superclasses.</summary>
+    private (DexFile File, DexClass Class, DexEncodedMethod Method)? Resolve(DexMethodRef m, string from)
     {
         var tail = "->" + m.Name + m.Proto.Descriptor;
-        for (var (c, n) = (m.Class, 0); c != null && n < 16; n++)
+        for (var (c, n) = (from, 0); c != null && n < 16; n++)
         {
             if (program.FindMethod(c + tail) is { } found) return found;
             c = program.FindClass(c)?.Class.SuperClass;

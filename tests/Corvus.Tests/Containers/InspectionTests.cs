@@ -536,6 +536,61 @@ public class InspectionTests : IDisposable
     }
 
     [Fact]
+    public void A_container_path_reads_its_own_assemblies_and_skips_the_framework_ones()
+    {
+        var zip = _dir.File("app.zip");
+        using (var archive = ZipFile.Open(zip, ZipArchiveMode.Create))
+        {
+            archive.CreateEntryFromFile(Save("App.dll", Roslyn.Release("App", """public static class C { public static string U() => "https://example.com/api/items"; }""")), "lib/App.dll");
+            archive.CreateEntryFromFile(Path.Combine(System.Runtime.InteropServices.RuntimeEnvironment.GetRuntimeDirectory(), "System.Runtime.dll"), "lib/System.Runtime.dll");
+        }
+        var report = Inspection.ExtractStrings(null, zip, null, default);
+        var url = Assert.Single(report.Values, v => v.Type == "url");
+        Assert.Equal("https://example.com/api/items", url.Value);
+        Assert.All(url.Locations, l => Assert.StartsWith("lib/App.dll: ", l));
+        Assert.Equal("1 of the container's 1 own assemblies read; 1 framework assemblies skipped.", report.Notes[0]);
+        Assert.Null(report.Partial);
+    }
+
+    [Fact]
+    public void A_container_with_more_own_assemblies_than_are_read_names_the_rest_as_partial()
+    {
+        var zip = _dir.File("many.zip");
+        using (var archive = ZipFile.Open(zip, ZipArchiveMode.Create))
+            for (int i = 0; i < 9; i++)
+                archive.CreateEntryFromFile(Save($"Lib{i}.dll", Roslyn.Release($"Lib{i}", $"public static class C{i} {{ }}")), $"Lib{i}.dll");
+        var report = Inspection.ExtractStrings(null, zip, null, default);
+        Assert.Equal("the first 8 of 9 assemblies are read, host and main first", report.Partial);
+    }
+
+    [Fact]
+    public void A_whole_base64_literal_is_an_encoded_value_with_the_api_it_is_passed_to()
+    {
+        var key = Convert.ToBase64String([.. Enumerable.Range(1, 32).Select(i => (byte)i)]);
+        var path = Save("Keys.dll", Roslyn.Release("Keys", $$"""
+            public static class K
+            {
+                public static byte[] Key() => System.Convert.FromBase64String("{{key}}");
+                public static string Name() => "PlayerController2DSpawner";
+            }
+            """));
+        var row = Assert.Single(Inspection.ExtractStrings(null, path, ["encoded"], default).Values);
+        Assert.Equal((key, "base64, 32 bytes"), (row.Value, row.Detail));
+        Assert.Contains("System.Convert::FromBase64String", row.PassedTo);
+    }
+
+    [Fact]
+    public void Encoded_literals_past_the_cap_of_an_assembly_are_counted_not_listed()
+    {
+        var keys = Enumerable.Range(0, Values.MaxEncoded + 5).Select(i => Convert.ToBase64String([.. Enumerable.Range(i, 32).Select(b => (byte)b)]));
+        var literals = string.Join(", ", keys.Select(k => "\"" + k + "\""));
+        var path = Save("ManyKeys.dll", Roslyn.Release("ManyKeys", "public static class K { public static string[] All() => new[] { " + literals + " }; }"));
+        var report = Inspection.ExtractStrings(null, path, ["encoded"], default);
+        Assert.Equal(Values.MaxEncoded, report.Values.Count);
+        Assert.Equal("5 encoded values past 100 per assembly are not listed", report.Partial);
+    }
+
+    [Fact]
     public void Values_beside_a_long_run_of_colons_keep_their_addresses()
     {
         // The run backtracked an IPv6 pattern of three overlapping classes past its 1 s timeout, and the text lost its addresses.

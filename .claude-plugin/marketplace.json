@@ -11,11 +11,11 @@
     {
       "name": "corvus",
       "source": "./",
-      "description": "Reverse engineering of .NET assemblies and native binaries: decompile, search, compare builds, patch and save.",
+      "description": "Reverse engineering and security analysis of .NET assemblies and native binaries: decompile, search, compare builds, patch and save.",
       "version": "2.5.1",
       "category": "development",
       "homepage": "https://github.com/Albasha0x0/Corvus",
-      "license": "MIT"
+      "license": "Apache-2.0"
     }
   ]
 }

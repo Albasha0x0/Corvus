@@ -37,7 +37,7 @@ public sealed class AssemblyReport(AssemblyWorkspace workspace, Il2CppService il
         [property: System.ComponentModel.Description("References that resolve to nothing.")] int UnresolvedReferences,
         [property: System.ComponentModel.Description("Structural metadata problems: root and streams, every bad table, coded or heap index, P/Invoke rows.")] int MetadataIssueCount)
     {
-        [System.ComponentModel.Description("The transformation tool, with evidence.")] public IReadOnlyList<Analysis.TransformerFinding>? Transformers { get; init; }
+        [System.ComponentModel.Description("The transformation tool, with evidence; view=transforms adds 'layer: ' rows.")] public IReadOnlyList<Analysis.TransformerFinding>? Transformers { get; init; }
         [System.ComponentModel.Description("view=references or all.")] public IReadOnlyList<ReferenceStatus>? References { get; init; }
         [System.ComponentModel.Description("view=metadata or all: assembly attributes (first 40).")] public IReadOnlyList<string>? Attributes { get; init; }
         [System.ComponentModel.Description("view=metadata or all: row counts of the non-empty metadata tables, in table order.")] public IReadOnlyList<TableRows>? Tables { get; init; }
@@ -45,8 +45,8 @@ public sealed class AssemblyReport(AssemblyWorkspace workspace, Il2CppService il
         [System.ComponentModel.Description("view=metadata or all: the first 50 metadata problems.")] public IReadOnlyList<MetadataIssue>? MetadataIssues { get; init; }
     }
 
-    /// <summary>What get_assembly_info shows: summary, references, metadata or all.</summary>
-    public static readonly string[] Views = ["summary", "references", "metadata", "all"];
+    /// <summary>What get_assembly_info shows: summary, references, metadata, all, or transforms (not part of all: it runs a dry run).</summary>
+    public static readonly string[] Views = ["summary", "references", "metadata", "all", "transforms"];
 
     /// <summary>Rows of a metadata table.</summary>
     public sealed record TableRows(string Table, uint Rows);
@@ -58,7 +58,7 @@ public sealed class AssemblyReport(AssemblyWorkspace workspace, Il2CppService il
     public string Build(LoadedAssembly asm) => Build(asm, "all", out _);
 
     /// <summary>The overview text of <paramref name="view"/>, and its facts as <paramref name="summary"/>. Call under the workspace read lock.</summary>
-    public string Build(LoadedAssembly asm, string view, out Summary summary)
+    public string Build(LoadedAssembly asm, string view, out Summary summary, CancellationToken ct = default)
     {
         bool all = view == "all", references = all || view == "references", metadata = all || view == "metadata";
         var m = asm.Module;
@@ -95,6 +95,17 @@ public sealed class AssemblyReport(AssemblyWorkspace workspace, Il2CppService il
                               .Select(x => $"{Format.MemberLabel(x)} {health.ClauseIssues(x)[0]}")) + "); get_il shows them per method.");
         var transformers = Analysis.Transformers.Identify(m);
         foreach (var o in transformers) sb.AppendLine($"Transformer: {o.Name} ({o.Confidence}): {string.Join("; ", o.Evidence)}");
+        if (view == "transforms")
+        {
+            var layers = Simplify.TransformLayers.Read(asm, ct);
+            sb.AppendLine(layers.Count == 0 ? "Transforms: none seen" : "Transforms (a simplify_methods dry run; nothing is changed):");
+            foreach (var l in layers)
+            {
+                string[] evidence = [$"{l.Sites} site(s), {l.Restored} restored", l.Evidence, .. l.Reasons];
+                sb.AppendLine($"  {l.Layer}: {l.State}, {string.Join("; ", evidence)}");
+                transformers.Add(new("layer: " + l.Layer, l.State, evidence));
+            }
+        }
         if (ReadyToRunService.Summary(workspace, asm) is { } readyToRun)
             sb.AppendLine(readyToRun);
         if (asm.IsDirty)

@@ -11,9 +11,9 @@ public sealed record EvidenceSource(
     string Tool, string? Arguments, IReadOnlyList<KeptInput> Inputs, DateTimeOffset? Created);
 
 public sealed record EvidenceChange(
-    [property: Description("changed, removed, added, or unknown (absent from a partial side).")] string Kind,
+    [property: Description("changed, removed, added, or unknown (absent from a partial side); engine memory: what wrote the range.")] string Kind,
     string Key, string? Old, string? New,
-    [property: Description("changed: the fields that differ.")] IReadOnlyList<string>? Fields);
+    [property: Description("changed: the fields that differ; engine memory: the range's detail.")] IReadOnlyList<string>? Fields);
 
 /// <summary>A comparison of two results: where each came from, how they were compared and the counts; the rows are the record's changes.</summary>
 public sealed record EvidenceSummary(

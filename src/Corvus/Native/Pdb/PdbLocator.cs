@@ -26,7 +26,7 @@ public static class PdbLocator
     public const long DefaultMaxDownloadBytes = 2L << 30;
 
     public static string DownloadCache =>
-        Environment.GetEnvironmentVariable(CacheVariable) is { Length: > 0 } custom
+        Providers.ExternalTools.ReadVariable(CacheVariable) is { Length: > 0 } custom
             ? custom
             : Providers.DataFolder.Combine("symbols");
 
@@ -50,7 +50,7 @@ public static class PdbLocator
     {
         var stores = new List<string>();
         var paths = symbolPath != null ? [symbolPath]
-            : new[] { Environment.GetEnvironmentVariable("_NT_SYMBOL_PATH"), Environment.GetEnvironmentVariable("_NT_ALT_SYMBOL_PATH") };
+            : new[] { Providers.ExternalTools.ReadVariable("_NT_SYMBOL_PATH"), Providers.ExternalTools.ReadVariable("_NT_ALT_SYMBOL_PATH") };
         foreach (var path in paths)
             if (path != null) ParseSymbolPath(path, stores, servers);
         var local = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);

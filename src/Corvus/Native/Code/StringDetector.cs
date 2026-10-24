@@ -38,13 +38,35 @@ internal static class StringDetector
         return null;
     }
 
+    /// <summary>True when <paramref name="bytes"/> are valid UTF-8 text of at least <see cref="MinLength"/> bytes with no control characters but tab and line ends.</summary>
+    public static bool IsText(ReadOnlySpan<byte> bytes)
+    {
+        if (bytes.Length < MinLength || bytes.Contains((byte)0)) return false;
+        string text;
+        try { text = Strict.GetString(bytes); }
+        catch (DecoderFallbackException) { return false; }
+        foreach (char c in text)
+            if (char.IsControl(c) && c is not ('\t' or '\r' or '\n')) return false;
+        return true;
+    }
+
+    private static readonly UTF8Encoding Strict = new(false, true);
+
     private static bool IsPrintable(byte b) => b is >= 0x20 and < 0x7F or (byte)'\t' or (byte)'\r' or (byte)'\n';
 
     private static bool IsPrintableWide(char c) =>
         c < 0x80 ? IsPrintable((byte)c) : !char.IsControl(c) && !char.IsSurrogate(c) && c != '￿' && c != '￾' && char.GetUnicodeCategory(c) != System.Globalization.UnicodeCategory.OtherNotAssigned;
 
+    /// <summary>The text of <paramref name="s"/>, at most <paramref name="maxChars"/> characters; an inline string's text is the index's.</summary>
     public static string Read(INativeImage image, StringLiteral s, int maxChars)
     {
+        if (s.Encoding == StringEncoding.Utf8)
+        {
+            var utf8 = new byte[s.Length];
+            int read = image.Read(s.Rva, utf8);
+            var text = Encoding.UTF8.GetString(utf8, 0, read);
+            return text.Length <= maxChars ? text : text[..maxChars];
+        }
         int chars = Math.Min(s.Length, maxChars);
         var bytes = new byte[s.Encoding == StringEncoding.Utf16 ? chars * 2 : chars];
         int n = image.Read(s.Rva, bytes);

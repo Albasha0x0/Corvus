@@ -151,9 +151,13 @@ public class MachinePermitsTests
                 var waiter = steps.Wait();
                 for (int i = 0; i < 4; i++)
                 {
-                    var before = "";
-                    Assert.True(SpinWait.SpinUntil(() => (before = steps.Record()).Length > 0, 30_000), "no record");
-                    await steps.Advance(TimeSpan.FromMilliseconds(500), () => Assert.True(SpinWait.SpinUntil(() => steps.Record() is { Length: > 0 } r && r != before, 30_000), "no heartbeat"));
+                    // Read the record after the clock moves: a heartbeat written before it may already be seen at
+                    // the old time, and a delayed timer then leaves the step without progress.
+                    await steps.Advance(TimeSpan.FromMilliseconds(500), () =>
+                    {
+                        var before = steps.Record();
+                        Assert.True(SpinWait.SpinUntil(() => steps.Record() is { Length: > 0 } r && r != before, 30_000), "no heartbeat");
+                    });
                     Assert.False(waiter.IsCompleted, waiter.Exception?.InnerException?.Message);
                 }
                 held.Dispose();

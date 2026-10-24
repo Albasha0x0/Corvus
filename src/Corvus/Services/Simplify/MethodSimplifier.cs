@@ -32,8 +32,8 @@ public sealed record SimplifyOptions(bool Fold = true, bool ControlFlow = true, 
     public string Label() => Describe() + (DeterministicEnvironment ? "; deterministic environment" : "");
 }
 
-/// <summary>A fallback: what was left alone, and why.</summary>
-public sealed record Fallback(FallbackReason Reason, string Detail)
+/// <summary>A fallback: what was left alone, and why; <see cref="Helper"/> is the module's own method behind it, when one is.</summary>
+public sealed record Fallback(FallbackReason Reason, string Detail, MethodDef? Helper = null)
 {
     public override string ToString() => $"{Detail} [{SimplifyManifest.CodeOf(Reason)}]";
 }
@@ -43,6 +43,8 @@ public sealed class MethodChange(MethodDef method)
 {
     public MethodDef Method { get; } = method;
     public List<string> Folded { get; } = new();
+    /// <summary>The module's own helper behind each entry of <see cref="Folded"/>; null for a framework call.</summary>
+    public List<MethodDef?> FoldedHelpers { get; } = new();
     public List<string> Inlined { get; } = new();
     /// <summary>Calls through delegate fields that now call the delegate's target directly.</summary>
     public List<string> Delegates { get; } = new();
@@ -435,7 +437,7 @@ public sealed class MethodSimplifier
             {
                 // Reported for the assembly's own helpers; framework calls that cannot be evaluated are expected.
                 if (Generics.Definition(callee) is MethodDef def && def.Module == _module)
-                    change.Bailouts.Add(new(ex.Reason, $"{At(call)} {Describe(callee)}: {ex.Message}"));
+                    change.Bailouts.Add(new(ex.Reason, $"{At(call)} {Describe(callee)}: {ex.Message}", def));
                 continue;
             }
 
@@ -444,6 +446,7 @@ public sealed class MethodSimplifier
             head.Operand = value;
             for (int k = start.Value + 1; k <= j; k++) MakeDead(code[k], dead);
             change.Folded.Add($"{Describe(callee)} -> {Format.Clip(Format.Literal(value), 120)} at {At(call)}");
+            change.FoldedHelpers.Add(Generics.Definition(callee) is MethodDef own && own.Module == _module ? own : null);
         }
     }
 

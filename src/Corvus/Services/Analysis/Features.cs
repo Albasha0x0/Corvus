@@ -356,6 +356,24 @@ public static class Features
 
     private static readonly Dictionary<string, Regex> RulePatterns = [];
 
+    private static readonly Lazy<int> Prepared = new(() =>
+    {
+        foreach (var feature in AllRules.SelectMany(r => r.Groups).SelectMany(g => g))
+        {
+            int colon = feature.IndexOf(':');
+            var (kind, pattern) = colon < 0 ? (feature, "") : (feature[..colon], feature[(colon + 1)..]);
+            if (kind is "str" or "rtti" or "sym") RulePattern(pattern);
+            else if (kind == "section" && pattern.StartsWith("name=", StringComparison.Ordinal)) RulePattern(pattern[5..]);
+        }
+        return RulePatterns.Count;
+    });
+
+    /// <summary>
+    /// Builds every rule's regular expression once per process and returns how many are kept; a timed survey calls it
+    /// first, so its budget measures its own scan, not this one-time work.
+    /// </summary>
+    internal static int Prepare() => Prepared.Value;
+
     /// <summary>
     /// A rule's regular expression (str:, rtti:, sym:, section:name=, a dex string), parsed once. Throws
     /// NotSupportedException for a construct NonBacktracking does not take; a test keeps every rule clear of them.

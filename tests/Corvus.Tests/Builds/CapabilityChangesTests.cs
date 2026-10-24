@@ -3,6 +3,7 @@ using System.IO.Compression;
 using System.Text;
 using Corvus.Core;
 using Corvus.Native.Annotations;
+using Corvus.Native.Providers.Worker;
 using Corvus.Services;
 using Corvus.Services.Analysis;
 using Corvus.Tools;
@@ -143,7 +144,9 @@ public sealed class CapabilityChangesTests(ITestOutputHelper output) : IDisposab
         fake.On("^--version$", stdout: "capa.exe 10.0.0\n");
         fake.On(@"^-j .+old\.exe$", stdout: CapaResult("terminate process"));
         fake.On(@"^-j .+new\.exe$", stdout: CapaResult("terminate process", "connect to URL"));
-        using var scope = new EnvironmentScope().Set("CORVUS_CAPA", fake.CopyAs("capa")).Set(FakeTool.ScriptVariable, fake.ScriptPath).Set("CORVUS_WORKER_HOST", "0");
+        using var scope = new EnvironmentScope().Set("CORVUS_CAPA", fake.CopyAs("capa")).Set(FakeTool.ScriptVariable, fake.ScriptPath);
+        // Off in this flow only, so capa runs here with the fake while other tests keep their workers.
+        using var workers = WorkerPool.UseShared(new WorkerPool(new WorkerPoolOptions { Enabled = false }));
         var (env, _, inspection) = Rig();
         var old = env.Workspace.LoadAny(Save("old.exe", Program())).Native!;
         var @new = env.Workspace.LoadAny(Save("new.exe", Program(NetworkAndRegistry))).Native!;
@@ -229,6 +232,39 @@ public sealed class CapabilityChangesTests(ITestOutputHelper output) : IDisposab
         Assert.NotEmpty(result.Changes!);
         Assert.All(result.Changes!, c => Assert.Equal("added", c.Kind));
         Assert.Contains(result.Changes!, c => c.Key.StartsWith("install script: ", StringComparison.Ordinal));
-        Assert.Contains(result.Notes, n => n.StartsWith($"package review: {result.Changes!.Count} finding(s) added, 0 removed (review none -> ", StringComparison.Ordinal));
+        Assert.Contains(result.Changes!, c => c.Key == "endpoint: example.invalid");
+        Assert.StartsWith("package policy: review none -> ", result.Notes[0], StringComparison.Ordinal);
+        Assert.Contains("added: 1 install script(s), 1 endpoint(s)", result.Notes[0], StringComparison.Ordinal);
+        Assert.EndsWith("; removed: nothing", result.Notes[0], StringComparison.Ordinal);
+        Assert.Contains(result.Notes, n => n == $"package review: {result.Changes!.Count - 1} finding(s) added, 0 removed, 1 policy fact(s) changed; Changes lists them");
+    }
+
+    private string Folder(string name, params (string Path, string Text)[] files)
+    {
+        var root = _dir.File(name);
+        foreach (var (p, text) in files)
+        {
+            var full = Path.Combine(root, p);
+            Directory.CreateDirectory(Path.GetDirectoryName(full)!);
+            File.WriteAllText(full, text);
+        }
+        return root;
+    }
+
+    [Fact]
+    public async Task Two_source_folder_versions_report_endpoints_native_files_and_what_runs_on_open()
+    {
+        const string manifest = """{"name":"example-tool","version":"2.0.0","main":"index.js"}""";
+        var old = Folder("tool-1", ("package.json", manifest), ("index.js", "fetch('https://api.example.invalid/v1');"));
+        var @new = Folder("tool-2", ("package.json", manifest), ("index.js", "fetch('https://cdn.example.invalid/v2');"),
+            ("prebuilds/addon.node", "\u007FELF"),
+            (".devcontainer/devcontainer.json", """{ "initializeCommand": "sh tools/init.sh" }"""));
+        var result = await new FolderTools(new FolderCompare()).CompareFolders(old, @new);
+        output.WriteLine(string.Join("\n", result.Notes));
+        Assert.Contains(result.Changes!, c => c is { Kind: "removed", Key: "endpoint: api.example.invalid" });
+        Assert.Contains(result.Changes!, c => c is { Kind: "added", Key: "endpoint: cdn.example.invalid" });
+        Assert.Contains(result.Changes!, c => c is { Kind: "added", Key: "native file: prebuilds/addon.node" });
+        Assert.Contains(result.Changes!, c => c is { Kind: "added", Key: "runs: dev container initializeCommand: sh tools/init.sh" });
+        Assert.Equal("package policy: review none -> noteworthy; added: 1 endpoint(s), 1 native file(s), 1 run(s) on open, checkout or build; removed: 1 endpoint(s)", result.Notes[0]);
     }
 }

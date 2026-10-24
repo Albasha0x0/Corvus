@@ -57,12 +57,13 @@ public sealed class NativeDiffTools(AssemblyWorkspace workspace, NativeCodeServi
         [property: Description("Matched pairs with identical masked bytes.")] int Identical,
         int Changed, int UnmatchedOld, int UnmatchedNew, int Ambiguous,
         IReadOnlyList<TierCount> Tiers,
-        [property: Description("pairs, changed, unmatched or ambiguous.")] string View,
+        [property: Description("pairs, changed, unmatched or ambiguous; memory with engine.")] string View,
         IReadOnlyList<FunctionRow> Items, int Offset, int Total,
         [property: Description("What was not covered (functions that did not decode, capped work).")] IReadOnlyList<string> Notes)
     {
         [Description("oldResult / newResult: inputs and counts.")] public EvidenceSummary? Evidence { get; init; }
-        [Description("Results or capabilities that differ.")] public IReadOnlyList<EvidenceChange>? Changes { get; init; }
+        [Description("Results or capabilities that differ; engine=: the ranges where the file and the engine's memory differ.")]
+        public IReadOnlyList<EvidenceChange>? Changes { get; init; }
     }
 
     public sealed record AddressMapping(
@@ -162,7 +163,8 @@ public sealed class NativeDiffTools(AssemblyWorkspace workspace, NativeCodeServi
     [McpServerTool(Name = "compare_native_images", Title = "Compare native builds", UseStructuredContent = true, OutputSchemaType = typeof(NativeComparison))]
     [Description("Match functions of two native builds (x86, x64, ARM64) in tiers: 1 same name, import or bytes; 2 control flow; 3 imports, " +
                  "strings, constants; 4 call neighbours; 5 fuzzy over minScore; unique pairs only. Per-tier counts, rows by old address, " +
-                 "capabilities added or removed. oldResult / newResult: kept results.")]
+                 "capabilities added or removed. oldResult / newResult: kept results. engine: oldImage's file bytes against that engine's " +
+                 "memory per section, as ranges patched, engine_fixup, relocation_applied, uninitialized, unknown or differs.")]
     public Task<string> CompareNativeImages(
         [Description(OldDescription)] string? oldImage = null,
         [Description(NewDescription)] string? newImage = null,
@@ -175,12 +177,14 @@ public sealed class NativeDiffTools(AssemblyWorkspace workspace, NativeCodeServi
         [Description(MaxTokensDescription)] int? maxTokens = null,
         [Description(OldResultDescription)] string? oldResult = null,
         [Description(NewResultDescription)] string? newResult = null,
+        [Description("ida or ghidra: compare oldImage's file with that engine's memory instead (no newImage).")] string? engine = null,
         RequestContext<CallToolRequestParams> context = null!,
         CancellationToken cancellationToken = default) => OrderedProgress.Run(context, async progress =>
     {
         if (EvidenceInput.FromArguments(oldResult, newResult, oldImage != null || newImage != null, "oldImage and newImage", context?.Services) is var (ev, changes))
             return EvidenceList(changes, offset, limit, ev, page => new NativeComparison(ev.Old.Ref, ev.New.Ref, 0, 0, 0, 0, 0, 0, 0, 0, [], "evidence", [], offset, changes.Count, [])
                 { Evidence = ev, Changes = page });
+        if (!string.IsNullOrWhiteSpace(engine)) return await CompareEngineMemory(oldImage, newImage, engine, offset, limit, cancellationToken);
         var v = (string.IsNullOrWhiteSpace(view) ? "pairs" : view).Trim().ToLowerInvariant();
         if (v is not ("pairs" or "changed" or "unmatched" or "ambiguous" or "interface"))
             throw new ToolError(ErrorCode.InvalidArgument, $"Unknown view '{view}'.", "use pairs, changed, unmatched, ambiguous or interface");
@@ -234,6 +238,45 @@ public sealed class NativeDiffTools(AssemblyWorkspace workspace, NativeCodeServi
         return ToolOutput.List(rows.Skip(offset).ToList(), offset, limit, rows.Count, RowText, page => record with { Items = page },
             v is "pairs" or "changed" ? "pair" : "function", head.ToString());
     });
+
+    /// <summary>compare_native_images engine=: the image's file bytes against that engine's memory, ranges by engine address.</summary>
+    private async Task<string> CompareEngineMemory(string? image, string? newImage, string engine, int offset, int limit, CancellationToken ct)
+    {
+        if (newImage != null)
+            throw new ToolError(ErrorCode.InvalidArgument, "engine compares oldImage's file with that engine's memory; newImage is not used.", "drop newImage");
+        if (string.IsNullOrWhiteSpace(image)) throw new ToolError(ErrorCode.InvalidArgument, "engine needs oldImage, the image whose file is compared.");
+        if (engines == null) throw new ToolError(ErrorCode.ProviderUnavailable, "No analysis engine is set up in this server.");
+        var id = engine.Trim().ToLowerInvariant();
+        if (!engines.ProviderIds.Contains(id)) throw new ToolError(ErrorCode.InvalidArgument, $"Unknown engine '{engine.Trim()}'.", "use ida or ghidra");
+        var native = await Task.Run(() => Targets.Native(workspace, image), ct);
+        var session = await engines.Session(native, id, null, ct);
+        var control = EngineControl.Require(session, "memory reads");
+        // The comparison is against the file as loaded: this session's edits are named, not taken as the file.
+        byte[] file = native.HasPatches ? native.Patches.OriginalBytes() : Native.Patching.NativePatchSet.FileBytesOf(native.Image).ToArray();
+        IReadOnlyList<Native.Patching.NativePatch> edits = native.HasPatches ? [.. native.Patches.Patches] : [];
+        var report = await EngineMemoryDiff.CompareAsync(id, native.Image, file, session.ImageBase, control, edits, ct);
+        // The record reuses the comparison's shape: sections and bases as notes, differing ranges as changes.
+        var facts = new List<string> { $"engine base {report.EngineBase}, file base {report.FileBase}; {(report.FixupsListed ? $"{report.Fixups} engine fixups" : "fixups not listed")}" };
+        facts.AddRange(report.Sections.Select(x => $"{x.Name} {x.EngineAddress} size 0x{x.Size:X}: {x.Compared} compared, {x.Equal} equal, {x.Unknown} unknown, {x.ZeroFill} zero fill" +
+            (x.Kinds.Count > 0 ? "; " + string.Join(", ", x.Kinds.Select(k => $"{k.Ranges} {k.Kind} ({k.Bytes} bytes)")) : "")));
+        var record = new NativeComparison(native.Id, $"{id} database", 0, 0, 0, 0, 0, 0, 0, 0, [], "memory", [], Math.Max(0, offset), report.Ranges.Count,
+            [.. facts, .. report.Notes]);
+        var head = new System.Text.StringBuilder($"{native.Id} file -> {id} memory (base {report.EngineBase}, file base {report.FileBase}): " +
+            $"{report.Sections.Sum(x => x.Compared)} bytes compared, {report.Sections.Sum(x => x.Equal)} equal, {report.Sections.Sum(x => x.Unknown)} unknown; " +
+            $"{(report.FixupsListed ? $"{report.Fixups} engine fixups" : "fixups not listed")}.\n");
+        foreach (var line in facts.Skip(1)) head.Append("  ").Append(line).Append('\n');
+        foreach (var note in report.Notes) head.Append("Note: ").Append(note).Append('\n');
+        return ToolOutput.List(report.Ranges.Skip(Math.Max(0, offset)).ToList(), Math.Max(0, offset), limit, report.Ranges.Count, MemoryRowText,
+            page => record with { Changes = [.. page.Select(MemoryChange)] }, "range", head.ToString());
+    }
+
+    /// <summary>A differing range as a change: kind, address with section and length as the key, file and engine bytes, detail.</summary>
+    private static EvidenceChange MemoryChange(MemoryRange r) => new(r.Kind, $"{r.EngineAddress} {r.Section} +0x{r.Length:X}",
+        r.FileOffset != null ? $"file {r.FileOffset}" + (r.FileBytes != null ? $": {r.FileBytes}" : "") : null, r.EngineBytes, r.Detail != null ? [r.Detail] : null);
+
+    private static string MemoryRowText(MemoryRange r) =>
+        $"{r.EngineAddress} {r.Section} +0x{r.Length:X} {r.Kind}" + (r.FileOffset != null ? $" file {r.FileOffset}" : "") + (r.Detail != null ? $": {r.Detail}" : "") +
+        (r.FileBytes != null || r.EngineBytes != null ? $" [{r.FileBytes ?? "-"} -> {r.EngineBytes ?? "-"}]" : "");
 
     internal const string OldResultDescription = "Instead: " + EvidenceInput.ReferenceDescription + ".";
     internal const string NewResultDescription = "The new side, from the same tool.";

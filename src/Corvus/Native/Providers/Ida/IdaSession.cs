@@ -276,7 +276,7 @@ internal sealed class IdaSession(IdaProvider provider, IdaInstallation ida, Pyth
     [
         "hello", "functions", "decompile", "decompile_many", "decompile_refs", "disasm", "disasm_range", "blocks", "insn", "xrefs_to", "xrefs_from",
         "xrefs_to_many", "types", "type", "frame", "field_xrefs", "virtual_targets", "value_slice", "type_guess", "get_stamp", "image_info",
-        "defined_data", "defined_strings", "function_info", "analyzers", "function_candidates", "classes", "save", "save_as", "search_bytes", "memory",
+        "defined_data", "defined_strings", "function_info", "analyzers", "function_candidates", "classes", "save", "save_as", "search_bytes", "memory", "fixups",
     ];
 
     protected override bool ReadsOnly(string op) => AnalysisComplete && ReadOps.Contains(op);

@@ -15,7 +15,8 @@ namespace Corvus.Services.Analysis;
 /// bundle headers, cross-checked against the Il2Cpp metadata version), scripting backend with evidence, toolchain and
 /// protection markers, platform, architecture, notable folders and next tool calls. Reads only directory listings, PE
 /// headers, version resources and a few hundred header bytes per file (plus up to 16 MB of the Il2Cpp metadata string
-/// heap, or Assembly-CSharp's type names for Mono); nothing is executed except Detect It Easy, when asked.
+/// heap and 1 MB of its images table, or Assembly-CSharp's type names for Mono); nothing is executed except Detect It
+/// Easy, when asked.
 /// </summary>
 public static class UnityOverview
 {
@@ -64,7 +65,11 @@ public static class UnityOverview
         string? MetadataStateReason,
         [property: Description("Assemblies listed in <Data>/ScriptingAssemblies.json (Unity 2019.3+); what survived code stripping.")] int? ScriptingAssemblies,
         [property: Description("Share (0..1) of identifiers that are unreadable or one or two characters long (Assembly-CSharp type names, or the Il2Cpp metadata string heap); null when not read.")] double? UnreadableNameRatio,
-        [property: Description("Identifiers read for unreadableNameRatio.")] int NamesRead);
+        [property: Description("Identifiers read for unreadableNameRatio.")] int NamesRead)
+    {
+        [Description("Il2Cpp metadata counts read from its header and images table; null when the metadata is not readable.")]
+        public Il2CppMetadataCounts.Counts? MetadataCounts { get; init; }
+    }
 
     public sealed record MarkerFact(
         [property: Description("guard, transformer, packing, encryption, plugin_loader, build, middleware or toolchain.")] string Category,
@@ -87,7 +92,7 @@ public static class UnityOverview
     private const int MaxEntries = 10_000;
     private const int MaxStringHeap = 16 << 20;
 
-    /// <summary>Bytes this thread read from the title's files (heads, the bounded string heap, small JSON lists).</summary>
+    /// <summary>Bytes this thread read from the title's files (heads, the bounded string heap and images table, small JSON lists).</summary>
     [ThreadStatic]
     internal static long BytesRead;
     private const int MaxTypeNames = 50_000;
@@ -100,7 +105,7 @@ public static class UnityOverview
         "GameAssembly.dll with global-metadata.dat, assets/bin/Data (extracted Android APK), Contents/Resources/Data (macOS .app) or Data (iOS .app), " +
         "in the path or up to 4 folders above it";
 
-    /// <summary>The overview of the Unity title at <paramref name="path"/>; ToolError (unsupported, reason not_a_unity_title) otherwise.</summary>
+    /// <summary>The overview of the Unity build at <paramref name="path"/>; ToolError (unsupported, reason not_a_unity_build) otherwise.</summary>
     public static Report Inspect(string path, bool detectItEasy, CancellationToken ct)
     {
         if (string.IsNullOrWhiteSpace(path)) throw new ToolError(ErrorCode.InvalidArgument, "path is empty.", "pass an application folder, its executable, its *_Data folder, UnityPlayer.dll or GameAssembly.dll");
@@ -129,14 +134,14 @@ public static class UnityOverview
             // Packages and zipped titles: the build files the overview reads (binaries, metadata or assemblies, version files), in a short cache path.
             package = full;
             full = Il2CppPackages.Extract(full, null, ct: ct, anyBackend: true) ?? throw new ToolError(ErrorCode.Unsupported,
-                $"{package} holds no Unity title (no Il2Cpp metadata, Managed assemblies or <Product>_Data folder): reason not_a_unity_title.",
-                "pass the title's package, zip or folder");
+                $"{package} holds no Unity build (no Il2Cpp metadata, Managed assemblies or <Product>_Data folder): reason not_a_unity_build.",
+                "pass the build's package, zip or folder");
         }
         var layout = Resolve(full, ct) ?? throw new ToolError(ErrorCode.Unsupported,
-            $"{full} is not a Unity title (no UnityPlayer, libunity, GameAssembly or data folder in it or 4 folders above): reason not_a_unity_title.",
+            $"{full} is not a Unity build (no UnityPlayer, libunity, GameAssembly or data folder in it or 4 folders above): reason not_a_unity_build.",
             "pass the application folder (the one with the executable), its <Product>_Data folder, UnityPlayer.dll or GameAssembly.dll")
         {
-            Details = new { reason = "not_a_unity_title", path = full, lookedFor = LookedFor },
+            Details = new { reason = "not_a_unity_build", path = full, lookedFor = LookedFor },
         };
         var notes = new List<string>(layout.Notes);
         notes.AddRange(webNotes);
@@ -162,6 +167,15 @@ public static class UnityOverview
     }
 
     private sealed record Layout(string Root, string? Data, string? Exe, string Platform, string? UnityPlayer, List<string> Notes);
+
+    /// <summary>
+    /// The data folder of the Unity build at or up to 4 folders above <paramref name="full"/>, its streaming asset roots
+    /// outside it (Android: assets/), and the layout notes; null when there is no build or it has no data folder.
+    /// </summary>
+    internal static (string Data, IReadOnlyList<string> Streaming, IReadOnlyList<string> Notes)? DataFolder(string full, CancellationToken ct) =>
+        Resolve(full, ct) is { Data: { } data } layout
+            ? (data, layout.Platform == "android" ? [Path.Combine(layout.Root, "assets")] : [], layout.Notes)
+            : null;
 
     private static Layout? Resolve(string full, CancellationToken ct)
     {
@@ -380,6 +394,7 @@ public static class UnityOverview
         string? reason = null;
         int? version = null;
         long? size = null;
+        Il2CppMetadataCounts.Counts? counts = null;
         if (kind == "il2cpp")
         {
             if (metadata == null) { state = "missing"; reason = "no global-metadata.dat in <Data>/il2cpp_data/Metadata: renamed, packed into another file or embedded in the binary"; }
@@ -390,6 +405,7 @@ public static class UnityOverview
                 if (state == "readable")
                 {
                     (ratio, namesRead) = MetadataNames(metadata, markers, ct);
+                    counts = Il2CppMetadataCounts.Read(ReadHead(metadata, 512), (offset, count) => ReadAt(metadata, offset, count));
                     if (layout.Platform is "unknown" && binary == null) reason = "header readable; the built-in reader needs the native binary (GameAssembly, libil2cpp.so or UnityFramework) beside it";
                 }
                 else if (state is "encrypted" or "header_tampered")
@@ -401,7 +417,10 @@ public static class UnityOverview
         string? monoRuntime = mono == null ? null : Path.GetFileNameWithoutExtension(mono) is var n && n.Contains("bdwgc", StringComparison.OrdinalIgnoreCase)
             ? $"{n} (MonoBleedingEdge, .NET 4.x profile)" : $"{n} (legacy Mono, .NET 3.5 profile)";
         return new BackendFacts(kind, evidence, managed, managedDlls.Count, managedState, kind == "mono" ? monoRuntime : null, profile, binary, metadata, size, version,
-            state, reason, scriptingAssemblies, ratio, namesRead);
+            state, reason, scriptingAssemblies, ratio, namesRead)
+        {
+            MetadataCounts = counts,
+        };
     }
 
     /// <summary>The metadata's readability from its first 512 bytes: magic, version field and the header's offset / size pairs.</summary>
@@ -851,6 +870,20 @@ public static class UnityOverview
     }
 
     /// <summary>Up to <paramref name="count"/> bytes from the start of a file; empty when unreadable.</summary>
+    /// <summary>Up to <paramref name="count"/> bytes at <paramref name="offset"/>, counted in <see cref="BytesRead"/>; fewer at the end, none when unreadable.</summary>
+    internal static byte[] ReadAt(string path, long offset, int count)
+    {
+        try
+        {
+            using var f = File.OpenHandle(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+            var buffer = new byte[(int)Math.Clamp(RandomAccess.GetLength(f) - offset, 0, count)];
+            int read = RandomAccess.Read(f, buffer, offset);
+            BytesRead += read;
+            return read == buffer.Length ? buffer : buffer[..read];
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException) { return []; }
+    }
+
     internal static byte[] ReadHead(string path, int count)
     {
         try

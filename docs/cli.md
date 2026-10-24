@@ -88,28 +88,34 @@ pipelines that scan files without an agent. Nothing in the file runs; no network
 |---|---|---|
 | `summary` | `summarize_file`: type, hashes, signature, container, assemblies, highlights | always |
 | `container` | `search_container kind=file`: the files inside, not extracted | the summary names a container |
-| `strings` | `extract_strings`: typed values (URLs, domains, IPs, paths, registry keys) | the file is a .NET assembly |
+| `strings` | `extract_strings`: typed values (URLs, domains, IPs, paths, registry keys, encoded values); in a container, from its own assemblies, each location prefixed with the assembly's path; in Unity data, from MonoBehaviour string fields and config TextAssets, each location naming the file and asset | the file is a .NET assembly, a container that holds them, a Unity serialized file or bundle, or a folder, package or zip that holds a Unity build |
 | `yara` | `search_container kind=yara`: the rules that matched the file and its members, in a worker process | `--rules` names a rule file or folder; `unavailable`, with the reason, when `CORVUS_WORKER_HOST=0` |
+| `unity` | `unity_overview`: engine version, scripting backend (Il2Cpp or Mono), Il2Cpp metadata version and state, markers | the input is a folder, package or zip that holds a Unity build |
 
 ```json
 {"schema": "corvus.batch/1", "corvus": "2.5.1",
  "file": {"path": "...", "size": 887, "sha256": "...", "type": "zip"},
  "complete": false,
- "limits": {"timeSeconds": 120, "containerFiles": 500, "strings": 500, "yaraMatches": 500, "summaryHighlights": 25},
+ "limits": {"timeSeconds": 120, "containerFiles": 500, "strings": 500, "yaraMatches": 500, "assetBytes": 1073741824, "summaryHighlights": 25},
  "sections": [
    {"name": "summary", "tool": "summarize_file", "status": "complete", "result": {...}},
    {"name": "container", "tool": "search_container", "status": "partial", "limit": "containerFiles", "result": {...}},
    {"name": "strings", "tool": "extract_strings", "status": "not_applicable", "reason": "..."},
-   {"name": "yara", "tool": "search_container", "status": "not_applicable", "reason": "..."}]}
+   {"name": "yara", "tool": "search_container", "status": "not_applicable", "reason": "..."},
+   {"name": "unity", "tool": "unity_overview", "status": "not_applicable", "reason": "..."}]}
 ```
 
 - `result` is the tool's structured output, as `--structured` prints it; `error` is the tool's error record.
-- `status`: `complete`, `partial` (the section keeps every row it read and `limit` names the limit reached),
-  `not_applicable`, `unavailable`, `error` or `timeout`. `complete` is true only when every section is `complete` or
-  `not_applicable`.
+- `status`: `complete`, `partial`, `not_applicable`, `unavailable`, `error` or `timeout`. A `partial` section keeps
+  every row it read; `limit` names the limit reached, or `reason` names what else stopped it: the tool's own partial or
+  unknown coverage, an unavailable facet, a response cut to fit, a failed page. `complete` is true only when every
+  section is `complete` or `not_applicable`.
+- Each step pages through its tool's results until its limit or the last row; `result` holds the rows of every page.
 - Limits: `--time-limit <seconds>` for the whole run (default 120, at most 86400); `--limit containerFiles=N`,
-  `--limit strings=N`, `--limit yaraMatches=N` (default 500 each); at most 25 summary highlights. The `limits` record
-  holds the values used.
+  `--limit strings=N`, `--limit yaraMatches=N` (default 500 each); `--limit assetBytes=N` for the Unity asset files
+  the `strings` step reads (default 1 GiB; a direct `extract_strings` call reads up to 4 GiB); at most 25 summary
+  highlights. The `strings` step reads Unity assets for at most half the time left, then keeps the rows read. The
+  `limits` record holds the values used.
 - Exit code 0 when the document is written, whatever the section statuses; 124 when the time limit ended the run (the
   document is still written, finished sections kept, the rest marked `timeout`); 2 for a missing file or a bad option,
   with nothing on stdout.

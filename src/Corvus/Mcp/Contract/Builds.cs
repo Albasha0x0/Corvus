@@ -15,7 +15,7 @@ public static partial class ToolEffects
         ["find_counterpart"] = Reads(longRunning: true),
 
         // Native builds
-        ["compare_native_images"] = Reads(longRunning: true),
+        ["compare_native_images"] = Reads(longRunning: true, openWorld: true), // engine= starts an engine session
         ["map_address_between_builds"] = Reads(longRunning: true),
         ["diff_function"] = Reads(longRunning: true, openWorld: true), // view=pseudocode runs IDA
         ["make_code_pattern"] = Reads(longRunning: true, openWorld: true), // anchor=xrefs with engine=ida runs IDA
@@ -31,7 +31,7 @@ public static partial class ParameterDomains
     private static Dictionary<string, IReadOnlyDictionary<string, Domain>> BuildsTools() => new(StringComparer.Ordinal)
     {
         ["make_code_pattern"] = new Dictionary<string, Domain> { ["anchor"] = Of(["auto", "address", "reference", "xrefs", "range"]), ["engine"] = Engine, ["format"] = Of(["ida", "x64dbg", "mask", "bitmask"]) },
-        ["compare_native_images"] = new Dictionary<string, Domain> { ["view"] = Of(["pairs", "changed", "unmatched", "ambiguous"]) },
+        ["compare_native_images"] = new Dictionary<string, Domain> { ["view"] = Of(["pairs", "changed", "unmatched", "ambiguous"]), ["engine"] = Of(["ida", "ghidra"]) },
         ["compare_assemblies"] = new Dictionary<string, Domain> { ["changes"] = Of(Services.AssemblyComparer.ChangeKinds, "all") },
         ["migrate_native_names"] = new Dictionary<string, Domain> { ["sources"] = Of(["user", "pdb", "il2cpp"]) },
         ["compare_folders"] = new Dictionary<string, Domain> { ["change"] = Of(Services.Analysis.FolderCompare.Views) },

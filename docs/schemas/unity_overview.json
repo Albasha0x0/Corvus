@@ -154,6 +154,32 @@
         "namesRead": {
           "description": "Identifiers read for unreadableNameRatio.",
           "type": "integer"
+        },
+        "metadataCounts": {
+          "description": "Il2Cpp metadata counts read from its header and images table; null when the metadata is not readable.",
+          "type": "object",
+          "properties": {
+            "images": {
+              "description": "Images; null when unknown.",
+              "type": "integer"
+            },
+            "types": {
+              "description": "Type definitions; null when unknown.",
+              "type": "integer"
+            },
+            "methods": {
+              "description": "Method definitions; null when unknown.",
+              "type": "integer"
+            },
+            "layout": {
+              "description": "Layout the counts were read with.",
+              "type": "string"
+            },
+            "reason": {
+              "description": "Why a count is unknown.",
+              "type": "string"
+            }
+          }
         }
       },
       "required": [

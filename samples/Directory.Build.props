@@ -9,6 +9,8 @@
     <Nullable>enable</Nullable>
     <Optimize>true</Optimize>
     <Deterministic>true</Deterministic>
+    <!-- Mapped, the PDB path an image embeds is the same in every clone, and so are its bytes and size. -->
+    <PathMap>$(MSBuildProjectDirectory)=/_/</PathMap>
     <OutputPath>$(MSBuildProjectDirectory)/bin/</OutputPath>
     <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
     <RunAnalyzers>false</RunAnalyzers>

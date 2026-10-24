@@ -90,9 +90,9 @@ public sealed class WorkspaceTools(AssemblyWorkspace workspace, Il2CppService il
 
     [McpServerTool(Name = "load_assembly", Title = "Load assembly", UseStructuredContent = true, OutputSchemaType = typeof(ImageChange))]
     [Description("Load a .NET assembly or a folder's assemblies (app, Unity *_Data/Managed, dummy assemblies). PE, ELF, Mach-O or wasm files load " +
-                 "as native images (universal Mach-O: one slice, name[slice]); format=raw maps headerless code; folder loads skip native files. An " +
+                 "as native images (universal Mach-O: name[slice]); format=raw maps headerless code; folder loads skip native files. An " +
                  "Il2Cpp build (folder, global-metadata.dat, .apk/.xapk/.aab/.ipa/.app, memory dump) loads as dummy assemblies with addresses " +
-                 "(metadata v24-39) plus the native binary. A .gzf or .gpr program (copied) opens in Ghidra. A repeat load is a no-op.")]
+                 "(metadata v24-39) plus its binary. A .gzf or .gpr program (copied) opens in Ghidra. A repeat load is a no-op.")]
     public Task<string> LoadAssembly(
         [Description("Absolute path to an assembly file or a folder.")] string path,
         [Description("Also load assemblies in subdirectories.")] bool recursive = false,
@@ -124,6 +124,7 @@ public sealed class WorkspaceTools(AssemblyWorkspace workspace, Il2CppService il
         {
             if (requestedSlice != null || recursive) throw new ToolError(ErrorCode.InvalidArgument, "format=raw loads one file; slice and recursive do not apply.", "omit slice and recursive");
             var file = InputFiles.RequireRegularFile(path, "image file");
+            if (string.IsNullOrWhiteSpace(arch)) throw MissingArch(file);
             var head = new byte[8];
             int read;
             using (var s = File.OpenRead(file)) read = s.ReadAtLeast(head, head.Length, throwOnEndOfStream: false);
@@ -420,6 +421,25 @@ public sealed class WorkspaceTools(AssemblyWorkspace workspace, Il2CppService il
             return Loaded([fresh.Id], $"Reloaded {fresh.Id} from {fresh.FilePath}{(edits > 0 ? $" (discarded {Plural(edits, "unsaved edit")})" : "")}.",
                 c => edits > 0 ? c with { DiscardedEdits = edits } : c);
         }, cancellationToken);
+
+    /// <summary>format=raw without arch: the error names the instruction sets the file's first 16 MiB read as, with their load calls.</summary>
+    private static ToolError MissingArch(string file)
+    {
+        var bytes = new byte[(int)Math.Min(new FileInfo(file).Length, Native.RawCandidates.ScoreWhole)];
+        using (var s = File.OpenRead(file)) s.ReadExactly(bytes);
+        var isas = Native.RawCandidates.Isas(bytes);
+        var all = $"pass arch={string.Join("|", Native.RawArch.All.Select(a => a.Name))}";
+        if (isas.Count == 0) return new ToolError(ErrorCode.InvalidArgument, "format=raw needs arch; no instruction set's signatures stand out in the bytes.", all);
+        var calls = isas.Take(2).Select(c =>
+        {
+            var isa = Native.RawArch.Find(c.Arch);
+            var bases = Native.RawCandidates.Bases(bytes, isa);
+            ulong? at = bases.Clear ? bases.Bases.First(b => b.Votes > 0).Base : bases.Bases.FirstOrDefault(b => b.Source == "vector table")?.Base;
+            return $"{Native.RawCandidates.LoadCall(file, isa.Name, at)} (score {c.Score:0})";
+        });
+        return new ToolError(ErrorCode.InvalidArgument, $"format=raw needs arch; the bytes read as {string.Join(" or ", isas.Take(2).Select(c => c.Arch))}.",
+            string.Join("; or ", calls) + $"; else {all}");
+    }
 
     [McpServerTool(Name = "add_search_directory", Title = "Add reference search directory", UseStructuredContent = true, OutputSchemaType = typeof(SearchDirectoryChange))]
     [Description("Add a folder (application or framework) where unloaded referenced assemblies are resolved for decompilation, navigation and C# patching.")]

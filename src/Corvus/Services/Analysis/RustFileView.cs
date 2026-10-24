@@ -25,7 +25,7 @@ internal sealed class RustFileView : IFileSummaryView
     public FileView? Inspect(FileInput file, CancellationToken ct)
     {
         if (NativeImageLoader.Detect(file.Head) == NativeFileKind.Unknown) return null;
-        var commit = RustcCommit(file.Image);
+        var commit = StringForms.RustcCommit(file.Image);
         if (file.Image.AsSpan().IndexOf(".dep-v0"u8) < 0) return FromSourcePaths(file.Image, commit);
         RustAudit? audit;
         try { audit = RustAudit.Of(NativeImageLoader.FromBytes(file.Image, file.Path), file.Image); }
@@ -62,21 +62,6 @@ internal sealed class RustFileView : IFileSummaryView
             text += $", {crates.Count:N0} crates named in its source paths: " +
                     string.Join(", ", crates.Take(8).Select(c => $"{c.Name} {c.Version}")) + (crates.Count > 8 ? ", …" : "");
         return new FileView(facts, [text + "."]);
-    }
-
-    /// <summary>The 40-digit commit after "/rustc/" that most paths name (the standard library's own panic locations).</summary>
-    internal static string? RustcCommit(byte[] image)
-    {
-        var counts = new Dictionary<string, int>();
-        var span = image.AsSpan();
-        for (int at = 0, i; (i = span[at..].IndexOf("/rustc/"u8)) >= 0 && counts.Count < 16; at += i + 7)
-        {
-            int start = at + i + 7;
-            if (start + 41 > span.Length || !IsHex(span.Slice(start, 40)) || span[start + 40] is not ((byte)'/' or (byte)'\\')) continue;
-            var c = System.Text.Encoding.ASCII.GetString(span.Slice(start, 40));
-            counts[c] = counts.GetValueOrDefault(c) + 1;
-        }
-        return counts.Count == 0 ? null : counts.MaxBy(kv => kv.Value).Key;
     }
 
     /// <summary>name-version folders under a cargo registry index folder (index.crates.io-&lt;hash&gt;, github.com-&lt;hash&gt;), sorted by name.</summary>

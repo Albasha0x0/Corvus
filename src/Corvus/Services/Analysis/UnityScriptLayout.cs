@@ -111,6 +111,10 @@ internal static class UnityScriptLayout
         private bool Field(FieldDef f, IList<TypeSig>? args, string name, int level, int depth)
         {
             if (Has(f, "UnityEngine.SerializeReference")) return Stop(name, "a [SerializeReference] field keeps managed references this reader does not lay out");
+            // A read of the metadata without the binary names every field type with one placeholder; whether the field
+            // is serialized depends on that type, so it is unknown before the private-field rule applies.
+            if (f.FieldSig?.Type?.ToTypeDefOrRef() is { TypeName: Il2CppMetadataOnly.Placeholder, Namespace: Il2CppDummyBuilder.AttributeAssembly })
+                return Stop(name, "a field whose type is in the Il2Cpp binary, which was not read");
             var plan = PlanOf(Bind(f.FieldSig?.Type, args), depth, element: false);
             if (plan is Skip) return true;
             if (!f.IsPublic && !Has(f, "UnityEngine.SerializeField"))

@@ -69,6 +69,10 @@ internal sealed class CodeContext
     public HashSet<uint> Funclets { get; } = [];
     /// <summary>Thunk start -> import slot.</summary>
     public Dictionary<uint, uint> Thunks { get; } = [];
+    /// <summary>The walk collects string lengths code loads beside addresses (Rust builds; <see cref="StringHints"/>).</summary>
+    public bool RustStrings { get; set; }
+    /// <summary>The walk collects Swift small strings from immediates (builds that load the Swift runtime).</summary>
+    public bool SwiftStrings { get; set; }
 
     public CodeContext(INativeImage image, ImageCode code, CodeIndexOptions options)
     {

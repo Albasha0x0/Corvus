@@ -27,9 +27,9 @@
     <PackageId>CorvusRE</PackageId>
     <PackageType>McpServer</PackageType>
     <Authors>Albasha0x0</Authors>
-    <Description>MCP server and command line for reverse engineering .NET assemblies and native PE, ELF and Mach-O binaries: decompile, search, compare builds, patch and save. By default nothing is executed.</Description>
-    <PackageTags>mcp;mcp-server;decompiler;reverse-engineering;dotnet;il2cpp;disassembler</PackageTags>
-    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <Description>MCP server and command line for reverse engineering and security analysis of .NET assemblies and native PE, ELF and Mach-O binaries: decompile, search, compare builds, patch and save. By default nothing is executed.</Description>
+    <PackageTags>mcp;mcp-server;decompiler;reverse-engineering;security;malware-analysis;dotnet;il2cpp;disassembler</PackageTags>
+    <PackageLicenseExpression>Apache-2.0</PackageLicenseExpression>
     <PackageReadmeFile>README.md</PackageReadmeFile>
     <PackageProjectUrl>https://github.com/Albasha0x0/Corvus</PackageProjectUrl>
     <RepositoryUrl>https://github.com/Albasha0x0/Corvus</RepositoryUrl>
@@ -70,6 +70,7 @@
     <EmbeddedResource Include="Native\Providers\Live\live_agent.js" LogicalName="Corvus.Native.Providers.Live.live_agent.js" />
     <EmbeddedResource Include="Native\Providers\Ghidra\pyghidra_host.py" LogicalName="Corvus.Native.Providers.Ghidra.pyghidra_host.py" />
     <EmbeddedResource Include="Native\Providers\Ghidra\worker\*.java" LogicalName="Corvus.Native.Providers.Ghidra.worker.%(Filename)%(Extension)" />
+    <EmbeddedResource Include="Services\Web\Packages\TrustRoots\*.json" LogicalName="Corvus.Services.Web.Packages.TrustRoots.%(Filename)%(Extension)" />
   </ItemGroup>
 
   <ItemGroup>

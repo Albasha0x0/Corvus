@@ -481,4 +481,17 @@ public sealed class ElfFileTests(ITestOutputHelper output)
         }));
         Assert.True(failures.Count == 0, string.Join("\n", failures.Take(10)));
     }
+
+    // Read as one 64-bit word, every MIPS64 r_info decoded as type 0 with a symbol index from the type bytes.
+    [Fact, Trait("Data", "Real")]
+    public void MIPS64_relocations_read_the_one_byte_type_after_the_32_bit_symbol()
+    {
+        var elf = ElfFile.Open(RealPackages.File("SQLitePCLRaw.lib.e_sqlite3", "2.1.11", "runtimes", "linux-mips64", "native", "libe_sqlite3.so"));
+        output.WriteLine(string.Join(", ", elf.Relocations.GroupBy(r => ElfNames.RelocationType(elf.Machine, r.Type)).Select(g => $"{g.Key} x{g.Count()}")));
+        // The linker starts the table with one R_MIPS_NONE; every other entry is R_MIPS_REL32.
+        Assert.Equal(ElfRelocationKind.None, elf.Relocations[0].Kind);
+        Assert.True(elf.Relocations.Count > 1000);
+        Assert.All(elf.Relocations.Skip(1), r => Assert.Equal(ElfRelocationKind.Relative, r.Kind));
+        Assert.All(elf.Relocations, r => Assert.InRange(r.SymbolIndex, 0, elf.DynamicSymbols.Count - 1));
+    }
 }
