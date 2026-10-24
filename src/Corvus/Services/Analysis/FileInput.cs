@@ -193,6 +193,9 @@ public sealed record FileViewOptions(string View = "overview", string? Table = n
     /// <summary>An SBOM is to be written, which needs view=dependencies whatever view is shown.</summary>
     public bool Sbom { get; init; }
 
+    /// <summary>A STIX bundle is to be written, which needs every network value, not the summary's first ten.</summary>
+    public bool Stix { get; init; }
+
     /// <summary>view=unity: only the MonoBehaviour assets of this script class (class name or namespace-qualified name).</summary>
     public string? Script { get; init; }
 

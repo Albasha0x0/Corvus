@@ -57,6 +57,7 @@
     <None Include="Web\ScriptFixtures\**" CopyToOutputDirectory="PreserveNewest" />
     <None Include="Containers\FirmwareFixtures\*.gz;Containers\FirmwareFixtures\*.list;Containers\FirmwareFixtures\reference.sh" CopyToOutputDirectory="PreserveNewest" />
     <None Include="Containers\DiskFixtures\*.gz;Containers\InstallerFixtures\*.gz" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="Containers\StixSchemas\**\*.json" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
   <!-- Real libraries the tests decompile, compare and export (downloaded on restore, not referenced). -->

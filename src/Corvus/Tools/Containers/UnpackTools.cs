@@ -47,7 +47,7 @@ public sealed class UnpackTools(UnpackService unpacker, ServerOptions? options =
         [Description(LimitDescription)] int limit = 100,
         [Description(ToolSupport.MaxTokensDescription)] int? maxTokens = null,
         [Description(RowOffsetDescription)] int offset = 0,
-        [Description("kind=endpoint: a HAR, mitmproxy, .saz or pcap capture to join, or to compare when path is a capture.")] string? capture = null,
+        [Description("kind=endpoint: a HAR, mitmproxy, .saz or pcap capture to join, or compare if path is one.")] string? capture = null,
         [Description("kind=request: show header, cookie and query values.")] bool values = false,
         CancellationToken cancellationToken = default)
     {

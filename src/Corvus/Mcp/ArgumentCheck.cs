@@ -73,7 +73,7 @@ public static class ArgumentCheck
     public static readonly IReadOnlySet<string> PathParameters = new HashSet<string>(StringComparer.Ordinal)
     {
         "path", "outputPath", "outputDirectory", "mapping", "directory", "folder", "oldPath", "newPath", "headerPath",
-        "projectDir", "scriptPath", "sbomPath", "dacPath", "imageDirectories",
+        "projectDir", "scriptPath", "sbomPath", "stixPath", "dacPath", "imageDirectories",
     };
 
     /// <summary>

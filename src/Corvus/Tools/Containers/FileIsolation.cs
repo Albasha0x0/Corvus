@@ -172,7 +172,7 @@ internal sealed class FileOps : IWorkerOps
 public static class FileWork
 {
     public sealed record SummarizeArgs(string Path, string View, string? Table, string[]? Columns, long Offset, int? Limit, string? SbomPath = null,
-        bool Overwrite = false, string? Script = null);
+        bool Overwrite = false, string? Script = null, string? StixPath = null);
 
     public sealed record ListArgs(string Path, string? Filter, int Offset, int Limit);
 
@@ -269,9 +269,10 @@ public static class FileWork
     /// <summary>The summary record of a path, as summarize_file shows it.</summary>
     public static FileSummaryRecord SummarizeWith(InspectionService inspection, Services.Mobile.AppGraph? graph, SummarizeArgs a, CancellationToken ct)
     {
-        var summary = inspection.Summarize(null, a.Path, ct, new FileViewOptions(a.View, a.Table, a.Columns, a.Offset, a.Limit) { Sbom = a.SbomPath != null, Script = a.Script });
+        var summary = inspection.Summarize(null, a.Path, ct, new FileViewOptions(a.View, a.Table, a.Columns, a.Offset, a.Limit) { Sbom = a.SbomPath != null, Stix = a.StixPath != null, Script = a.Script });
         var record = ContainerText.Summary(summary, a.View);
         if (a.SbomPath != null) record = record with { Notes = [.. record.Notes ?? [], WriteSbom(summary, a.SbomPath, a.Overwrite)] };
+        if (a.StixPath != null) record = record with { Notes = [.. record.Notes ?? [], WriteStix(summary, a.StixPath, a.Overwrite)] };
         if (a.View == "layers" && graph != null)
         {
             var facts = graph.Build(summary.File.Path, (int)Math.Min(a.Offset, int.MaxValue), a.Limit ?? Services.Mobile.AppGraph.DefaultLimit, ct);
@@ -289,5 +290,14 @@ public static class FileWork
             DateTimeOffset.UtcNow, Guid.NewGuid());
         var full = SafeFile.WriteAllBytes(sbomPath, bytes, overwrite);
         return $"CycloneDX {Services.Analysis.Dependencies.CycloneDx.SpecVersion} SBOM written to {full}: {facts.ComponentTotal} components, {facts.WithPurl} with a package URL.";
+    }
+
+    /// <summary>Writes the summary as a STIX 2.1 bundle to <paramref name="stixPath"/> (an existing file is refused unless <paramref name="overwrite"/>) and returns the note naming it.</summary>
+    public static string WriteStix(InspectionService.FileSummary summary, string stixPath, bool overwrite)
+    {
+        var bytes = Services.Analysis.StixBundle.Write(summary, ServerIdentity.InformationalVersion, DateTimeOffset.UtcNow, Guid.NewGuid(), Guid.NewGuid());
+        var full = SafeFile.WriteAllBytes(stixPath, bytes, overwrite);
+        using var bundle = JsonDocument.Parse(bytes);
+        return $"STIX {Services.Analysis.StixBundle.SpecVersion} bundle written to {full}: {bundle.RootElement.GetProperty("objects").GetArrayLength()} objects.";
     }
 }

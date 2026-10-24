@@ -553,7 +553,7 @@ File inspection, containers and wrapped apps, Unity overview.
 
 **Summarize file** (read-only, idempotent)
 
-First look at a file or loaded assembly (never executed): type, hashes, signature, containers, assemblies, highlights (toolchain, capability features, packaging tools), entry points. view=: managed, dependencies, native, android, apple, electron, flutter, go, layers, nib, pcap, package (review before install), plist, protobuf, rust, script (layers peeled), sqlite (table= pages rows), sqlite-recover, unity (MonoBehaviour fields), all; views lists those that apply.
+First look at a file or loaded assembly, not run: type, hashes, signature, containers, assemblies, highlights (toolchain, capabilities, packaging tools), entry points. view=: managed, dependencies, native, android, apple, electron, flutter, go, layers, nib, pcap, package (pre-install review), plist, protobuf, rust, script (layers peeled), sqlite (table= pages rows), sqlite-recover, unity (MonoBehaviour fields), all; views lists those that apply.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -565,8 +565,9 @@ First look at a file or loaded assembly (never executed): type, hashes, signatur
 | `script` | string |  |  | unity: only assets of this script class. |
 | `offset` | integer |  |  |  |
 | `limit` | integer |  |  |  |
-| `sbomPath` | string |  |  | Write the dependencies view here (CycloneDX 1.6). |
-| `overwrite` | boolean |  |  | Overwrite sbomPath. |
+| `sbomPath` | string |  |  | Write dependencies here, CycloneDX 1.6. |
+| `stixPath` | string |  |  | Write findings here as STIX 2.1. |
+| `overwrite` | boolean |  |  | Overwrite either file. |
 
 Structured output: `path`, `size`, `type`, `sha256`, `container`, `view`, `views`, `md5`, `sha1`, `entropy`, `signature`, `assemblies`, `highlights`, `highlightTotal`, `entryPoints`, `values`, `detail`, `notes`.
 
@@ -637,7 +638,7 @@ Find types and members by name in every managed assembly inside a container (bun
 | `limit` | integer |  | `100` |  |
 | `maxTokens` | integer |  |  |  |
 | `offset` | integer |  |  |  |
-| `capture` | string |  |  | kind=endpoint: a HAR, mitmproxy, .saz or pcap capture to join, or to compare when path is a capture. |
+| `capture` | string |  |  | kind=endpoint: a HAR, mitmproxy, .saz or pcap capture to join, or compare if path is one. |
 | `values` | boolean |  |  | kind=request: show header, cookie and query values. |
 
 Structured output: `source`, `container`, `searched`, `items`, `offset`, `total`, `notes`, `limit`, `totalExact`, `hasMore`, `nextOffset`.

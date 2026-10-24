@@ -47,7 +47,19 @@ public sealed class InspectionService(AssemblyWorkspace workspace, NativeCodeSer
 
     public sealed record AssemblySummary(string Path, string Sha256, IdentityFacts Identity, SignatureFacts Signature, MarkerFacts Markers,
         WrappingFacts Wrapping, IReadOnlyList<Feature> Features, ValueSummary Values, IReadOnlyList<EntryPoint> EntryPoints,
-        IReadOnlyList<string> Highlights, IReadOnlyList<string> Notes);
+        IReadOnlyList<string> Highlights, IReadOnlyList<string> Notes)
+    {
+        /// <summary>
+        /// With <see cref="FileViewOptions.Stix"/>: every URL, domain, IP address and email the assembly's values hold, up to
+        /// <see cref="MaxNetworkValues"/> plus one so a cut shows; null otherwise. Not part of the summary text.
+        /// </summary>
+        [JsonIgnore] public IReadOnlyList<ExtractedValue>? NetworkValues { get; init; }
+    }
+
+    /// <summary>The network values a STIX bundle lists per file; beyond it the bundle is labelled partial.</summary>
+    public const int MaxNetworkValues = 5_000;
+
+    private static readonly HashSet<string> NetworkTypes = new(StringComparer.Ordinal) { "url", "domain", "ipv4", "ipv6", "email" };
 
     public sealed record FileSummary(FileFacts File, string Container, IReadOnlyList<AssemblySummary> Assemblies, IReadOnlyList<string> Highlights,
         IReadOnlyList<string> Notes)
@@ -463,7 +475,7 @@ public sealed class InspectionService(AssemblyWorkspace workspace, NativeCodeSer
             {
                 var asm = workspace.Get(assembly);
                 var file = Facts(asm.FilePath, asm.OriginalBytes);
-                var one = Guard(asm.Id, () => SummarizeAssembly(Path.GetFileName(asm.FilePath), asm.Module, ModuleScan.Of(asm, Limits, ct), asm.OriginalBytes, ct));
+                var one = Guard(asm.Id, () => SummarizeAssembly(Path.GetFileName(asm.FilePath), asm.Module, ModuleScan.Of(asm, Limits, ct), asm.OriginalBytes, ct, options?.Stix == true));
                 var notes = asm.IsDirty ? new List<string> { "The assembly has unsaved edits: the code scanned is the edited module; hashes and signature are the file's." } : [];
                 notes.AddRange(MappingNotes(asm.OriginalBytes));
                 return new FileSummary(file, "none (loaded assembly)", [one], one.Highlights, notes);
@@ -527,7 +539,7 @@ public sealed class InspectionService(AssemblyWorkspace workspace, NativeCodeSer
                 var identity = module.Assembly?.FullName ?? module.Name.String;
                 if (copies.TryGetValue(identity, out var paths)) { paths.Add(a.Path); continue; } // e.g. per-TFM builds in one package
                 copies[identity] = [];
-                var one = Guard(a.Path, () => SummarizeAssembly(a.Path, module, ModuleScan.Of(module, Limits, ct), a.Bytes, ct));
+                var one = Guard(a.Path, () => SummarizeAssembly(a.Path, module, ModuleScan.Of(module, Limits, ct), a.Bytes, ct, input.Options.Stix));
                 if (rank == AssemblyRank.Framework)
                     one = one with { Highlights = one.Highlights.Where(IsProblem).ToList() }; // framework capabilities are not findings
                 found.Add((one.Path, one.Highlights));
@@ -673,7 +685,7 @@ public sealed class InspectionService(AssemblyWorkspace workspace, NativeCodeSer
         new(path, bytes.Length, Blob.Md5(bytes), Blob.Sha1(bytes), Blob.Sha256(bytes), Blob.Identify(bytes), Math.Round(Blob.Entropy(bytes), 2),
             PeImage.TryParse(bytes) != null ? Certificates.Read(bytes) : new CertificateInfo(false));
 
-    private static AssemblySummary SummarizeAssembly(string path, ModuleDef module, ModuleScan scan, byte[] image, CancellationToken ct)
+    private static AssemblySummary SummarizeAssembly(string path, ModuleDef module, ModuleScan scan, byte[] image, CancellationToken ct, bool network = false)
     {
         var notes = new List<string>(scan.Notes);
         var pe = PeImage.TryParse(image);
@@ -720,7 +732,10 @@ public sealed class InspectionService(AssemblyWorkspace workspace, NativeCodeSer
 
         return new AssemblySummary(path, Blob.Sha256(image), identity, signature, markers, wrapping, features, valueSummary, entryPoints,
             [.. health.MostlyInvalid ? ["Method bodies are not valid IL (encrypted or dumped before decryption)"] : Array.Empty<string>(),
-             .. Highlights(identity, signature, markers, wrapping, features, valueSummary, entryPoints)], notes);
+             .. Highlights(identity, signature, markers, wrapping, features, valueSummary, entryPoints)], notes)
+        {
+            NetworkValues = network ? [.. values.Where(v => NetworkTypes.Contains(v.Type)).Take(MaxNetworkValues + 1)] : null,
+        };
     }
 
     private static IdentityFacts Identity(ModuleDef module, byte[] image, PeImage? pe)

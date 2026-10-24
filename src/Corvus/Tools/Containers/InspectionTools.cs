@@ -18,9 +18,9 @@ public sealed class InspectionTools(InspectionService inspection, AssemblyWorksp
     private const string PathParam = "A .NET assembly file to analyze without loading; pass this or assembly.";
 
     [McpServerTool(Name = "summarize_file", Title = "Summarize file", UseStructuredContent = true, OutputSchemaType = typeof(FileSummaryRecord))]
-    [Description("First look at a file or loaded assembly (never executed): type, hashes, signature, containers, assemblies, highlights (toolchain, " +
-                 "capability features, packaging tools), entry points. view=: managed, dependencies, native, android, apple, electron, flutter, go, layers, nib, " +
-                 "pcap, package (review before install), plist, protobuf, rust, script (layers peeled), sqlite (table= pages rows), sqlite-recover, unity (MonoBehaviour fields), " +
+    [Description("First look at a file or loaded assembly, not run: type, hashes, signature, containers, assemblies, highlights (toolchain, " +
+                 "capabilities, packaging tools), entry points. view=: managed, dependencies, native, android, apple, electron, flutter, go, layers, nib, " +
+                 "pcap, package (pre-install review), plist, protobuf, rust, script (layers peeled), sqlite (table= pages rows), sqlite-recover, unity (MonoBehaviour fields), " +
                  "all; views lists those that apply.")]
     public Task<string> SummarizeFile(
         [Description("File (assembly, bundle, .nupkg, .apk, .ipa, zip, .asar, executable) or .app folder.")] string? path = null,
@@ -31,8 +31,9 @@ public sealed class InspectionTools(InspectionService inspection, AssemblyWorksp
         [Description("unity: only assets of this script class.")] string? script = null,
         [Description(ToolSupport.RowOffsetDescription)] long offset = 0,
         [Description(ToolSupport.LimitDescription)] int? limit = null,
-        [Description("Write the dependencies view here (CycloneDX 1.6).")] string? sbomPath = null,
-        [Description("Overwrite sbomPath.")] bool overwrite = false,
+        [Description("Write dependencies here, CycloneDX 1.6.")] string? sbomPath = null,
+        [Description("Write findings here as STIX 2.1.")] string? stixPath = null,
+        [Description("Overwrite either file.")] bool overwrite = false,
         RequestContext<CallToolRequestParams> context = null!,
         CancellationToken cancellationToken = default) => OrderedProgress.Run(context, async progress =>
         {
@@ -44,13 +45,13 @@ public sealed class InspectionTools(InspectionService inspection, AssemblyWorksp
                     "pass view=sqlite with table=, or drop them");
             if (script != null && name != "unity") throw new ToolError(ErrorCode.InvalidArgument, "script selects the assets of view=unity.", "pass view=unity with script=, or drop it");
             if (columns != null && table == null) throw new ToolError(ErrorCode.InvalidArgument, "columns selects columns of a table: pass table= with it.");
-            var options = new FileViewOptions(name, table, columns, offset, limit) { Sbom = sbomPath != null, Script = script };
+            var options = new FileViewOptions(name, table, columns, offset, limit) { Sbom = sbomPath != null, Stix = stixPath != null, Script = script };
             var native = NativeNamed(assembly, path);
             FileSummaryRecord record;
             // A file the workspace has not loaded is read where a crashing reader cannot end the server.
             if (assembly == null && path != null && native == null)
             {
-                var args = new FileWork.SummarizeArgs(path, name, table, columns, offset, limit, sbomPath, overwrite, script);
+                var args = new FileWork.SummarizeArgs(path, name, table, columns, offset, limit, sbomPath, overwrite, script, stixPath);
                 record = await FileIsolation.RunAsync(serverOptions, workers, FileWork.Summarize, args, path, () => FileWork.SummarizeWith(inspection, graph, args, cancellationToken), cancellationToken);
                 return ToolOutput.Report(ContainerText.Summary(record), record);
             }
@@ -65,6 +66,7 @@ public sealed class InspectionTools(InspectionService inspection, AssemblyWorksp
             }
             record = ContainerText.Summary(summary, name);
             if (sbomPath != null) record = record with { Notes = [.. record.Notes ?? [], FileWork.WriteSbom(summary, sbomPath, overwrite)] };
+            if (stixPath != null) record = record with { Notes = [.. record.Notes ?? [], FileWork.WriteStix(summary, stixPath, overwrite)] };
             if (name == "layers" && graph != null)
             {
                 var facts = await Task.Run(() => graph.Build(summary.File.Path, (int)Math.Min(offset, int.MaxValue), limit ?? Services.Mobile.AppGraph.DefaultLimit, cancellationToken), cancellationToken);
