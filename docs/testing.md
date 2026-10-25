@@ -289,7 +289,7 @@ describe.
 | `CORVUS_FIXTURE_SWIFT` | The swiftc that builds the Swift string form fixtures (default: swiftc on PATH). | tests/Corvus.Tests/NativeAnalysis/StringFormFixtures/build.ps1 |
 | `CORVUS_FIXTURE_SWIFT_STATIC_SDK` | The musl-1.2.5.sdk folder of the Swift Static Linux SDK, for the Linux Swift string form fixtures. | tests/Corvus.Tests/NativeAnalysis/StringFormFixtures/build.ps1 |
 | `CORVUS_FORMAT_FUZZ_ITERATIONS` | Mutated inputs per ELF and Mach-O fuzz test (default 300). | ElfFileTests, MachOFileTests |
-| `CORVUS_FS_REFERENCE` | The program that runs the firmware, rpm and AppImage reference scripts (the firmware one as root): sh on Linux, wsl.exe on Windows; the rpm script needs rpm, rpm2cpio and cpio, the AppImage one unsquashfs and readelf; it runs the LevelDB reference.py with python3. | FirmwareComparisonTests, LevelDbTests, LinuxAppPackageTests, RpmReaderTests |
+| `CORVUS_FS_REFERENCE` | The program that runs the firmware, rpm and AppImage reference scripts (the firmware one as root): sh on Linux, wsl.exe on Windows; the rpm script needs rpm, rpm2cpio and cpio, the AppImage one unsquashfs and readelf; it runs the LevelDB and LMDB reference.py scripts with python3 (the LMDB one needs mdb_dump). | FirmwareComparisonTests, LevelDbTests, LinuxAppPackageTests, LmdbTests, RpmReaderTests |
 | `CORVUS_FUZZ_CASES` | Mutated inputs per container and inspection fixture (defaults 40 and 30). | InspectionTests, UnpackTests |
 | `CORVUS_FUZZ_COUNT` | Seeds of the simplify and save fuzz tests (defaults 40 and 60). | SaveFidelityTests, SimplifyFuzzTests |
 | `CORVUS_FUZZ_SEED` | One simplify fuzz seed to run, or `random` for a fresh one. | SimplifyFuzzTests |
@@ -313,6 +313,7 @@ describe.
 | `CORVUS_LIVE_ANDROID` | adb serial of a device (an emulator) running frida-server as root; the device session test runs a DEX built here on it. | LiveAndroidRealTests |
 | `CORVUS_LIVE_SOAK_MINUTES` | Minutes the observed program runs in the long session test (default 2). | LiveLongSessionRealTests |
 | `CORVUS_LLVM_BIN` | An LLVM bin folder (clang, llvm-dwp, llvm-readobj, ...) that builds the DWARF and format fixtures and checks their output. | Arm64FormatCodeTests, DwarfDebugMapTests, DwarfObjectTests, DwarfOracleTests, DwarfSplitTests, DwarfVariablesTests, ElfFileTests, FormatWriterTests, ItaniumDemangleTests, MachOFileTests, NativeFixtures |
+| `CORVUS_LMDB_FILES` | A folder searched for LMDB data files (`*.mdb` except lock.mdb) compared with mdb_dump through `CORVUS_FS_REFERENCE`. | LmdbTests |
 | `CORVUS_LUA_CHUNKS` | A folder of Lua and LuaJIT chunks compared with the reference listings of `CORVUS_LUA_TOOLS`. | LuaBytecodeTests |
 | `CORVUS_LUA_TOOLS` | A folder of Lua and LuaJIT builds (`lua-<version>/src/luac` for 5.1.5, 5.2.4, 5.3.6 and 5.4.7; `luajit-2.0/src`, `luajit-2.1/src`): each chunk's functions, instructions and constants are compared with `luac -l -l` and `luajit -bl` of its version; the same builds rebuild the Lua fixtures. | LuaBytecodeTests, tests/Corvus.Tests/Containers/LuaFixtures/build.ps1 |
 | `CORVUS_MOBILE_APPS` | A folder of app packages (.apk, .ipa), searched two levels deep. | AppGraphTests, MobileRulesTests |
