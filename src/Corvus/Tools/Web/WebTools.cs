@@ -23,20 +23,21 @@ public sealed partial class WebTools(OutputPager pager)
     }
 
     [McpServerTool(Name = "analyze_js", Title = "Analyze a JavaScript bundle", UseStructuredContent = true, OutputSchemaType = typeof(JsResult))]
-    [Description("Bundler, modules and source map of a JavaScript file, statically. position: to the original; diff: with source=; runtime: " +
-                 "webpack chunks; flow: values through calls, returns, closures, promises to effects, origins: back, unknowns marked. Hermes too.")]
+    [Description("Bundler, modules, source map of a JS file, statically. position: to original; diff: with source=; runtime: " +
+                 "webpack chunks; flow: values through calls, returns, closures, promises to effects, origins: back, unknowns marked. Hermes, Ark too.")]
     public string AnalyzeJs(
-        [Description("A .js or Hermes bundle, or an APK/.ipa.")] string path,
+        [Description("A .js, Hermes or Ark file, or a package.")] string path,
         [Description("View.")] string view = "summary",
         [Description("position, flow: 1-based generated line.")] int? line = null,
         [Description("See line.")] int? column = null,
         [Description("source: path or index; diff: old bundle.")] string? source = null,
-        [Description("Module id; search filter; Hermes #id or name; flow: name, quoted literal, sinks, sink:KIND or module:ID.")] string? query = null,
+        [Description("Module id; search filter; function #id or name; flow: name, quoted literal, sinks, sink:KIND or module:ID.")] string? query = null,
         [Description("flow: max flows (50).")] int? limit = null,
         [Description(ToolSupport.CharOffsetDescription)] int offset = 0,
         [Description(ToolSupport.MaxTokensDescription)] int? maxTokens = null)
     {
         if (view.Trim().ToLowerInvariant() is not ("position" or "sources" or "source") && HermesBundles.Applies(path)) return AnalyzeHermes(path, view, query, offset, maxTokens);
+        if (ArkBundles.Applies(path)) return AnalyzeArk(path, view, query, offset, maxTokens);
         switch (view.Trim().ToLowerInvariant())
         {
             case "flow" or "origins":

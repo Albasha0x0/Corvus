@@ -553,13 +553,13 @@ File inspection, containers and wrapped apps, Unity overview.
 
 **Summarize file** (read-only, idempotent)
 
-First look at a file or assembly, not run: type, hashes, signature, containers, assemblies, highlights (toolchain, capabilities, packagers), entry points. view=: managed, dependencies, native, android, apple, electron, flutter, go, layers, nib, pcap, package (pre-install review), plist, protobuf, raw (headerless code), rust, script (layers peeled), sqlite (table= pages), sqlite-recover, unity (MonoBehaviour fields), all; views lists those that apply.
+First look at a file or assembly, not run: type, hashes, signature, containers, assemblies, highlights (toolchain, capabilities, packagers), entry points. view= values include package (pre-install review), raw (headerless code), script (layers peeled), sqlite (table= pages), unity (MonoBehaviour fields), all; views lists those that apply.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `path` | string |  |  | File (assembly, executable, bundle, package, zip, .asar), .app or source folder. |
 | `assembly` | string |  |  | A loaded assembly; pass this or path. |
-| `view` | string |  | `overview` | A view the overview lists. Values: overview, managed, dependencies, android, apple, electron, firmware, flutter, go, hermes, installer, layers, lnk, native, nib, office, package, page, pcap, pdf, plist, protobuf, python, raw, rust, script, sqlite, sqlite-recover, unity, wasm, xbf, all. |
+| `view` | string |  | `overview` | A view the overview lists. Values: overview, managed, dependencies, android, apple, electron, firmware, flutter, go, harmony, hermes, installer, layers, lnk, native, nib, office, package, page, pcap, pdf, plist, protobuf, python, raw, rust, script, sqlite, sqlite-recover, unity, wasm, xbf, all. |
 | `table` | string |  |  | sqlite, sqlite-recover: table to page. |
 | `columns` | string[] |  |  | With table=: these columns (rowid too). |
 | `script` | string |  |  | unity: only assets of this script class. |
@@ -3017,16 +3017,16 @@ JavaScript bundles and their source maps.
 
 **Analyze a JavaScript bundle** (read-only, idempotent)
 
-Bundler, modules and source map of a JavaScript file, statically. position: to the original; diff: with source=; runtime: webpack chunks; flow: values through calls, returns, closures, promises to effects, origins: back, unknowns marked. Hermes too.
+Bundler, modules, source map of a JS file, statically. position: to original; diff: with source=; runtime: webpack chunks; flow: values through calls, returns, closures, promises to effects, origins: back, unknowns marked. Hermes, Ark too.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `path` | string | yes |  | A .js or Hermes bundle, or an APK/.ipa. |
+| `path` | string | yes |  | A .js, Hermes or Ark file, or a package. |
 | `view` | string |  | `summary` | View. Values: summary, modules, module, search, refs, position, sources, source, endpoints, secrets, diff, runtime, flow, origins, functions, decompile, disassemble, xrefs. |
 | `line` | integer |  |  | position, flow: 1-based generated line. |
 | `column` | integer |  |  | See line. |
 | `source` | string |  |  | source: path or index; diff: old bundle. |
-| `query` | string |  |  | Module id; search filter; Hermes #id or name; flow: name, quoted literal, sinks, sink:KIND or module:ID. |
+| `query` | string |  |  | Module id; search filter; function #id or name; flow: name, quoted literal, sinks, sink:KIND or module:ID. |
 | `limit` | integer |  |  | flow: max flows (50). |
 | `offset` | integer |  |  |  |
 | `maxTokens` | integer |  |  |  |

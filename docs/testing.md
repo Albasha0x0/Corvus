@@ -262,6 +262,7 @@ describe.
 | `CORVUS_DEBUG_ARGS` | `1` prints the call sites whose arguments were not recovered in the system DLL recovery run. | CallArgumentTests |
 | `CORVUS_DIFF_PAIRS` | Build pairs matched per source (default 6). | NativeDiffRealTests |
 | `CORVUS_APFS_DIR` | A folder of APFS container images whose files, links and bytes are compared with 7-Zip's extraction. | ApfsTests |
+| `CORVUS_ARK_DIR` | A folder of Ark bytecode files (`.abc`), each method disassembled and compared with ark_disasm (`CORVUS_ARK_DISASSEMBLER`). | ArkBytecodeTests |
 | `CORVUS_ASSET_CATALOG_DIR` | A folder of compiled asset catalogs (`.car`) whose renditions, bitmap pixels, cropped images and original data are compared with carfile-go's (`CORVUS_ASSET_CATALOG_READER`). | AssetCatalogTests |
 | `CORVUS_DMG_DIR` | A folder of Apple disk images (.dmg) whose files, links and bytes are compared with 7-Zip's extraction. | AppleDiskImageTests |
 | `CORVUS_DART_RELEASES` | A folder of Dart SDK releases (`dart-<version>/dart-sdk`); each compiles a sample whose code names are compared with its debug symbols. | DartSdkProgramTests |
@@ -271,6 +272,7 @@ describe.
 | `CORVUS_EXPORT_LIST` | A file listing assemblies whose exported projects must build; errors go to `<list>.report.txt`. | ExportBuildTests |
 | `CORVUS_EXPORT_REAL` | `1` exports real libraries to projects and builds them. | ExportBuildTests |
 | `CORVUS_FIRMWARE_IMAGES` | A folder of firmware images whose filesystems are compared file by file with the reference extractors. | FirmwareComparisonTests |
+| `CORVUS_FIXTURE_ES2ABC` | es2abc from the OpenHarmony SDK (`ets` package), for rebuilding the Ark fixtures; `CORVUS_ARK_DISASSEMBLER` writes their listing. | tests/Corvus.Tests/Mobile/ArkFixtures/build.ps1 |
 | `CORVUS_FIXTURE_HERMESC` | A folder with one subfolder per Hermes compiler release, for rebuilding the Hermes fixtures. | tests/Corvus.Tests/Web/HermesFixtures/build.ps1 |
 | `CORVUS_FIXTURE_LLVM` | A folder holding ld.lld, llvm-objcopy and llvm-nm, for rebuilding the CFI, instruction-set and string form fixtures. | tests/Corvus.Tests/Dumps/CfiFixtures/build.ps1, tests/Corvus.Tests/Engines/IsaFixtures/build.ps1, tests/Corvus.Tests/NativeAnalysis/StringFormFixtures/build.ps1 |
 | `CORVUS_FIXTURE_POWERSHELL_LAYERS` | The folder of the PowerShell transformation module the script fixtures are generated with; nothing runs the output. | tests/Corvus.Tests/Web/ScriptFixtures/generate.ps1 |

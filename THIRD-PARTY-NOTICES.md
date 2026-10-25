@@ -348,3 +348,10 @@ Copyright (c) 2014 - 2017 Apple Inc. and the Swift project authors, licensed und
 https://github.com/sigstore/root-signing at commit c9bda74ad2221f938f7d2e0295ca3aad2da710a8, licensed under the Apache
 License 2.0 (https://www.apache.org/licenses/LICENSE-2.0). `npm-attestation-keys.json` beside it is the public key list
 npm publishes at https://registry.npmjs.org/-/npm/v1/keys.
+
+## arkcompiler_runtime_core
+
+`src/Corvus/Core/Ark/ArkOpcodes.g.cs` is generated from `isa/isa.yaml` of
+https://github.com/openharmony/arkcompiler_runtime_core at commit c0220797034a5690df566bcaab34951abce2ef77, and the Ark
+bytecode reader (`src/Corvus/Core/Ark/ArkFile.cs`) follows its `docs/file_format.md`. Copyright (c) Huawei Device Co.,
+Ltd., licensed under the Apache License 2.0 (https://www.apache.org/licenses/LICENSE-2.0).

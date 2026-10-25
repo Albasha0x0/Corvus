@@ -223,8 +223,13 @@ public static partial class ExternalTools
         Ops(("json", ["-q", "-f", "json", "-o", "{output}", "{file}"]), ("png", ["-q", "-f", "png", "-o", "{output}", "{file}"]),
             ("resources", ["-q", "-f", "resources", "-o", "{output}", "{file}"])));
 
+    // ark_disasm from the OpenHarmony 5.1.0 public SDK (toolchains package) tested. list writes the listing to {output}.
+    public static readonly ExternalTool ArkDisassembler = new("ark_disasm", "ark_disasm, OpenHarmony SDK (test oracle)", "CORVUS_ARK_DISASSEMBLER", ExternalToolKind.Executable,
+        ["ark_disasm" + Exe], ["--version"], 0, "oracle for the Ark bytecode disassembler in tests", true,
+        Ops(("list", ["{file}", "{output}"])));
+
     /// <summary>Every external program, in display order.</summary>
-    public static readonly IReadOnlyList<ExternalTool> Table = [Java, JavaDecompiler, JavaDecompiler2, PythonDecompiler, Adb, TShark, OsvScanner, GuardDog, Emulator, Capa, Aapt2, ApkSigner, DexDisassembler, ProtoCompiler, WasmText, WasmValidator, HbcDisassembler, DartSdk, FlutterSdk, RCodesign, ArchiveLister, LzfseTool, AssetCatalogReader];
+    public static readonly IReadOnlyList<ExternalTool> Table = [Java, JavaDecompiler, JavaDecompiler2, PythonDecompiler, Adb, TShark, OsvScanner, GuardDog, Emulator, Capa, Aapt2, ApkSigner, DexDisassembler, ProtoCompiler, WasmText, WasmValidator, HbcDisassembler, DartSdk, FlutterSdk, RCodesign, ArchiveLister, LzfseTool, AssetCatalogReader, ArkDisassembler];
 
     private static IEnumerable<(string, string)> WiresharkDirectories()
     {

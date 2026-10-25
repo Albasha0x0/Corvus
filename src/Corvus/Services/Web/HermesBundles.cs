@@ -10,7 +10,7 @@ namespace Corvus.Services.Web;
 /// <summary>analyze_js on Hermes bytecode: version (read with the nearest older opcode table when it has none, see Notes), the bundle inside a package, counts, Metro modules.</summary>
 public sealed record HermesFacts(int Version, string? Bundle, int Functions, int Strings, int MetroModules, IReadOnlyList<string> Notes);
 
-/// <summary>A function of the bundle: id, name, bytecode size, and the Metro module it belongs to.</summary>
+/// <summary>A function of a Hermes bundle or method of an Ark file: id, name, bytecode size (-1 for none), and the Metro module it belongs to (null for none).</summary>
 public sealed record HermesFunctionRow(int Id, string Name, int Size, long? Module);
 
 /// <summary>A Hermes bytecode bundle opened for analyze_js: the file read, its index and its source map, cached by path.</summary>

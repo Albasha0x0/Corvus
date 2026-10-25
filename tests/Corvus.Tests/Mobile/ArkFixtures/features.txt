@@ -1,0 +1,862 @@
+# source binary: features.abc
+
+# ====================
+# LITERALS
+
+0 0x8ce { 3 [ string:"a", string:"b", string:"c", ]}
+1 0x8e1 { 6 [ string:"verbose", u1:1, string:"depth", i32:3, string:"label", null_value:0, ]}
+3 0x8fd { 4 [ string:"name", null_value:0, string:"size", null_value:0, ]}
+4 0x90f { 4 [ string:"add", method:#~@0>#add, method_affiliate:1, i32:1, ]}
+5 0x925 
+7 0x859 { 3 [ string:"Ledger", string:"total", string:"counter", ]}
+2 0x929 { 1 [
+	MODULE_REQUEST_ARRAY: {
+	};
+	ModuleTag: LOCAL_EXPORT, local_name: scale, export_name: scale;
+]}
+6 0x86c { 8 [
+	MODULE_REQUEST_ARRAY: {
+		0 : ./helper,
+	};
+	ModuleTag: REGULAR_IMPORT, local_name: scale, import_name: scale, module_request: ./helper;
+	ModuleTag: LOCAL_EXPORT, local_name: Ledger, export_name: Ledger;
+	ModuleTag: LOCAL_EXPORT, local_name: VERSION, export_name: VERSION;
+	ModuleTag: LOCAL_EXPORT, local_name: classify, export_name: classify;
+	ModuleTag: LOCAL_EXPORT, local_name: counter, export_name: counter;
+	ModuleTag: LOCAL_EXPORT, local_name: loadTotals, export_name: loadTotals;
+	ModuleTag: LOCAL_EXPORT, local_name: parseRecord, export_name: parseRecord;
+	ModuleTag: LOCAL_EXPORT, local_name: summary, export_name: summary;
+]}
+
+# ====================
+# RECORDS
+
+.language ECMAScript
+.record _ESConcurrentModuleRequestsAnnotation {
+}
+
+.language ECMAScript
+.record _ESExpectedPropertyCountAnnotation {
+}
+
+.language ECMAScript
+.record _ESSlotNumberAnnotation {
+}
+
+.language ECMAScript
+.record features {
+	u8 pkgName@fixtures = 0x0
+	u8 isCommonjs = 0x0
+	u8 hasTopLevelAwait = 0x0
+	u8 isSharedModule = 0x0
+	u32 scopeNames = 0x859
+	u32 moduleRecordIdx = 0x86c
+}
+
+.language ECMAScript
+.record helper {
+	u8 pkgName@fixtures = 0x0
+	u8 isCommonjs = 0x0
+	u8 hasTopLevelAwait = 0x0
+	u8 isSharedModule = 0x0
+	u32 scopeNames = 0x925
+	u32 moduleRecordIdx = 0x929
+}
+
+# ====================
+# METHODS
+
+L_ESSlotNumberAnnotation:
+	u32 SlotNumber { 0x4 }
+.language ECMAScript
+.function any features.#*#classify(any a0, any a1, any a2, any a3) <static> {
+	ldai 0x0
+	sta v0
+	lda v0
+	strictnoteq 0x0, a3
+	jeqz jump_label_0
+	ldai 0x1
+	strictnoteq 0x1, a3
+	jeqz jump_label_1
+	ldai 0x2
+	strictnoteq 0x2, a3
+	jeqz jump_label_2
+	jmp jump_label_3
+jump_label_0:
+	lda.str "zero"
+	return
+jump_label_1:
+	lda.str "one"
+	return
+jump_label_2:
+	lda.str "two"
+	return
+jump_label_3:
+	lda v0
+	less 0x3, a3
+	jeqz jump_label_4
+	lda.str "negative"
+	jmp jump_label_5
+jump_label_4:
+	lda.str "many"
+jump_label_5:
+	return
+}
+
+L_ESSlotNumberAnnotation:
+	u32 SlotNumber { 0x1 }
+.language ECMAScript
+.function any features.#*#counter(any a0, any a1, any a2, any a3) <static> {
+	newlexenv 0x3
+	lda a1
+	stlexvar 0x0, 0x1
+	lda a2
+	stlexvar 0x0, 0x2
+	lda a3
+	stlexvar 0x0, 0x0
+	definefunc 0x0, features.#*@2*#:(any,any,any), 0x0
+	return
+}
+
+L_ESSlotNumberAnnotation:
+	u32 SlotNumber { 0x1c }
+.language ECMAScript
+.function any features.#*#loadTotals(any a0, any a1, any a2, any a3) <static> {
+	nop
+	asyncfunctionenter
+	sta v0
+try_begin_label_1:
+	jmp jump_label_9
+handler_begin_label_1_0:
+	sta v4
+	mov v1, v3
+	lda v4
+	throw
+jump_label_9:
+	ldai 0x1
+	sta v3
+	ldai 0x0
+	sta v4
+	mov v1, v0
+	lda a3
+	getiterator 0x0
+	sta v5
+	mov v1, v0
+	ldobjbyname 0x2, "next"
+	sta v6
+	mov v1, v0
+	ldfalse
+	sta v7
+jump_label_12:
+	mov v1, v0
+	lda v6
+	callthis0 0x4, v5
+	sta v8
+	mov v1, v0
+	throw.ifnotobject v8
+	mov v1, v0
+	ldobjbyname 0x6, "done"
+	mov v1, v0
+	callruntime.istrue 0x8
+	mov v1, v0
+	jnez jump_label_10
+	mov v1, v0
+	lda v8
+	ldobjbyname 0x9, "value"
+	sta v8
+try_begin_label_2:
+	mov v9, v0
+	mov v10, v7
+	mov v11, v5
+	mov v1, v0
+	tryldglobalbyname 0xb, "Promise"
+	sta v13
+	mov v9, v0
+	mov v10, v7
+	mov v11, v5
+	mov v1, v0
+	ldobjbyname 0xc, "resolve"
+	sta v14
+	mov v9, v0
+	mov v10, v7
+	mov v11, v5
+	mov v1, v0
+	lda v8
+	ldobjbyname 0xe, "total"
+	sta v8
+	mov v9, v0
+	mov v10, v7
+	mov v11, v5
+	mov v1, v0
+	lda v14
+	callthis1 0x10, v13, v8
+	mov v9, v0
+	mov v10, v7
+	mov v11, v5
+	mov v1, v0
+	asyncfunctionawaituncaught v0
+	mov v9, v0
+	mov v10, v7
+	mov v11, v5
+	mov v1, v0
+	suspendgenerator v0
+	mov v9, v0
+	mov v10, v7
+	mov v11, v5
+	mov v1, v0
+	lda v0
+	resumegenerator
+	sta v8
+	mov v9, v0
+	mov v10, v7
+	mov v11, v5
+	mov v1, v0
+	lda v0
+	getresumemode
+	sta v13
+	mov v9, v0
+	mov v10, v7
+	mov v11, v5
+	mov v1, v0
+	lda v3
+	eq 0x12, v13
+	mov v9, v0
+	mov v10, v7
+	mov v11, v5
+	mov v1, v0
+	jeqz jump_label_11
+	mov v9, v0
+	mov v10, v7
+	mov v11, v5
+	mov v1, v0
+	lda v8
+	throw
+jump_label_11:
+	mov v9, v0
+	mov v10, v7
+	mov v11, v5
+	mov v1, v0
+	lda v8
+	add2 0x13, v4
+	sta v4
+try_end_label_2:
+	jmp jump_label_12
+handler_begin_label_2_0:
+	sta v12
+	mov v1, v9
+	lda v10
+	callruntime.istrue 0x14
+	mov v1, v9
+	jnez jump_label_13
+try_begin_label_0:
+	mov v0, v9
+	mov v3, v12
+	mov v1, v9
+	lda v11
+	ldobjbyname 0x15, "return"
+	sta v4
+	mov v0, v9
+	mov v3, v12
+	mov v1, v9
+	ldundefined
+	mov v0, v9
+	mov v3, v12
+	mov v1, v9
+	eq 0x17, v4
+	mov v0, v9
+	mov v3, v12
+	mov v1, v9
+	jnez jump_label_13
+	mov v0, v9
+	mov v3, v12
+	mov v1, v9
+	lda v4
+	callthis0 0x18, v11
+try_end_label_0:
+	jmp jump_label_14
+handler_begin_label_0_0:
+	mov v9, v0
+	mov v12, v3
+jump_label_14:
+	mov v1, v9
+	lda v12
+	throw
+jump_label_13:
+	mov v1, v9
+	lda v12
+	throw
+jump_label_10:
+	mov v1, v0
+	ldexternalmodulevar 0x0
+	sta v3
+	mov v1, v0
+	throw.undefinedifholewithname "scale"
+	mov v1, v0
+	lda v3
+	callarg1 0x1a, v4
+	mov v1, v0
+	asyncfunctionresolve v0
+	mov v1, v0
+	return
+try_end_label_3:
+	sta v2
+	lda v2
+	asyncfunctionreject v1
+	return
+
+.catchall try_begin_label_0, try_end_label_0, handler_begin_label_0_0
+.catchall try_begin_label_1, try_begin_label_1, handler_begin_label_1_0
+.catchall try_begin_label_2, try_end_label_2, handler_begin_label_2_0
+.catchall try_begin_label_1, try_end_label_3, try_end_label_3
+}
+
+L_ESSlotNumberAnnotation:
+	u32 SlotNumber { 0x26 }
+.language ECMAScript
+.function any features.#*#parseRecord(any a0, any a1, any a2, any a3) <static> {
+	nop
+	tryldglobalbyname 0x0, "RegExp"
+	sta v0
+	lda.str "^(\w+):(\d+)$"
+	sta v1
+	mov v6, v0
+	mov v7, v1
+	newobjrange 0x1, 0x2, v6
+	sta v0
+	ldobjbyname 0x3, "exec"
+	callthis1 0x5, v0, a3
+	sta v0
+	ldnull
+	stricteq 0x7, v0
+	jeqz jump_label_3
+	ldnull
+	return
+jump_label_3:
+	ldai 0x0
+	sta v1
+	ldundefined
+	sta v2
+try_begin_label_0:
+	createobjectwithbuffer 0x8, { 4 [ string:"name", null_value:0, string:"size", null_value:0, ]}
+	sta v4
+	ldai 0x1
+	ldobjbyvalue 0x9, v0
+	definepropertybyname 0xb, "name", v4
+	tryldglobalbyname 0xd, "BigInt"
+	sta v5
+	ldai 0x2
+	ldobjbyvalue 0xe, v0
+	sta v0
+	lda v5
+	callarg1 0x10, v0
+	sta v0
+	ldbigint "1024"
+	mul2 0x12, v0
+	definepropertybyname 0x13, "size", v4
+	ldlocalmodulevar 0x0
+	sta v0
+	throw.undefinedifholewithname "Ledger"
+	lda v0
+	ldobjbyname 0x15, "created"
+	sta v5
+	lda v1
+	add2 0x17, v5
+	stobjbyname 0x18, "created", v0
+	lda v4
+	return
+try_end_label_0:
+	ldnull
+	sta v0
+	ldlocalmodulevar 0x0
+	sta v4
+	throw.undefinedifholewithname "Ledger"
+	lda v4
+	ldobjbyname 0x1a, "created"
+	sta v5
+	lda v1
+	add2 0x1c, v5
+	stobjbyname 0x1d, "created", v4
+	lda v0
+	return
+try_end_label_1:
+	sta v3
+	ldundefined
+	eq 0x1f, v2
+	jeqz jump_label_4
+	ldlocalmodulevar 0x0
+	sta v0
+	throw.undefinedifholewithname "Ledger"
+	lda v0
+	ldobjbyname 0x20, "created"
+	sta v2
+	lda v1
+	add2 0x22, v2
+	stobjbyname 0x23, "created", v0
+jump_label_4:
+	ldhole
+	sta v0
+	lda v3
+	noteq 0x25, v0
+	jeqz jump_label_5
+	lda v3
+	throw
+jump_label_5:
+	returnundefined
+
+.catchall try_begin_label_0, try_end_label_0, try_end_label_0
+.catchall try_begin_label_0, try_end_label_1, try_end_label_1
+}
+
+L_ESSlotNumberAnnotation:
+	u32 SlotNumber { 0x1d }
+.language ECMAScript
+.function any features.#*#summary(any a0, any a1, any a2, any a3) <static> {
+	createarraywithbuffer 0x0, { 3 [ string:"a", string:"b", string:"c", ]}
+	sta v0
+	createobjectwithbuffer 0x1, { 6 [ string:"verbose", u1:1, string:"depth", i32:3, string:"label", null_value:0, ]}
+	sta v1
+	lda.str "ledger of "
+	sta v2
+	lda a3
+	ldobjbyname 0x2, "owner"
+	add2 0x4, v2
+	sta v2
+	lda.str ""
+	add2 0x5, v2
+	definepropertybyname 0x6, "label", v1
+	lda.str "quoted "total"	end"
+	sta v2
+	lda.str ""
+	sta v3
+	lda v1
+	ldobjbyname 0x8, "label"
+	add2 0xa, v3
+	sta v3
+	lda.str ": "
+	add2 0xb, v3
+	sta v3
+	lda a3
+	ldobjbyname 0xc, "total"
+	add2 0xe, v3
+	sta v3
+	lda.str " ("
+	add2 0xf, v3
+	sta v3
+	lda v0
+	ldobjbyname 0x10, "join"
+	sta v4
+	lda.str ","
+	sta v5
+	lda v4
+	callthis1 0x12, v0, v5
+	add2 0x14, v3
+	sta v0
+	lda.str ", "
+	add2 0x15, v0
+	sta v0
+	lda v1
+	ldobjbyname 0x16, "depth"
+	typeof 0x18
+	add2 0x1a, v0
+	sta v0
+	lda.str ")"
+	add2 0x1b, v0
+	sta v0
+	lda v2
+	add2 0x1c, v0
+	return
+}
+
+L_ESSlotNumberAnnotation:
+	u32 SlotNumber { 0x1 }
+.language ECMAScript
+.function any features.#*@2*#(any a0, any a1, any a2) <static> {
+	ldlexvar 0x0, 0x0
+	sta v0
+	throw.undefinedifholewithname "n"
+	lda v0
+	inc 0x0
+	sta v0
+	ldlexvar 0x0, 0x0
+	throw.undefinedifholewithname "n"
+	lda v0
+	stlexvar 0x0, 0x0
+	lda v0
+	return
+}
+
+L_ESExpectedPropertyCountAnnotation:
+	u32 ExpectedPropertyCount { 0x1 }
+L_ESSlotNumberAnnotation:
+	u32 SlotNumber { 0xb }
+.language ECMAScript
+.function any features.#~@0=#Ledger(any a0, any a1, any a2, any a3) <static> {
+	lda a3
+	stobjbyname 0x0, "owner", a2
+	createemptyarray 0x2
+	stobjbyname 0x3, "entries", a2
+	ldlexvar 0x0, 0x0
+	sta v0
+	throw.undefinedifholewithname "Ledger"
+	lda v0
+	ldobjbyname 0x5, "created"
+	tonumeric 0x7
+	inc 0x8
+	stobjbyname 0x9, "created", v0
+	lda a2
+	return
+}
+
+L_ESSlotNumberAnnotation:
+	u32 SlotNumber { 0xa }
+.language ECMAScript
+.function any features.#~@0>#add(any a0, any a1, any a2, any a3) <static> {
+	lda a2
+	ldobjbyname 0x0, "entries"
+	sta v0
+	ldobjbyname 0x2, "push"
+	callthis1 0x4, v0, a3
+	lda a2
+	ldobjbyname 0x6, "entries"
+	ldobjbyname 0x8, "length"
+	return
+}
+
+L_ESSlotNumberAnnotation:
+	u32 SlotNumber { 0x1e }
+.language ECMAScript
+.function any features.#~@0>#items(any a0, any a1, any a2) <static> {
+	nop
+try_begin_label_4:
+	ldai 0x0
+	sta v1
+	creategeneratorobj a0
+	sta v2
+	ldundefined
+	suspendgenerator v2
+	lda v2
+	resumegenerator
+	sta v3
+	lda v2
+	getresumemode
+	sta v4
+	lda v1
+	eq 0x0, v4
+	jeqz jump_label_14
+	lda v3
+	return
+jump_label_14:
+	ldai 0x1
+	sta v5
+	lda v5
+	eq 0x1, v4
+	jeqz try_begin_label_2
+	lda v3
+	throw
+try_begin_label_2:
+	lda a2
+	ldobjbyname 0x2, "entries"
+	sta v4
+try_end_label_2:
+	jmp jump_label_15
+handler_begin_label_2_0:
+	sta v3
+	lda v3
+	throw
+jump_label_15:
+	lda v4
+	getiterator 0x4
+	sta v3
+	ldobjbyname 0x6, "next"
+	sta v4
+	ldfalse
+	sta v6
+jump_label_24:
+	lda v4
+	callthis0 0x8, v3
+	sta v7
+	throw.ifnotobject v7
+	ldobjbyname 0xa, "done"
+	callruntime.istrue 0xc
+	jnez jump_label_16
+	lda v7
+	ldobjbyname 0xd, "value"
+	sta v7
+try_begin_label_3:
+	mov v8, v3
+	mov v9, v6
+	ldfalse
+	sta v11
+	createiterresultobj v7, v11
+	suspendgenerator v2
+	lda v2
+	resumegenerator
+	sta v7
+	lda v2
+	getresumemode
+	sta v11
+	lda v1
+	eq 0xf, v11
+	jeqz jump_label_17
+	lda v6
+	callruntime.istrue 0x10
+	jnez jump_label_18
+	ldtrue
+	sta v11
+	mov v9, v11
+	ldundefined
+	sta v12
+	ldhole
+	sta v13
+try_begin_label_0:
+	lda v3
+	ldobjbyname 0x11, "return"
+	sta v15
+	ldundefined
+	eq 0x13, v15
+	jnez jump_label_19
+	lda v15
+	callthis0 0x14, v3
+	sta v15
+try_end_label_0:
+	jmp jump_label_20
+handler_begin_label_0_0:
+	sta v14
+	mov v13, v14
+	mov v14, v3
+	jmp jump_label_21
+jump_label_20:
+	mov v14, v3
+	mov v12, v15
+jump_label_21:
+	mov v8, v14
+	mov v9, v11
+	ldhole
+	sta v15
+	lda v13
+	noteq 0x16, v15
+	jeqz jump_label_22
+	lda v13
+	throw
+jump_label_22:
+	throw.ifnotobject v12
+	mov v12, v14
+	jmp jump_label_23
+jump_label_19:
+	mov v12, v3
+	jmp jump_label_23
+jump_label_18:
+	mov v11, v6
+	mov v12, v3
+jump_label_23:
+	mov v8, v12
+	mov v9, v11
+	lda v7
+	return
+jump_label_17:
+	lda v5
+	eq 0x17, v11
+	jeqz try_end_label_3
+	lda v7
+	throw
+try_end_label_3:
+	jmp jump_label_24
+handler_begin_label_3_0:
+	sta v10
+	lda v9
+	callruntime.istrue 0x18
+	jnez jump_label_25
+try_begin_label_1:
+	lda v8
+	ldobjbyname 0x19, "return"
+	sta v1
+	ldundefined
+	eq 0x1b, v1
+	jnez jump_label_25
+	lda v1
+	callthis0 0x1c, v8
+try_end_label_1:
+	jmp handler_begin_label_1_0
+handler_begin_label_1_0:
+	lda v10
+	throw
+jump_label_25:
+	lda v10
+	throw
+jump_label_16:
+	ldundefined
+	return
+try_end_label_4:
+	sta v0
+	lda v0
+	throw
+
+.catchall try_begin_label_0, try_end_label_0, handler_begin_label_0_0
+.catchall try_begin_label_1, try_end_label_1, handler_begin_label_1_0
+.catchall try_begin_label_2, try_end_label_2, handler_begin_label_2_0
+.catchall try_begin_label_3, try_end_label_3, handler_begin_label_3_0
+.catchall try_begin_label_4, try_end_label_4, try_end_label_4
+}
+
+L_ESSlotNumberAnnotation:
+	u32 SlotNumber { 0x2 }
+.language ECMAScript
+.function any features.#~@0>#static_initializer(any a0, any a1, any a2) <static> {
+	ldai 0x0
+	definepropertybyname 0x0, "created", a2
+	returnundefined
+}
+
+L_ESSlotNumberAnnotation:
+	u32 SlotNumber { 0x7 }
+.language ECMAScript
+.function any features.#~@0>#total(any a0, any a1, any a2) <static> {
+	newlexenv 0x2
+	lda a1
+	stlexvar 0x0, 0x0
+	lda a2
+	stlexvar 0x0, 0x1
+	ldlexvar 0x0, 0x1
+	ldobjbyname 0x0, "entries"
+	sta v0
+	ldobjbyname 0x2, "reduce"
+	sta v1
+	definefunc 0x4, features.#~@0>@1*#:(any,any,any,any,any), 0x2
+	sta v2
+	ldai 0x0
+	sta v3
+	lda v1
+	callthis2 0x5, v0, v2, v3
+	return
+}
+
+L_ESSlotNumberAnnotation:
+	u32 SlotNumber { 0x1 }
+.language ECMAScript
+.function any features.#~@0>@1*#(any a0, any a1, any a2, any a3, any a4) <static> {
+	lda a4
+	add2 0x0, a3
+	return
+}
+
+L_ESSlotNumberAnnotation:
+	u32 SlotNumber { 0xf }
+.language ECMAScript
+.function any features.func_main_0(any a0, any a1, any a2) <static> {
+	nop
+	definefunc 0x0, features.#*#classify:(any,any,any,any), 0x1
+	stmodulevar 0x2
+	definefunc 0x1, features.#*#counter:(any,any,any,any), 0x1
+	stmodulevar 0x3
+	definefunc 0x2, features.#*#loadTotals:(any,any,any,any), 0x1
+	stmodulevar 0x4
+	definefunc 0x3, features.#*#parseRecord:(any,any,any,any), 0x1
+	stmodulevar 0x5
+	definefunc 0x4, features.#*#summary:(any,any,any,any), 0x1
+	stmodulevar 0x6
+	lda.str "1.0.0"
+	stmodulevar 0x1
+	newlexenv 0x1
+try_begin_label_0:
+	ldhole
+	sta v1
+	defineclasswithbuffer 0x5, features.#~@0=#Ledger:(any,any,any,any), { 4 [ string:"add", method:#~@0>#add, method_affiliate:1, i32:1, ]}, 0x1, v1
+	sta v1
+	stlexvar 0x0, 0x0
+	lda v1
+	ldobjbyname 0x6, "prototype"
+	sta v2
+	lda.str "total"
+	sta v3
+	ldundefined
+	sta v4
+	lda v2
+	definemethod 0x8, features.#~@0>#total:(any,any,any), 0x0
+	sta v5
+	ldfalse
+	definegettersetterbyvalue v2, v3, v5, v4
+	lda v2
+	definemethod 0x9, features.#~@0>#items:(any,any,any), 0x0
+	stownbyname 0xa, "items", v2
+	lda v1
+	definemethod 0xc, features.#~@0>#static_initializer:(any,any,any), 0x0
+	callthis0 0xd, v1
+try_end_label_0:
+	jmp jump_label_3
+handler_begin_label_0_0:
+	sta v0
+	poplexenv
+	lda v0
+	throw
+jump_label_3:
+	poplexenv
+	lda v1
+	stmodulevar 0x0
+	returnundefined
+
+.catchall try_begin_label_0, try_end_label_0, handler_begin_label_0_0
+}
+
+L_ESSlotNumberAnnotation:
+	u32 SlotNumber { 0x1 }
+.language ECMAScript
+.function any helper.#*#scale(any a0, any a1, any a2, any a3) <static> {
+	fldai 2.500000e+00
+	mul2 0x0, a3
+	return
+}
+
+L_ESSlotNumberAnnotation:
+	u32 SlotNumber { 0x1 }
+.language ECMAScript
+.function any helper.func_main_0(any a0, any a1, any a2) <static> {
+	definefunc 0x0, helper.#*#scale:(any,any,any,any), 0x1
+	stmodulevar 0x0
+	returnundefined
+}
+
+# ====================
+# STRING
+
+[offset:0x46d, name_value:]
+[offset:0x46f, name_value: (]
+[offset:0x473, name_value:)]
+[offset:0x476, name_value:,]
+[offset:0x479, name_value:, ]
+[offset:0x47d, name_value:1.0.0]
+[offset:0x484, name_value:1024]
+[offset:0x48a, name_value:: ]
+[offset:0x48e, name_value:BigInt]
+[offset:0x496, name_value:Ledger]
+[offset:0x49e, name_value:Promise]
+[offset:0x4a7, name_value:RegExp]
+[offset:0x4af, name_value:^(\w+):(\d+)$]
+[offset:0x4be, name_value:created]
+[offset:0x4c7, name_value:depth]
+[offset:0x4ce, name_value:done]
+[offset:0x4d4, name_value:entries]
+[offset:0x4dd, name_value:exec]
+[offset:0x5df, name_value:items]
+[offset:0x5e6, name_value:join]
+[offset:0x5ec, name_value:label]
+[offset:0x5f3, name_value:ledger of ]
+[offset:0x5ff, name_value:length]
+[offset:0x607, name_value:many]
+[offset:0x60d, name_value:n]
+[offset:0x610, name_value:name]
+[offset:0x616, name_value:negative]
+[offset:0x620, name_value:next]
+[offset:0x626, name_value:one]
+[offset:0x62b, name_value:owner]
+[offset:0x632, name_value:prototype]
+[offset:0x63d, name_value:push]
+[offset:0x643, name_value:quoted "total"	end]
+[offset:0x657, name_value:reduce]
+[offset:0x65f, name_value:resolve]
+[offset:0x668, name_value:return]
+[offset:0x670, name_value:scale]
+[offset:0x677, name_value:size]
+[offset:0x67d, name_value:total]
+[offset:0x684, name_value:two]
+[offset:0x689, name_value:value]
+[offset:0x690, name_value:zero]
