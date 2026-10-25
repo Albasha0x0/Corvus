@@ -134,7 +134,7 @@ public sealed class DartSdkProgramTests(ITestOutputHelper output) : IDisposable
     {
         var (program, text, symbols) = Compile("aot");
         var (same, _) = Compare(program, text, symbols);
-        Assert.True(same * 100 >= program.Code.Count * 98, $"{same} of {program.Code.Count}");
+        Assert.True(same * 100 >= program.Code.Count * 99, $"{same} of {program.Code.Count}");
         // A constructor and its class's allocation stub both print "new <class>"; Ledger.post is inlined, with no code.
         var at = program.Code.ToLookup(c => c.Name, c => text + c.Offset);
         foreach (var name in new[] { "main", "checksumOrders", "Ledger.balanceOf", "Ledger.totals", "LedgerEntry.describe", "new Ledger", "new LedgerEntry" })
@@ -155,7 +155,9 @@ public sealed class DartSdkProgramTests(ITestOutputHelper output) : IDisposable
             var (program, text, symbols) = Compile("aot", dart, release);
             int same = program.Code.Count(c => symbols.TryGetValue(text + c.Offset, out var names) && names.Contains(c.Name));
             output.WriteLine($"Dart {release}: layout {program.Layout ?? program.Unsupported}, {same} of {program.Code.Count} names equal");
-            if (program.Unsupported != null || same * 100 < program.Code.Count * 98) problems.Add($"Dart {release}: {same} of {program.Code.Count}");
+            foreach (var c in program.Code.Where(c => !(symbols.TryGetValue(text + c.Offset, out var names) && names.Contains(c.Name))).Take(30))
+                output.WriteLine($"  0x{text + c.Offset:X} {c.Name} / {string.Join(" | ", symbols.GetValueOrDefault(text + c.Offset) ?? [])}");
+            if (program.Unsupported != null || same * 100 < program.Code.Count * 99) problems.Add($"Dart {release}: {same} of {program.Code.Count}");
             var at = program.Code.ToLookup(c => c.Name, c => text + c.Offset);
             foreach (var name in new[] { "main", "checksumOrders", "Ledger.balanceOf", "Ledger.totals", "LedgerEntry.describe" })
                 if (!at[name].Any(address => symbols.TryGetValue(address, out var names) && names.Contains(name))) problems.Add($"Dart {release}: {name}");
@@ -171,7 +173,7 @@ public sealed class DartSdkProgramTests(ITestOutputHelper output) : IDisposable
     {
         var (program, text, symbols) = CompileCompressed(arch);
         var (same, _) = Compare(program, text, symbols);
-        Assert.True(same * 100 >= program.Code.Count * 98, $"{same} of {program.Code.Count}");
+        Assert.True(same * 100 >= program.Code.Count * 99, $"{same} of {program.Code.Count}");
         var at = program.Code.ToLookup(c => c.Name, c => text + c.Offset);
         foreach (var name in new[] { "main", "checksumOrders", "Ledger.balanceOf", "Ledger.totals", "LedgerEntry.describe" })
             Assert.True(at[name].Any(address => symbols[address].Contains(name)), name);

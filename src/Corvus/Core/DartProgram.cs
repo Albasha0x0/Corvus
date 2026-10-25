@@ -449,6 +449,10 @@ public static class DartProgramReader
         }
 
         var named = new Dictionary<uint, string>();
+        // Functions can share one Code; the VM's DWARF names it by its owner.
+        foreach (var r in o.CodeRefs)
+            if (o.CodeOwner[r] is { Pc: { } at } code && o.Functions.ContainsKey(code.Owner))
+                named.TryAdd(at, FunctionName(code.Owner, 0));
         int namedFunctions = 0;
         foreach (var (f, fn) in o.Functions)
         {
