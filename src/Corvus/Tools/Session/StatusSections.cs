@@ -105,6 +105,8 @@ internal sealed class CallsStatus : IStatusSection
     public string Name => "calls";
     public int Order => 40;
 
+    private const int LockUsersShown = 4;
+
     public IEnumerable<StatusField> Fields(IServiceProvider services)
     {
         if (services.GetService<ServerOptions>() is { } options)
@@ -119,7 +121,7 @@ internal sealed class CallsStatus : IStatusSection
         {
             var users = workspace.LockUsers();
             yield return new("workspaceLock", users.Count == 0 ? "free"
-                : string.Join("; ", users.Take(WorkersStatus.Shown).Select(u => u.ToString())) + (users.Count > WorkersStatus.Shown ? $"; {users.Count - WorkersStatus.Shown} more" : ""));
+                : string.Join("; ", users.Take(LockUsersShown).Select(u => u.ToString())) + (users.Count > LockUsersShown ? $"; {users.Count - LockUsersShown} more" : ""));
         }
     }
 }
@@ -134,7 +136,7 @@ internal sealed class WorkersStatus : IStatusSection
     internal const int PidsPerProgram = 3;
 
     // Programs listed by name, oldest first; the rest are counted in one field, so a busy server's status keeps its budget.
-    internal const int Shown = 4;
+    internal const int Shown = 3;
 
     public IEnumerable<StatusField> Fields(IServiceProvider services) => Fields(Native.Providers.ChildProcess.Live());
 
@@ -147,10 +149,11 @@ internal sealed class WorkersStatus : IStatusSection
             yield return new StatusField("more", $"{programs.Count - Shown} more program(s), {programs.Skip(Shown).Sum(g => g.Count())} process(es)");
     }
 
-    /// <summary>One program's running children, oldest first: pid and start of each up to <see cref="PidsPerProgram"/>, then a count.</summary>
+    /// <summary>One program's running children, oldest first: pids up to <see cref="PidsPerProgram"/>, a count of the rest, and the oldest start.</summary>
     internal static string Describe(IReadOnlyList<(int Id, string Program, DateTimeOffset Started)> children) =>
-        string.Join("; ", children.Take(PidsPerProgram).Select(w => $"pid {w.Id}, started {w.Started:yyyy-MM-ddTHH:mm:ssZ}")) +
-        (children.Count > PidsPerProgram ? $"; {children.Count - PidsPerProgram} more" : "");
+        (children.Count == 1 ? "pid " : "pids ") + string.Join(", ", children.Take(PidsPerProgram).Select(w => w.Id)) +
+        (children.Count > PidsPerProgram ? $", {children.Count - PidsPerProgram} more" : "") +
+        $"; {(children.Count == 1 ? "started" : "oldest started")} {children.Min(w => w.Started):yyyy-MM-ddTHH:mm:ssZ}";
 }
 
 /// <summary>This server process: run id (also in each trace line), process id and start time.</summary>

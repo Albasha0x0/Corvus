@@ -56,6 +56,16 @@ public class ServerStatusTests
         int budget = CallFilter.FitTokens(OutputClasses.Budget(OutputClass.Report));
         var result = JsonNode.Parse(output)!;
         var structured = result["structured"]!.AsObject();
+        // Child processes of other tests in this process fill the workers section, so its widest form is reserved.
+        var start = new DateTimeOffset(2026, 10, 25, 0, 0, 0, TimeSpan.Zero);
+        var busiest = Enumerable.Range(0, 60).Select(i => (Id: 100000 + i, Program: $"corvus-engine-worker-{i % 10}.exe", Started: start)).ToList();
+        int widest = Corvus.Core.TokenEstimate.Of(new JsonObject
+        {
+            ["name"] = "workers",
+            ["fields"] = new JsonArray([.. Corvus.Tools.WorkersStatus.Fields(busiest).Select(f => (JsonNode)new JsonObject { ["name"] = f.Name, ["value"] = f.Value })]),
+        }.ToJsonString());
+        var workers = structured["sections"]?.AsArray().FirstOrDefault(s => (string?)s?["name"] == "workers");
+        room += Math.Max(0, widest - Corvus.Core.TokenEstimate.Of(workers?.ToJsonString() ?? ""));
         int json = Corvus.Core.TokenEstimate.Of(structured.ToJsonString()) + room, text = Corvus.Core.TokenEstimate.Of((string)result["text"]!) + room;
         // A runner's numbers per field, so an overrun names what grew.
         Assert.True(json <= budget && text <= budget, $"json {json}, text {text} of {budget} with {room} of folder room; by field: " +
@@ -118,8 +128,8 @@ public class ServerStatusTests
     {
         var start = new DateTimeOffset(2026, 10, 21, 12, 0, 0, TimeSpan.Zero);
         var children = Enumerable.Range(1, 40).Select(i => (100 + i, "worker", start.AddSeconds(i))).ToList();
-        Assert.Equal("pid 101, started 2026-10-21T12:00:01Z; pid 102, started 2026-10-21T12:00:02Z; pid 103, started 2026-10-21T12:00:03Z; 37 more",
-            Corvus.Tools.WorkersStatus.Describe(children));
+        Assert.Equal("pids 101, 102, 103, 37 more; oldest started 2026-10-21T12:00:01Z", Corvus.Tools.WorkersStatus.Describe(children));
+        Assert.Equal("pid 101; started 2026-10-21T12:00:01Z", Corvus.Tools.WorkersStatus.Describe(children[..1]));
     }
 
     [Fact]
@@ -145,9 +155,9 @@ public class WorkersStatusTests
         var start = new DateTimeOffset(2026, 10, 25, 0, 0, 0, TimeSpan.Zero);
         var children = Enumerable.Range(0, 30).Select(i => (Id: 1000 + i, Program: $"program-{i % 10}.exe", Started: start.AddSeconds(i))).ToList();
         var fields = Corvus.Tools.WorkersStatus.Fields(children).ToList();
-        Assert.Equal(["program-0.exe", "program-1.exe", "program-2.exe", "program-3.exe", "more"], fields.Select(f => f.Name));
-        Assert.Equal("pid 1000, started 2026-10-25T00:00:00Z; pid 1010, started 2026-10-25T00:00:10Z; pid 1020, started 2026-10-25T00:00:20Z", fields[0].Value);
-        Assert.Equal("6 more program(s), 18 process(es)", fields[^1].Value);
+        Assert.Equal(["program-0.exe", "program-1.exe", "program-2.exe", "more"], fields.Select(f => f.Name));
+        Assert.Equal("pids 1000, 1010, 1020; oldest started 2026-10-25T00:00:00Z", fields[0].Value);
+        Assert.Equal("7 more program(s), 21 process(es)", fields[^1].Value);
     }
 }
 
