@@ -270,6 +270,8 @@ describe.
 | `CORVUS_GAMEMAKER_DATA` | A folder of GameMaker data files (`data.win`, `game.unx`, `game.ios`, `game.droid`) whose code entry names, string tables and texture page counts are compared with UndertaleModCli's dump (`CORVUS_GAMEMAKER_TOOL`). | GameMakerDataTests |
 | `CORVUS_IOSTORE_TOOL` | retoc, for rebuilding the IoStore fixtures. | tests/Corvus.Tests/Containers/UnrealFixtures/build.ps1 |
 | `CORVUS_UNREAL_PAKS` | A folder of Unreal pak files whose listings and file contents (SHA-256) are compared with repak's (`CORVUS_PAK_TOOL`); a pak with an encrypted index is named, not listed. | UnrealContainerTests |
+| `CORVUS_GODOT_PACKS` | A folder of Godot packs (`.pck`) and executables with an embedded pack, each mounted by the engine (`CORVUS_GODOT_RELEASES`) and compared by path and MD5. | GodotPackTests |
+| `CORVUS_GODOT_RELEASES` | A folder of Godot releases (`godot-<version>` holding the editor executable): the newest 3.x and 4.x mount the Godot fixtures and `CORVUS_GODOT_PACKS` for comparison; 3.6.3, 4.3, 4.5.1 and 4.7.2 rebuild the fixtures. | GodotPackTests, tests/Corvus.Tests/Containers/GodotFixtures/build.ps1 |
 | `CORVUS_ELECTRON_APPS` | A folder of installed Electron apps; every .asar below it (six levels) is read. | ElectronGraphTests, ElectronTests, JsEndpointsTests, NodeApiTests |
 | `CORVUS_ELF_CORES` | A folder of Linux or Android ELF core files, with the program's libraries beside them. | ElfCoreTests |
 | `CORVUS_EXPORT_LIST` | A file listing assemblies whose exported projects must build; errors go to `<list>.report.txt`. | ExportBuildTests |

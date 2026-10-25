@@ -37,7 +37,8 @@ public static class GodotPack
         uint format = U32(pack, 4), major = U32(pack, 8), minor = U32(pack, 12), patch = U32(pack, 16);
         if (format is 0 or > 16) throw new ToolError(ErrorCode.MalformedInput, $"{name}: unknown Godot pack format {format}.");
         uint flags = 0;
-        long fileBase = start, at = 20;
+        // Format 1 offsets are file offsets, also in a pack embedded after an executable.
+        long fileBase = 0, at = 20;
         if (format >= 2)
         {
             flags = U32(pack, 20);
