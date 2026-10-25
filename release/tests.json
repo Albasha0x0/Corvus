@@ -1,0 +1,895 @@
+{
+  "schema": 1,
+  "version": "2.6.0",
+  "commit": "1e4eae263ea8326ddeb3c609c3fd818c05539543",
+  "tree": "243f718977d2865a7b4b6f53975bc9c88faa560e",
+  "date": "2026-10-25T11:55",
+  "strength": "sampled",
+  "reusedEarlierPasses": false,
+  "commitsBehind": 0,
+  "testsRun": 3498,
+  "failed": 0,
+  "families": [
+    {
+      "name": "Accuracy",
+      "mode": "exhaustive",
+      "commit": "de8a00a9",
+      "at": "2026-10-25 02:36",
+      "tests": 2
+    },
+    {
+      "name": "Builds",
+      "mode": "exhaustive",
+      "commit": "de8a00a9",
+      "at": "2026-10-25 02:36",
+      "tests": 110
+    },
+    {
+      "name": "class:BackgroundReanalysisTests",
+      "mode": "sampled",
+      "commit": "1e4eae26",
+      "at": "2026-10-25 11:55",
+      "tests": "unknown"
+    },
+    {
+      "name": "class:CallArgumentTests",
+      "mode": "sampled",
+      "commit": "1e4eae26",
+      "at": "2026-10-25 11:55",
+      "tests": "unknown"
+    },
+    {
+      "name": "class:ClientDeadlineRealTests",
+      "mode": "sampled",
+      "commit": "1e4eae26",
+      "at": "2026-10-25 11:55",
+      "tests": "unknown"
+    },
+    {
+      "name": "class:CodeIndexCacheTests",
+      "mode": "sampled",
+      "commit": "1e4eae26",
+      "at": "2026-10-25 11:55",
+      "tests": "unknown"
+    },
+    {
+      "name": "class:CompletionPassTests",
+      "mode": "sampled",
+      "commit": "1e4eae26",
+      "at": "2026-10-25 11:55",
+      "tests": "unknown"
+    },
+    {
+      "name": "class:DotnetRealDataTests",
+      "mode": "sampled",
+      "commit": "1e4eae26",
+      "at": "2026-10-25 11:55",
+      "tests": "unknown"
+    },
+    {
+      "name": "class:ElectronGraphRealTests",
+      "mode": "sampled",
+      "commit": "1e4eae26",
+      "at": "2026-10-25 11:55",
+      "tests": "unknown"
+    },
+    {
+      "name": "class:EngineControlRealTests",
+      "mode": "sampled",
+      "commit": "1e4eae26",
+      "at": "2026-10-25 11:55",
+      "tests": "unknown"
+    },
+    {
+      "name": "class:EngineInspectTests",
+      "mode": "sampled",
+      "commit": "1e4eae26",
+      "at": "2026-10-25 11:55",
+      "tests": "unknown"
+    },
+    {
+      "name": "class:EngineMemoryCompareTests",
+      "mode": "sampled",
+      "commit": "1e4eae26",
+      "at": "2026-10-25 11:55",
+      "tests": "unknown"
+    },
+    {
+      "name": "class:EngineOutputTests",
+      "mode": "sampled",
+      "commit": "1e4eae26",
+      "at": "2026-10-25 11:55",
+      "tests": "unknown"
+    },
+    {
+      "name": "class:EngineRealDataTests",
+      "mode": "sampled",
+      "commit": "1e4eae26",
+      "at": "2026-10-25 11:55",
+      "tests": "unknown"
+    },
+    {
+      "name": "class:EngineRenameMigrationTests",
+      "mode": "sampled",
+      "commit": "1e4eae26",
+      "at": "2026-10-25 11:55",
+      "tests": "unknown"
+    },
+    {
+      "name": "class:EngineSliceTests",
+      "mode": "sampled",
+      "commit": "1e4eae26",
+      "at": "2026-10-25 11:55",
+      "tests": "unknown"
+    },
+    {
+      "name": "class:ExportBuildTests",
+      "mode": "sampled",
+      "commit": "1e4eae26",
+      "at": "2026-10-25 11:55",
+      "tests": "unknown"
+    },
+    {
+      "name": "class:FileIsolationTests",
+      "mode": "sampled",
+      "commit": "1e4eae26",
+      "at": "2026-10-25 11:55",
+      "tests": "unknown"
+    },
+    {
+      "name": "class:FirmwareComparisonTests",
+      "mode": "sampled",
+      "commit": "1e4eae26",
+      "at": "2026-10-25 11:55",
+      "tests": "unknown"
+    },
+    {
+      "name": "class:ImportOverrideEngineTests",
+      "mode": "sampled",
+      "commit": "1e4eae26",
+      "at": "2026-10-25 11:55",
+      "tests": "unknown"
+    },
+    {
+      "name": "class:InspectionTests",
+      "mode": "sampled",
+      "commit": "1e4eae26",
+      "at": "2026-10-25 11:55",
+      "tests": "unknown"
+    },
+    {
+      "name": "class:IsaEngineTests",
+      "mode": "sampled",
+      "commit": "1e4eae26",
+      "at": "2026-10-25 11:55",
+      "tests": "unknown"
+    },
+    {
+      "name": "class:LiveChildrenRealTests",
+      "mode": "sampled",
+      "commit": "1e4eae26",
+      "at": "2026-10-25 11:55",
+      "tests": "unknown"
+    },
+    {
+      "name": "class:LiveCoverageRealTests",
+      "mode": "sampled",
+      "commit": "1e4eae26",
+      "at": "2026-10-25 11:55",
+      "tests": "unknown"
+    },
+    {
+      "name": "class:LiveDotnetRealTests",
+      "mode": "sampled",
+      "commit": "1e4eae26",
+      "at": "2026-10-25 11:55",
+      "tests": "unknown"
+    },
+    {
+      "name": "class:LiveFridaRealTests",
+      "mode": "sampled",
+      "commit": "1e4eae26",
+      "at": "2026-10-25 11:55",
+      "tests": "unknown"
+    },
+    {
+      "name": "class:LiveLifecycleRealTests",
+      "mode": "sampled",
+      "commit": "1e4eae26",
+      "at": "2026-10-25 11:55",
+      "tests": "unknown"
+    },
+    {
+      "name": "class:LiveLongSessionRealTests",
+      "mode": "sampled",
+      "commit": "1e4eae26",
+      "at": "2026-10-25 11:55",
+      "tests": "unknown"
+    },
+    {
+      "name": "class:LiveReadRealTests",
+      "mode": "sampled",
+      "commit": "1e4eae26",
+      "at": "2026-10-25 11:55",
+      "tests": "unknown"
+    },
+    {
+      "name": "class:LiveSessionExitTests",
+      "mode": "sampled",
+      "commit": "1e4eae26",
+      "at": "2026-10-25 11:55",
+      "tests": "unknown"
+    },
+    {
+      "name": "class:LiveStopPointRealTests",
+      "mode": "sampled",
+      "commit": "1e4eae26",
+      "at": "2026-10-25 11:55",
+      "tests": "unknown"
+    },
+    {
+      "name": "class:LiveTargetRealTests",
+      "mode": "sampled",
+      "commit": "1e4eae26",
+      "at": "2026-10-25 11:55",
+      "tests": "unknown"
+    },
+    {
+      "name": "class:MsvcDemangleCorpusTests",
+      "mode": "sampled",
+      "commit": "1e4eae26",
+      "at": "2026-10-25 11:55",
+      "tests": "unknown"
+    },
+    {
+      "name": "class:MsvcRttiSweepTests",
+      "mode": "sampled",
+      "commit": "1e4eae26",
+      "at": "2026-10-25 11:55",
+      "tests": "unknown"
+    },
+    {
+      "name": "class:NativeAdapterConsistencyTests",
+      "mode": "sampled",
+      "commit": "1e4eae26",
+      "at": "2026-10-25 11:55",
+      "tests": "unknown"
+    },
+    {
+      "name": "class:NativeCodeSweepTests",
+      "mode": "sampled",
+      "commit": "1e4eae26",
+      "at": "2026-10-25 11:55",
+      "tests": "unknown"
+    },
+    {
+      "name": "class:NativeConcurrencyTests",
+      "mode": "sampled",
+      "commit": "1e4eae26",
+      "at": "2026-10-25 11:55",
+      "tests": "unknown"
+    },
+    {
+      "name": "class:NativeEditParityTests",
+      "mode": "sampled",
+      "commit": "1e4eae26",
+      "at": "2026-10-25 11:55",
+      "tests": "unknown"
+    },
+    {
+      "name": "class:NativeEngineEditTests",
+      "mode": "sampled",
+      "commit": "1e4eae26",
+      "at": "2026-10-25 11:55",
+      "tests": "unknown"
+    },
+    {
+      "name": "class:NativeGhidraColdOpenTests",
+      "mode": "sampled",
+      "commit": "1e4eae26",
+      "at": "2026-10-25 11:55",
+      "tests": "unknown"
+    },
+    {
+      "name": "class:NativeGhidraEditTests",
+      "mode": "sampled",
+      "commit": "1e4eae26",
+      "at": "2026-10-25 11:55",
+      "tests": "unknown"
+    },
+    {
+      "name": "class:NativeGhidraEngineTests",
+      "mode": "sampled",
+      "commit": "1e4eae26",
+      "at": "2026-10-25 11:55",
+      "tests": "unknown"
+    },
+    {
+      "name": "class:NativeGhidraProviderTests",
+      "mode": "sampled",
+      "commit": "1e4eae26",
+      "at": "2026-10-25 11:55",
+      "tests": "unknown"
+    },
+    {
+      "name": "class:NativeGhidraTypeTests",
+      "mode": "sampled",
+      "commit": "1e4eae26",
+      "at": "2026-10-25 11:55",
+      "tests": "unknown"
+    },
+    {
+      "name": "class:NativeGhidraViewTests",
+      "mode": "sampled",
+      "commit": "1e4eae26",
+      "at": "2026-10-25 11:55",
+      "tests": "unknown"
+    },
+    {
+      "name": "class:NativeIdaEngineTests",
+      "mode": "sampled",
+      "commit": "1e4eae26",
+      "at": "2026-10-25 11:55",
+      "tests": "unknown"
+    },
+    {
+      "name": "class:NativeIdaFormatsTests",
+      "mode": "sampled",
+      "commit": "1e4eae26",
+      "at": "2026-10-25 11:55",
+      "tests": "unknown"
+    },
+    {
+      "name": "class:NativeIdaProviderTests",
+      "mode": "sampled",
+      "commit": "1e4eae26",
+      "at": "2026-10-25 11:55",
+      "tests": "unknown"
+    },
+    {
+      "name": "class:NativeIdaTypeTests",
+      "mode": "sampled",
+      "commit": "1e4eae26",
+      "at": "2026-10-25 11:55",
+      "tests": "unknown"
+    },
+    {
+      "name": "class:NativeImportVerifierSweepTests",
+      "mode": "sampled",
+      "commit": "1e4eae26",
+      "at": "2026-10-25 11:55",
+      "tests": "unknown"
+    },
+    {
+      "name": "class:NativeLinkManagedSweepTests",
+      "mode": "sampled",
+      "commit": "1e4eae26",
+      "at": "2026-10-25 11:55",
+      "tests": "unknown"
+    },
+    {
+      "name": "class:NativePeSweepTests",
+      "mode": "sampled",
+      "commit": "1e4eae26",
+      "at": "2026-10-25 11:55",
+      "tests": "unknown"
+    },
+    {
+      "name": "class:NativeQueryEngineTests",
+      "mode": "sampled",
+      "commit": "1e4eae26",
+      "at": "2026-10-25 11:55",
+      "tests": "unknown"
+    },
+    {
+      "name": "class:NativeStdioSweepTests",
+      "mode": "sampled",
+      "commit": "1e4eae26",
+      "at": "2026-10-25 11:55",
+      "tests": "unknown"
+    },
+    {
+      "name": "class:NativeSurveyTests",
+      "mode": "sampled",
+      "commit": "1e4eae26",
+      "at": "2026-10-25 11:55",
+      "tests": "unknown"
+    },
+    {
+      "name": "class:NativeToolFuzzTests",
+      "mode": "sampled",
+      "commit": "1e4eae26",
+      "at": "2026-10-25 11:55",
+      "tests": "unknown"
+    },
+    {
+      "name": "class:NativeToolSweepTests",
+      "mode": "sampled",
+      "commit": "1e4eae26",
+      "at": "2026-10-25 11:55",
+      "tests": "unknown"
+    },
+    {
+      "name": "class:NativeTypeEditEngineTests",
+      "mode": "sampled",
+      "commit": "1e4eae26",
+      "at": "2026-10-25 11:55",
+      "tests": "unknown"
+    },
+    {
+      "name": "class:PackedDatabaseTests",
+      "mode": "sampled",
+      "commit": "1e4eae26",
+      "at": "2026-10-25 11:55",
+      "tests": "unknown"
+    },
+    {
+      "name": "class:ParallelDiscoveryTests",
+      "mode": "sampled",
+      "commit": "1e4eae26",
+      "at": "2026-10-25 11:55",
+      "tests": "unknown"
+    },
+    {
+      "name": "class:PdbOracleTests",
+      "mode": "sampled",
+      "commit": "1e4eae26",
+      "at": "2026-10-25 11:55",
+      "tests": "unknown"
+    },
+    {
+      "name": "class:RawImageEngineTests",
+      "mode": "sampled",
+      "commit": "1e4eae26",
+      "at": "2026-10-25 11:55",
+      "tests": "unknown"
+    },
+    {
+      "name": "class:RealScenarioRegressionTests",
+      "mode": "sampled",
+      "commit": "1e4eae26",
+      "at": "2026-10-25 11:55",
+      "tests": "unknown"
+    },
+    {
+      "name": "class:SimilarFunctionsRealTests",
+      "mode": "sampled",
+      "commit": "1e4eae26",
+      "at": "2026-10-25 11:55",
+      "tests": "unknown"
+    },
+    {
+      "name": "class:SqliteDepthTests",
+      "mode": "sampled",
+      "commit": "1e4eae26",
+      "at": "2026-10-25 11:55",
+      "tests": "unknown"
+    },
+    {
+      "name": "class:StreamedSummaryMemoryTests",
+      "mode": "sampled",
+      "commit": "1e4eae26",
+      "at": "2026-10-25 11:55",
+      "tests": "unknown"
+    },
+    {
+      "name": "class:StubAppsRealDataTests",
+      "mode": "sampled",
+      "commit": "1e4eae26",
+      "at": "2026-10-25 11:55",
+      "tests": "unknown"
+    },
+    {
+      "name": "class:TestRemoteSetupTests",
+      "mode": "sampled",
+      "commit": "1e4eae26",
+      "at": "2026-10-25 11:55",
+      "tests": "unknown"
+    },
+    {
+      "name": "class:TestRemoteTests",
+      "mode": "sampled",
+      "commit": "1e4eae26",
+      "at": "2026-10-25 11:55",
+      "tests": "unknown"
+    },
+    {
+      "name": "class:TestReuseTests",
+      "mode": "sampled",
+      "commit": "1e4eae26",
+      "at": "2026-10-25 11:55",
+      "tests": "unknown"
+    },
+    {
+      "name": "class:ToolCliSweepTests",
+      "mode": "sampled",
+      "commit": "1e4eae26",
+      "at": "2026-10-25 11:55",
+      "tests": "unknown"
+    },
+    {
+      "name": "class:ToolPackageTests",
+      "mode": "sampled",
+      "commit": "1e4eae26",
+      "at": "2026-10-25 11:55",
+      "tests": "unknown"
+    },
+    {
+      "name": "class:UnityFieldRealTests",
+      "mode": "sampled",
+      "commit": "1e4eae26",
+      "at": "2026-10-25 11:55",
+      "tests": "unknown"
+    },
+    {
+      "name": "class:UnityFieldTests",
+      "mode": "sampled",
+      "commit": "1e4eae26",
+      "at": "2026-10-25 11:55",
+      "tests": "unknown"
+    },
+    {
+      "name": "class:UnpackTests",
+      "mode": "sampled",
+      "commit": "1e4eae26",
+      "at": "2026-10-25 11:55",
+      "tests": "unknown"
+    },
+    {
+      "name": "class:VirtualCallTests",
+      "mode": "sampled",
+      "commit": "1e4eae26",
+      "at": "2026-10-25 11:55",
+      "tests": "unknown"
+    },
+    {
+      "name": "class:XbfTests",
+      "mode": "sampled",
+      "commit": "1e4eae26",
+      "at": "2026-10-25 11:55",
+      "tests": "unknown"
+    },
+    {
+      "name": "Containers",
+      "mode": "exhaustive",
+      "commit": "de8a00a9",
+      "at": "2026-10-25 02:36",
+      "tests": 655
+    },
+    {
+      "name": "Contract",
+      "mode": "sampled",
+      "commit": "12723ecd",
+      "at": "2026-10-24 16:53",
+      "tests": 366
+    },
+    {
+      "name": "Dotnet",
+      "mode": "exhaustive",
+      "commit": "de8a00a9",
+      "at": "2026-10-25 02:36",
+      "tests": 276
+    },
+    {
+      "name": "DotnetEdits",
+      "mode": "exhaustive",
+      "commit": "de8a00a9",
+      "at": "2026-10-25 02:36",
+      "tests": 290
+    },
+    {
+      "name": "Dumps",
+      "mode": "exhaustive",
+      "commit": "de8a00a9",
+      "at": "2026-10-25 02:36",
+      "tests": 171
+    },
+    {
+      "name": "Engines",
+      "mode": "exhaustive",
+      "commit": "de8a00a9",
+      "at": "2026-10-25 02:36",
+      "tests": 511
+    },
+    {
+      "name": "Il2Cpp",
+      "mode": "exhaustive",
+      "commit": "de8a00a9",
+      "at": "2026-10-25 02:36",
+      "tests": 118
+    },
+    {
+      "name": "Live",
+      "mode": "sampled",
+      "commit": "1e4eae26",
+      "at": "2026-10-25 11:55",
+      "tests": 358
+    },
+    {
+      "name": "Mobile",
+      "mode": "exhaustive",
+      "commit": "de8a00a9",
+      "at": "2026-10-25 02:36",
+      "tests": 196
+    },
+    {
+      "name": "Native",
+      "mode": "sampled",
+      "commit": "1e4eae26",
+      "at": "2026-10-25 11:55",
+      "tests": 23
+    },
+    {
+      "name": "NativeAnalysis",
+      "mode": "exhaustive",
+      "commit": "de8a00a9",
+      "at": "2026-10-25 02:36",
+      "tests": 941
+    },
+    {
+      "name": "NativeAot",
+      "mode": "exhaustive",
+      "commit": "de8a00a9",
+      "at": "2026-10-25 02:36",
+      "tests": 174
+    },
+    {
+      "name": "NativeEdits",
+      "mode": "exhaustive",
+      "commit": "de8a00a9",
+      "at": "2026-10-25 02:36",
+      "tests": 201
+    },
+    {
+      "name": "NativeFormats",
+      "mode": "exhaustive",
+      "commit": "de8a00a9",
+      "at": "2026-10-25 02:36",
+      "tests": 299
+    },
+    {
+      "name": "Session",
+      "mode": "exhaustive",
+      "commit": "de8a00a9",
+      "at": "2026-10-25 02:36",
+      "tests": 432
+    },
+    {
+      "name": "Support",
+      "mode": "exhaustive",
+      "commit": "de8a00a9",
+      "at": "2026-10-25 02:36",
+      "tests": 15
+    },
+    {
+      "name": "Web",
+      "mode": "exhaustive",
+      "commit": "de8a00a9",
+      "at": "2026-10-25 02:36",
+      "tests": 262
+    }
+  ],
+  "deferred": {
+    "reason": "left to the nightly whole run and the test host tier run",
+    "classes": [
+      "AabTests",
+      "AccuracyTests",
+      "AndroidListTests",
+      "AndroidPackageTests",
+      "AndroidProjectExportTests",
+      "AndroidRealPackageTests",
+      "AndroidRealTests",
+      "AndroidResourceTests",
+      "AnnotationStoreTests",
+      "ApiSurfaceTests",
+      "ApkSigningTests",
+      "AppGraphTests",
+      "AppleBundleViewTests",
+      "AppleNameLayerTests",
+      "AppleObjcRealTests",
+      "AppleObjcTests",
+      "AppleSwiftRealTests",
+      "AppleSwiftTests",
+      "Arm64FormatCodeTests",
+      "AssemblyStoreTests",
+      "BuildUpdateTests",
+      "CapabilityChangesTests",
+      "CaptureObjectsTSharkTests",
+      "CodeSignatureCheckTests",
+      "ComparerTests",
+      "ComparerTieredTests",
+      "CppBindingIl2CppTests",
+      "CppBindingStyleTests",
+      "CppBindingTests",
+      "CSharpAdvancedTests",
+      "CSharpContextTests",
+      "CSharpPatchTests",
+      "DalvikDisassemblerTests",
+      "DartProgramTests",
+      "DartSdkProgramTests",
+      "DeviceEnvironmentTests",
+      "DeviceTests",
+      "DexNamesTests",
+      "DexStringFoldingTests",
+      "DexTests",
+      "DumpBucketTests",
+      "DumpImageIdentityTests",
+      "DumpRealDataTests",
+      "DwarfReaderTests",
+      "DwarfSupplementTests",
+      "EditCostTests",
+      "EditDigestTests",
+      "EditHistoryTests",
+      "EditJournalTests",
+      "EditOutcomeTests",
+      "EditRealDataTests",
+      "EditTests",
+      "ElectronTests",
+      "ElfCoreArchTests",
+      "ElfCoreHeapRealTests",
+      "ElfCoreTests",
+      "ElfFileTests",
+      "ElfMitigationsTests",
+      "ExternalToolsTests",
+      "FlutterViewTests",
+      "FolderCompareTests",
+      "FormatLoadTests",
+      "FormatWriterTests",
+      "FrameworkDumpRealTests",
+      "GoBuildInfoTests",
+      "GoFunctionTableTests",
+      "GoRealTests",
+      "GuardDogRulesTests",
+      "HermesTests",
+      "Il2CppAttributeTypesTests",
+      "Il2CppCapaTests",
+      "Il2CppExportTests",
+      "Il2CppIdaTests",
+      "Il2CppLayoutFuzzTests",
+      "Il2CppLayoutTests",
+      "Il2CppMobileTests",
+      "Il2CppNativeNamesTests",
+      "Il2CppNavigationTests",
+      "Il2CppRawTests",
+      "Il2CppRegistrationSearchTests",
+      "Il2CppStringTests",
+      "Il2CppTests",
+      "IlHealthTests",
+      "IlPatchTests",
+      "ImageContractTests",
+      "ImportedNamesRealDataTests",
+      "ImportedNamesTests",
+      "ItaniumDemangleTests",
+      "JavaDecompilerTests",
+      "JavaDotNetMapTests",
+      "JniBindingsTests",
+      "JsBundleFilesTests",
+      "JsDiffTests",
+      "JsEndpointsTests",
+      "JsFlowRealTests",
+      "JsFlowTests",
+      "JsModulesTests",
+      "JsRealTests",
+      "JsRuntimeTests",
+      "JvmClassTests",
+      "LibraryNamesToolTests",
+      "LiveProcessSweepTests",
+      "LiveProcessTests",
+      "MachOCoreTests",
+      "MachOFileTests",
+      "MalcontentChangesTests",
+      "ManagedDumpRealTests",
+      "ManagedDumpTests",
+      "MigrationReasonTests",
+      "MinidumpRealTests",
+      "MinidumpSweepTests",
+      "MinidumpTests",
+      "MobileRulesTests",
+      "NativeAotDispatchTests",
+      "NativeAotElfTests",
+      "NativeAotHeaderTests",
+      "NativeAotHydrationTests",
+      "NativeAotMetadataTests",
+      "NativeAotNameMapTests",
+      "NativeAotNamesTests",
+      "NativeAotRealTests",
+      "NativeAotSampleTests",
+      "NativeAotStaticsTests",
+      "NativeAotTypeTests",
+      "NativeArm64DiffTests",
+      "NativeBuildsRealTests",
+      "NativeBuildUpdateRealTests",
+      "NativeBuildUpdateTests",
+      "NativeDiffRealTests",
+      "NativeDiffTests",
+      "NativeEditJournalTests",
+      "NativeEditTests",
+      "NativeEditToolOutcomeTests",
+      "NativeFormatPatchTests",
+      "NativeFormatStubTests",
+      "NativePatchExportTests",
+      "NativePatchMigrationTests",
+      "NativeRelocationPatchTests",
+      "NativeStubTests",
+      "NibViewTests",
+      "NodeApiTests",
+      "OtherBuildLoadedTests",
+      "OutputBudgetTests",
+      "PackageDatasetTests",
+      "PackageProvenanceTests",
+      "PackageReviewTests",
+      "PatchPaddingTests",
+      "PeCoffSymbolTests",
+      "PipelineRoundTripTests",
+      "ProcessSnapshotTests",
+      "ProgramEmulationRealTests",
+      "ProgramEmulationTests",
+      "RawCandidateTests",
+      "RawImageTests",
+      "ReadyToRunSweepTests",
+      "ReadyToRunTests",
+      "RealAssemblyTests",
+      "RealModeDispatchTests",
+      "RegionSetTests",
+      "RenameMigrationTests",
+      "ResourceTests",
+      "RustAuditTests",
+      "SavedNameLayerTests",
+      "SaveFidelitySweepTests",
+      "SaveFidelityTests",
+      "SaveIdentityTests",
+      "ScriptReaderTests",
+      "SerialTimingTests",
+      "SessionFileTests",
+      "SimplifyCollectionTests",
+      "SimplifyContractTests",
+      "SimplifyCrossInitTests",
+      "SimplifyDelegateTests",
+      "SimplifyDynamicCodeTests",
+      "SimplifyFuzzTests",
+      "SimplifyInitializerTests",
+      "SimplifyInstanceTests",
+      "SimplifyLoadTests",
+      "SimplifyNativeTests",
+      "SimplifyProgressTests",
+      "SimplifyProxyBufferTests",
+      "SimplifyRegressionTests",
+      "SimplifyResourceTests",
+      "SimplifySweepTests",
+      "SimplifyTests",
+      "StackTextTests",
+      "StaticElfDiscoveryTests",
+      "SwiftDemangleTests",
+      "UnityAssetStringsTests",
+      "UnrelocatedPointerTests",
+      "WasmCodeTests",
+      "WasmCompareTests",
+      "WasmGcTests",
+      "WasmGlueTests",
+      "WasmIndexSpeedTests",
+      "WasmTextTests",
+      "WasmValidationTests",
+      "XamlEventsTests"
+    ]
+  },
+  "engines": {
+    "ida": "ran",
+    "ghidra": "ran"
+  },
+  "tools": {
+    "reason": "not found on the machine that tagged the release; the tests that need them skip",
+    "notFound": [
+      "aapt2",
+      "apksigner",
+      "capa",
+      "emulator",
+      "guarddog",
+      "hbcdump",
+      "osv-scanner",
+      "protoc"
+    ]
+  },
+  "os": "microsoft windows 10.0.26200 x64",
+  "sdk": "10.0.402",
+  "environment": "the machine that tagged the release; the run itself records no OS or SDK"
+}
