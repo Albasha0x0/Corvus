@@ -29,6 +29,13 @@ public sealed record IdaProviderOptions
     public int JournalSaveThreshold { get; init; } = 100;
     /// <summary>Time a request that timed out or was cancelled gets to stop after the worker is asked to; then the worker is killed.</summary>
     public TimeSpan CancelGrace { get; init; } = TimeSpan.FromSeconds(10);
+    /// <summary>
+    /// Attach to a database open in IDA (served by corvus_connect.py) when its input is the image; null:
+    /// CORVUS_IDA_CONNECT=1. Off by default.
+    /// </summary>
+    public bool? Connect { get; init; }
+    /// <summary>Folder of the connection files; null: the corvus folder of each IDA user directory.</summary>
+    internal string? ConnectFolder { get; init; }
 }
 
 /// <summary>
@@ -61,10 +68,25 @@ public sealed class IdaProvider(IdaProviderOptions? options = null) : INativeDec
     public ProviderAvailability CheckAvailability()
     {
         var result = Static().Result;
-        if (!result.IsAvailable) return result;
+        if (!result.IsAvailable) return Connected(result);
         var details = new Dictionary<string, string>(result.Details)
         {
             ["version"] = Version ?? "not probed yet (corvus status --deep)",
+        };
+        return ProviderAvailability.Ok(Id, details);
+    }
+
+    /// <summary>
+    /// <paramref name="local"/> when no database is served, else available through the served databases, named in
+    /// the details by IDA process id and database.
+    /// </summary>
+    private ProviderAvailability Connected(ProviderAvailability local)
+    {
+        if (!IdaConnection.Enabled(_options.Connect) || IdaConnection.List(_options.ConnectFolder) is not { Count: > 0 } served) return local;
+        var details = new Dictionary<string, string>(local.Details)
+        {
+            ["connected"] = string.Join("; ", served.Select(c => $"process {c.Pid}: {c.Database ?? "unknown database"}")),
+            ["local"] = local.Reason ?? "unavailable",
         };
         return ProviderAvailability.Ok(Id, details);
     }
@@ -133,7 +155,7 @@ public sealed class IdaProvider(IdaProviderOptions? options = null) : INativeDec
     public async Task<ProviderAvailability> ProbeAsync(CancellationToken cancellationToken = default)
     {
         var (result, ida, python) = Static();
-        if (!result.IsAvailable) return result;
+        if (!result.IsAvailable) return Connected(result);
         var details = new Dictionary<string, string>(result.Details);
         try
         {
@@ -155,11 +177,17 @@ public sealed class IdaProvider(IdaProviderOptions? options = null) : INativeDec
     {
         ObjectDisposedException.ThrowIf(_disposed != 0, this);
         options ??= new NativeOpenOptions();
-        // An open finds its Python within its own time limit, not the status checks' 15 s.
-        var (result, ida, python) = Static(options.OpenTimeout, out var unanswered);
-        if (!result.IsAvailable)
-            throw new ToolError(unanswered ? ErrorCode.Timeout : ErrorCode.ProviderUnavailable, result.Reason!, result.Remediation);
-        var session = new IdaSession(this, ida!, python!, options);
+        IdaSession session;
+        if (IdaConnection.Enabled(_options.Connect) && IdaConnection.For(sha256 ?? Sha256Of(imagePath), _options.ConnectFolder) is { } served)
+            session = new IdaSession(this, null, null, options, served);
+        else
+        {
+            // An open finds its Python within its own time limit, not the status checks' 15 s.
+            var (result, ida, python) = Static(options.OpenTimeout, out var unanswered);
+            if (!result.IsAvailable)
+                throw new ToolError(unanswered ? ErrorCode.Timeout : ErrorCode.ProviderUnavailable, result.Reason!, result.Remediation);
+            session = new IdaSession(this, ida!, python!, options);
+        }
         _sessions[session] = 0;
         try
         {
@@ -171,6 +199,16 @@ public sealed class IdaProvider(IdaProviderOptions? options = null) : INativeDec
             session.Dispose();
             throw;
         }
+    }
+
+    private static string? Sha256Of(string path)
+    {
+        try
+        {
+            using var stream = File.OpenRead(path);
+            return Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(stream));
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { return null; }
     }
 
     internal void Forget(IdaSession session) => _sessions.TryRemove(session, out _);

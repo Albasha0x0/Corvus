@@ -168,6 +168,7 @@ Variables of the options above are listed with them. A program variable takes th
 | Variable | Default | Effect |
 |---|---|---|
 | `CORVUS_IDA_DIR`, `CORVUS_IDA_PYTHON` | found | IDA folder and the Python for idalib. |
+| `CORVUS_IDA_CONNECT` | off | `1`: an image whose SHA-256 matches a database open in IDA and served by `corvus_connect.py` (`corvus ida-script`) uses that database: reads and edits reach it at once, IDA alone saves it, and it is never rebased, closed or deleted. Needs no local IDA install. |
 | `CORVUS_GHIDRA_DIR` | `GHIDRA_INSTALL_DIR` | Ghidra 12.0 or newer. |
 | `CORVUS_GHIDRA_JAVA` | `JAVA_HOME`, `PATH` | JDK for Ghidra. |
 | `CORVUS_GHIDRA_PYTHON` | | Python 3.9+ with PyGhidra; enables Python in `ghidra_script`. Offline install: `python -m pip install --no-index -f <ghidra>/Ghidra/Features/PyGhidra/pypkg/dist pyghidra`. |

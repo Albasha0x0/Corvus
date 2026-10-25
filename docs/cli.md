@@ -21,6 +21,7 @@ agent's. Tool reference: [tools.md](tools.md); setup commands (`install`,
 | `read <uri>` | One resource, e.g. `corvus://guide/native`. |
 | `completion <bash\|zsh\|pwsh>` | A shell completion script for commands, tools and parameter names. |
 | `rules [list]`, `rules fetch <pack>` | List the installed and known YARA rule packs (malcontent, yara-forge-core); `fetch` downloads one from GitHub, refuses it unless its SHA-256 equals the pinned one, and installs its rules and license under the data folder's `rules/<pack>/<version>/` for `search_container kind=yara query=pack:<name>`. |
+| `ida-script [folder]` | Write `corvus_connect.py` and the worker it imports (default folder: `<IDA user directory>/corvus`). Run it in IDA with File > Script file: with `CORVUS_IDA_CONNECT=1`, Corvus reads and edits that open database instead of analyzing its own copy. |
 
 Tool names are accepted in snake case or kebab case (`decompile-member`). `corvus help` lists the setup commands and
 these.

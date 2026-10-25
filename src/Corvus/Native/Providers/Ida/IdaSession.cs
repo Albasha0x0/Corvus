@@ -7,7 +7,11 @@ using Corvus.Core;
 namespace Corvus.Native.Providers.Ida;
 
 /// <summary>One image open in an idalib worker; requests run one at a time (see <see cref="WorkerSessionBase"/>).</summary>
-internal sealed class IdaSession(IdaProvider provider, IdaInstallation ida, PythonInterpreter python, NativeOpenOptions options)
+/// <remarks>
+/// With <paramref name="connection"/>, the database open in IDA is attached instead: it is never opened, rebased,
+/// deleted or saved by the session, a dropped connection ends the session, and nothing is cached beside it.
+/// </remarks>
+internal sealed class IdaSession(IdaProvider provider, IdaInstallation? ida, PythonInterpreter? python, NativeOpenOptions options, IdaConnection? connection = null)
     : WorkerSessionBase(options), INativeDecompilerSession
 {
     private static readonly string[] UnpackedExtensions = [".id0", ".id1", ".id2", ".nam", ".til"];
@@ -18,8 +22,11 @@ internal sealed class IdaSession(IdaProvider provider, IdaInstallation ida, Pyth
     public override string ProviderId => IdaProvider.ProviderId;
     protected override string EngineName => "IDA";
     protected override TimeSpan ShutdownGrace => provider.Options.ShutdownGrace;
-    protected override int MaxRestarts => provider.Options.MaxRestarts;
-    protected override int JournalSaveThreshold => provider.Options.JournalSaveThreshold;
+    protected override int MaxRestarts => connection != null ? 0 : provider.Options.MaxRestarts;
+    protected override int JournalSaveThreshold => connection != null ? int.MaxValue : provider.Options.JournalSaveThreshold;
+
+    /// <summary>The IDA process whose open database the session is attached to, or null for a worker of its own.</summary>
+    internal int? ConnectedPid => connection?.Pid;
     internal string DatabasePath => _databasePath;
     /// <summary>False when opened without auto-analysis, or when the analysis ran out of the open's time: the engine's function list is not complete.</summary>
     public bool AnalysisComplete => Options.Analysis != EngineAnalysis.None && _analysisFinished;
@@ -28,6 +35,7 @@ internal sealed class IdaSession(IdaProvider provider, IdaInstallation ida, Pyth
 
     protected override string? Note => string.Join("; ", new[]
     {
+        connection != null ? $"connected to IDA (process {connection.Pid}): reads and edits go to {_databasePath}, which only IDA saves" : null,
         Options.Analysis == EngineAnalysis.None ? "no auto-analysis: functions made where asked"
             : _analysisFinished ? null : "analysis partial: the open's time ran out; reanalyze_native completes it",
         Entry?.SnapshotOf is { } pid ? $"read-only snapshot of the database process {pid} has open: edits are not saved" : null,
@@ -63,7 +71,8 @@ internal sealed class IdaSession(IdaProvider provider, IdaInstallation ida, Pyth
             _adoptionRejected = $"{user} was not used: {ex.Message}";
         }
     }
-    protected override string? DatabaseLocation => _databasePath.Length > 0 ? _databasePath : null;
+    // A connected database changes under the analyst: no output cache or state file is kept for it.
+    protected override string? DatabaseLocation => connection == null && _databasePath.Length > 0 ? _databasePath : null;
 
     // a raw layout is part of the database name: the same bytes at another base or processor are another database; so are import overrides.
     // raw2: databases since a 32-bit raw image is a 32-bit database (older ones were left 64-bit)
@@ -78,7 +87,7 @@ internal sealed class IdaSession(IdaProvider provider, IdaInstallation ida, Pyth
         provider.Cache.Acquire(ProviderId, imagePath, sha256, (locked, sha) =>
         {
             if (locked.OwnerPid is not { } pid || pid == Environment.ProcessId) throw locked.Conflict;
-            var saved = Path.Combine(locked.Directory, IdaProvider.DatabaseFileName(ida, Profile));
+            var saved = Path.Combine(locked.Directory, IdaProvider.DatabaseFileName(ida!, Profile));
             if (!File.Exists(saved))
                 throw new ToolError(ErrorCode.Conflict, $"{locked.Conflict.Message} It has no saved database of this image to take a read-only snapshot of yet.",
                     locked.Conflict.Remediation) { RetryAfter = locked.Conflict.RetryAfter, Retryable = true };
@@ -87,11 +96,17 @@ internal sealed class IdaSession(IdaProvider provider, IdaInstallation ida, Pyth
 
     protected override void PrepareOpen()
     {
+        if (connection != null)
+        {
+            (Arch, _headerImageBase) = Options.Raw is { } layout ? (layout.Arch, layout.Base) : ReadHeader(Entry!.InputCopy, ImagePath);
+            _databasePath = connection.Database ?? "";
+            return;
+        }
         if (Options.Raw is { Isa.IdaProcessor: "" } unsupported && Options.Overrides?.Processor == null)
             throw new ToolError(ErrorCode.Unsupported, $"IDA is not used for {unsupported.Isa.Name} images.", "pass engine=ghidra");
-        if (Options.Overrides is { } overrides) EngineOverrideChecks.CheckIda(ida.Directory, overrides);
+        if (Options.Overrides is { } overrides) EngineOverrideChecks.CheckIda(ida!.Directory, overrides);
         (Arch, _headerImageBase) = Options.Raw is { } raw ? (raw.Arch, raw.Base) : ReadHeader(Entry!.InputCopy, ImagePath);
-        _databasePath = Path.Combine(Entry!.Directory, IdaProvider.DatabaseFileName(ida, Profile));
+        _databasePath = Path.Combine(Entry!.Directory, IdaProvider.DatabaseFileName(ida!, Profile));
         IdaProvider.CheckPathLength(Entry.InputCopy, "input copy", provider.Cache.Root, OperatingSystem.IsWindows());
         IdaProvider.CheckPathLength(_databasePath, "IDA database", provider.Cache.Root, OperatingSystem.IsWindows());
         Adopt();
@@ -142,13 +157,19 @@ internal sealed class IdaSession(IdaProvider provider, IdaInstallation ida, Pyth
         }
     }
 
-    protected override bool DatabaseExists => File.Exists(_databasePath);
+    // Connected: never "saved", so a failed attach is not rebuilt (deleted and analyzed again) by the session.
+    protected override bool DatabaseExists => connection == null && File.Exists(_databasePath);
 
     protected override async Task StartWorkerAndOpenCoreAsync(CancellationToken cancellationToken)
     {
+        if (connection != null)
+        {
+            await AttachAsync(connection, cancellationToken).ConfigureAwait(false);
+            return;
+        }
         var clock = Stopwatch.StartNew();
         Options.Progress?.Report(new NativeProviderProgress("start", clock.Elapsed));
-        var worker = provider.StartWorker(ida, python, Options.Symbols == SymbolMode.Off ? null : Options.PdbPath);
+        var worker = provider.StartWorker(ida!, python!, Options.Symbols == SymbolMode.Off ? null : Options.PdbPath);
         SetWorker(worker);
         // heartbeats before the open is decided (a slow worker start) belong to the start, not to an analysis
         string stage = "start";
@@ -222,6 +243,29 @@ internal sealed class IdaSession(IdaProvider provider, IdaInstallation ida, Pyth
         Options.Progress?.Report(new NativeProviderProgress("ready", clock.Elapsed));
     }
 
+    /// <summary>Attaches to the database IDA has open; IDA's record of its input must be this image's SHA-256.</summary>
+    private async Task AttachAsync(IdaConnection c, CancellationToken cancellationToken)
+    {
+        var clock = Stopwatch.StartNew();
+        Options.Progress?.Report(new NativeProviderProgress("start", clock.Elapsed));
+        var worker = c.Connect(provider.Options.StartTimeout, new WorkerConnectionOptions { CancelGrace = provider.Options.CancelGrace });
+        SetWorker(worker);
+        await worker.WaitReadyAsync(provider.Options.StartTimeout, cancellationToken).ConfigureAwait(false);
+        provider.CheckVersion(await worker.RequestAsync("hello", null, Options.OpenTimeout, cancellationToken).ConfigureAwait(false));
+        ReusedDatabase = true;
+        var info = await worker.RequestAsync("attach", IdaProvider.Args(("sha256", Entry!.Sha256)), Options.OpenTimeout, cancellationToken).ConfigureAwait(false);
+        var loadedBase = info.GetProperty("imagebase").GetUInt64();
+        if (loadedBase != _headerImageBase)
+            throw new ToolError(ErrorCode.InvalidArgument,
+                $"IDA has {ImagePath} at 0x{loadedBase:X}; the image's own base is 0x{_headerImageBase:X}, and Corvus does not rebase a database open in IDA.",
+                $"rebase it in IDA (Edit > Segments > Rebase program) to 0x{_headerImageBase:X}, or unset {IdaConnection.Variable}");
+        ImageBase = loadedBase;
+        DecompilerAvailable = info.GetProperty("decompiler").GetBoolean();
+        _analysisFinished = !info.TryGetProperty("analysis_complete", out var done) || done.GetBoolean();
+        if (info.TryGetProperty("idb", out var idb) && idb.GetString() is { Length: > 0 } actual) _databasePath = actual;
+        Options.Progress?.Report(new NativeProviderProgress("ready", clock.Elapsed));
+    }
+
     // Workaround: IDA 9.3 ends with code 2 on "Fatal registry error: The
     // handle is invalid." when its registry mutex wait fails while other IDA
     // processes start; a new worker opens normally.
@@ -247,6 +291,7 @@ internal sealed class IdaSession(IdaProvider provider, IdaInstallation ida, Pyth
     /// <summary>Unpacked database components left by a worker that was killed; the packed .i64 holds the last save.</summary>
     protected override void DiscardLeftovers()
     {
+        if (connection != null) return;
         var stem = Path.Combine(Path.GetDirectoryName(_databasePath)!, Path.GetFileNameWithoutExtension(_databasePath));
         foreach (var ext in UnpackedExtensions) TryDelete(stem + ext);
         if (File.Exists(_databasePath) && new FileInfo(_databasePath).Length == 0) TryDelete(_databasePath);
@@ -254,6 +299,8 @@ internal sealed class IdaSession(IdaProvider provider, IdaInstallation ida, Pyth
 
     protected override void DeleteDatabase()
     {
+        // The analyst's database is never deleted.
+        if (connection != null) return;
         DiscardLeftovers();
         TryDelete(_databasePath);
     }
@@ -264,7 +311,7 @@ internal sealed class IdaSession(IdaProvider provider, IdaInstallation ida, Pyth
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
     }
 
-    protected override JsonObject CloseArgs(bool save) => IdaProvider.Args(("save", save));
+    protected override JsonObject CloseArgs(bool save) => IdaProvider.Args(("save", save && connection == null));
 
     protected override void Forget() => provider.Forget(this);
 

@@ -1,5 +1,5 @@
-# idalib worker.
-# Protocol: one JSON object per line. Requests on stdin: {"id": n, "op": "...", "args": {...}}.
+# idalib worker, or the server of a database open in IDA (corvus_connect.py).
+# Protocol: one JSON object per line. Requests on stdin (a connected IDA: its socket): {"id": n, "op": "...", "args": {...}}.
 # Responses on stdout: {"id": n, "ok": true, "result": ...} or {"id": n, "ok": false, "error": {"code": ..., "message": ...}}.
 # A request may carry "timeout" (seconds); {"op": "cancel", "args": {"id": n}} stops request n. A stopped request answers
 # with what it has, marked {"partial": reason, "next": cursor}, or with a timeout / cancelled error.
@@ -16,18 +16,32 @@ import traceback
 
 PROTOCOL = 1
 
-_proto = os.fdopen(os.dup(1), "w", encoding="utf-8", newline="\n")
-os.dup2(2, 1)
-sys.stdout = sys.stderr
-sys.stdin.reconfigure(encoding="utf-8", errors="replace")
 _write_lock = threading.Lock()
+# Writes one protocol line; the transport sets it (stdio_transport, or a connected IDA's socket).
+_sink = None
+# True inside IDA (corvus_connect.py): the analyst's database is attached, never opened, closed, rebased or deleted.
+_connected = False
+
+
+def stdio_transport():
+    # Protocol lines go to the real stdout; fd 1 is redirected to stderr before idalib loads.
+    global _sink
+    proto = os.fdopen(os.dup(1), "w", encoding="utf-8", newline="\n")
+    os.dup2(2, 1)
+    sys.stdout = sys.stderr
+    sys.stdin.reconfigure(encoding="utf-8", errors="replace")
+
+    def write(text):
+        proto.write(text)
+        proto.flush()
+    _sink = write
+    return proto
 
 
 def send(obj):
     line = json.dumps(obj, ensure_ascii=True, separators=(",", ":"))
     with _write_lock:
-        _proto.write(line + "\n")
-        _proto.flush()
+        _sink(line + "\n")
 
 
 class WorkerError(Exception):
@@ -50,10 +64,14 @@ _current = None  # the Request running
 _requests_lock = threading.Lock()
 
 
-def read_requests():
+def read_requests(readline=None):
     # stdin is read on its own thread so a cancel reaches the request it names while that request runs
+    readline = readline or sys.stdin.readline
     while True:
-        line = sys.stdin.readline()
+        try:
+            line = readline()
+        except (OSError, ValueError):
+            line = ""
         if not line:
             _queue.put(None)  # parent closed the pipe or died
             return
@@ -153,18 +171,20 @@ def ida():
     global _ida
     if _ida is not None:
         return _ida
-    ida_dir = os.environ.get("IDADIR")
-    if not ida_dir:
-        raise WorkerError("provider_unavailable", "IDADIR is not set")
-    sys.path.insert(0, os.path.join(ida_dir, "idalib", "python"))
-    try:
-        import idapro
-    except BaseException as e:
-        raise WorkerError("provider_unavailable", "idalib failed to load: %s" % (str(e).strip() or type(e).__name__))
-    # IDA's own messages go to stderr (fd 1 is redirected there), so a fatal
-    # error that ends the process inside idalib names its cause.
-    if hasattr(idapro, "enable_console_messages"):
-        idapro.enable_console_messages(True)
+    idapro = None
+    if not _connected:
+        ida_dir = os.environ.get("IDADIR")
+        if not ida_dir:
+            raise WorkerError("provider_unavailable", "IDADIR is not set")
+        sys.path.insert(0, os.path.join(ida_dir, "idalib", "python"))
+        try:
+            import idapro
+        except BaseException as e:
+            raise WorkerError("provider_unavailable", "idalib failed to load: %s" % (str(e).strip() or type(e).__name__))
+        # IDA's own messages go to stderr (fd 1 is redirected there), so a fatal
+        # error that ends the process inside idalib names its cause.
+        if hasattr(idapro, "enable_console_messages"):
+            idapro.enable_console_messages(True)
     import ida_auto, ida_bytes, ida_entry, ida_funcs, ida_ida, ida_lines, ida_loader, ida_nalt, ida_name, ida_segment, ida_ua, ida_xref, idautils
     mods = dict(idapro=idapro, ida_auto=ida_auto, ida_bytes=ida_bytes, ida_entry=ida_entry, ida_funcs=ida_funcs,
                 ida_ida=ida_ida, ida_lines=ida_lines, ida_loader=ida_loader, ida_nalt=ida_nalt, ida_name=ida_name,
@@ -181,6 +201,9 @@ def ida():
 
 def batch_mode():
     # no dialog may wait for an answer that never comes: IDA takes the default of every question
+    # (not in a connected IDA: the analyst's dialogs stay theirs)
+    if _connected:
+        return
     try:
         import idc
         idc.batch(1)
@@ -244,15 +267,47 @@ def hexrays_ready(m):
     return ready
 
 
+def ida_version(m):
+    # "9.3.0": idalib's version, or the kernel's in a connected IDA
+    if m.idapro is not None:
+        v = m.idapro.get_library_version()
+        return "%d.%d.%d" % v if v else None
+    v = m.ida_kernwin.get_kernel_version() if m.ida_kernwin is not None else None
+    return v + ".0" if v and v.count(".") == 1 else v
+
+
 def op_hello(args):
     m = ida()
-    v = m.idapro.get_library_version()
-    return {"protocol": PROTOCOL, "version": "%d.%d.%d" % v if v else None, "python": sys.version.split()[0],
-            "pid": os.getpid()}
+    return {"protocol": PROTOCOL, "version": ida_version(m), "python": sys.version.split()[0],
+            "pid": os.getpid(), "connected": _connected}
+
+
+def op_attach(args):
+    # A connected IDA: the database the analyst has open, when IDA's record of its input is the image's SHA-256.
+    m = ida()
+    if not _connected:
+        raise WorkerError("invalid_argument", "attach is for a database open in IDA; a worker opens its own")
+    idb = m.ida_loader.get_path(m.ida_loader.PATH_TYPE_IDB)
+    if not idb:
+        raise WorkerError("not_loaded", "IDA has no database open")
+    recorded = m.ida_nalt.retrieve_input_file_sha256()
+    sha = args.get("sha256") or ""
+    if not recorded or recorded.hex() != sha:
+        raise WorkerError("invalid_argument", "the database open in IDA (%s) was made from other input (IDA's record %s, the image %s)"
+                          % (idb, recorded.hex() if recorded else "none", sha or "unknown"))
+    _state["open"] = True
+    _state["auto"] = True
+    _state["base"] = m.ida_nalt.get_imagebase()
+    result = info(m, True, 0)
+    result["warnings"] = []
+    result["analysis_complete"] = bool(m.ida_auto.auto_is_ok())
+    return result
 
 
 def op_open(args):
     m = ida()
+    if _connected:
+        raise WorkerError("invalid_argument", "a connected IDA attaches to its open database; it opens no other")
     if _state["open"]:
         raise WorkerError("invalid_argument", "a database is already open")
     idb = args["idb"]
@@ -326,7 +381,7 @@ def op_open(args):
         if sha:
             stamp_node(True).hashset_buf(INPUT_STAMP, sha)
         # IDA writes the packed .i64 only on save; persist the analysis now so a crash does not discard it.
-        m.ida_loader.save_database(m.ida_loader.get_path(m.ida_loader.PATH_TYPE_IDB), 0)
+        save_idb(m)
     result = info(m, reuse, time.time() - start)
     result["warnings"] = warnings
     result["analysis_complete"] = complete
@@ -432,6 +487,11 @@ def setup_overrides(m, ov, warnings):
         m.ida_auto.enable_auto(True)
 
 
+def save_idb(m):
+    # A connected IDA's database is saved only by the analyst: True without saving.
+    return True if _connected else m.ida_loader.save_database(m.ida_loader.get_path(m.ida_loader.PATH_TYPE_IDB), 0)
+
+
 def info(m, reused, seconds):
     return {"imagebase": _state["base"], "bits": 64 if m.ida_ida.inf_is_64bit() else (32 if m.ida_ida.inf_is_32bit_exactly() else 16),
             "processor": m.ida_ida.inf_get_procname(), "functions": m.ida_funcs.get_func_qty(),
@@ -461,6 +521,8 @@ def quote_arg(a):
 
 def op_rebase(args):
     m = need_open()
+    if _connected:
+        raise WorkerError("invalid_argument", "the database open in IDA is at 0x%X; Corvus does not rebase it" % _state["base"])
     target = args["imagebase"]
     delta = target - _state["base"]
     if delta != 0:
@@ -901,7 +963,7 @@ def op_apply_types(args):
     if key:
         stamp_node(True).hashset_buf(key, args.get("stamp") or "")
     if args.get("save"):
-        if not m.ida_loader.save_database(m.ida_loader.get_path(m.ida_loader.PATH_TYPE_IDB), 0):
+        if not save_idb(m):
             raise WorkerError("io_error", "save_database failed")
     result["seconds"] = round(time.time() - start, 3)
     return result
@@ -1801,7 +1863,7 @@ def op_apply_user_types(args):
     if key:
         stamp_node(True).hashset_buf(key, args.get("stamp") or "")
     if args.get("save"):
-        if not m.ida_loader.save_database(m.ida_loader.get_path(m.ida_loader.PATH_TYPE_IDB), 0):
+        if not save_idb(m):
             raise WorkerError("io_error", "save_database failed")
     result["seconds"] = round(time.time() - start, 3)
     return result
@@ -1868,7 +1930,7 @@ def op_apply_names(args):
         n = stamp_node(True)
         n.hashset_buf(key, args.get("stamp") or "")
     if args.get("save"):
-        if not m.ida_loader.save_database(m.ida_loader.get_path(m.ida_loader.PATH_TYPE_IDB), 0):
+        if not save_idb(m):
             raise WorkerError("io_error", "save_database failed")
     return {"named": named, "name_failures": name_failures, "commented": commented, "functions_created": created,
             "seconds": round(time.time() - start, 3), "failures": failures}
@@ -1910,7 +1972,7 @@ def op_load_pdb(args):
         if key:
             stamps.hashset_buf(key, args.get("stamp") or "")
         changed(m)
-        if not m.ida_loader.save_database(m.ida_loader.get_path(m.ida_loader.PATH_TYPE_IDB), 0):
+        if not save_idb(m):
             raise WorkerError("io_error", "save_database failed")
     result["seconds"] = round(time.time() - start, 3)
     return result
@@ -2023,16 +2085,17 @@ def op_get_stamp(args):
 
 def op_save(args):
     m = need_open()
-    if not m.ida_loader.save_database(m.ida_loader.get_path(m.ida_loader.PATH_TYPE_IDB), 0):
+    if not save_idb(m):
         raise WorkerError("io_error", "save_database failed")
     return {}
 
 
 def op_close(args):
-    if _state["open"]:
+    # A connected IDA detaches: the database stays open and is saved only by the analyst.
+    if _state["open"] and not _connected:
         ida().idapro.close_database(bool(args.get("save", True)))
-        _state["open"] = False
-    return {}
+    _state["open"] = False
+    return {"detached": _connected}
 
 
 INSN_OPERAND_TYPES = {1: "register", 2: "memory", 3: "memory", 4: "memory", 5: "immediate", 6: "far_branch", 7: "near_branch"}
@@ -2943,7 +3006,7 @@ def op_pseudo_comments(args):
     return {"items": [set_pseudo_comment(m, rva, text or "") for rva, text in args.get("items") or []]}
 
 
-OPS = {"hello": op_hello, "open": op_open, "rebase": op_rebase, "functions": op_functions, "decompile": op_decompile,
+OPS = {"hello": op_hello, "attach": op_attach, "open": op_open, "rebase": op_rebase, "functions": op_functions, "decompile": op_decompile,
        "disasm": op_disasm, "disasm_range": op_disasm_range, "blocks": op_blocks, "xrefs_to": op_xrefs_to, "xrefs_to_many": op_xrefs_to_many, "xrefs_from": op_xrefs_from, "set_name": op_set_name,
        "set_comment": op_set_comment, "apply_names": op_apply_names, "get_stamp": op_get_stamp, "save": op_save,
        "sync_patches": op_sync_patches, "apply_types": op_apply_types, "load_pdb": op_load_pdb, "virtual_targets": op_virtual_targets,
@@ -3475,6 +3538,8 @@ def op_save_as(args):
     m = need_open()
     loader = m.ida_loader
     path = os.path.abspath(args["path"])
+    if _connected:
+        raise WorkerError("invalid_argument", "save a copy of the database open in IDA from IDA (File > Save as)")
     current = loader.get_path(loader.PATH_TYPE_IDB)
     if os.path.normcase(path) == os.path.normcase(os.path.abspath(current)):
         raise WorkerError("invalid_argument", "that is the worker's own database")
@@ -3493,7 +3558,7 @@ OPS["save_as"] = op_save_as
 def op_image_info(args):
     m = need_open()
     import ida_typeinf
-    v = m.idapro.get_library_version()
+    version = ida_version(m)
     bits = 64 if m.ida_ida.inf_is_64bit() else (32 if m.ida_ida.inf_is_32bit_exactly() else 16)
     entries = []
     for i in range(min(m.ida_entry.get_entry_qty(), 64)):
@@ -3518,7 +3583,7 @@ def op_image_info(args):
                        bool(m.ida_bytes.is_loaded(seg.start_ea))])
     md5 = m.ida_nalt.retrieve_input_file_md5()
     sha = m.ida_nalt.retrieve_input_file_sha256()
-    return {"version": "%d.%d.%d" % v if v else "", "processor": m.ida_ida.inf_get_procname(),
+    return {"version": version or "", "processor": m.ida_ida.inf_get_procname(),
             "language": "%s:%s:%d" % (m.ida_ida.inf_get_procname(), "BE" if m.ida_ida.inf_is_be() else "LE", bits),
             "compiler": ida_typeinf.get_compiler_name(m.ida_ida.inf_get_cc_id()) or None, "format": file_type_name(m),
             "pointer_size": bits // 8, "endian": "big" if m.ida_ida.inf_is_be() else "little", "functions": m.ida_funcs.get_func_qty(),
@@ -4022,7 +4087,6 @@ def watch_parent(parent):
 
 
 def main():
-    global _current
     if os.name != "nt":
         parent = os.getppid()
         try:
@@ -4030,10 +4094,24 @@ def main():
         except OSError:
             pass
         threading.Thread(target=watch_parent, args=(parent,), daemon=True).start()
+    proto = stdio_transport()
     threading.Thread(target=heartbeat, daemon=True).start()
     threading.Thread(target=read_requests, daemon=True).start()
     threading.Thread(target=interrupt_scripts, daemon=True).start()
     send({"event": "ready", "protocol": PROTOCOL, "pid": os.getpid()})
+    dispatch(lambda fn, args: fn(args))
+    if _state["open"]:
+        try:
+            ida().idapro.close_database(False)
+        except BaseException:
+            pass
+    proto.flush()
+    os._exit(0)
+
+
+def dispatch(run):
+    # Answers queued requests until the reader ends or a close is answered; run(fn, args) calls an op on IDA's thread.
+    global _current
     while True:
         r = _queue.get()
         if r is None:
@@ -4051,7 +4129,7 @@ def main():
             if r.stop is not None:
                 raise stopped_error()  # cancelled while queued
             clear_cancel()
-            send({"id": r.id, "ok": True, "result": fn(r.args)})
+            send({"id": r.id, "ok": True, "result": run(fn, r.args)})
         except WorkerError as e:
             send({"id": r.id, "ok": False, "error": {"code": e.code, "message": str(e)}})
         except BaseException as e:
@@ -4069,13 +4147,130 @@ def main():
             clear_cancel()
         if r.op == "close":
             break
-    if _state["open"]:
+
+
+# ---- a database open in IDA, served to Corvus (corvus_connect.py) ----
+
+CONNECT_FOLDER = "corvus"
+
+
+def connection_folder():
+    # <IDA user directory>/corvus: one file per serving IDA, readable by its user only
+    import ida_diskio
+    return os.path.join(ida_diskio.get_user_idadir(), CONNECT_FOLDER)
+
+
+def serve_connected(once=False):
+    # Serves the open database on 127.0.0.1 until IDA closes it (once: one client, then returns). A client sends the
+    # connection file's token as its first line. In IDA's UI each op runs on the main thread (execute_sync); with
+    # once, the caller's thread is IDA's (a script run by -S) and runs them itself.
+    global _connected, _sink, _queue, _ida
+    import secrets
+    import socket
+    import ida_kernwin
+    import ida_loader
+    import ida_nalt
+    _connected = True
+    _ida = None
+    recorded = ida_nalt.retrieve_input_file_sha256()
+    listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    listener.bind(("127.0.0.1", 0))
+    listener.listen(1)
+    token = secrets.token_hex(16)
+    folder = connection_folder()
+    os.makedirs(folder, exist_ok=True)
+    path = os.path.join(folder, "ida-%d.json" % os.getpid())
+    record = {"protocol": PROTOCOL, "port": listener.getsockname()[1], "token": token, "pid": os.getpid(),
+              "sha256": recorded.hex() if recorded else None, "idb": ida_loader.get_path(ida_loader.PATH_TYPE_IDB),
+              "imagebase": ida_nalt.get_imagebase()}
+    # Created with 0600 before the token is written.
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w", encoding="utf-8") as f:
+        json.dump(record, f)
+    threading.Thread(target=heartbeat, daemon=True).start()
+    threading.Thread(target=interrupt_scripts, daemon=True).start()
+
+    def on_main(fn, args):
+        box = {}
+
+        def call():
+            try:
+                box["result"] = fn(args)
+            except BaseException as e:
+                box["error"] = e
+            return 0
+        ida_kernwin.execute_sync(call, ida_kernwin.MFF_WRITE)
+        if "error" in box:
+            raise box["error"]
+        return box["result"]
+
+    def client(conn):
+        global _sink, _queue
+        reader = conn.makefile("r", encoding="utf-8", errors="replace", newline="\n")
+        first = reader.readline()
         try:
-            ida().idapro.close_database(False)
-        except BaseException:
+            offered = json.loads(first).get("token")
+        except (ValueError, AttributeError):
+            offered = None
+        if not isinstance(offered, str) or not secrets.compare_digest(offered, token):
+            conn.close()
+            return
+
+        def write(text):
+            try:
+                conn.sendall(text.encode("utf-8"))
+            except OSError:
+                pass  # the client left; the reader ends the dispatch
+        _sink = write
+        _queue = queue.Queue()
+        threading.Thread(target=read_requests, args=(reader.readline,), daemon=True).start()
+        send({"event": "ready", "protocol": PROTOCOL, "pid": os.getpid()})
+        try:
+            dispatch((lambda fn, args: fn(args)) if once else on_main)
+        finally:
+            _state["open"] = False
+            try:
+                conn.close()
+            except OSError:
+                pass
+
+    def accept_loop():
+        try:
+            while True:
+                conn, _ = listener.accept()
+                client(conn)
+                if once:
+                    break
+        except OSError:
+            pass  # the listener was closed
+        finally:
+            stop()
+
+    def stop():
+        try:
+            listener.close()
+        except OSError:
             pass
-    _proto.flush()
-    os._exit(0)
+        try:
+            os.remove(path)
+        except OSError:
+            pass
+
+    if once:
+        accept_loop()
+        return path
+    # The file and the listener go with the database.
+    import ida_idp
+
+    class Closing(ida_idp.IDB_Hooks):
+        def closebase(self):
+            stop()
+            return 0
+    hooks = Closing()
+    hooks.hook()
+    serve_connected.hooks = hooks
+    threading.Thread(target=accept_loop, daemon=True).start()
+    return path
 
 
 if __name__ == "__main__":
