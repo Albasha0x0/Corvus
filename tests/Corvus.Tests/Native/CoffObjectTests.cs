@@ -92,4 +92,19 @@ public sealed class CoffObjectTests
         var (_, at, size) = members[2];
         Assert.NotNull(CoffObject.Read(library.AsSpan(at, size), out _));
     }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    [FuzzEntry(typeof(CoffObject))]
+    public void Fuzzed_objects_are_read_or_refused_with_a_reason(bool bigObj)
+    {
+        var failures = FormatFuzz.Run(Sample(bigObj), b =>
+        {
+            var o = CoffObject.Read(b, out var reason);
+            if (o == null && reason == null) throw new InvalidOperationException("refused without a reason");
+            if (o != null) _ = Corvus.Native.Diff.LibrarySignatures.Functions(o, "x.obj").ToList();
+        }, 300);
+        Assert.True(failures.Count == 0, string.Join("\n", failures.Take(20)));
+    }
 }
