@@ -31,6 +31,14 @@ internal sealed class FsSource
         return b;
     }
 
+    /// <summary>Fills <paramref name="into"/> from <paramref name="at"/>; a read past the end is malformed input.</summary>
+    public void Read(long at, Span<byte> into)
+    {
+        if (at < 0 || at > Length - into.Length) throw Malformed($"a structure at 0x{at:X} ({into.Length:N0} bytes) runs past the end of the image");
+        _stream.Position = _base + at;
+        _stream.ReadExactly(into);
+    }
+
     /// <summary>The bytes from <paramref name="at"/> to at most <paramref name="n"/>, shorter at the end of the image.</summary>
     public byte[] ReadUpTo(long at, int n) => at < 0 || at >= Length ? [] : Read(at, (int)Math.Min(n, Length - at));
 
@@ -104,6 +112,12 @@ internal sealed class FsTree(string kind, bool allFiles, AnalysisLimits limits, 
         catch (Exception ex) when (ex is InvalidDataException or EndOfStreamException) { throw src.Malformed(ex.Message); }
     }
 
+    /// <summary>A FIFO, device or socket (by the file type bits of <paramref name="mode"/>): listed with no data.</summary>
+    public void Special(string path, long mode) =>
+        _entries.Add(new ContainerEntry(path, 0, (mode & 0xF000) switch { 0x1000 => SpecialKinds[0], 0x2000 => SpecialKinds[1], 0x6000 => SpecialKinds[2], _ => SpecialKinds[3] }) { Mode = Octal(mode) });
+
+    private static readonly string[] SpecialKinds = ["FIFO (named pipe)", "character device", "block device", "socket"];
+
     public void Link(string path, string target, long? mode = null) => _entries.Add(new ContainerEntry(path, target.Length, $"symbolic link to {target}") { Mode = Octal(mode) });
 
     private static string? Octal(long? mode) => mode is { } m ? Convert.ToString(m & 0xFFF, 8) : null;
@@ -112,7 +126,7 @@ internal sealed class FsTree(string kind, bool allFiles, AnalysisLimits limits, 
     {
         if (_unread > 20) Notes.Add($"{_unread - 20} more files unreadable");
         if (_entries.Count == 0) Notes.Add($"no files were recovered from this {kind} image: nothing extracted");
-        int files = _entries.Count(e => e.Detail == null || !e.Detail.StartsWith("symbolic link", StringComparison.Ordinal));
+        int files = _entries.Count(e => e.Detail == null || !(e.Detail.StartsWith("symbolic link", StringComparison.Ordinal) || SpecialKinds.Contains(e.Detail)));
         if (!allFiles && files > _items.Count)
             Notes.Add($"{files - _items.Count} of {files} files not extracted (not binaries or packages; allFiles extracts every file).");
         return new ContainerContents(kind, _items, Notes) { Entries = _entries };

@@ -4,8 +4,8 @@ using Corvus.Core.Mobile;
 namespace Corvus.Core.Firmware;
 
 /// <summary>
-/// Apple disk images (UDIF, .dmg): the koly trailer and the partition table (blkx) of its XML property list. HFS+
-/// partitions are read in place through their chunks (raw, zero, ADC, zlib, bzip2, LZFSE, xz); other partitions are
+/// Apple disk images (UDIF, .dmg): the koly trailer and the partition table (blkx) of its XML property list. HFS+ and
+/// APFS partitions are read in place through their chunks (raw, zero, ADC, zlib, bzip2, LZFSE, xz); other partitions are
 /// named, and a partition holding no filesystem read here is extracted as an image within the item limit.
 /// </summary>
 internal sealed class UdifReader : IContainerReader
@@ -56,14 +56,15 @@ internal sealed class UdifReader : IContainerReader
                 var head = new byte[(int)Math.Min(image.Length, 4096)];
                 try { image.ReadExactly(head); }
                 catch (InvalidDataException ex) { notes.Add($"{label}: unreadable ({ex.Message})"); continue; }
-                if (HfsPlusReader.Looks(head))
+                IContainerReader? filesystem = HfsPlusReader.Looks(head) ? new HfsPlusReader() : ApfsReader.Looks(head) ? new ApfsReader() : null;
+                if (filesystem != null)
                 {
-                    try { filesystems.Add((p, new HfsPlusReader().Open(image, $"{name} {p.Index}", allFiles, limits, ct)!)); }
+                    try { filesystems.Add((p, filesystem.Open(image, $"{name} {p.Index}", allFiles, limits, ct)!)); }
                     catch (ToolError ex) when (ex.Code == ErrorCode.MalformedInput) { notes.Add($"{label}: {ex.Message}"); }
                     continue;
                 }
                 if (p.Chunks.All(c => c.Type is 0 or 2 || c.Sectors == 0) || p.Sectors * SectorSize <= 64 * 1024) { notes.Add(label); continue; }
-                var detail = p.Name.Contains("Apple_APFS", StringComparison.Ordinal) ? "APFS, which is not read" : "no filesystem read here";
+                const string detail = "no filesystem read here";
                 long bytes = image.Length;
                 entries.Add(new ContainerEntry($"partition-{p.Index}.img", bytes, $"{p.Name}: {detail}"));
                 if (bytes > limits.MaxItemBytes || total + bytes > limits.MaxTotalBytes || items.Count >= limits.MaxItems)
