@@ -23,6 +23,9 @@ Corvus is now licensed under the Apache License 2.0. [d11df476](https://github.c
 
 ### Changes
 
+- **IDA:** with `CORVUS_IDA_CONNECT=1`, a database open in IDA 9 or newer that runs `corvus_connect.py`
+  (`corvus ida-script`) is read and edited in place, without a local install; Corvus never saves, rebases or closes it
+  (IDA Pro 9.3 on Windows; Linux and macOS not checked). [076cade3](https://github.com/Albasha0x0/Corvus/commit/076cade3)
 - **Native names:** `migrate_native_names` takes a static library (.lib, .a) or object file (COFF, ELF) as its
   old side: each function names the start holding its bytes, and a call reaching another name refuses it (MSVC
   14.29 x64 CRT, glibc and musl x64; x86 and AArch64 objects read, not checked on a real program).
