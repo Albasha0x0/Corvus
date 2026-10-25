@@ -67,6 +67,9 @@ public static class Containers
         if (kind == "asar") return AsarContainer.Open(data, location, allFiles, limits, ct);
         if (kind == "unitywebdata") return UnityWebData.Open(data, name, location, allFiles, limits, ct);
         if (kind == "godotpck") return GodotPack.Open(data, 0, name, allFiles, limits, ct);
+        if (kind == "unreal pak") return UnrealPak.Open(data, name, allFiles, limits, ct);
+        if (kind == "unreal utoc") return UnrealIoStore.Open(data, name, location, allFiles, limits, ct);
+        if (kind == "gamemaker data") return GameMakerData.Open(data, name, allFiles, limits, ct);
         // an export with the pack embedded: the engine executable, then the pack, its size and "GDPC"
         if (kind is "native PE" or "elf" or "mach-o" && GodotPack.Embedded(data) is { } pack) return GodotPack.Open(data, pack, name, allFiles, limits, ct);
         if ((kind == "gzip" || kind == "data") && UnityWebData.Decompress(data, name, limits.MaxItemBytes) is { } web)

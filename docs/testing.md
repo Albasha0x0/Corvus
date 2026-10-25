@@ -267,6 +267,9 @@ describe.
 | `CORVUS_DMG_DIR` | A folder of Apple disk images (.dmg) whose files, links and bytes are compared with 7-Zip's extraction. | AppleDiskImageTests |
 | `CORVUS_DART_RELEASES` | A folder of Dart SDK releases (`dart-<version>/dart-sdk`); each compiles a sample whose code names are compared with its debug symbols. | DartSdkProgramTests |
 | `CORVUS_FLUTTER_RELEASES` | A folder of Flutter engine releases (`flutter-<version>/bin/cache` with the Dart SDK, the patched SDK and the Android gen_snapshot for x64 and arm64); each compiles a compressed-pointer sample whose code names are compared with its debug symbols. | DartSdkProgramTests |
+| `CORVUS_GAMEMAKER_DATA` | A folder of GameMaker data files (`data.win`, `game.unx`, `game.ios`, `game.droid`) whose code entry names, string tables and texture page counts are compared with UndertaleModCli's dump (`CORVUS_GAMEMAKER_TOOL`). | GameMakerDataTests |
+| `CORVUS_IOSTORE_TOOL` | retoc, for rebuilding the IoStore fixtures. | tests/Corvus.Tests/Containers/UnrealFixtures/build.ps1 |
+| `CORVUS_UNREAL_PAKS` | A folder of Unreal pak files whose listings and file contents (SHA-256) are compared with repak's (`CORVUS_PAK_TOOL`); a pak with an encrypted index is named, not listed. | UnrealContainerTests |
 | `CORVUS_ELECTRON_APPS` | A folder of installed Electron apps; every .asar below it (six levels) is read. | ElectronGraphTests, ElectronTests, JsEndpointsTests, NodeApiTests |
 | `CORVUS_ELF_CORES` | A folder of Linux or Android ELF core files, with the program's libraries beside them. | ElfCoreTests |
 | `CORVUS_EXPORT_LIST` | A file listing assemblies whose exported projects must build; errors go to `<list>.report.txt`. | ExportBuildTests |

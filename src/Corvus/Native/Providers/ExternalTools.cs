@@ -228,8 +228,20 @@ public static partial class ExternalTools
         ["ark_disasm" + Exe], ["--version"], 0, "oracle for the Ark bytecode disassembler in tests", true,
         Ops(("list", ["{file}", "{output}"])));
 
+    // repak 0.2.3 tested. list and hashes print each path after the mount point (an empty -s strips nothing); hashes
+    // prints the SHA-256 of each file's contents and fails on a pak with encrypted files.
+    public static readonly ExternalTool PakTool = new("repak", "repak (test oracle)", "CORVUS_PAK_TOOL", ExternalToolKind.Executable,
+        ["repak" + Exe], ["--version"], 0, "oracle for the Unreal pak reader in tests", true,
+        Ops(("list", ["list", "-s", "", "{file}"]), ("hashes", ["hash-list", "-s", "", "{file}"])));
+
+    // UndertaleModCli 0.9.2.0 tested. dump writes strings.txt, CodeEntries/<name>.gml and EmbeddedTextures/*.png under
+    // {output}.
+    public static readonly ExternalTool GameMakerTool = new("UndertaleModCli", "UndertaleModCli (test oracle)", "CORVUS_GAMEMAKER_TOOL", ExternalToolKind.Executable,
+        ["UndertaleModCli" + Exe], ["--version"], 0, "oracle for the GameMaker data file reader in tests", true,
+        Ops(("dump", ["dump", "{file}", "-o", "{output}", "-s", "-t", "-c", "UMT_DUMP_ALL"])));
+
     /// <summary>Every external program, in display order.</summary>
-    public static readonly IReadOnlyList<ExternalTool> Table = [Java, JavaDecompiler, JavaDecompiler2, PythonDecompiler, Adb, TShark, OsvScanner, GuardDog, Emulator, Capa, Aapt2, ApkSigner, DexDisassembler, ProtoCompiler, WasmText, WasmValidator, HbcDisassembler, DartSdk, FlutterSdk, RCodesign, ArchiveLister, LzfseTool, AssetCatalogReader, ArkDisassembler];
+    public static readonly IReadOnlyList<ExternalTool> Table = [Java, JavaDecompiler, JavaDecompiler2, PythonDecompiler, Adb, TShark, OsvScanner, GuardDog, Emulator, Capa, Aapt2, ApkSigner, DexDisassembler, ProtoCompiler, WasmText, WasmValidator, HbcDisassembler, DartSdk, FlutterSdk, RCodesign, ArchiveLister, LzfseTool, AssetCatalogReader, ArkDisassembler, PakTool, GameMakerTool];
 
     private static IEnumerable<(string, string)> WiresharkDirectories()
     {
