@@ -49,7 +49,7 @@ internal sealed class ArkBundle
 /// <summary>Ark bytecode files (.abc): read alone or from a HarmonyOS module or bundle, once, and kept by path, size and write time.</summary>
 internal static class ArkBundles
 {
-    private static readonly List<((string Path, long Size, DateTime Written) Key, ArkBundle Bundle)> Recent = [];
+    private static readonly PackagedBytecode<ArkBundle> Cache = new();
 
     /// <summary>Whether <paramref name="path"/> is Ark bytecode, or a HarmonyOS package holding some.</summary>
     public static bool Applies(string path)
@@ -77,45 +77,13 @@ internal static class ArkBundles
             ?? zip.Entries.Where(e => e.FullName.EndsWith(".abc", StringComparison.Ordinal)).OrderBy(e => e.FullName, StringComparer.Ordinal).FirstOrDefault();
     }
 
-    public static ArkBundle Open(string path, CancellationToken ct = default)
-    {
-        var info = new FileInfo(InputFiles.RequireRegularFile(path, "Ark bytecode"));
-        if (!info.Exists) throw Targets.FileNotFound(path);
-        var key = (info.FullName, info.Length, info.LastWriteTimeUtc);
-        lock (Recent)
-            if (Recent.FirstOrDefault(r => r.Key == key) is { Bundle: not null } hit) return hit.Bundle;
-        ct.ThrowIfCancellationRequested();
-        string? inner = null;
-        byte[] bytes;
-        using (var s = info.OpenRead())
+    public static ArkBundle Open(string path, CancellationToken ct = default) =>
+        Cache.Open(path, "Ark bytecode", Entry, () => new ToolError(ErrorCode.NotFound, $"{System.IO.Path.GetFileName(path)} holds no Ark bytecode.",
+            "a HarmonyOS module keeps it in ets/modules.abc; summarize_file view=harmony lists an application bundle's modules"), (full, inner, bytes) =>
         {
-            Span<byte> head = stackalloc byte[4];
-            int n = s.ReadAtLeast(head, 4, throwOnEndOfStream: false);
-            s.Position = 0;
-            if (n == 4 && Blob.StartsWith(head, "PK\x03\x04"u8))
-            {
-                using var zip = new ZipArchive(s, ZipArchiveMode.Read);
-                var entry = Entry(zip) ?? throw new ToolError(ErrorCode.NotFound, $"{System.IO.Path.GetFileName(path)} holds no Ark bytecode.",
-                    "a HarmonyOS module keeps it in ets/modules.abc; summarize_file view=harmony lists an application bundle's modules");
-                if (entry.Length > JsAnalysis.MaxFileBytes) throw new ToolError(ErrorCode.LimitExceeded, $"{entry.FullName} is {entry.Length:N0} bytes; files up to {JsAnalysis.MaxFileBytes:N0} bytes are read.");
-                inner = entry.FullName;
-                using var es = entry.Open();
-                bytes = Blob.ReadBounded(es, JsAnalysis.MaxFileBytes) ?? throw new ToolError(ErrorCode.LimitExceeded, $"{entry.FullName} is over {JsAnalysis.MaxFileBytes:N0} bytes.");
-            }
-            else bytes = JsAnalysis.Read(path);
-        }
-        ArkFile file;
-        try { file = new ArkFile(bytes); }
-        catch (InvalidDataException ex) { throw new ToolError(ErrorCode.MalformedInput, $"{System.IO.Path.GetFileName(path)}{(inner != null ? "!" + inner : "")}: not readable Ark bytecode: {ex.Message}."); }
-        var bundle = new ArkBundle(info.FullName, inner, file);
-        lock (Recent)
-        {
-            Recent.RemoveAll(r => r.Key == key);
-            Recent.Insert(0, (key, bundle));
-            if (Recent.Count > 4) Recent.RemoveAt(Recent.Count - 1);
-        }
-        return bundle;
-    }
+            try { return new ArkBundle(full, inner, new ArkFile(bytes)); }
+            catch (InvalidDataException ex) { throw new ToolError(ErrorCode.MalformedInput, $"{System.IO.Path.GetFileName(path)}{(inner != null ? "!" + inner : "")}: not readable Ark bytecode: {ex.Message}."); }
+        }, ct);
 
     public static string Summary(ArkBundle b)
     {

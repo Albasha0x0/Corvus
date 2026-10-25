@@ -66,7 +66,7 @@ public sealed class HermesBundle
 /// <summary>Hermes bytecode bundles (React Native): found in a file, an APK / AAB or an .ipa, read once and kept by path, size and write time.</summary>
 public static class HermesBundles
 {
-    private static readonly List<((string Path, long Size, DateTime Written) Key, HermesBundle Bundle)> Recent = [];
+    private static readonly PackagedBytecode<HermesBundle> Cache = new();
 
     /// <summary>Whether <paramref name="path"/> is Hermes bytecode, or a package holding a Hermes bundle.</summary>
     public static bool Applies(string path)
@@ -123,42 +123,9 @@ public static class HermesBundles
         catch (InvalidDataException) { return null; }
     }
 
-    public static HermesBundle Open(string path, CancellationToken ct = default)
-    {
-        var info = new FileInfo(InputFiles.RequireRegularFile(path, "Hermes bundle"));
-        if (!info.Exists) throw Targets.FileNotFound(path);
-        var key = (info.FullName, info.Length, info.LastWriteTimeUtc);
-        lock (Recent)
-            if (Recent.FirstOrDefault(r => r.Key == key) is { Bundle: not null } hit) return hit.Bundle;
-        ct.ThrowIfCancellationRequested();
-        string? inner = null;
-        byte[] bytes;
-        using (var s = info.OpenRead())
-        {
-            Span<byte> head = stackalloc byte[4];
-            int n = s.ReadAtLeast(head, 4, throwOnEndOfStream: false);
-            s.Position = 0;
-            if (n == 4 && Blob.StartsWith(head, "PK\x03\x04"u8))
-            {
-                using var zip = new ZipArchive(s, ZipArchiveMode.Read);
-                var entry = Entry(zip) ?? throw new ToolError(ErrorCode.NotFound, $"{System.IO.Path.GetFileName(path)} holds no Hermes bytecode bundle.",
-                    "a React Native app keeps it in assets/index.android.bundle (APK) or Payload/*.app/main.jsbundle (.ipa); a plain JavaScript bundle reads with analyze_js directly");
-                if (entry.Length > JsAnalysis.MaxFileBytes) throw new ToolError(ErrorCode.LimitExceeded, $"{entry.FullName} is {entry.Length:N0} bytes; bundles up to {JsAnalysis.MaxFileBytes:N0} bytes are read.");
-                inner = entry.FullName;
-                using var es = entry.Open();
-                bytes = Blob.ReadBounded(es, JsAnalysis.MaxFileBytes) ?? throw new ToolError(ErrorCode.LimitExceeded, $"{entry.FullName} is over {JsAnalysis.MaxFileBytes:N0} bytes.");
-            }
-            else bytes = JsAnalysis.Read(path);
-        }
-        var bundle = new HermesBundle(info.FullName, inner, HermesFile.Read(bytes), bytes);
-        lock (Recent)
-        {
-            Recent.RemoveAll(r => r.Key == key);
-            Recent.Insert(0, (key, bundle));
-            if (Recent.Count > 4) Recent.RemoveAt(Recent.Count - 1);
-        }
-        return bundle;
-    }
+    public static HermesBundle Open(string path, CancellationToken ct = default) =>
+        Cache.Open(path, "Hermes bundle", Entry, () => new ToolError(ErrorCode.NotFound, $"{System.IO.Path.GetFileName(path)} holds no Hermes bytecode bundle.",
+            "a React Native app keeps it in assets/index.android.bundle (APK) or Payload/*.app/main.jsbundle (.ipa); a plain JavaScript bundle reads with analyze_js directly"), (full, inner, bytes) => new HermesBundle(full, inner, HermesFile.Read(bytes), bytes), ct);
 
     // ---- views ----
 
