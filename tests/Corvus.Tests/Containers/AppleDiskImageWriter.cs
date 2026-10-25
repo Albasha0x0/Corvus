@@ -131,15 +131,7 @@ internal sealed class HfsPlusWriter
                     break;
                 case CompressedNode c:
                 {
-                    var header = new byte[16];
-                    BinaryPrimitives.WriteUInt32LittleEndian(header, 0x636D7066);
-                    BinaryPrimitives.WriteUInt32LittleEndian(header.AsSpan(4), c.Type);
-                    BinaryPrimitives.WriteUInt64LittleEndian(header.AsSpan(8), (ulong)c.Data.Length);
-                    byte[] resource = [];
-                    var attr = header;
-                    if (c.Type is 3 or 7 or 11) attr = [.. header, .. c.Encoded ?? (c.Type == 3 ? Zlib(c.Data) : c.Type == 7 ? LzvnLiterals(c.Data) : LzfseRaw(c.Data))];
-                    else if (c.Type == 4) resource = ResourceFork(c.Data);
-                    else resource = OffsetTableFork(c.Data, c.Type);
+                    var (attr, resource) = Decmpfs(c.Data, c.Type, c.Encoded);
                     var rsrc = resource.Length == 0 ? Fork(0, []) : Fork(resource.Length, [new(Allocate(resource), Blocks(resource.Length))]);
                     catalog.Add((CatalogKey(parent, name), FileRecord(id, 0x81A4, Fork(0, []), ownerFlags: 0x20, resource: rsrc)));
                     attributes.Add((AttributeKey(id, "com.apple.decmpfs"), InlineAttribute(attr)));
@@ -264,6 +256,17 @@ internal sealed class HfsPlusWriter
         BinaryPrimitives.WriteUInt32BigEndian(r.AsSpan(12), (uint)data.Length);
         data.CopyTo(r, 16);
         return r;
+    }
+
+    /// <summary>The com.apple.decmpfs attribute and the resource fork (empty for types 3, 7 and 11) of a compressed file.</summary>
+    internal static (byte[] Attribute, byte[] Resource) Decmpfs(byte[] data, uint type, byte[]? encoded = null)
+    {
+        var header = new byte[16];
+        BinaryPrimitives.WriteUInt32LittleEndian(header, 0x636D7066);
+        BinaryPrimitives.WriteUInt32LittleEndian(header.AsSpan(4), type);
+        BinaryPrimitives.WriteUInt64LittleEndian(header.AsSpan(8), (ulong)data.Length);
+        if (type is 3 or 7 or 11) return ([.. header, .. encoded ?? (type == 3 ? Zlib(data) : type == 7 ? LzvnLiterals(data) : LzfseRaw(data))], []);
+        return (header, type == 4 ? ResourceFork(data) : OffsetTableFork(data, type));
     }
 
     internal static byte[] Zlib(byte[] data)
