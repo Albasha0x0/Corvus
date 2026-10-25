@@ -245,6 +245,15 @@ public sealed class RequiresRealDataFactAttribute : FactAttribute
     }
 }
 
+/// <summary>A theory that only runs when every given environment variable names an existing path (see <see cref="RealData"/>).</summary>
+public sealed class RequiresRealDataTheoryAttribute : TheoryAttribute
+{
+    public RequiresRealDataTheoryAttribute(params string[] variables)
+    {
+        Skip = RealData.SkipReason(variables);
+    }
+}
+
 /// <summary>A fact that runs only when <paramref name="variable"/> is 1 (network downloads, long builds).</summary>
 public sealed class OptInFactAttribute : FactAttribute
 {

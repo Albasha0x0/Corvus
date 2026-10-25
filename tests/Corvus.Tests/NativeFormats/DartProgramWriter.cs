@@ -4,9 +4,9 @@ using System.Text;
 namespace Corvus.Tests.NativeFormats;
 
 /// <summary>
-/// Builds a Dart 3.13 AOT program snapshot (product, x64, uncompressed pointers) in an ELF image: one-byte strings in
-/// the data image, then Code, Function, Class and ClosureData clusters, and an instructions table that places each
-/// code. Ref 1 is the only base object (null).
+/// Builds a Dart 3.13 AOT program snapshot (product, x64) in an ELF image: one-byte strings, then Code, Function, Class
+/// and ClosureData clusters, and an instructions table that places each code. Strings go in the data image, or in the
+/// stream when <see cref="Features"/> names compressed-pointers. Ref 1 is the only base object (null).
 /// </summary>
 internal sealed class DartProgramWriter
 {
@@ -83,6 +83,7 @@ internal sealed class DartProgramWriter
 
     public byte[] Build()
     {
+        bool compressed = Features.Split(' ').Contains("compressed-pointers");
         var stream = new List<byte>();
         int objects = 1 + _strings.Count + _codeOwners.Count + _functions.Count + _classes.Count + _closureParents.Count;
         int clusters = 5;
@@ -109,11 +110,12 @@ internal sealed class DartProgramWriter
         Unsigned(stream, entries);
         Unsigned(stream, tableAt);
 
-        // Alloc.
-        Signed(stream, 94 << 12);
+        // Alloc. In the stream a string's length and cid are one value: length << 1, bit 0 for two-byte characters.
+        Signed(stream, (compressed ? 93 : 94) << 12);
         Unsigned(stream, _strings.Count);
         int previous = 0;
-        foreach (var o in offsets) { Unsigned(stream, (o - previous) >> 4); previous = o; }
+        if (compressed) foreach (var t in _strings) Unsigned(stream, t.Length << 1);
+        else foreach (var o in offsets) { Unsigned(stream, (o - previous) >> 4); previous = o; }
         Signed(stream, 18 << 12);
         Unsigned(stream, _codeOwners.Count);
         foreach (var _ in _codeOwners) Signed(stream, 0);
@@ -125,7 +127,13 @@ internal sealed class DartProgramWriter
         Signed(stream, 9 << 12);
         Unsigned(stream, _closureParents.Count);
 
-        // Fill: Code, Function, Class, ClosureData.
+        // Fill: strings when in the stream, then Code, Function, Class, ClosureData.
+        if (compressed)
+            foreach (var t in _strings)
+            {
+                Unsigned(stream, t.Length << 1);
+                stream.AddRange(Encoding.Latin1.GetBytes(t));
+            }
         Ref(stream, 1);
         Ref(stream, 1);
         foreach (var owner in _codeOwners)

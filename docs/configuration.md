@@ -206,7 +206,7 @@ Optional. `server_status` shows where each was found, its version, or the fix.
 | `CORVUS_EMULATOR` | [speakeasy](https://github.com/mandiant/speakeasy) 2.0.0b9 (`PATH`; `pip install speakeasy-emulator==2.0.0b9`); reads report format 5, refuses another by name | `emulate_native engine=speakeasy`: a whole program or raw code run with Windows APIs modelled, in the worker host. |
 | `CORVUS_DIE` | Detect It Easy `diec` | `unity_overview detectItEasy=true`. |
 | `CORVUS_CLR32` | `Corvus.Clr32.exe` (`clr32/` beside the server) | Decoding 32-bit .NET dumps. |
-| `CORVUS_AAPT2`, `CORVUS_APKSIGNER`, `CORVUS_DEX_DISASSEMBLER`, `CORVUS_PROTO_COMPILER`, `CORVUS_WASM_TO_TEXT`, `CORVUS_WASM_VALIDATOR`, `CORVUS_HBC_DISASSEMBLER`, `CORVUS_DEPENDENCY_LISTER`, `CORVUS_DART` | aapt2, apksigner, baksmali, protoc, wasm2wat, wasm-validate, hbcdump, syft, the Dart SDK | Test oracles only. |
+| `CORVUS_AAPT2`, `CORVUS_APKSIGNER`, `CORVUS_DEX_DISASSEMBLER`, `CORVUS_PROTO_COMPILER`, `CORVUS_WASM_TO_TEXT`, `CORVUS_WASM_VALIDATOR`, `CORVUS_HBC_DISASSEMBLER`, `CORVUS_DEPENDENCY_LISTER`, `CORVUS_DART`, `CORVUS_FLUTTER` | aapt2, apksigner, baksmali, protoc, wasm2wat, wasm-validate, hbcdump, syft, the Dart SDK, the Flutter SDK folder | Test oracles only. |
 
 ### Network
 

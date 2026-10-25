@@ -20,8 +20,8 @@ public sealed record DartProgram(IReadOnlyList<DartCode> Code, int Functions, in
 /// Reads the clustered object stream of a Dart AOT snapshot far enough to name its code: strings, Code, Function,
 /// Class, PatchClass and ClosureData objects, and the instructions table that places each Code. Names follow the VM's
 /// Function::PrintName with user-visible names, as its DWARF and stack traces print them. Read layout: the single
-/// program snapshot of Dart 3.13 (kDartSnapshotData), product mode, 64-bit, uncompressed pointers; any other layout is
-/// refused as unsupported.
+/// program snapshot of Dart 3.13 (kDartSnapshotData), product mode, 64-bit, with or without compressed pointers; any
+/// other layout is refused as unsupported.
 /// </summary>
 public static class DartProgramReader
 {
@@ -58,17 +58,16 @@ public static class DartProgramReader
         string? refused = snapshot.Symbol != "kDartSnapshotData" ? "a separate VM and isolate snapshot (Dart before 3.13)"
             : snapshot.Kind != "full-aot" ? $"a {snapshot.Kind} snapshot"
             : !tokens.Contains("product") ? "a non-product (profile or debug) snapshot"
-            : tokens.Contains("compressed-pointers") ? "compressed pointers"
             : snapshot.Architecture is not ("x64" or "arm64" or "riscv64") ? $"the {snapshot.Architecture ?? "unknown"} architecture"
             : null;
         if (refused != null) return Refuse("layout not read: " + refused);
-        try { return ReadCore(data, snapshot, ct); }
+        try { return ReadCore(data, snapshot, tokens.Contains("compressed-pointers"), ct); }
         catch (Truncated) { return Refuse($"the object stream of snapshot {snapshot.Hash} does not parse as the Dart 3.13 layout"); }
     }
 
     private static DartProgram Refuse(string reason) => new([], 0, 0, reason);
 
-    private static DartProgram ReadCore(ReadOnlySpan<byte> data, DartSnapshot snapshot, CancellationToken ct)
+    private static DartProgram ReadCore(ReadOnlySpan<byte> data, DartSnapshot snapshot, bool compressed, CancellationToken ct)
     {
         long total = snapshot.Length + 4;
         int features = (int)snapshot.Offset + 52;
@@ -89,7 +88,7 @@ public static class DartProgramReader
             if ((i & 63) == 0) ct.ThrowIfCancellationRequested();
             uint tags = (uint)s.Signed(32);
             var c = new Cluster { Cid = (int)(tags >> 12), Canonical = (tags & 2) != 0, Start = next };
-            c.Alloc = AllocOf(c.Cid);
+            c.Alloc = AllocOf(c.Cid, compressed);
             long count = s.Unsigned();
             if (count > objects - (next - 1)) throw new Truncated();
             c.Count = (int)count;
@@ -122,7 +121,7 @@ public static class DartProgramReader
             if (next - 1 > objects) throw new Truncated();
             c.Stop = next;
             if (c.Canonical && c.Cid is TypeArgumentsCid or TypeCid or FunctionTypeCid or RecordTypeCid or TypeParameterCid
-                || c.Canonical && c.Alloc == Alloc.RoData && c.Cid == StringCid)
+                || c.Canonical && c.Cid == StringCid)
             {
                 s.Unsigned();
                 long first = s.Unsigned();
@@ -214,6 +213,22 @@ public static class DartProgramReader
                 case DoubleCid:
                     for (int k = 0; k < n; k++) s.Signed(64);
                     break;
+                case PcDescriptorsCid or CodeSourceMapCid:
+                    for (int k = 0; k < n; k++) s.Skip(s.Unsigned());
+                    break;
+                case CompressedStackMapsCid:
+                    // Flags and size: the size starts at bit 2.
+                    for (int k = 0; k < n; k++) s.Skip(s.Unsigned() >> 2);
+                    break;
+                case StringCid:
+                    for (int r = c.Start; r < c.Stop; r++)
+                    {
+                        // Length and cid: bit 0 marks two-byte characters.
+                        long encoded = s.Unsigned();
+                        var chars = s.Bytes((encoded >> 1) * ((encoded & 1) + 1));
+                        strings[r] = (encoded & 1) == 0 ? Encoding.Latin1.GetString(chars) : Encoding.Unicode.GetString(chars);
+                    }
+                    break;
                 case Float32x4Cid or Int32x4Cid or Float64x2Cid:
                     for (int k = 0; k < n; k++) s.Skip(16);
                     break;
@@ -290,8 +305,9 @@ public static class DartProgramReader
                     break;
                 case var _ when c.Alloc == Alloc.Instance:
                     ulong unboxed = (ulong)s.Unsigned();
+                    // Fields follow the 8-byte header, in words of 4 bytes with compressed pointers.
                     for (int k = 0; k < n; k++)
-                        for (int w = 1; w < c.NextField; w++)
+                        for (int w = compressed ? 2 : 1; w < c.NextField; w++)
                         {
                             if (w < 64 && (unboxed >> w & 1) != 0) { s.Signed(32); s.Signed(32); }
                             else s.Ref();
@@ -375,14 +391,16 @@ public static class DartProgramReader
         return new DartProgram(list, namedFunctions, codeRefs.Count, null) { Unnamed = Math.Max(0, length - list.Count) };
     }
 
-    private static Alloc AllocOf(int cid)
+    // With compressed pointers the VM writes no read-only data image: these objects are in the stream.
+    private static Alloc AllocOf(int cid, bool compressed)
     {
         if (cid >= NumPredefinedCids || cid == InstanceCid || cid is >= FirstFfiCid and <= LastFfiCid) return Alloc.Instance;
         if (cid is >= FirstTypedDataCid and <= LastTypedDataCid)
             return (cid - FirstTypedDataCid) % 4 == 0 ? Alloc.Lengths : Alloc.Fixed;
         return cid switch
         {
-            PcDescriptorsCid or CodeSourceMapCid or CompressedStackMapsCid or StringCid or OneByteStringCid or TwoByteStringCid => Alloc.RoData,
+            PcDescriptorsCid or CodeSourceMapCid or CompressedStackMapsCid or StringCid or OneByteStringCid or TwoByteStringCid
+                => compressed ? Alloc.Lengths : Alloc.RoData,
             TypeArgumentsCid or ObjectPoolCid or LocalVarDescriptorsCid or ExceptionHandlersCid or ContextCid or ContextScopeCid or ClosureCid or RecordCid
                 or ArrayCid or ImmutableArrayCid or WeakArrayCid or DeltaEncodedTypedDataCid => Alloc.Lengths,
             CodeCid => Alloc.Code,
@@ -495,10 +513,17 @@ public static class DartProgramReader
 
         public int Byte() => _at < _data.Length ? _data[_at++] : throw new Truncated();
 
-        public void Skip(int n)
+        public void Skip(long n)
         {
-            if (_at + n > _data.Length) throw new Truncated();
-            _at += n;
+            if (n < 0 || n > _data.Length - _at) throw new Truncated();
+            _at += (int)n;
+        }
+
+        public ReadOnlySpan<byte> Bytes(long n)
+        {
+            var start = _at;
+            Skip(n);
+            return _data.Slice(start, (int)n);
         }
 
         /// <summary>ReadUnsigned: 7-bit groups, low first; a byte above 127 ends the value.</summary>

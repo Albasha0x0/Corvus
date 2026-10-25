@@ -76,8 +76,19 @@ public sealed class DartProgramTests
         Assert.StartsWith("Dart AOT snapshot (8 functions, 9 code objects named)", NativeNameLayers.Of(native).Get(NativeNameSource.Dart)!.Origin);
     }
 
+    [Fact]
+    public void A_compressed_pointer_snapshot_names_its_code_from_strings_in_the_stream()
+    {
+        var s = Program("product no-dwarf_stack_traces x64 android compressed-pointers");
+        var program = Read(s.Bytes);
+        Assert.Null(program.Unsupported);
+        var at = program.Code.ToDictionary(c => ElfWriter.TextRva + c.Offset, c => c.Name);
+        Assert.Equal("Ledger.balanceOf", at[s.Writer.AddressOf(s.Functions["balanceOf"])]);
+        Assert.Equal("Ledger.balanceOf.<anonymous closure>", at[s.Writer.AddressOf(s.Functions["closure"])]);
+        Assert.Equal((8, 1), (program.Functions, program.Unnamed));
+    }
+
     [Theory]
-    [InlineData("product x64 linux compressed-pointers", "compressed pointers")]
     [InlineData("release x64 linux no-compressed-pointers", "non-product")]
     [InlineData("product ia32 linux", "ia32")]
     public void A_snapshot_of_another_layout_is_reported_unread(string features, string reason)

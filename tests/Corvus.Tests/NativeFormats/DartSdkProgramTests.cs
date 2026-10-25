@@ -7,8 +7,9 @@ using Xunit.Abstractions;
 namespace Corvus.Tests.NativeFormats;
 
 /// <summary>
-/// Code names read from snapshots the Dart SDK (CORVUS_DART) compiles, compared with the debug symbols the compiler
-/// writes beside them (--save-debugging-info), which name each code address as the VM prints it.
+/// Code names read from snapshots the Dart SDK (CORVUS_DART) and Flutter's gen_snapshot (CORVUS_FLUTTER) compile, compared
+/// with the debug symbols the compiler writes beside them (--save-debugging-info), which name each code address as the VM
+/// prints it.
 /// </summary>
 [Trait("Speed", "Slow")]
 [Permit("reference-tool")]
@@ -81,6 +82,35 @@ public sealed class DartSdkProgramTests(ITestOutputHelper output) : IDisposable
         return (program, text, symbols);
     }
 
+    /// <summary>
+    /// Compiles <see cref="Source"/> as Flutter's build does (frontend server, then gen_snapshot for the Android release of
+    /// <paramref name="arch"/>, which compresses pointers) and returns the read program, its instructions' RVA and the debug
+    /// symbols by address.
+    /// </summary>
+    private (DartProgram Program, uint Text, Dictionary<uint, HashSet<string>> Symbols) CompileCompressed(string arch)
+    {
+        var source = _dir.File("flutter.dart");
+        File.WriteAllText(source, Source);
+        string kernel = _dir.File("flutter.dill"), elf = _dir.File("libapp.so"), debug = _dir.File("libapp.debug");
+        var tool = ExternalTools.FlutterSdk;
+        var runtime = ExternalTools.Locate(tool)!.Value.Path;
+        // dartaotruntime sits in <root>/bin/cache/dart-sdk/bin.
+        var root = Path.GetFullPath(Path.Combine(Path.GetDirectoryName(runtime)!, "..", "..", "..", ".."));
+        var host = OperatingSystem.IsWindows() ? "windows-x64" : OperatingSystem.IsMacOS() ? "darwin-x64" : "linux-x64";
+        var genSnapshot = Path.Combine(root, "bin", "cache", "artifacts", "engine", $"android-{arch}-release", host, "gen_snapshot" + (OperatingSystem.IsWindows() ? ".exe" : ""));
+        var run = ExternalTools.Run(runtime, ExternalTools.Arguments(tool, "kernel", ("root", root), ("output", kernel), ("source", source)), TimeSpan.FromMinutes(5), 1 << 20, default);
+        Assert.True(run.ExitCode == 0, run.Stderr + run.Text);
+        run = ExternalTools.Run(genSnapshot, ExternalTools.Arguments(tool, "aot-elf", ("output", elf), ("debug", debug), ("kernel", kernel)), TimeSpan.FromMinutes(5), 1 << 20, default);
+        Assert.True(run.ExitCode == 0, run.Stderr + run.Text);
+        var image = NativeImageLoader.FromBytes(File.ReadAllBytes(elf), elf);
+        Assert.Contains("compressed-pointers", DartScan.Snapshots(File.ReadAllBytes(elf)).Single(s => s.Kind == "full-aot").Features);
+        var (program, text) = DartNames.Read(image)!.Value;
+        var symbols = new Dictionary<uint, HashSet<string>>();
+        foreach (var s in NativeImageLoader.FromBytes(File.ReadAllBytes(debug), debug).Symbols.Where(s => s.Kind == ImageSymbolKind.Function))
+            (symbols.TryGetValue(s.Rva, out var set) ? set : symbols[s.Rva] = []).Add(s.Name);
+        return (program, text, symbols);
+    }
+
     /// <summary>Matching names and differing ones (address, ours, the symbols'); an address without a symbol fails.</summary>
     private (int Same, List<string> Differ) Compare(DartProgram program, uint text, Dictionary<uint, HashSet<string>> symbols)
     {
@@ -108,6 +138,20 @@ public sealed class DartSdkProgramTests(ITestOutputHelper output) : IDisposable
         // A constructor and its class's allocation stub both print "new <class>"; Ledger.post is inlined, with no code.
         var at = program.Code.ToLookup(c => c.Name, c => text + c.Offset);
         foreach (var name in new[] { "main", "checksumOrders", "Ledger.balanceOf", "Ledger.totals", "LedgerEntry.describe", "new Ledger", "new LedgerEntry" })
+            Assert.True(at[name].Any(address => symbols[address].Contains(name)), name);
+    }
+
+    // The VM writes no read-only data image with compressed pointers: strings and code metadata are read from the stream.
+    [RequiresRealDataTheory("CORVUS_FLUTTER")]
+    [InlineData("x64")]
+    [InlineData("arm64")]
+    public void A_compressed_pointer_build_names_equal_its_debug_symbols(string arch)
+    {
+        var (program, text, symbols) = CompileCompressed(arch);
+        var (same, _) = Compare(program, text, symbols);
+        Assert.True(same * 100 >= program.Code.Count * 98, $"{same} of {program.Code.Count}");
+        var at = program.Code.ToLookup(c => c.Name, c => text + c.Offset);
+        foreach (var name in new[] { "main", "checksumOrders", "Ledger.balanceOf", "Ledger.totals", "LedgerEntry.describe" })
             Assert.True(at[name].Any(address => symbols[address].Contains(name)), name);
     }
 
