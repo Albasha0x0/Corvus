@@ -518,7 +518,7 @@ public static class FrozenPython
     }
 
     /// <summary>A forward-only stream over a range read through a <see cref="InstallerPe.Read"/>.</summary>
-    private sealed class RangeStream(InstallerPe.Read read, long start, long length) : Stream
+    private sealed class RangeStream(InstallerPe.Read read, long start, long length) : ForwardReadStream
     {
         private long _at;
         public override int Read(byte[] buffer, int offset, int count)
@@ -530,19 +530,12 @@ public static class FrozenPython
             _at += n;
             return n;
         }
-        public override bool CanRead => true;
-        public override bool CanSeek => false;
-        public override bool CanWrite => false;
         public override long Length => length;
         public override long Position { get => _at; set => throw new NotSupportedException(); }
-        public override void Flush() { }
-        public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
-        public override void SetLength(long value) => throw new NotSupportedException();
-        public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
     }
 
     /// <summary>Bytes already read, then the rest of a stream.</summary>
-    private sealed class ConcatStream(ReadOnlyMemory<byte> first, Stream rest) : Stream
+    private sealed class ConcatStream(ReadOnlyMemory<byte> first, Stream rest) : ForwardReadStream
     {
         private ReadOnlyMemory<byte> _first = first;
         public override int Read(byte[] buffer, int offset, int count)
@@ -553,14 +546,5 @@ public static class FrozenPython
             _first = _first[n..];
             return n;
         }
-        public override bool CanRead => true;
-        public override bool CanSeek => false;
-        public override bool CanWrite => false;
-        public override long Length => throw new NotSupportedException();
-        public override long Position { get => throw new NotSupportedException(); set => throw new NotSupportedException(); }
-        public override void Flush() { }
-        public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
-        public override void SetLength(long value) => throw new NotSupportedException();
-        public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
     }
 }
