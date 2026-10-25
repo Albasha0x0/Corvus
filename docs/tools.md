@@ -553,13 +553,13 @@ File inspection, containers and wrapped apps, Unity overview.
 
 **Summarize file** (read-only, idempotent)
 
-First look at a file or assembly, not run: type, hashes, signature, containers, assemblies, highlights (toolchain, capabilities, packaging tools), entry points. view=: managed, dependencies, native, android, apple, electron, flutter, go, layers, nib, pcap, package (pre-install review), plist, protobuf, raw (headerless code), rust, script (layers peeled), sqlite (table= pages), sqlite-recover, unity (MonoBehaviour fields), all; views lists those that apply.
+First look at a file or assembly, not run: type, hashes, signature, containers, assemblies, highlights (toolchain, capabilities, packagers), entry points. view=: managed, dependencies, native, android, apple, electron, flutter, go, layers, nib, pcap, package (pre-install review), plist, protobuf, raw (headerless code), rust, script (layers peeled), sqlite (table= pages), sqlite-recover, unity (MonoBehaviour fields), all; views lists those that apply.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `path` | string |  |  | File (assembly, executable, bundle, package, zip, .asar), .app or source folder. |
 | `assembly` | string |  |  | A loaded assembly; pass this or path. |
-| `view` | string |  | `overview` | A view the overview lists. Values: overview, managed, dependencies, android, apple, electron, firmware, flutter, go, hermes, installer, layers, lnk, native, nib, office, package, pcap, pdf, plist, protobuf, python, raw, rust, script, sqlite, sqlite-recover, unity, wasm, xbf, all. |
+| `view` | string |  | `overview` | A view the overview lists. Values: overview, managed, dependencies, android, apple, electron, firmware, flutter, go, hermes, installer, layers, lnk, native, nib, office, package, page, pcap, pdf, plist, protobuf, python, raw, rust, script, sqlite, sqlite-recover, unity, wasm, xbf, all. |
 | `table` | string |  |  | sqlite, sqlite-recover: table to page. |
 | `columns` | string[] |  |  | With table=: these columns (rowid too). |
 | `script` | string |  |  | unity: only assets of this script class. |

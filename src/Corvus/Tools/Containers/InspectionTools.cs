@@ -19,7 +19,7 @@ public sealed class InspectionTools(InspectionService inspection, AssemblyWorksp
 
     [McpServerTool(Name = "summarize_file", Title = "Summarize file", UseStructuredContent = true, OutputSchemaType = typeof(FileSummaryRecord))]
     [Description("First look at a file or assembly, not run: type, hashes, signature, containers, assemblies, highlights (toolchain, " +
-                 "capabilities, packaging tools), entry points. view=: managed, dependencies, native, android, apple, electron, flutter, go, layers, nib, " +
+                 "capabilities, packagers), entry points. view=: managed, dependencies, native, android, apple, electron, flutter, go, layers, nib, " +
                  "pcap, package (pre-install review), plist, protobuf, raw (headerless code), rust, script (layers peeled), sqlite (table= pages), sqlite-recover, unity (MonoBehaviour fields), " +
                  "all; views lists those that apply.")]
     public Task<string> SummarizeFile(

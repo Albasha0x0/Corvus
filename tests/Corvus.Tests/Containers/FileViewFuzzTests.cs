@@ -94,6 +94,13 @@ public sealed class FileViewFuzzTests : IDisposable
     public void Protobuf() => Fuzz(new ProtobufFileView(), "demo.pb", 500, ProtoWriter.Demo());
 
     [Fact]
+    [FuzzEntry(typeof(PageFileView), typeof(Services.Web.SavedPage))]
+    public void Page() => Fuzz(new PageFileView(), "page.html", 300,
+        Encoding.UTF8.GetBytes("<!doctype html><!-- saved from url=(0024)https://a.example.com/ --><meta http-equiv=\"Content-Security-Policy\" content=\"script-src 'nonce-a' 'sha256-x'\">" +
+            "<script nonce=a>go()</script><script src=\"data:text/javascript;base64,Z28oKQ==\" integrity=\"sha256-x sha384-y\"></script>" +
+            "<script type=importmap>{\"imports\":{\"a\":\"https://b.example.net/a.js\"},\"scopes\":{\"/s/\":{\"a\":\"./a.js\"}}}</script>"));
+
+    [Fact]
     [FuzzEntry(typeof(ScriptFileView))]
     public void Script() => Fuzz(new ScriptFileView(), "drop.ps1", 120,
         Encoding.UTF8.GetBytes("& ( $PSHomE[4]+$pShome[34]+'x') (('1wb'+'u = 7Xkhttp://'+'ex'+'ample.com/cor'+'vus7Xk').REPLAce(([ChAR]49+[ChAR]119+[ChAR]98),'$').REPLAce('7Xk',[String][ChAR]39))"));
