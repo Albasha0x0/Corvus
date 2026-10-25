@@ -100,7 +100,7 @@ public sealed class DartProgramTests
         var s = Program(features, split: true);
         var program = Read(s.Bytes);
         Assert.Null(program.Unsupported);
-        Assert.Equal("3.12", program.Layout);
+        Assert.Equal("3.6-3.12", program.Layout);
         var at = program.Code.ToDictionary(c => ElfWriter.TextRva + c.Offset, c => c.Name);
         // Strings from both snapshots: the VM snapshot holds the first half.
         Assert.Equal("Ledger.balanceOf", at[s.Writer.AddressOf(s.Functions["balanceOf"])]);

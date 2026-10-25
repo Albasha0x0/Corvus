@@ -15,7 +15,7 @@ public sealed record DartProgram(IReadOnlyList<DartCode> Code, int Functions, in
     /// <summary>Instructions-table entries left unnamed: VM stubs and type-test stubs.</summary>
     public int Unnamed { get; init; }
 
-    /// <summary>The Dart release whose layout the snapshot was read with ("3.13"); null when nothing was read.</summary>
+    /// <summary>The Dart releases whose layout the snapshot was read with ("3.13", "3.6-3.12"); null when nothing was read.</summary>
     public string? Layout { get; init; }
 }
 
@@ -24,7 +24,7 @@ public sealed record DartProgram(IReadOnlyList<DartCode> Code, int Functions, in
 /// Class, PatchClass and ClosureData objects, and the instructions table that places each Code. Names follow the VM's
 /// Function::PrintName with user-visible names, as its DWARF and stack traces print them. Read layouts: product mode,
 /// 64-bit, with or without compressed pointers, of the single program snapshot of Dart 3.13 (kDartSnapshotData) and the
-/// VM and isolate snapshots of Dart 3.12; any other layout is refused as unsupported.
+/// VM and isolate snapshots of Dart 3.6 to 3.12; any other layout is refused as unsupported.
 /// </summary>
 public static class DartProgramReader
 {
@@ -56,7 +56,7 @@ public static class DartProgramReader
             GrowableObjectArray: 92, String: 93, OneByteString: 94, TwoByteString: 95, FirstFfi: 97, LastFfi: 112, FirstTypedData: 113,
             LastTypedData: 168, Null: 172, NumPredefined: 176),
             Split: false, PredefinedClasses: false, FixedClosures: false, CodeStubRefs: true, PublicFuture: false),
-        new("3.12", new(Class: 5, PatchClass: 6, Function: 7, TypeParameters: 8, ClosureData: 9, WeakArray: 17, Code: 18, ObjectPool: 23,
+        new("3.6-3.12", new(Class: 5, PatchClass: 6, Function: 7, TypeParameters: 8, ClosureData: 9, WeakArray: 17, Code: 18, ObjectPool: 23,
             PcDescriptors: 24, CodeSourceMap: 25, CompressedStackMaps: 26, LocalVarDescriptors: 27, ExceptionHandlers: 28, Context: 29,
             ContextScope: 30, LibraryPrefix: 46, Instance: 45, TypeArguments: 47, Type: 49, FunctionType: 50, RecordType: 51,
             TypeParameter: 52, Closure: 57, Integer: 59, Smi: 60, Mint: 61, Double: 62, Float32x4: 64, Int32x4: 65, Float64x2: 66,

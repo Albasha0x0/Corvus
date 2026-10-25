@@ -147,18 +147,20 @@ public sealed class DartSdkProgramTests(ITestOutputHelper output) : IDisposable
     {
         var sdks = Directory.GetDirectories(Environment.GetEnvironmentVariable("CORVUS_DART_RELEASES")!, "dart-*").Order().ToList();
         Assert.NotEmpty(sdks);
+        var problems = new List<string>();
         foreach (var sdk in sdks)
         {
             var release = Path.GetFileName(sdk)[5..];
             var dart = Path.Combine(sdk, "dart-sdk", "bin", "dart" + (OperatingSystem.IsWindows() ? ".exe" : ""));
             var (program, text, symbols) = Compile("aot", dart, release);
-            output.WriteLine($"Dart {release}: layout {program.Layout ?? program.Unsupported}");
-            var (same, _) = Compare(program, text, symbols);
-            Assert.True(same * 100 >= program.Code.Count * 98, $"Dart {release}: {same} of {program.Code.Count}");
+            int same = program.Code.Count(c => symbols.TryGetValue(text + c.Offset, out var names) && names.Contains(c.Name));
+            output.WriteLine($"Dart {release}: layout {program.Layout ?? program.Unsupported}, {same} of {program.Code.Count} names equal");
+            if (program.Unsupported != null || same * 100 < program.Code.Count * 98) problems.Add($"Dart {release}: {same} of {program.Code.Count}");
             var at = program.Code.ToLookup(c => c.Name, c => text + c.Offset);
             foreach (var name in new[] { "main", "checksumOrders", "Ledger.balanceOf", "Ledger.totals", "LedgerEntry.describe" })
-                Assert.True(at[name].Any(address => symbols[address].Contains(name)), $"Dart {release}: {name}");
+                if (!at[name].Any(address => symbols.TryGetValue(address, out var names) && names.Contains(name))) problems.Add($"Dart {release}: {name}");
         }
+        Assert.True(problems.Count == 0, string.Join("; ", problems));
     }
 
     // The VM writes no read-only data image with compressed pointers: strings and code metadata are read from the stream.
