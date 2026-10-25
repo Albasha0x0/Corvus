@@ -207,8 +207,12 @@ public static partial class ExternalTools
     public static readonly ExternalTool ArchiveLister = new("7z", "7-Zip (test oracle)", "CORVUS_ARCHIVE_LISTER", ExternalToolKind.Executable,
         ["7z" + Exe], ["i"], 0, "oracle for disk image and archive readers in tests", true, Ops(("extract", ["x", "-y", "-snl", "-sccUTF-8", "-o{output}", "{file}"])));
 
+    // lzfse 1.0 (Apple's reference encoder, built from source) tested; it has no version option, so -h prints its usage.
+    public static readonly ExternalTool LzfseTool = new("lzfse", "lzfse (test oracle)", "CORVUS_LZFSE", ExternalToolKind.Executable,
+        ["lzfse" + Exe], ["-h"], 0, "oracle for the LZFSE decoder in tests", true, Ops(("encode", ["-encode", "-i", "{file}", "-o", "{output}"])));
+
     /// <summary>Every external program, in display order.</summary>
-    public static readonly IReadOnlyList<ExternalTool> Table = [Java, JavaDecompiler, JavaDecompiler2, PythonDecompiler, Adb, TShark, OsvScanner, GuardDog, Emulator, Capa, Aapt2, ApkSigner, DexDisassembler, ProtoCompiler, WasmText, WasmValidator, HbcDisassembler, DartSdk, FlutterSdk, RCodesign, ArchiveLister];
+    public static readonly IReadOnlyList<ExternalTool> Table = [Java, JavaDecompiler, JavaDecompiler2, PythonDecompiler, Adb, TShark, OsvScanner, GuardDog, Emulator, Capa, Aapt2, ApkSigner, DexDisassembler, ProtoCompiler, WasmText, WasmValidator, HbcDisassembler, DartSdk, FlutterSdk, RCodesign, ArchiveLister, LzfseTool];
 
     private static IEnumerable<(string, string)> WiresharkDirectories()
     {

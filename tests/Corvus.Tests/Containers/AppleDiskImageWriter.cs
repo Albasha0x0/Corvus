@@ -19,7 +19,7 @@ internal sealed class HfsPlusWriter
     private sealed record FileNode(string Path, byte[] Data, int Fragments) : Node(Path);
     private sealed record LinkNode(string Path, string Target) : Node(Path);
     private sealed record HardLinkNode(string Path, string Inode) : Node(Path);
-    private sealed record CompressedNode(string Path, byte[] Data, uint Type) : Node(Path);
+    private sealed record CompressedNode(string Path, byte[] Data, uint Type, byte[]? Encoded) : Node(Path);
     private sealed record MisplacedNode(string Path, long Size, uint Block) : Node(Path);
 
     private readonly List<Node> _nodes = [];
@@ -37,8 +37,11 @@ internal sealed class HfsPlusWriter
     /// <summary>A file whose one extent starts at <paramref name="block"/>, wherever that is.</summary>
     public HfsPlusWriter Misplaced(string path, long size, uint block) { _nodes.Add(new MisplacedNode(path, size, block)); return this; }
 
-    /// <summary>A decmpfs file: type 3 keeps zlib data in the attribute, type 4 in 64 KiB resource fork blocks.</summary>
-    public HfsPlusWriter Compressed(string path, byte[] data, uint type) { _nodes.Add(new CompressedNode(path, data, type)); return this; }
+    /// <summary>
+    /// A decmpfs file: types 3, 7 and 11 keep zlib, LZVN or LZFSE data in the attribute, types 4, 8 and 12 in 64 KiB
+    /// resource fork blocks. <paramref name="encoded"/> replaces the attribute's data as given.
+    /// </summary>
+    public HfsPlusWriter Compressed(string path, byte[] data, uint type, byte[]? encoded = null) { _nodes.Add(new CompressedNode(path, data, type, encoded)); return this; }
 
     private readonly record struct Extent(uint Start, uint Count);
 
@@ -134,8 +137,9 @@ internal sealed class HfsPlusWriter
                     BinaryPrimitives.WriteUInt64LittleEndian(header.AsSpan(8), (ulong)c.Data.Length);
                     byte[] resource = [];
                     var attr = header;
-                    if (c.Type == 3) attr = [.. header, .. Zlib(c.Data)];
-                    else resource = ResourceFork(c.Data);
+                    if (c.Type is 3 or 7 or 11) attr = [.. header, .. c.Encoded ?? (c.Type == 3 ? Zlib(c.Data) : c.Type == 7 ? LzvnLiterals(c.Data) : LzfseRaw(c.Data))];
+                    else if (c.Type == 4) resource = ResourceFork(c.Data);
+                    else resource = OffsetTableFork(c.Data, c.Type);
                     var rsrc = resource.Length == 0 ? Fork(0, []) : Fork(resource.Length, [new(Allocate(resource), Blocks(resource.Length))]);
                     catalog.Add((CatalogKey(parent, name), FileRecord(id, 0x81A4, Fork(0, []), ownerFlags: 0x20, resource: rsrc)));
                     attributes.Add((AttributeKey(id, "com.apple.decmpfs"), InlineAttribute(attr)));
@@ -270,6 +274,50 @@ internal sealed class HfsPlusWriter
     }
 
     /// <summary>A resource fork holding the decmpfs block table: 64 KiB blocks, each zlib.</summary>
+    /// <summary>An LZFSE stream of one raw (bvx-) block.</summary>
+    internal static byte[] LzfseRaw(byte[] data)
+    {
+        var w = new ByteWriter(false);
+        w.Bytes("bvx-"u8);
+        w.U32((uint)data.Length);
+        w.Bytes(data);
+        w.Bytes("bvx$"u8);
+        return w.ToArray();
+    }
+
+    /// <summary>An LZVN stream of literal runs (opcode 0xE0, up to 271 bytes each) and the end-of-stream opcode.</summary>
+    internal static byte[] LzvnLiterals(byte[] data)
+    {
+        var o = new MemoryStream();
+        for (int at = 0; at < data.Length;)
+        {
+            int n = Math.Min(271, data.Length - at);
+            if (n >= 16) { o.WriteByte(0xE0); o.WriteByte((byte)(n - 16)); }
+            else o.WriteByte((byte)(0xE0 | n));
+            o.Write(data, at, n);
+            at += n;
+        }
+        o.Write([6, 0, 0, 0, 0, 0, 0, 0]);
+        return o.ToArray();
+    }
+
+    // Types 8 and 12: block offsets from the fork's start, one more than the blocks. LZVN keeps its first block stored after 0x06.
+    private static byte[] OffsetTableFork(byte[] data, uint type)
+    {
+        var blocks = new List<byte[]>();
+        for (int at = 0, i = 0; at < data.Length; at += 65536, i++)
+        {
+            var part = data.AsSpan(at, Math.Min(65536, data.Length - at)).ToArray();
+            blocks.Add(type == 12 ? LzfseRaw(part) : i == 0 ? [0x06, .. part] : LzvnLiterals(part));
+        }
+        var w = new ByteWriter(false);
+        uint offset = (uint)(4 * (blocks.Count + 1));
+        foreach (var b in blocks) { w.U32(offset); offset += (uint)b.Length; }
+        w.U32(offset);
+        foreach (var b in blocks) w.Bytes(b);
+        return w.ToArray();
+    }
+
     private static byte[] ResourceFork(byte[] data)
     {
         var blocks = new List<byte[]>();
@@ -395,6 +443,7 @@ internal static class UdifWriter
                     0x80000004 => Adc(part),
                     0x80000005 => HfsPlusWriter.Zlib(part),
                     0x80000006 => Bzip2(part),
+                    0x80000007 => HfsPlusWriter.LzfseRaw(part),
                     _ => throw new ArgumentException($"method 0x{type:X8}"),
                 };
                 chunks.Add((type, at / 512, (part.Length + 511) / 512, fork.Position, packed.Length));

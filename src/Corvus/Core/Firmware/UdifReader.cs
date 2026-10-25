@@ -5,9 +5,8 @@ namespace Corvus.Core.Firmware;
 
 /// <summary>
 /// Apple disk images (UDIF, .dmg): the koly trailer and the partition table (blkx) of its XML property list. HFS+
-/// partitions are read in place through their chunks (raw, zero, ADC, zlib, bzip2, xz); other partitions are named, and
-/// a partition holding no filesystem read here is extracted as an image within the item limit. LZFSE chunks are named,
-/// not read.
+/// partitions are read in place through their chunks (raw, zero, ADC, zlib, bzip2, LZFSE, xz); other partitions are
+/// named, and a partition holding no filesystem read here is extracted as an image within the item limit.
 /// </summary>
 internal sealed class UdifReader : IContainerReader
 {
@@ -53,11 +52,6 @@ internal sealed class UdifReader : IContainerReader
             {
                 ct.ThrowIfCancellationRequested();
                 var label = $"partition {p.Index} ({p.Name}, {p.Sectors * SectorSize:N0} bytes)";
-                if (p.Chunks.Any(c => c.Type == 0x80000007))
-                {
-                    notes.Add($"{label}: LZFSE chunks, which are not read");
-                    continue;
-                }
                 using var image = new UdifStream(src, p);
                 var head = new byte[(int)Math.Min(image.Length, 4096)];
                 try { image.ReadExactly(head); }
@@ -261,6 +255,9 @@ internal sealed class UdifReader : IContainerReader
                 case 0x80000004: Adc(packed, output); break;
                 case 0x80000005: FsCodec.Decode("zlib", packed, output); break;
                 case 0x80000006: FsCodec.Decode("bzip2", packed, output); break;
+                case 0x80000007:
+                    if (Lzfse.Decode(packed, output) != output.Length) throw new InvalidDataException($"LZFSE chunk {i} decodes short of its {output.Length:N0} bytes");
+                    break;
                 case 0x80000008: FsCodec.Decode("xz", packed, output); break;
                 default: throw new InvalidDataException($"chunk type {MethodName(c.Type)} is not read");
             }

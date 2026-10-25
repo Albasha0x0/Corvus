@@ -10,7 +10,7 @@ namespace Corvus.Tests;
 /// <summary>Apple disk images (UDIF) and HFS+ volumes, built by <see cref="HfsPlusWriter"/> and <see cref="UdifWriter"/>.</summary>
 public sealed class AppleDiskImageTests(ITestOutputHelper output)
 {
-    private const uint Raw = 1, Adc = 0x80000004, Zlib = 0x80000005, Bzip2 = 0x80000006;
+    private const uint Raw = 1, Adc = 0x80000004, Zlib = 0x80000005, Bzip2 = 0x80000006, Lzfse = 0x80000007;
 
     private static byte[] Bytes(int n, int seed)
     {
@@ -99,22 +99,32 @@ public sealed class AppleDiskImageTests(ITestOutputHelper output)
     }
 
     [Fact]
-    public void A_partition_of_LZFSE_chunks_is_named_and_not_read()
+    public void A_disk_image_reads_its_LZFSE_chunks()
     {
-        var dmg = UdifWriter.Build([("disk image (Apple_HFS : 0)", Volume().Build())], Zlib);
-        // Retype the first stored chunk; its bytes stay zlib, so a reader that tried it would fail.
-        var text = Encoding.Latin1.GetString(dmg);
-        var mish = Convert.FromBase64String(System.Text.RegularExpressions.Regex.Match(text, "<data>([^<]+)</data>").Groups[1].Value);
-        int first = Enumerable.Range(0, 64).Select(i => 204 + 40 * i).First(at => mish[at] == 0x80);
-        mish[first + 3] = 7;
-        var patched = text.Replace(System.Text.RegularExpressions.Regex.Match(text, "<data>([^<]+)</data>").Groups[1].Value, Convert.ToBase64String(mish));
-        var bytes = Encoding.Latin1.GetBytes(patched);
-        // The property list changed length: rewrite the trailer's XML length.
-        System.Buffers.Binary.BinaryPrimitives.WriteUInt64BigEndian(bytes.AsSpan(bytes.Length - 512 + 224), (ulong)(bytes.Length - 512 - (long)System.Buffers.Binary.BinaryPrimitives.ReadUInt64BigEndian(bytes.AsSpan(bytes.Length - 512 + 216))));
-        var c = Containers.Open(bytes, "Ledger.dmg", AnalysisLimits.Default, default, allFiles: true);
-        Assert.Empty(c.Entries!);
-        Assert.Contains(c.Notes, n => n.Contains("LZFSE chunks, which are not read", StringComparison.Ordinal));
-        Assert.Contains("LZFSE", c.Notes[0], StringComparison.Ordinal);
+        var dmg = UdifWriter.Build([("disk image (Apple_HFS : 0)", Volume().Build())], Lzfse, Zlib);
+        var c = Containers.Open(dmg, "Ledger.dmg", AnalysisLimits.Default, default, allFiles: true);
+        AssertVolume(c);
+        Assert.Contains("chunks: LZFSE, zlib", c.Notes[0], StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Files_compressed_with_LZVN_or_LZFSE_read_from_the_attribute_and_the_resource_fork()
+    {
+        var small = LzfseTests.LedgerText(2000);
+        var large = Encoding.ASCII.GetBytes(string.Concat(Enumerable.Range(0, 12000).Select(i => $"ledger entry {i}\n")));
+        // The attribute of lzvn-apple.txt is Apple's encoding (bvxn) of the same text.
+        var c = Containers.Open(new HfsPlusWriter()
+            .Compressed("lzvn.txt", small, 7)
+            .Compressed("lzvn-blocks.txt", large, 8)
+            .Compressed("lzfse.txt", small, 11)
+            .Compressed("lzfse-blocks.txt", large, 12)
+            .Compressed("lzvn-apple.txt", small, 11, LzfseTests.Fixture("small.lzfse"))
+            .Build(), "ledger.hfs", AnalysisLimits.Default, default, allFiles: true);
+        var l = Listing(c);
+        Assert.True(large.Length > 2 * 65536);
+        foreach (var name in new[] { "lzvn.txt", "lzfse.txt", "lzvn-apple.txt" }) Assert.Equal(small, l[name].Bytes);
+        foreach (var name in new[] { "lzvn-blocks.txt", "lzfse-blocks.txt" }) Assert.Equal(large, l[name].Bytes);
+        Assert.Equal("decmpfs LZVN", l["lzvn-blocks.txt"].Detail);
     }
 
     [Fact]
