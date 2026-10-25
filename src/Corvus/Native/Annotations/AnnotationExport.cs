@@ -340,7 +340,7 @@ public static class AnnotationExport
     private static string Java(string s) => Py(s);
 }
 
-/// <summary>An imported name or comment at an RVA and the layer it comes from (nativeaot, il2cpp, objc, swift).</summary>
+/// <summary>An imported name or comment at an RVA and the layer it comes from (nativeaot, il2cpp, objc, swift, dart).</summary>
 public readonly record struct ImportedName(uint Rva, string? Name, string? Comment, string Source);
 
 /// <summary>
@@ -357,7 +357,7 @@ public sealed record ImportedNames(IReadOnlyList<ImportedName> Entries, string S
     public static ImportedNames Of(IReadOnlyList<NativeNameLayers.Layer> layers, NativeAnnotations user)
     {
         var merged = new Dictionary<uint, ImportedName>();
-        var used = layers.Where(l => l.Source is NativeNameSource.NativeAot or NativeNameSource.Il2Cpp or NativeNameSource.ObjC or NativeNameSource.Swift).OrderBy(l => l.Source.Rank()).ToList();
+        var used = layers.Where(l => l.Source is NativeNameSource.NativeAot or NativeNameSource.Il2Cpp or NativeNameSource.ObjC or NativeNameSource.Swift or NativeNameSource.Dart).OrderBy(l => l.Source.Rank()).ToList();
         foreach (var layer in used)
         {
             string source = layer.Source.Id();

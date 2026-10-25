@@ -17,7 +17,13 @@ internal sealed class FlutterFileView : IFileSummaryView
         public string? Image { get; init; }
 
         public Pool? StringPool { get; init; }
+
+        public Names? CodeNames { get; init; }
     }
+
+    /// <summary>Code named from the program snapshot's objects, as list_functions shows them (the dart layer).</summary>
+    public sealed record Names(int Functions, int Named,
+        [property: Description("Why the snapshot's objects were not read (another layout); the names are then unknown.")] string? Unsupported);
 
     /// <summary>The isolate snapshot's string pool in brief; search_container kind=dart pages every string.</summary>
     public sealed record Pool(long Start, long End, int PackageUris, int DartUris, int Identifiers,
@@ -57,7 +63,17 @@ internal sealed class FlutterFileView : IFileSummaryView
                 pool = new Pool(p.Start, p.End, p.PackageUris, p.DartUris, p.Identifiers, p.Packages, p.Libraries, p.Capped) { ImageStrings = p.ImageStrings };
                 notes.Add("search_container kind=dart lists every URI, identifier and image string of the pool with its offset.");
             }
-            var facts = new Facts("Dart AOT snapshot", snapshots, null, null, notes) { Image = inner, StringPool = pool };
+            Names? names = null;
+            if (snapshots.Any(x => x.Symbol == "kDartSnapshotData"))
+            {
+                try
+                {
+                    if (DartNames.Read(NativeImageLoader.FromBytes(bytes, file.Path), ct) is var (program, _))
+                        names = new Names(program.Functions, program.Code.Count, program.Unsupported);
+                }
+                catch (ToolError) { }
+            }
+            var facts = new Facts("Dart AOT snapshot", snapshots, null, null, notes) { Image = inner, StringPool = pool, CodeNames = names };
             string target = string.Join(" ", new[] { s.Architecture, s.Os }.Where(x => x != null));
             var highlights = new List<string>
             {
@@ -70,6 +86,9 @@ internal sealed class FlutterFileView : IFileSummaryView
                 highlights.Add($"Dart packages: {(pool.Packages.FirstOrDefault(x => x.Kind == "app") is { } app ? $"app {app.Name}; " : "")}{pub.Count} from pub" +
                                (pub.Count > 0 ? $" ({string.Join(", ", pub.Take(12).Select(x => x.Version != null ? $"{x.Name} {x.Version}" : x.Name))}{(pub.Count > 12 ? ", ..." : "")})" : "") + ".");
             }
+            if (names is { Unsupported: null })
+                highlights.Add($"{names.Named:N0} code objects named from {names.Functions:N0} functions of the snapshot (list_functions shows them).");
+            else if (names != null) highlights.Add($"Code names not read: {names.Unsupported}.");
             if (pool is { ImageStrings: > 0 })
                 highlights.Add($"{pool.ImageStrings:N0} strings only as string objects of the data or instructions image (search_container kind=dart).");
             return new FileView(facts, highlights);
@@ -97,8 +116,8 @@ internal sealed class FlutterFileView : IFileSummaryView
     }
 
     /// <summary>
-    /// The isolate's images read as objects: the data image after the clustered data, to the end of _kDartIsolateSnapshotData,
-    /// and _kDartIsolateSnapshotInstructions; none without those symbols.
+    /// The isolate's images read as objects: the data image after the clustered data, to the end of _kDartIsolateSnapshotData
+    /// (_kDartSnapshotData from Dart 3.13), and _kDartIsolateSnapshotInstructions (_kDartSnapshotText); none without those symbols.
     /// </summary>
     internal static List<DartImage> Images(byte[] bytes, string path, DartSnapshot isolate)
     {
@@ -110,9 +129,9 @@ internal sealed class FlutterFileView : IFileSummaryView
         {
             if (s.Size == 0 || !image.TryRvaToFileOffset(s.Rva, out long offset)) continue;
             var name = s.Name.TrimStart('_');
-            if (name == "kDartIsolateSnapshotData" && offset == isolate.Offset && isolate.Offset + 4 + isolate.Length < offset + (long)s.Size)
+            if (name is "kDartIsolateSnapshotData" or "kDartSnapshotData" && offset == isolate.Offset && isolate.Offset + 4 + isolate.Length < offset + (long)s.Size)
                 images.Add(new DartImage(isolate.Offset + 4 + isolate.Length, offset + (long)s.Size, "data image"));
-            else if (name == "kDartIsolateSnapshotInstructions")
+            else if (name is "kDartIsolateSnapshotInstructions" or "kDartSnapshotText")
                 images.Add(new DartImage(offset, offset + (long)s.Size, "instructions image"));
         }
         return images;

@@ -586,7 +586,7 @@ public sealed class NativeEditTools(AssemblyWorkspace workspace, NativeCodeServi
         {
             rows = [.. edits.Journal.Entries(native).Select(e => Row(native, e))];
             header = $"{native.Id}: native edits in the order made (undo_native_edit editId=...)\n" +
-                     (layers.Count > 0 ? "Names (priority user > pdb > nativeaot > il2cpp > objc > swift > ida > ghidra > discovered):\n" + string.Concat(layers.Select(l => $"  {l}\n")) : "");
+                     (layers.Count > 0 ? "Names (priority user > pdb > nativeaot > il2cpp > objc > swift > dart > napi > ida > ghidra > discovered):\n" + string.Concat(layers.Select(l => $"  {l}\n")) : "");
         }
         else
         {

@@ -10,7 +10,7 @@ namespace Corvus.Core;
 /// </summary>
 public sealed record DartSnapshot(long Offset, string Kind, long Length, string Hash, string Features)
 {
-    /// <summary>Set when a symbol (_kDartVmSnapshotData, _kDartIsolateSnapshotData) names the header's address.</summary>
+    /// <summary>Set when a symbol (_kDartSnapshotData, _kDartVmSnapshotData, _kDartIsolateSnapshotData) names the header's address.</summary>
     public string? Symbol { get; init; }
 
     private static readonly string[] Architectures = ["x64", "ia32", "arm", "arm64", "riscv32", "riscv64", "simarm", "simarm64"];
@@ -32,13 +32,16 @@ public static class DartScan
     private const int MaxSnapshots = 8, MaxFeatures = 1024;
     // kMagicValue 0xdcdcf5f5, little-endian on every target the AOT compiler emits.
     private static ReadOnlySpan<byte> Magic => [0xF5, 0xF5, 0xDC, 0xDC];
-    // Snapshot::Kind as Dart 2.13+ numbers it.
+    // Snapshot::Kind as Dart 2.13+ numbers it, and from dart-lang/sdk d36adbacaf (Dart 3.13), which dropped the VM
+    // isolate and kFullCore; images of that layout name one program snapshot, kDartSnapshotData.
     private static readonly string[] Kinds = ["full", "full-core", "full-jit", "full-aot", "none", "invalid"];
+    private static readonly string[] ProgramKinds = ["full", "full-jit", "full-aot", "module", "invalid"];
 
     /// <summary>Snapshot headers in file order: magic, int64 length, int64 kind, 32 hex characters, a NUL-terminated features string.</summary>
     public static List<DartSnapshot> Snapshots(ReadOnlySpan<byte> data, CancellationToken ct = default)
     {
         var found = new List<DartSnapshot>();
+        var kinds = ProgramLayout(data) ? ProgramKinds : Kinds;
         int from = 0;
         while (found.Count < MaxSnapshots && from < data.Length)
         {
@@ -47,17 +50,24 @@ public static class DartScan
             if (i < 0) break;
             int at = from + i;
             from = at + 4;
-            if (Header(data, at) is { } s) { found.Add(s); from = at + 52; }
+            if (Header(data, at, kinds) is { } s) { found.Add(s); from = at + 52; }
         }
         return found;
     }
 
-    private static DartSnapshot? Header(ReadOnlySpan<byte> d, int at)
+    /// <summary>The snapshot header at file offset <paramref name="at"/>, or null when none is there.</summary>
+    public static DartSnapshot? HeaderAt(ReadOnlySpan<byte> data, long at) =>
+        at is >= 0 and <= int.MaxValue ? Header(data, (int)at, ProgramLayout(data) ? ProgramKinds : Kinds) : null;
+
+    /// <summary>Whether the image names a single program snapshot (kDartSnapshotData) rather than VM and isolate snapshots.</summary>
+    private static bool ProgramLayout(ReadOnlySpan<byte> data) => data.IndexOf("kDartSnapshotData\0"u8) >= 0;
+
+    private static DartSnapshot? Header(ReadOnlySpan<byte> d, int at, string[] kinds)
     {
         if (at + 53 > d.Length) return null;
         long length = BinaryPrimitives.ReadInt64LittleEndian(d[(at + 4)..]);
         long kind = BinaryPrimitives.ReadInt64LittleEndian(d[(at + 12)..]);
-        if (length <= 0 || kind < 0 || kind >= Kinds.Length) return null;
+        if (length <= 0 || kind < 0 || kind >= kinds.Length) return null;
         var hash = d.Slice(at + 20, 32);
         foreach (byte c in hash)
             if (!char.IsAsciiHexDigitLower((char)c)) return null;
@@ -66,7 +76,7 @@ public static class DartScan
         if (end < 0) return null;
         foreach (byte c in rest[..end])
             if (c is < 0x20 or > 0x7E) return null;
-        return new DartSnapshot(at, Kinds[kind], length, Encoding.ASCII.GetString(hash), Encoding.ASCII.GetString(rest[..end]));
+        return new DartSnapshot(at, kinds[kind], length, Encoding.ASCII.GetString(hash), Encoding.ASCII.GetString(rest[..end]));
     }
 
     /// <summary>The Dart VM version string, as `dart --version` prints it: "3.5.0 (stable) (date) on \"android_arm64\"".</summary>

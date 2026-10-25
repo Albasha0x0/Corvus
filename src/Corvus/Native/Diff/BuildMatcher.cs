@@ -110,7 +110,7 @@ public sealed class BuildMatcher
             var oldExports = Exports(_old.Index);
             var newExports = Exports(_new.Index);
             UniqueKey(p => oldExports.GetValueOrDefault(p.Start), q => newExports.GetValueOrDefault(q.Start), 1, "name", null);
-            foreach (var source in new[] { NativeNameSource.Pdb, NativeNameSource.NativeAot, NativeNameSource.Il2Cpp, NativeNameSource.ObjC, NativeNameSource.Swift, NativeNameSource.User })
+            foreach (var source in new[] { NativeNameSource.Pdb, NativeNameSource.NativeAot, NativeNameSource.Il2Cpp, NativeNameSource.ObjC, NativeNameSource.Swift, NativeNameSource.Dart, NativeNameSource.User })
                 UniqueKey(p => _old.Index.Sourced.NameAt(p.Start, source), q => _new.Index.Sourced.NameAt(q.Start, source), 1, "name", null);
         }
         UniqueKey(p => p.Failed || p.Instructions < 2 ? null : p.BytesHash, 1, "identical_bytes", "identical_code");

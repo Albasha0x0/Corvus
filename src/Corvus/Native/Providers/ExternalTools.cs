@@ -180,8 +180,14 @@ public static partial class ExternalTools
         ["guarddog" + Exe], ["--version"], 3, "summarize_file view=package rules", false,
         Ops(("scan", ["{ecosystem}", "scan", "{file}", "--output-format=json"])));
 
+    // Dart 3.13.7 tested; --save-debugging-info alone also turns on DWARF stack traces, which drop most Function objects.
+    public static readonly ExternalTool DartSdk = new("dart", "Dart SDK (test oracle)", "CORVUS_DART", ExternalToolKind.Executable, ["dart" + Exe],
+        ["--version"], 3, "oracle for the Dart AOT snapshot reader in tests", true,
+        Ops(("aot", ["compile", "aot-snapshot", "-o", "{output}", "--extra-gen-snapshot-options=--save-debugging-info={debug}", "{source}"]),
+            ("aot-split", ["compile", "aot-snapshot", "-o", "{output}", "--save-debugging-info={debug}", "{source}"])));
+
     /// <summary>Every external program, in display order.</summary>
-    public static readonly IReadOnlyList<ExternalTool> Table = [Java, JavaDecompiler, JavaDecompiler2, PythonDecompiler, Adb, TShark, OsvScanner, GuardDog, Emulator, Capa, Aapt2, ApkSigner, DexDisassembler, ProtoCompiler, WasmText, WasmValidator, HbcDisassembler];
+    public static readonly IReadOnlyList<ExternalTool> Table = [Java, JavaDecompiler, JavaDecompiler2, PythonDecompiler, Adb, TShark, OsvScanner, GuardDog, Emulator, Capa, Aapt2, ApkSigner, DexDisassembler, ProtoCompiler, WasmText, WasmValidator, HbcDisassembler, DartSdk];
 
     private static IEnumerable<(string, string)> WiresharkDirectories()
     {
