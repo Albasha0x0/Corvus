@@ -15,23 +15,26 @@ public static class DartNames
     public const string AutoVariable = "CORVUS_AUTO_DART_NAMES";
 
     /// <summary>
-    /// The program of an image whose symbols name a snapshot (kDartSnapshotData) and its instructions (kDartSnapshotText),
-    /// with the instructions' RVA; null for other images.
+    /// The program of an image whose symbols name a program snapshot (kDartSnapshotData, kDartSnapshotText) or VM and
+    /// isolate snapshots (kDartVmSnapshotData, kDartIsolateSnapshotData, kDartIsolateSnapshotInstructions), with the RVA of
+    /// the instructions its code offsets count from; null for other images.
     /// </summary>
     public static (DartProgram Program, uint TextRva)? Read(INativeImage image, CancellationToken ct = default)
     {
-        uint? data = null, text = null;
+        var symbols = new Dictionary<string, uint>(StringComparer.Ordinal);
         foreach (var (name, rva) in image.Exports.Where(e => e.Name != null).Select(e => (e.Name!, e.Rva)).Concat(image.Symbols.Select(s => (s.Name, s.Rva))))
-            switch (name.TrimStart('_'))
-            {
-                case "kDartSnapshotData": data ??= rva; break;
-                case "kDartSnapshotText": text ??= rva; break;
-            }
-        if (data is not { } dataRva || text is not { } textRva || !image.TryRvaToFileOffset(dataRva, out long offset)) return null;
+            symbols.TryAdd(name.TrimStart('_'), rva);
         var bytes = Native.Dwarf.DwarfLocator.FileBytes(image).Span;
-        if (DartScan.HeaderAt(bytes, offset) is not { } header) return null;
-        return (DartProgramReader.Read(bytes, header with { Symbol = "kDartSnapshotData" }, ct), textRva);
+        if (symbols.TryGetValue("kDartSnapshotText", out var text) && Header(image, bytes, symbols, "kDartSnapshotData") is { } program)
+            return (DartProgramReader.Read(bytes, program, ct), text);
+        if (symbols.TryGetValue("kDartIsolateSnapshotInstructions", out var isolateText) && Header(image, bytes, symbols, "kDartIsolateSnapshotData") is { } isolate)
+            return (DartProgramReader.Read(bytes, Header(image, bytes, symbols, "kDartVmSnapshotData"), isolate, ct), isolateText);
+        return null;
     }
+
+    private static DartSnapshot? Header(INativeImage image, ReadOnlySpan<byte> bytes, Dictionary<string, uint> symbols, string symbol) =>
+        symbols.TryGetValue(symbol, out var rva) && image.TryRvaToFileOffset(rva, out long offset) && DartScan.HeaderAt(bytes, offset) is { } h
+            ? h with { Symbol = symbol } : null;
 
     /// <summary>On the index build thread: sets the dart layer and returns the code starts it names; null for other images or when turned off.</summary>
     public static IReadOnlyCollection<uint>? AutoApply(LoadedNative native, NativeCodeService code, CancellationToken ct)

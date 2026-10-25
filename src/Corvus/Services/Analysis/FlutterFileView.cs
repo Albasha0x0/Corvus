@@ -64,7 +64,7 @@ internal sealed class FlutterFileView : IFileSummaryView
                 notes.Add("search_container kind=dart lists every URI, identifier and image string of the pool with its offset.");
             }
             Names? names = null;
-            if (snapshots.Any(x => x.Symbol == "kDartSnapshotData"))
+            if (snapshots.Any(x => x.Symbol is "kDartSnapshotData" or "kDartIsolateSnapshotData"))
             {
                 try
                 {

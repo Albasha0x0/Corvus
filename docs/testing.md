@@ -262,6 +262,7 @@ describe.
 | `CORVUS_DEBUG_ARGS` | `1` prints the call sites whose arguments were not recovered in the system DLL recovery run. | CallArgumentTests |
 | `CORVUS_DIFF_PAIRS` | Build pairs matched per source (default 6). | NativeDiffRealTests |
 | `CORVUS_DMG_DIR` | A folder of Apple disk images (.dmg) whose files, links and bytes are compared with 7-Zip's extraction. | AppleDiskImageTests |
+| `CORVUS_DART_RELEASES` | A folder of Dart SDK releases (`dart-<version>/dart-sdk`); each compiles a sample whose code names are compared with its debug symbols. | DartSdkProgramTests |
 | `CORVUS_ELECTRON_APPS` | A folder of installed Electron apps; every .asar below it (six levels) is read. | ElectronGraphTests, ElectronTests, JsEndpointsTests, NodeApiTests |
 | `CORVUS_ELF_CORES` | A folder of Linux or Android ELF core files, with the program's libraries beside them. | ElfCoreTests |
 | `CORVUS_EXPORT_LIST` | A file listing assemblies whose exported projects must build; errors go to `<list>.report.txt`. | ExportBuildTests |

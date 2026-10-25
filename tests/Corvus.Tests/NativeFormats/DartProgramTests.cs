@@ -4,6 +4,7 @@ using Corvus.Native;
 using Corvus.Native.Annotations;
 using Corvus.Native.Code;
 using Corvus.Services;
+using Corvus.Services.Analysis;
 
 namespace Corvus.Tests.NativeFormats;
 
@@ -14,9 +15,11 @@ public sealed class DartProgramTests
 
     private sealed record Sample(byte[] Bytes, DartProgramWriter Writer, Dictionary<string, int> Functions, int Ledger, int AllocationStub, int VmStub);
 
-    private static Sample Program(string? features = null)
+    private static Sample Program(string? features = null, bool split = false)
     {
-        var w = new DartProgramWriter { Features = features ?? DartProgramWriter.DefaultFeatures };
+        var w = new DartProgramWriter { Features = features ?? DartProgramWriter.DefaultFeatures, Split = split };
+        // Dart 3.12's kGrowableObjectArrayCid: a predefined class, listed first in a split image.
+        int? list = split ? w.Class("_GrowableList@0150898", 92) : null;
         int ledger = w.Class("Ledger", 200), library = w.Class("::", TopLevel), account = w.Class("_Account@71234", 201), mixin = w.Class("_Base&Object&Totals", 202);
         var f = new Dictionary<string, int>
         {
@@ -29,6 +32,7 @@ public sealed class DartProgramTests
             ["sum"] = w.Function("sum", mixin),
         };
         f["closure"] = w.Function("<anonymous closure>", ledger, kind: 1, closureParent: f["balanceOf"]);
+        if (list is { } l) f["add"] = w.Function("add", l);
         int allocation = w.CodeCount;
         w.Stub(ledger);
         int vm = w.CodeCount;
@@ -89,6 +93,33 @@ public sealed class DartProgramTests
     }
 
     [Theory]
+    [InlineData(DartProgramWriter.DefaultFeatures)]
+    [InlineData("product no-dwarf_stack_traces x64 android compressed-pointers")]
+    public void A_Dart_3_12_image_names_its_code_from_its_VM_and_isolate_snapshots(string features)
+    {
+        var s = Program(features, split: true);
+        var program = Read(s.Bytes);
+        Assert.Null(program.Unsupported);
+        Assert.Equal("3.12", program.Layout);
+        var at = program.Code.ToDictionary(c => ElfWriter.TextRva + c.Offset, c => c.Name);
+        // Strings from both snapshots: the VM snapshot holds the first half.
+        Assert.Equal("Ledger.balanceOf", at[s.Writer.AddressOf(s.Functions["balanceOf"])]);
+        Assert.Equal("Totals.sum", at[s.Writer.AddressOf(s.Functions["sum"])]);
+        Assert.Equal("Ledger.balanceOf.<anonymous closure>", at[s.Writer.AddressOf(s.Functions["closure"])]);
+        Assert.Equal("List.add", at[s.Writer.AddressOf(s.Functions["add"])]);
+        Assert.Equal("new Ledger", at[s.Writer.StubAddress(s.AllocationStub)]);
+        Assert.Equal((9, 1), (program.Functions, program.Unnamed));
+    }
+
+    [Fact]
+    public void The_flutter_view_counts_the_names_of_a_Dart_3_12_image()
+    {
+        var bytes = Program(split: true).Bytes;
+        var facts = (FlutterFileView.Facts)new FlutterFileView().Inspect(new FileInput("libapp.so", bytes, Blob.Identify(bytes)), default)!.Detail;
+        Assert.Equal((9, 10, null), (facts.CodeNames!.Functions, facts.CodeNames.Named, facts.CodeNames.Unsupported));
+    }
+
+    [Theory]
     [InlineData("release x64 linux no-compressed-pointers", "non-product")]
     [InlineData("product ia32 linux", "ia32")]
     public void A_snapshot_of_another_layout_is_reported_unread(string features, string reason)
@@ -99,11 +130,11 @@ public sealed class DartProgramTests
     }
 
     [Fact]
-    public void A_snapshot_beside_a_VM_snapshot_is_reported_unread()
+    public void An_isolate_snapshot_without_its_VM_snapshot_is_reported_unread()
     {
-        var bytes = Program().Bytes;
-        var snapshot = DartScan.Snapshots(bytes).Single() with { Symbol = "kDartIsolateSnapshotData" };
-        Assert.Contains("Dart before 3.13", DartProgramReader.Read(bytes, snapshot).Unsupported);
+        var bytes = Program(split: true).Bytes;
+        var snapshot = DartScan.Snapshots(bytes)[1] with { Symbol = "kDartIsolateSnapshotData" };
+        Assert.Contains("without its VM snapshot", DartProgramReader.Read(bytes, snapshot).Unsupported);
     }
 
     [Fact]
@@ -144,9 +175,12 @@ public sealed class DartProgramTests
     [FuzzEntry(typeof(DartProgramReader))]
     public void Fuzzed_program_snapshot_never_throws()
     {
-        var failures = FormatFuzz.Run([Program().Bytes], 1500, 13, b =>
+        var failures = FormatFuzz.Run([Program().Bytes, Program(split: true).Bytes], 1500, 13, b =>
         {
-            foreach (var snapshot in DartScan.Snapshots(b)) DartProgramReader.Read(b, snapshot with { Symbol = "kDartSnapshotData" });
+            var snapshots = DartScan.Snapshots(b);
+            foreach (var snapshot in snapshots) DartProgramReader.Read(b, snapshot with { Symbol = "kDartSnapshotData" });
+            if (snapshots.Count >= 2)
+                DartProgramReader.Read(b, snapshots[0] with { Symbol = "kDartVmSnapshotData" }, snapshots[1] with { Symbol = "kDartIsolateSnapshotData" });
         });
         Assert.True(failures.Count == 0, string.Join("\n", failures.Take(5)));
     }

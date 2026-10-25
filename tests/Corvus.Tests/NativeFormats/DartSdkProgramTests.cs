@@ -7,9 +7,9 @@ using Xunit.Abstractions;
 namespace Corvus.Tests.NativeFormats;
 
 /// <summary>
-/// Code names read from snapshots the Dart SDK (CORVUS_DART) and Flutter's gen_snapshot (CORVUS_FLUTTER) compile, compared
-/// with the debug symbols the compiler writes beside them (--save-debugging-info), which name each code address as the VM
-/// prints it.
+/// Code names read from snapshots the Dart SDK (CORVUS_DART), earlier Dart releases (CORVUS_DART_RELEASES) and Flutter's
+/// gen_snapshot (CORVUS_FLUTTER) compile, compared with the debug symbols the compiler writes beside them
+/// (--save-debugging-info), which name each code address as the VM prints it.
 /// </summary>
 [Trait("Speed", "Slow")]
 [Permit("reference-tool")]
@@ -66,13 +66,13 @@ public sealed class DartSdkProgramTests(ITestOutputHelper output) : IDisposable
     /// Compiles <see cref="Source"/> with <paramref name="op"/> and returns the read program, its instructions' RVA and the
     /// debug symbols by address.
     /// </summary>
-    private (DartProgram Program, uint Text, Dictionary<uint, HashSet<string>> Symbols) Compile(string op)
+    private (DartProgram Program, uint Text, Dictionary<uint, HashSet<string>> Symbols) Compile(string op, string? dart = null, string name = "ledger")
     {
-        var source = _dir.File($"{op}.dart");
+        var source = _dir.File($"{name}-{op}.dart");
         File.WriteAllText(source, Source);
-        string snapshot = _dir.File($"{op}.aot"), debug = _dir.File($"{op}.debug");
+        string snapshot = _dir.File($"{name}-{op}.aot"), debug = _dir.File($"{name}-{op}.debug");
         var tool = ExternalTools.DartSdk;
-        var run = ExternalTools.Run(ExternalTools.Locate(tool)!.Value.Path, ExternalTools.Arguments(tool, op, ("output", snapshot), ("debug", debug), ("source", source)),
+        var run = ExternalTools.Run(dart ?? ExternalTools.Locate(tool)!.Value.Path, ExternalTools.Arguments(tool, op, ("output", snapshot), ("debug", debug), ("source", source)),
             TimeSpan.FromMinutes(5), 1 << 20, default);
         Assert.True(run.ExitCode == 0, run.Stderr + run.Text);
         var (program, text) = DartNames.Read(NativeImageLoader.FromBytes(File.ReadAllBytes(snapshot), snapshot))!.Value;
@@ -139,6 +139,26 @@ public sealed class DartSdkProgramTests(ITestOutputHelper output) : IDisposable
         var at = program.Code.ToLookup(c => c.Name, c => text + c.Offset);
         foreach (var name in new[] { "main", "checksumOrders", "Ledger.balanceOf", "Ledger.totals", "LedgerEntry.describe", "new Ledger", "new LedgerEntry" })
             Assert.True(at[name].Any(address => symbols[address].Contains(name)), name);
+    }
+
+    // Each folder dart-<version>/dart-sdk holds one release; releases before 3.13 write VM and isolate snapshots.
+    [RequiresRealDataFact("CORVUS_DART_RELEASES")]
+    public void Earlier_releases_name_their_code_as_their_debug_symbols_do()
+    {
+        var sdks = Directory.GetDirectories(Environment.GetEnvironmentVariable("CORVUS_DART_RELEASES")!, "dart-*").Order().ToList();
+        Assert.NotEmpty(sdks);
+        foreach (var sdk in sdks)
+        {
+            var release = Path.GetFileName(sdk)[5..];
+            var dart = Path.Combine(sdk, "dart-sdk", "bin", "dart" + (OperatingSystem.IsWindows() ? ".exe" : ""));
+            var (program, text, symbols) = Compile("aot", dart, release);
+            output.WriteLine($"Dart {release}: layout {program.Layout ?? program.Unsupported}");
+            var (same, _) = Compare(program, text, symbols);
+            Assert.True(same * 100 >= program.Code.Count * 98, $"Dart {release}: {same} of {program.Code.Count}");
+            var at = program.Code.ToLookup(c => c.Name, c => text + c.Offset);
+            foreach (var name in new[] { "main", "checksumOrders", "Ledger.balanceOf", "Ledger.totals", "LedgerEntry.describe" })
+                Assert.True(at[name].Any(address => symbols[address].Contains(name)), $"Dart {release}: {name}");
+        }
     }
 
     // The VM writes no read-only data image with compressed pointers: strings and code metadata are read from the stream.

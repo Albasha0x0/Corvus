@@ -6,7 +6,9 @@ namespace Corvus.Tests.NativeFormats;
 /// <summary>
 /// Builds a Dart 3.13 AOT program snapshot (product, x64) in an ELF image: one-byte strings, then Code, Function, Class
 /// and ClosureData clusters, and an instructions table that places each code. Strings go in the data image, or in the
-/// stream when <see cref="Features"/> names compressed-pointers. Ref 1 is the only base object (null).
+/// stream when <see cref="Features"/> names compressed-pointers. Ref 1 is the only base object (null). With
+/// <see cref="Split"/>, a Dart 3.12 VM snapshot holds the first half of the strings and an isolate snapshot the rest,
+/// numbered on from the VM snapshot's objects; classes with predefined cids lead the Class cluster.
 /// </summary>
 internal sealed class DartProgramWriter
 {
@@ -21,6 +23,10 @@ internal sealed class DartProgramWriter
     private int _discarded;
 
     public string Features { get; init; } = DefaultFeatures;
+    public bool Split { get; init; }
+
+    // Dart 3.12's kNumPredefinedCids.
+    private const int Predefined312 = 175;
 
     // Ref layout: 1 null, then strings, codes, functions, classes, closure data.
     private int StringRef(int i) => 2 + i;
@@ -84,18 +90,17 @@ internal sealed class DartProgramWriter
     public byte[] Build()
     {
         bool compressed = Features.Split(' ').Contains("compressed-pointers");
+        int vmStrings = Split ? _strings.Count / 2 : 0;
+        int predefined = Split ? _classes.TakeWhile(c => c.Cid < Predefined312).Count() : 0;
+        if (Split && _classes.Skip(predefined).Any(c => c.Cid < Predefined312)) throw new InvalidOperationException("predefined classes go first");
         var stream = new List<byte>();
         int objects = 1 + _strings.Count + _codeOwners.Count + _functions.Count + _classes.Count + _closureParents.Count;
-        int clusters = 5;
+        var isolateStrings = _strings.Skip(vmStrings).ToList();
+        int clusters = isolateStrings.Count > 0 ? 5 : 4;
 
         // Data image: strings at 16-byte aligned offsets, then InstructionsTable::Data as a one-byte string's payload.
         var image = new List<byte>(new byte[16]);
-        var offsets = new List<int>();
-        foreach (var s in _strings)
-        {
-            offsets.Add(image.Count);
-            image.AddRange(StringObject(94, Encoding.Latin1.GetBytes(s)));
-        }
+        var offsets = StringObjects(image, isolateStrings);
         int tableAt = image.Count;
         int entries = _discarded + _codeOwners.Count;
         var table = new byte[16 + 8 * entries];
@@ -104,18 +109,13 @@ internal sealed class DartProgramWriter
         for (int i = 0; i < entries; i++) BinaryPrimitives.WriteUInt32LittleEndian(table.AsSpan(16 + 8 * i), (uint)(i * CodeSpacing));
         image.AddRange(StringObject(94, table));
 
-        Unsigned(stream, 1);
+        Unsigned(stream, 1 + vmStrings);
         Unsigned(stream, objects);
         Unsigned(stream, clusters);
         Unsigned(stream, entries);
         Unsigned(stream, tableAt);
 
-        // Alloc. In the stream a string's length and cid are one value: length << 1, bit 0 for two-byte characters.
-        Signed(stream, (compressed ? 93 : 94) << 12);
-        Unsigned(stream, _strings.Count);
-        int previous = 0;
-        if (compressed) foreach (var t in _strings) Unsigned(stream, t.Length << 1);
-        else foreach (var o in offsets) { Unsigned(stream, (o - previous) >> 4); previous = o; }
+        if (isolateStrings.Count > 0) StringAlloc(stream, isolateStrings, offsets, compressed);
         Signed(stream, 18 << 12);
         Unsigned(stream, _codeOwners.Count);
         foreach (var _ in _codeOwners) Signed(stream, 0);
@@ -123,19 +123,24 @@ internal sealed class DartProgramWriter
         Signed(stream, 7 << 12);
         Unsigned(stream, _functions.Count);
         Signed(stream, 5 << 12);
-        Unsigned(stream, _classes.Count);
+        if (Split)
+        {
+            // Predefined classes by cid, then the count of new ones.
+            Unsigned(stream, predefined);
+            foreach (var (_, cid) in _classes.Take(predefined)) Signed(stream, cid);
+            Unsigned(stream, _classes.Count - predefined);
+        }
+        else Unsigned(stream, _classes.Count);
         Signed(stream, 9 << 12);
         Unsigned(stream, _closureParents.Count);
 
         // Fill: strings when in the stream, then Code, Function, Class, ClosureData.
-        if (compressed)
-            foreach (var t in _strings)
-            {
-                Unsigned(stream, t.Length << 1);
-                stream.AddRange(Encoding.Latin1.GetBytes(t));
-            }
-        Ref(stream, 1);
-        Ref(stream, 1);
+        if (compressed) StringFill(stream, isolateStrings);
+        if (!Split)
+        {
+            Ref(stream, 1);
+            Ref(stream, 1);
+        }
         foreach (var owner in _codeOwners)
         {
             Unsigned(stream, 0);
@@ -152,8 +157,9 @@ internal sealed class DartProgramWriter
             Unsigned(stream, f.Discarded ? 1 + discardedSeen++ : 1 + _discarded + f.Code!.Value);
             Signed(stream, f.Kind);
         }
-        foreach (var (name, cid) in _classes)
+        for (int i = 0; i < _classes.Count; i++)
         {
+            var (name, cid) = _classes[i];
             Ref(stream, StringRef(name));
             for (int k = 0; k < 12; k++) Ref(stream, 1);
             Signed(stream, cid);
@@ -161,7 +167,7 @@ internal sealed class DartProgramWriter
             Signed(stream, 0);
             Signed(stream, 0);
             Signed(stream, 0);
-            if (cid < 1 << 20) Unsigned(stream, 0);
+            if (i < predefined || cid < 1 << 20) Unsigned(stream, 0);
         }
         foreach (var parent in _closureParents)
         {
@@ -170,6 +176,86 @@ internal sealed class DartProgramWriter
             Unsigned(stream, 0);
         }
 
+        var isolate = Block(stream, image, Split ? 3 : 2);
+        var vm = Array.Empty<byte>();
+        if (Split)
+        {
+            // The VM snapshot: null, then its strings; no instructions table.
+            var vmStream = new List<byte>();
+            var vmImage = new List<byte>(new byte[16]);
+            var vmText = _strings.Take(vmStrings).ToList();
+            var vmOffsets = StringObjects(vmImage, vmText);
+            Unsigned(vmStream, 1);
+            Unsigned(vmStream, 1 + vmStrings);
+            Unsigned(vmStream, vmStrings > 0 ? 1 : 0);
+            Unsigned(vmStream, 0);
+            Unsigned(vmStream, 0);
+            if (vmStrings > 0)
+            {
+                StringAlloc(vmStream, vmText, vmOffsets, compressed);
+                if (compressed) StringFill(vmStream, vmText);
+            }
+            var block = Block(vmStream, vmImage, 3);
+            vm = new byte[(block.Length + 63) / 64 * 64];
+            block.CopyTo(vm, 0);
+        }
+        byte[] data = [.. vm, .. isolate];
+
+        var text = new byte[Math.Max(1, entries) * CodeSpacing];
+        Array.Fill(text, (byte)0xC3);
+        uint isolateRva = ElfWriter.DataRva + (uint)vm.Length;
+        return new ElfWriter
+        {
+            Machine = ElfWriter.EmX64, Text = text, Data = data,
+            Symbols = Split
+                ?
+                [
+                    new("_kDartVmSnapshotInstructions", ElfWriter.TextRva, 0, Type: 2),
+                    new("_kDartIsolateSnapshotInstructions", ElfWriter.TextRva, (uint)text.Length, Type: 2),
+                    new("_kDartVmSnapshotData", ElfWriter.DataRva, (uint)vm.Length, Type: 1),
+                    new("_kDartIsolateSnapshotData", isolateRva, (uint)isolate.Length, Type: 1),
+                ]
+                :
+                [
+                    new("_kDartSnapshotText", ElfWriter.TextRva, (uint)text.Length, Type: 2),
+                    new("_kDartSnapshotData", ElfWriter.DataRva, (uint)data.Length, Type: 1),
+                ],
+        }.Build();
+    }
+
+    private static List<int> StringObjects(List<byte> image, List<string> strings)
+    {
+        var offsets = new List<int>();
+        foreach (var s in strings)
+        {
+            offsets.Add(image.Count);
+            image.AddRange(StringObject(94, Encoding.Latin1.GetBytes(s)));
+        }
+        return offsets;
+    }
+
+    /// <summary>A string cluster's alloc. In the stream a string's length and cid are one value: length &lt;&lt; 1, bit 0 for two-byte characters.</summary>
+    private static void StringAlloc(List<byte> stream, List<string> strings, List<int> offsets, bool compressed)
+    {
+        Signed(stream, (compressed ? 93 : 94) << 12);
+        Unsigned(stream, strings.Count);
+        int previous = 0;
+        if (compressed) foreach (var t in strings) Unsigned(stream, t.Length << 1);
+        else foreach (var o in offsets) { Unsigned(stream, (o - previous) >> 4); previous = o; }
+    }
+
+    private static void StringFill(List<byte> stream, List<string> strings)
+    {
+        foreach (var t in strings)
+        {
+            Unsigned(stream, t.Length << 1);
+            stream.AddRange(Encoding.Latin1.GetBytes(t));
+        }
+    }
+
+    /// <summary>A snapshot of <paramref name="kind"/>: header, features, the stream, then its data image at the next 64-byte boundary.</summary>
+    private byte[] Block(List<byte> stream, List<byte> image, int kind)
+    {
         var header = new List<byte>(new byte[20]);
         header.AddRange(Encoding.ASCII.GetBytes("0451907c2eaa8467e848c0067bfe8ed4"));
         header.AddRange(Encoding.ASCII.GetBytes(Features));
@@ -178,22 +264,11 @@ internal sealed class DartProgramWriter
         var snapshot = header.ToArray();
         BinaryPrimitives.WriteUInt32LittleEndian(snapshot, 0xdcdcf5f5);
         BinaryPrimitives.WriteInt64LittleEndian(snapshot.AsSpan(4), snapshot.Length - 4);
-        BinaryPrimitives.WriteInt64LittleEndian(snapshot.AsSpan(12), 2);
+        BinaryPrimitives.WriteInt64LittleEndian(snapshot.AsSpan(12), kind);
         var data = new byte[(snapshot.Length + 63) / 64 * 64 + image.Count];
         snapshot.CopyTo(data, 0);
         image.CopyTo(data, (snapshot.Length + 63) / 64 * 64);
-
-        var text = new byte[Math.Max(1, entries) * CodeSpacing];
-        Array.Fill(text, (byte)0xC3);
-        return new ElfWriter
-        {
-            Machine = ElfWriter.EmX64, Text = text, Data = data,
-            Symbols =
-            [
-                new("_kDartSnapshotText", ElfWriter.TextRva, (uint)text.Length, Type: 2),
-                new("_kDartSnapshotData", ElfWriter.DataRva, (uint)data.Length, Type: 1),
-            ],
-        }.Build();
+        return data;
     }
 
     /// <summary>A string object: tags with the class id, a Smi length at +8, the bytes at +16, padded to 16.</summary>
