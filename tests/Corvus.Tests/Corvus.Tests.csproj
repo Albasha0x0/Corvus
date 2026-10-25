@@ -63,6 +63,7 @@
     <None Include="Containers\GameMakerFixtures\*.win" CopyToOutputDirectory="PreserveNewest" />
     <None Include="Containers\LuaFixtures\*.luac;Containers\LuaFixtures\*.ljbc" CopyToOutputDirectory="PreserveNewest" />
     <None Include="Containers\AutoItFixtures\*.a3x;Containers\AutoItFixtures\*.au3;Containers\AutoItFixtures\notes.txt;Containers\AutoItFixtures\build.ps1;Containers\AutoItFixtures\reference.py" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="Databases\LevelDbFixtures\**" CopyToOutputDirectory="PreserveNewest" />
     <None Include="Containers\LinuxAppFixtures\*.AppImage;Containers\LinuxAppFixtures\*.snap;Containers\LinuxAppFixtures\*.sh;Containers\LinuxAppFixtures\*.py" CopyToOutputDirectory="PreserveNewest" />
     <None Include="Containers\RpmFixtures\*.rpm;Containers\RpmFixtures\*.sh;Containers\RpmFixtures\*.spec" CopyToOutputDirectory="PreserveNewest" />
     <None Include="Containers\GodotFixtures\*.pck;Containers\GodotFixtures\*.gd" CopyToOutputDirectory="PreserveNewest" />

@@ -38,9 +38,9 @@ public sealed class InspectionTools(InspectionService inspection, AssemblyWorksp
         {
             var name = string.IsNullOrWhiteSpace(view) ? "overview" : view.Trim().ToLowerInvariant();
             if ((table != null || columns != null) && name is not ("sqlite" or "sqlite-recover")
-                || limit != null && name is not ("sqlite" or "sqlite-recover" or "protobuf" or "layers" or "unity")
-                || offset != 0 && name is not ("sqlite" or "sqlite-recover" or "protobuf" or "layers" or "script" or "unity"))
-                throw new ToolError(ErrorCode.InvalidArgument, "table, columns, offset and limit page the rows of view=sqlite and view=sqlite-recover (offset and limit also view=protobuf, view=layers and view=unity, offset view=script).",
+                || limit != null && name is not ("sqlite" or "sqlite-recover" or "protobuf" or "layers" or "unity" or "leveldb")
+                || offset != 0 && name is not ("sqlite" or "sqlite-recover" or "protobuf" or "layers" or "script" or "unity" or "leveldb"))
+                throw new ToolError(ErrorCode.InvalidArgument, "table, columns, offset and limit page the rows of view=sqlite and view=sqlite-recover (offset and limit also view=protobuf, view=layers, view=unity and view=leveldb, offset view=script).",
                     "pass view=sqlite with table=, or drop them");
             if (script != null && name != "unity") throw new ToolError(ErrorCode.InvalidArgument, "script selects the assets of view=unity.", "pass view=unity with script=, or drop it");
             if (columns != null && table == null) throw new ToolError(ErrorCode.InvalidArgument, "columns selects columns of a table: pass table= with it.");

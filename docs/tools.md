@@ -559,7 +559,7 @@ First look at a file or assembly, not run: type, hashes, signature, containers, 
 |---|---|---|---|---|
 | `path` | string |  |  | File (assembly, executable, bundle, package, zip, .asar), .app or source folder. |
 | `assembly` | string |  |  | A loaded assembly; pass this or path. |
-| `view` | string |  | `overview` | A view the overview lists. Values: overview, managed, dependencies, android, apple, electron, firmware, flutter, go, harmony, hermes, installer, layers, lnk, native, nib, office, package, page, pcap, pdf, plist, protobuf, python, raw, rust, script, sqlite, sqlite-recover, unity, wasm, xbf, all. |
+| `view` | string |  | `overview` | A view the overview lists. Values: overview, managed, dependencies, android, apple, electron, firmware, flutter, go, harmony, hermes, installer, layers, leveldb, lnk, native, nib, office, package, page, pcap, pdf, plist, protobuf, python, raw, rust, script, sqlite, sqlite-recover, unity, wasm, xbf, all. |
 | `table` | string |  |  | sqlite, sqlite-recover: table to page. |
 | `columns` | string[] |  |  | With table=: these columns (rowid too). |
 | `script` | string |  |  | unity: only assets of this script class. |

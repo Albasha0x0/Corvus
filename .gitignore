@@ -19,6 +19,8 @@ Thumbs.db
 # Local data and scratch files
 *.bak
 *.log
+# LevelDB write-ahead logs are fixture data.
+!tests/Corvus.Tests/Databases/LevelDbFixtures/**/*.log
 *.report.txt
 *.cleanup-log.txt
 .env
