@@ -16,6 +16,8 @@ internal sealed class ArchiveReader : IContainerReader
 
     private static string? Format(ReadOnlySpan<byte> b)
     {
+        // A disk image's first chunk may be xz or bzip2: its koly trailer wins.
+        if (Firmware.UdifReader.Looks(b)) return null;
         if (b.Length > 262 && b[257..262].SequenceEqual("ustar"u8)) return "tar";
         if (b.StartsWith((ReadOnlySpan<byte>)[0x1F, 0x8B])) return "gzip";
         if (b.StartsWith((ReadOnlySpan<byte>)[0xFD, 0x37, 0x7A, 0x58, 0x5A, 0x00])) return "xz";

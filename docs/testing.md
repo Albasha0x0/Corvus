@@ -245,7 +245,6 @@ describe.
 | `CORVUS_AGENT_SERVER` | The server the agent task runner starts instead of this repository's build. | tests/agents/run-tasks.ps1 |
 | `CORVUS_ALL_TESTS` | `1` runs the full set: real-library builds, whole-server sweeps and the downloads the quick set leaves out. | FormatFuzz, FridaEnvironmentTests, test-remote.psm1, test-reuse.psm1, test.ps1 |
 | `CORVUS_ANDROID_PACKAGE` | A real Android package (.apk, .aab or split set). | AndroidRealTests, DalvikDisassemblerTests, OutputBudgetTests |
-| `CORVUS_ARCHIVE_LISTER` | The 7-Zip command line the NSIS listings are compared with. | InstallerComparisonTests |
 | `CORVUS_ASSEMBLY_DIR` | A folder of real .NET assemblies. | CppBindingTests, RealAssemblyTests, SerialTimingTests |
 | `CORVUS_BACKGROUND_DIR` | The folder background runs and the nightly perf run keep their worktrees in (default: the temp folder). | host-tier.ps1, nightly.ps1, test-reuse.psm1, test.ps1 |
 | `CORVUS_BUNDLE_EXTRACTOR` | The WiX command line whose `burn extract` the WiX Burn listings are compared with. | InstallerComparisonTests |
@@ -262,6 +261,7 @@ describe.
 | `CORVUS_COVERAGE_REPORT` | The coverlet report of a full run, checked against the coverage floors (`./test.ps1 -Full -Coverage` sets it). | CoverageFloorTests, test.ps1 |
 | `CORVUS_DEBUG_ARGS` | `1` prints the call sites whose arguments were not recovered in the system DLL recovery run. | CallArgumentTests |
 | `CORVUS_DIFF_PAIRS` | Build pairs matched per source (default 6). | NativeDiffRealTests |
+| `CORVUS_DMG_DIR` | A folder of Apple disk images (.dmg) whose files, links and bytes are compared with 7-Zip's extraction. | AppleDiskImageTests |
 | `CORVUS_ELECTRON_APPS` | A folder of installed Electron apps; every .asar below it (six levels) is read. | ElectronGraphTests, ElectronTests, JsEndpointsTests, NodeApiTests |
 | `CORVUS_ELF_CORES` | A folder of Linux or Android ELF core files, with the program's libraries beside them. | ElfCoreTests |
 | `CORVUS_EXPORT_LIST` | A file listing assemblies whose exported projects must build; errors go to `<list>.report.txt`. | ExportBuildTests |
