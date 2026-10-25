@@ -590,7 +590,7 @@ public sealed class NativeDiffTools(AssemblyWorkspace workspace, NativeCodeServi
                  "(map_address_between_builds). Never replaces the new build's user names, comments or types; skipped items have a reason code. " +
                  "Applied as undoable edits.")]
     public Task<string> MigrateNativeNames(
-        [Description(OldDescription)] string oldImage,
+        [Description("Older build (image id or path), or a static library (.lib, .a of COFF objects) or COFF object: its functions name the starts holding their bytes.")] string oldImage,
         [Description(NewDescription)] string newImage,
         [Description(DryRunDefaultTrueDescription)] bool dryRun = true,
         [Description("Weakest match tier accepted: 1 (names, identical bytes) to 5 (all).")] int minTier = 5,
@@ -604,7 +604,9 @@ public sealed class NativeDiffTools(AssemblyWorkspace workspace, NativeCodeServi
         RequestContext<CallToolRequestParams> context = null!,
         CancellationToken cancellationToken = default) => OrderedProgress.Run(context, async progress =>
     {
-        var r = await CarryNames(oldImage, newImage, dryRun, minTier, minScore, sources, namesOnly, codeOnly, new ProgressSpan(progress, 0, 1, 1), cancellationToken);
+        var r = LibraryFile(oldImage) is { } library
+            ? await CarryLibraryNames(library, newImage, dryRun, new ProgressSpan(progress, 0, 1, 1), cancellationToken)
+            : await CarryNames(oldImage, newImage, dryRun, minTier, minScore, sources, namesOnly, codeOnly, new ProgressSpan(progress, 0, 1, 1), cancellationToken);
         var head = new System.Text.StringBuilder();
         string skipped = r.Skipped == 0 ? "" : $"; {r.Skipped} skipped ({string.Join(", ", r.SkippedBy.Take(4).Select(x => $"{x.Reason} {x.Count}"))})";
         head.Append(dryRun ? $"Dry run: {r.Set} of {r.Total} item(s) would carry from {r.OldImage} to {r.NewImage}{skipped}. Nothing recorded; dryRun=false applies it.\n"
@@ -618,6 +620,76 @@ public sealed class NativeDiffTools(AssemblyWorkspace workspace, NativeCodeServi
     });
 
     private static string Clip(string s) => s.Length <= 80 ? s : s[..77] + "...";
+
+    /// <summary>
+    /// The full path when <paramref name="path"/> names a static library (an ar archive), a COFF object or an ELF
+    /// relocatable object rather than an image; null otherwise, including for an image id.
+    /// </summary>
+    internal static string? LibraryFile(string path)
+    {
+        if (!File.Exists(path)) return null;
+        var head = new byte[20];
+        int read;
+        using (var f = File.OpenRead(path)) read = f.ReadAtLeast(head, head.Length, throwOnEndOfStream: false);
+        if (read >= 8 && head.AsSpan().StartsWith("!<arch>\n"u8)) return Path.GetFullPath(path);
+        // ELF e_type ET_REL.
+        if (read >= 18 && head.AsSpan().StartsWith("\u007fELF"u8) && head[16] == 1 && head[17] == 0) return Path.GetFullPath(path);
+        if (read < 20 || head[0] == 'M' && head[1] == 'Z') return null;
+        ushort machine = System.Buffers.Binary.BinaryPrimitives.ReadUInt16LittleEndian(head);
+        ushort optional = System.Buffers.Binary.BinaryPrimitives.ReadUInt16LittleEndian(head.AsSpan(16));
+        // An object has no optional header; a /bigobj object starts 00 00 FF FF.
+        bool coff = Native.Pe.PeNames.Arch(machine) != NativeArch.Unknown && optional == 0 || machine == 0 && head[2] == 0xFF && head[3] == 0xFF;
+        return coff ? Path.GetFullPath(path) : null;
+    }
+
+    /// <summary>
+    /// migrate_native_names from a static library or object: each library function found at a function start of the new
+    /// build is planned as a name with reason library_function, through the same rules as a build's names (it never
+    /// replaces a user name or a name of an imported layer); ambiguous starts are skipped.
+    /// </summary>
+    internal async Task<MigrationReport> CarryLibraryNames(string library, string newImage, bool dryRun, ProgressSpan progress, CancellationToken cancellationToken)
+    {
+        var signatures = await Task.Run(() => LibrarySignatures.Read(library, cancellationToken), cancellationToken);
+        var native = await Task.Run(() => Targets.Native(workspace, newImage), cancellationToken);
+        if (signatures.Arch != native.Image.Arch)
+            throw new ToolError(ErrorCode.InvalidArgument, $"{Path.GetFileName(library)} holds {signatures.Arch} code; {native.Id} is {native.Image.Arch}.", "pass a library built for the image's architecture");
+        var index = await code.Index(native, null, cancellationToken);
+        progress.Report(0.5, "matching library functions");
+        var ann = code.Annotations(native);
+        // A thunk's j_ name is its target's, not its own: it does not say which function a call means.
+        string? NameAt(uint rva) => ann.NameAt(rva) ?? index.Sourced.NameAt(rva)?.Name
+            ?? (index.FunctionAt(rva) is { KnownName: { } k } f && f.Start == rva && !k.StartsWith("j_", StringComparison.Ordinal) ? k : null);
+        var (matches, ambiguous) = await Task.Run(() => LibrarySignatures.Match(signatures, native.Image, index.Functions.Select(f => f.Start), NameAt, cancellationToken),
+            cancellationToken);
+        var found = matches.ToDictionary(m => m.Rva);
+        // A name the image itself gives (export, symbol) is kept; the planner sees name layers only, so these are skipped here.
+        var named = matches.Select(m => (m, Known: index.FunctionAt(m.Rva) is { KnownName: { } k } f && f.Start == m.Rva ? k : null))
+            .Where(e => e.Known != null).Select(e => (e.m, Known: e.Known!)).ToList();
+        // Discovered ranks below every imported layer, so a library name never replaces a PDB, engine or user name.
+        var items = matches.Except(named.Select(e => e.m)).Select(m => new MigrationSource("name", NativeNameSource.Discovered, m.Rva, m.Name)).ToList();
+        MappedAddress Map(uint rva, CancellationToken _) =>
+            new(rva, rva, 1, "library_function", $"{found[rva].Member}: {found[rva].FixedBytes} of {found[rva].Length} bytes fixed", null, []);
+        var steps = await Task.Run(() => NameMigration.Plan(Map, items, index, ann, new MigrationOptions(), cancellationToken), cancellationToken);
+        var ids = dryRun ? [] : ApplyMigration(journal, workspace, code, native, index, steps, [], "migrate_native_names");
+        string Action(bool isSet) => isSet ? dryRun ? "would_set" : "set" : "skipped";
+        var all = steps.Select(s => (s.Set, s.Reason, Entry: new MigrationEntry("name", "library", null, s.NewRva is { } at ? Va(index, at) : null, s.Value,
+                Action(s.Set), s.Reason, null, s.Confidence, s.Detail)))
+            .Concat(ambiguous.Select(a => (Set: false, Reason: a.Code, Entry: new MigrationEntry("name", "library", null, Va(index, a.Rva),
+                string.Join(" | ", a.Names.Take(4)), "skipped", a.Code, null, 0, a.Reason))))
+            .Concat(named.Select(e => (Set: false, Reason: "new_has_own_name", Entry: new MigrationEntry("name", "library", null, Va(index, e.m.Rva),
+                e.m.Name, "skipped", "new_has_own_name", null, 1, $"the image names it '{e.Known}'"))))
+            .OrderBy(e => e.Entry.NewAddress, StringComparer.Ordinal).ToList();
+        var skippedBy = all.Where(s => !s.Set).GroupBy(s => s.Reason).Select(g => new ReasonCount(g.Key, g.Count()))
+            .OrderByDescending(r => r.Count).ThenBy(r => r.Reason, StringComparer.Ordinal).ToList();
+        int set = all.Count(s => s.Set);
+        var notes = new List<string>
+        {
+            $"{signatures.Functions.Count:N0} function(s) read from {signatures.Members:N0} member(s) of {Path.GetFileName(library)}; " +
+            $"{signatures.Functions.Count(f => f.FixedCount >= LibrarySignatures.MinFixedBytes):N0} have the {LibrarySignatures.MinFixedBytes} fixed bytes a match needs",
+        };
+        notes.AddRange(signatures.Notes);
+        return new MigrationReport(Path.GetFileName(library), native.Id, dryRun, ids.Count > 0, ids, set, all.Count - set, skippedBy, [.. all.Select(e => e.Entry)], 0, all.Count, notes);
+    }
 
     /// <summary>
     /// migrate_native_names without paging (load_session uses it too): every planned item in old-address order, the user

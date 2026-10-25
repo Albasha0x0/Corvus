@@ -58,6 +58,11 @@ public static class NameMigration
     }
 
     public static List<MigrationStep> Plan(AddressMapper mapper, IReadOnlyList<MigrationSource> items, NativeCodeIndex newIndex,
+        NativeAnnotations newAnnotations, MigrationOptions options, CancellationToken ct) =>
+        Plan(mapper.Map, items, newIndex, newAnnotations, options, ct);
+
+    /// <summary>As the build form, with <paramref name="map"/> placing each item's address in the new build.</summary>
+    public static List<MigrationStep> Plan(Func<uint, CancellationToken, MappedAddress> map, IReadOnlyList<MigrationSource> items, NativeCodeIndex newIndex,
         NativeAnnotations newAnnotations, MigrationOptions options, CancellationToken ct)
     {
         var steps = new List<MigrationStep>(items.Count);
@@ -71,7 +76,7 @@ public static class NameMigration
         foreach (var item in items.OrderByDescending(i => i.Source.Rank()).ThenBy(i => i.OldRva))
         {
             ct.ThrowIfCancellationRequested();
-            var mapped = mapper.Map(item.OldRva, ct);
+            var mapped = map(item.OldRva, ct);
             int? tier = mapped.Pair?.Tier;
             MigrationStep Skip(string reason, string detail, string? value = null) =>
                 new(item, mapped.NewRva, value ?? item.Value, false, reason, tier, mapped.Confidence, detail);

@@ -1974,7 +1974,7 @@ Copy names, comments and engine types of the old build to the new one's user ann
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `oldImage` | string | yes |  | Older build: image id or path. |
+| `oldImage` | string | yes |  | Older build (image id or path), or a static library (.lib, .a of COFF objects) or COFF object: its functions name the starts holding their bytes. |
 | `newImage` | string | yes |  | Newer build: image id or path. |
 | `dryRun` | boolean |  | `true` | true previews; false applies. |
 | `minTier` | integer |  | `5` | Weakest match tier accepted: 1 (names, identical bytes) to 5 (all). |

@@ -32,8 +32,11 @@ internal sealed class ArReader : IContainerReader
         return new ContainerContents(Kind, items, notes) { Entries = entries };
     }
 
-    /// <summary>Each member's name and data range; GNU long names come from the "//" member, BSD ones ("#1/len") precede the data.</summary>
-    private static List<(string Name, int At, int Size)> Members(byte[] data, string name, CancellationToken ct)
+    /// <summary>
+    /// Each member's name and data range; long names come from the "//" member (GNU ends each with "/\n", Microsoft's
+    /// librarian with NUL), BSD ones ("#1/len") precede the data. Throws <see cref="ToolError"/> on a damaged header.
+    /// </summary>
+    internal static List<(string Name, int At, int Size)> Members(byte[] data, string name, CancellationToken ct)
     {
         var members = new List<(string, int, int)>();
         byte[]? longNames = null;
@@ -57,7 +60,7 @@ internal sealed class ArReader : IContainerReader
             else if (raw.Length > 1 && raw[0] == '/' && int.TryParse(raw[1..], out int offset))
             {
                 if (longNames == null || offset < 0 || offset >= longNames.Length) throw Malformed(name, $"long name /{offset} has no entry in the name table");
-                int end = longNames.AsSpan(offset).IndexOf((byte)'\n');
+                int end = longNames.AsSpan(offset).IndexOfAny((byte)'\n', (byte)0);
                 member = Encoding.UTF8.GetString(longNames, offset, end < 0 ? longNames.Length - offset : end).TrimEnd('/');
             }
             else member = raw is "/" or "/SYM64/" ? raw : raw.TrimEnd('/');

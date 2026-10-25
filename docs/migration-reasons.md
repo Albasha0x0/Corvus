@@ -13,6 +13,7 @@ item with one of these codes: how it was carried, or why not. The same case gets
 | `same_string` | mapping | the same string in the new build |
 | `followed_references` | mapping | data reached through the references of matched instructions |
 | `same_build` | mapping | a patch set replayed on the build it was made for |
+| `library_function` | mapping | a static library's function whose fixed bytes are at the function start |
 | `function_not_matched` | not mapped | the function has no counterpart in the other build |
 | `ambiguous` | not mapped | more than one candidate counterpart |
 | `instruction_removed` | not mapped | the instruction is gone from the matched function |
@@ -20,6 +21,7 @@ item with one of these codes: how it was carried, or why not. The same case gets
 | `conflicting_references` | not mapped | references to the data lead to different new addresses |
 | `no_reference_to_follow` | not mapped | no matched instruction references the data |
 | `not_an_instruction` | not mapped | the address is inside an instruction, not at its start |
+| `call_target_differs` | not mapped | a call in the library function reaches a function of another name |
 | `below_min_tier` | filter | matched in a weaker tier than minTier |
 | `below_min_score` | filter | mapping confidence below minScore |
 | `same_name` | names | the new build already has this name |
