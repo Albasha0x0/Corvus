@@ -23,9 +23,10 @@ Corvus is now licensed under the Apache License 2.0. [d11df476](https://github.c
 
 ### Changes
 
-- **Native names:** `migrate_native_names` takes a static library (.lib, ar of COFF objects) or a COFF object
-  as its old side: each function names the start holding its bytes, and a call reaching another name refuses it
-  (MSVC 14.29 x64 CRT; PE). [d7e2d18b](https://github.com/Albasha0x0/Corvus/commit/d7e2d18b)
+- **Native names:** `migrate_native_names` takes a static library (.lib, .a) or object file (COFF, ELF) as its
+  old side: each function names the start holding its bytes, and a call reaching another name refuses it (MSVC
+  14.29 x64 CRT, glibc and musl x64; x86 and AArch64 objects read, not checked on a real program).
+  [d7e2d18b](https://github.com/Albasha0x0/Corvus/commit/d7e2d18b) [52a140cc](https://github.com/Albasha0x0/Corvus/commit/52a140cc)
 - **Unity:** `extract_strings` reads serialized files, bundles, build folders and the packages that hold them, lays out
   Il2Cpp scripts without an earlier load, and reads JSON, XML and INI TextAssets; `summarize_file view=unity` shows
   MonoBehaviour script fields. [d11df476](https://github.com/Albasha0x0/Corvus/commit/d11df476) [460c434c](https://github.com/Albasha0x0/Corvus/commit/460c434c)
