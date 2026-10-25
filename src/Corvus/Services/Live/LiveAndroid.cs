@@ -8,8 +8,17 @@ namespace Corvus.Services;
 /// <summary>A Java frame as ART prints it: the method (class and name) and its source (File.java:12, Native method).</summary>
 public sealed record LiveJavaFrame(string Method, string? Source);
 
-/// <summary>A thread's Java stack from ART's dump: its name, its state (Native, Runnable, Sleeping) and its frames, innermost first.</summary>
-public sealed record ArtThreadStack(string Name, string State, IReadOnlyList<LiveJavaFrame> Frames);
+/// <summary>
+/// A thread's Java stack from ART's dump: its name, its state (Native, Runnable, Sleeping), its frames, innermost first,
+/// and the package and DEX files the process's class loaders list (empty when the dump lists none).
+/// </summary>
+public sealed record ArtThreadStack(string Name, string State, IReadOnlyList<LiveJavaFrame> Frames)
+{
+    public IReadOnlyList<string> ClassPath { get; init; } = [];
+}
+
+/// <summary>A Java frame joined to its DEX method: the exact descriptor, the dex pc of the frame's line (null when unknown) and the DEX file.</summary>
+public sealed record DexFrameMatch(string Descriptor, int? DexPc, string DexFile);
 
 /// <summary>Reads the thread dump ART writes on SIGQUIT (to /data/anr, or to debuggerd -j).</summary>
 public static partial class ArtStacks
@@ -24,6 +33,10 @@ public static partial class ArtStacks
     // at android.os.MessageQueue.next(MessageQueue.java:335)
     [GeneratedRegex(@"^\s+at (?<method>[^(]+)\((?<source>[^)]*)\)\s*$")]
     private static partial Regex Frame();
+
+    // #2 dalvik.system.PathClassLoader: [/data/app/x/base.apk:/data/app/x/base.apk!classes2.dex], parent #1
+    [GeneratedRegex(@"^#\d+ [^:]+: \[(?<path>[^\]]*)\]")]
+    private static partial Regex ClassLoader();
 
     /// <summary>The stack of the thread whose Linux thread id is <paramref name="tid"/>; null when the dump has no such thread.</summary>
     public static ArtThreadStack? Of(string dump, long tid)
@@ -46,7 +59,46 @@ public static partial class ArtStacks
             else if (Frame().Match(line) is { Success: true } f)
                 frames.Add(new(f.Groups["method"].Value, f.Groups["source"].Value is { Length: > 0 } src ? src : null));
         }
-        return match ? new ArtThreadStack(name!, state!, frames) : null;
+        return match ? new ArtThreadStack(name!, state!, frames) { ClassPath = ClassPath(dump) } : null;
+    }
+
+    /// <summary>The package, jar and DEX files of the dump's class loaders in loader order, each once; a multidex entry (x.apk!classes2.dex) names its package.</summary>
+    public static IReadOnlyList<string> ClassPath(string dump)
+    {
+        var files = new List<string>();
+        foreach (var raw in dump.Split('\n'))
+            if (ClassLoader().Match(raw.TrimEnd('\r')) is { Success: true } m)
+                foreach (var entry in m.Groups["path"].Value.Split(':', StringSplitOptions.RemoveEmptyEntries))
+                {
+                    var file = entry.Split('!')[0];
+                    if (file.EndsWith(".apk", StringComparison.Ordinal) || file.EndsWith(".jar", StringComparison.Ordinal) || file.EndsWith(".dex", StringComparison.Ordinal))
+                        if (!files.Contains(file)) files.Add(file);
+                }
+        return files;
+    }
+
+    /// <summary>
+    /// The DEX method of <paramref name="frame"/> (pkg.Outer$Inner.method, File.java:12) in <paramref name="index"/>; overloads
+    /// are told apart by the line the frame names. Null when the class or method is not in the index, or overloads remain.
+    /// </summary>
+    public static DexFrameMatch? Match(DexIndex index, LiveJavaFrame frame)
+    {
+        int dot = frame.Method.LastIndexOf('.');
+        if (dot <= 0 || index.FindClass(frame.Method[..dot]) is not { } entry) return null;
+        var name = frame.Method[(dot + 1)..];
+        int? line = frame.Source is { } src && src.LastIndexOf(':') is var colon and >= 0
+            && int.TryParse(src.AsSpan(colon + 1), System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out var n) ? n : null;
+        var named = new List<(string Descriptor, int? Pc)>();
+        foreach (var m in entry.File.ClassData(entry.Class).Methods)
+        {
+            var r = entry.File.Method(m.MethodIndex);
+            if (r.Name != name) continue;
+            var lines = line != null && m.CodeOffset != 0 && entry.File.Code(m.CodeOffset) is { } code ? entry.File.Debug(code.DebugInfoOffset).Lines : [];
+            named.Add((r.Descriptor, lines.FirstOrDefault(l => l.Line == line) is { Line: > 0 } at ? at.Offset : null));
+        }
+        // One method by that name needs no line; overloads keep those whose line table holds the frame's line.
+        var found = named.Count == 1 ? named : [.. named.Where(m => m.Pc != null)];
+        return found.Count == 1 ? new DexFrameMatch(found[0].Descriptor, found[0].Pc, entry.File.Name) : null;
     }
 }
 
@@ -68,14 +120,19 @@ public sealed partial class LiveSessionService
     private string DeviceFile(LiveSession session, LiveModuleState m)
     {
         if (m.Copy != null || session.Device is not { } serial) return m.LocalPath;
-        var copy = _deviceFiles.GetOrAdd((serial, m.Path), key =>
+        if (DeviceCopy(serial, m.Path) is { } copy) m.Copy = copy;
+        return m.LocalPath;
+    }
+
+    /// <summary>A local copy of a device file, pulled once per server and path; null when the pull fails.</summary>
+    public string? DeviceCopy(string serial, string path)
+    {
+        return _deviceFiles.GetOrAdd((serial, path), key =>
         {
             var local = Path.Combine(_deviceRoot.Value, Sanitized(key.Serial), Path.Combine(key.Path.Split('/', StringSplitOptions.RemoveEmptyEntries).Select(Sanitized).ToArray()));
             try { return Adb.PullFile(key.Path, local, overwrite: true, key.Serial, CancellationToken.None).Local; }
             catch (ToolError) { return null; }
         });
-        if (copy != null) m.Copy = copy;
-        return m.LocalPath;
 
         static string Sanitized(string part) => string.Concat(part.Select(c => Path.GetInvalidFileNameChars().Contains(c) ? '_' : c));
     }

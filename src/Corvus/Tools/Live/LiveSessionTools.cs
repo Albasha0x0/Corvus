@@ -15,8 +15,10 @@ namespace Corvus.Tools;
 /// and --live-allow limits both to listed programs.
 /// </summary>
 [McpServerToolType]
-public sealed partial class LiveSessionTools(ServerOptions options, LiveSessionService live, MinidumpService? dumps = null)
+public sealed partial class LiveSessionTools(ServerOptions options, LiveSessionService live, MinidumpService? dumps = null, Services.Mobile.DexService? dex = null)
 {
+    private readonly Services.Mobile.DexService _dex = dex ?? new();
+
     private const string SessionDescription = "Session id from live_session.";
 
     /// <summary>A module of the observed program and the loaded image it matched (null when none did).</summary>
@@ -380,7 +382,33 @@ public sealed partial class LiveSessionTools(ServerOptions options, LiveSessionS
             return;
         }
         text.AppendLine($"Java frames (ART, thread \"{java.Name}\", {java.State}): {java.Frames.Count}");
-        for (int i = 0; i < java.Frames.Count; i++) text.AppendLine($"  j{i} {java.Frames[i].Method}{Src(java.Frames[i].Source)}");
+        var indexes = DexIndexes(s, java.ClassPath, text, ct);
+        for (int i = 0; i < java.Frames.Count; i++)
+        {
+            var f = java.Frames[i];
+            var match = indexes.Select(x => ArtStacks.Match(x, f)).FirstOrDefault(m => m != null);
+            text.AppendLine($"  j{i} {f.Method}{Src(f.Source)}" + (match == null ? "" : $" = {match.Descriptor}" + (match.DexPc is { } pc ? $" dex pc {pc:x4}" : "")));
+        }
+    }
+
+    // The class loaders' packages, pulled once per server; frames in them name their method for disassemble_dex.
+    private List<Services.Mobile.DexIndex> DexIndexes(Services.LiveSession s, IReadOnlyList<string> classPath, StringBuilder text, CancellationToken ct)
+    {
+        var indexes = new List<Services.Mobile.DexIndex>();
+        foreach (var file in classPath)
+        {
+            string? why = null;
+            if (s.Device is not { } serial || live.DeviceCopy(serial, file) is not { } copy) why = "not pulled";
+            else
+                try
+                {
+                    indexes.Add(_dex.Index(copy, ct));
+                    text.AppendLine($"DEX: {file} = {copy}");
+                }
+                catch (ToolError e) { why = e.Message; }
+            if (why != null) text.AppendLine($"DEX unknown: {file} ({why})");
+        }
+        return indexes;
     }
 
     [McpServerTool(Name = "live_watch", Title = "Record calls in a session", UseStructuredContent = true, OutputSchemaType = typeof(LiveWatchReport))]

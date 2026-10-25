@@ -1,4 +1,6 @@
+using Corvus.Core;
 using Corvus.Services;
+using Corvus.Services.Mobile;
 
 namespace Corvus.Tests;
 
@@ -31,6 +33,13 @@ public sealed class ArtStacksTests
           | group="system" sCount=0 ucsCount=0 flags=0 obj=0x16280c80 self=0x7a503a2044a0
           | sysTid=4110 nice=-20 cgrp=foreground sched=0/0 handle=0x7a4ed4da0cf0
 
+        Dumping registered class loaders
+        #0 dalvik.system.PathClassLoader: [], parent #1
+        #1 java.lang.BootClassLoader: [], no parent
+        #2 dalvik.system.PathClassLoader: [/data/app/~~a1/com.ledger-b2/base.apk:/data/app/~~a1/com.ledger-b2/base.apk!classes2.dex], parent #1
+        #3 dalvik.system.DexClassLoader: [/data/user/0/com.ledger/files/plugin.jar], parent #2
+        Done dumping class loaders
+
         ----- end 4100 -----
         """;
 
@@ -57,5 +66,35 @@ public sealed class ArtStacksTests
         Assert.Empty(ArtStacks.Of(Dump, 4110)!.Frames);
         Assert.Null(ArtStacks.Of(Dump, 4101));
         Assert.Null(ArtStacks.Of("", 4100));
+    }
+
+    [Fact]
+    public void The_class_loaders_name_each_package_once_with_multidex_entries_folded()
+    {
+        Assert.Equal(["/data/app/~~a1/com.ledger-b2/base.apk", "/data/user/0/com.ledger/files/plugin.jar"], ArtStacks.Of(Dump, 4100)!.ClassPath);
+    }
+
+    [Fact]
+    public void A_frame_names_its_DEX_method_and_overloads_are_told_apart_by_line()
+    {
+        var b = new DexBuilder();
+        var book = b.Class("Lcom/ledger/Ledger$Book;", source: "Ledger.java");
+        var byCents = book.Method("post", "V", ["I"], 1, Asm.Nop(), Asm.Nop(), Asm.ReturnVoid());
+        byCents.Lines.AddRange([(0, 10), (1, 11)]);
+        var byText = book.Method("post", "V", ["Ljava/lang/String;"], 1, Asm.Nop(), Asm.Nop(), Asm.ReturnVoid());
+        byText.Lines.AddRange([(0, 20), (2, 21)]);
+        book.Method("total", "I", [], 1, Asm.Const4(0, 0), Asm.Return(0x0f, 0));
+        using var dir = new TempDir();
+        var path = dir.File("classes.dex");
+        File.WriteAllBytes(path, b.Build());
+        var index = DexIndex.Load(path, AnalysisLimits.Default, default);
+
+        Assert.Equal(new DexFrameMatch("Lcom/ledger/Ledger$Book;->post(Ljava/lang/String;)V", 2, "classes.dex"),
+            ArtStacks.Match(index, new("com.ledger.Ledger$Book.post", "Ledger.java:21")));
+        Assert.Equal(0, ArtStacks.Match(index, new("com.ledger.Ledger$Book.post", "Ledger.java:10"))!.DexPc);
+        // A single method matches without a line in its table.
+        Assert.Equal(new DexFrameMatch("Lcom/ledger/Ledger$Book;->total()I", null, "classes.dex"), ArtStacks.Match(index, new("com.ledger.Ledger$Book.total", "Unknown Source")));
+        Assert.Null(ArtStacks.Match(index, new("com.ledger.Ledger$Book.post", "Ledger.java:99")));
+        Assert.Null(ArtStacks.Match(index, new("android.util.Log.i", "Log.java:192")));
     }
 }

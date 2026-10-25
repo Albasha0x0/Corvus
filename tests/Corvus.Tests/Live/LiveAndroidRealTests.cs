@@ -159,7 +159,9 @@ public sealed class LiveAndroidRealTests(ITestOutputHelper output) : IDisposable
         Assert.Matches(@"#1 0x[0-9A-F]+ libandroid_runtime\.so!", stop);
         Assert.Contains("Java frames (ART, thread \"main\", Native)", stop);
         Assert.Matches(@"j\d+ android\.util\.Log\.i ", stop);
-        Assert.Matches(@"j\d+ Ledger\.balanceOf  Ledger\.java:10", stop);
+        // The class loader lists the DEX; the frame's line names its method and dex pc.
+        Assert.Contains($"DEX: {Remote} = ", stop);
+        Assert.Matches(@"j\d+ Ledger\.balanceOf  Ledger\.java:10 = LLedger;->balanceOf\(I\)I dex pc 0004", stop);
         Assert.Matches(@"j\d+ Ledger\.main  Ledger\.java:4", stop);
 
         var (closed, e3) = await Call(server, "live_session", new() { ["action"] = "close", ["session"] = "live-1" });
@@ -199,7 +201,8 @@ public sealed class LiveAndroidRealTests(ITestOutputHelper output) : IDisposable
             }
             Assert.Contains("Java frames (ART, thread \"main\", Native)", stop);
             Assert.Matches(@"j\d+ android\.util\.Log\.i ", stop);
-            Assert.Matches(@"j\d+ com\.example\.ledger\.LedgerActivity\.run  LedgerActivity\.java:21", stop);
+            Assert.Matches(@"DEX: /data/app/\S+/base\.apk = ", stop);
+            Assert.Matches(@"j\d+ com\.example\.ledger\.LedgerActivity\.run  LedgerActivity\.java:21 = Lcom/example/ledger/LedgerActivity;->run\(\)V dex pc 0004", stop);
 
             var (closed, e4) = await Call(server, "live_session", new() { ["action"] = "close", ["session"] = "live-1" });
             Assert.False(e4, closed);
