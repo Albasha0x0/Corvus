@@ -35,8 +35,11 @@ public sealed record CodeDirectory(uint Slot, uint Version, uint Flags, string I
 /// and the CMS signature, whose signer is named but not verified.
 /// </summary>
 public sealed record CodeSignature(IReadOnlyList<(uint Slot, uint Offset, uint Magic, uint Length)> Blobs, IReadOnlyList<CodeDirectory> CodeDirectories,
-    string? Entitlements, byte[]? DerEntitlements, int? RequirementCount, byte[]? Cms, string? SignerSubject)
+    string? Entitlements, byte[]? DerEntitlements, IReadOnlyList<CodeRequirement>? Requirements, byte[]? Cms, string? SignerSubject)
 {
+    /// <summary>Requirements in the set; null when the signature has no requirement set.</summary>
+    public int? RequirementCount => Requirements?.Count;
+
     /// <summary>The code directory in slot 0, else the first alternate.</summary>
     public CodeDirectory? Primary => CodeDirectories.FirstOrDefault(c => c.Slot == 0) ?? CodeDirectories.FirstOrDefault();
     public string? Identifier => Primary?.Identifier;
@@ -53,7 +56,7 @@ public sealed record CodeSignature(IReadOnlyList<(uint Slot, uint Offset, uint M
         var directories = new List<CodeDirectory>();
         string? entitlements = null, subject = null;
         byte[]? der = null, cms = null;
-        int? requirements = null;
+        IReadOnlyList<CodeRequirement>? requirements = null;
         // Signature blobs are big-endian whatever the image's byte order.
         var be = new ByteView(data.Span(0, data.Length).ToArray(), true);
         if (be.U32(0) != 0xFADE0CC0)
@@ -78,7 +81,7 @@ public sealed record CodeSignature(IReadOnlyList<(uint Slot, uint Offset, uint M
                 case 0xFADE0C02:
                     if (ParseDirectory(slot, blob, log) is { } cd) directories.Add(cd);
                     break;
-                case 0xFADE0C01: requirements = (int)Math.Min(blob.U32(8), int.MaxValue); break;
+                case 0xFADE0C01: requirements = CodeRequirements.Parse(blob.Span(0, length), log); break;
                 case 0xFADE7171: entitlements = Encoding.UTF8.GetString(blob.Span(8, length - 8)); break;
                 case 0xFADE7172: der = blob.Span(8, length - 8).ToArray(); break;
                 case 0xFADE0B01:

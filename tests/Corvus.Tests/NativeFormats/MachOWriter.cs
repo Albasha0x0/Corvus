@@ -29,7 +29,8 @@ internal sealed class MachOWriter
     public sealed record ChainedImport(int LibOrdinal, string Name, bool Weak = false, long Addend = 0);
     /// <summary>A chained fixup at <paramref name="Offset"/>: a rebase to <paramref name="Target"/> (offset from the header) or a bind to import <paramref name="Import"/>.</summary>
     public sealed record Fixup(uint Offset, ulong Target = 0, int Import = -1, long Addend = 0, bool Auth = false, ushort Diversity = 0, bool AddrDiv = false, byte Key = 0, byte High8 = 0);
-    public sealed record Signature(string Identifier, string? TeamId = null, string? Entitlements = null, byte[]? DerEntitlements = null, byte HashType = 2, byte[]? Cms = null);
+    public sealed record Signature(string Identifier, string? TeamId = null, string? Entitlements = null, byte[]? DerEntitlements = null, byte HashType = 2, byte[]? Cms = null,
+        byte[]? Requirements = null);
 
     public uint CpuType { get; set; } = CpuArm64;
     public uint CpuSubType { get; set; }
@@ -605,7 +606,7 @@ internal sealed class MachOWriter
             b.U32(magic); b.U32((uint)payload.Length + 8); b.Bytes(payload);
             return b.ToArray();
         }
-        var requirements = Wrap(0xFADE0C01, [0, 0, 0, 0]);
+        var requirements = sig.Requirements ?? Wrap(0xFADE0C01, [0, 0, 0, 0]);
         byte[]? ent = sig.Entitlements != null ? Wrap(0xFADE7171, Encoding.UTF8.GetBytes(sig.Entitlements)) : null;
         byte[]? der = sig.DerEntitlements != null ? Wrap(0xFADE7172, sig.DerEntitlements) : null;
         int special = der != null ? 7 : ent != null ? 5 : 2;

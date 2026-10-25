@@ -177,6 +177,8 @@ public sealed partial class NativeTools
             sb.AppendLine($"Code signature: {(sig.IsAdHoc ? "ad-hoc" : sig.SignerSubject ?? "signed")}" + (cd != null ? $", identifier {cd.Identifier}" + (cd.TeamId != null ? $", team {cd.TeamId}" : "") +
                           $", {cd.HashName}, cdhash {cd.CdHashHex}" : "") + (sig.Entitlements != null || sig.DerEntitlements != null ? ", has entitlements" : "") +
                           " (not verified against Apple's roots)");
+            foreach (var r in sig.Requirements ?? [])
+                sb.AppendLine($"  {r}" + (r.Partial ? " (partial)" : ""));
         }
         else sb.AppendLine("Code signature: none");
         Tail(sb, m, m.FileBytes.Span);

@@ -199,8 +199,12 @@ public static partial class ExternalTools
                 "--no-print-incremental-dependencies", "--output-dill", "{output}", "{source}"]),
             ("aot-elf", ["--deterministic", "--snapshot_kind=app-aot-elf", "--elf={output}", "--save-debugging-info={debug}", "{kernel}"])));
 
+    // apple-codesign 0.29.0 tested; it prints each code requirement fully parenthesized, with every string quoted.
+    public static readonly ExternalTool RCodesign = new("rcodesign", "rcodesign, apple-codesign (test oracle)", "CORVUS_RCODESIGN", ExternalToolKind.Executable,
+        ["rcodesign" + Exe], ["--version"], 0, "oracle for Mach-O code requirements in tests", true, Ops(("signature", ["print-signature-info", "{file}"])));
+
     /// <summary>Every external program, in display order.</summary>
-    public static readonly IReadOnlyList<ExternalTool> Table = [Java, JavaDecompiler, JavaDecompiler2, PythonDecompiler, Adb, TShark, OsvScanner, GuardDog, Emulator, Capa, Aapt2, ApkSigner, DexDisassembler, ProtoCompiler, WasmText, WasmValidator, HbcDisassembler, DartSdk, FlutterSdk];
+    public static readonly IReadOnlyList<ExternalTool> Table = [Java, JavaDecompiler, JavaDecompiler2, PythonDecompiler, Adb, TShark, OsvScanner, GuardDog, Emulator, Capa, Aapt2, ApkSigner, DexDisassembler, ProtoCompiler, WasmText, WasmValidator, HbcDisassembler, DartSdk, FlutterSdk, RCodesign];
 
     private static IEnumerable<(string, string)> WiresharkDirectories()
     {
