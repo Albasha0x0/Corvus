@@ -383,9 +383,11 @@ class Session:
             argv = [args["spawn"]] + list(args.get("arguments") or [])
             # A package name starts the app, without arguments or piped stdio; a program path takes both.
             path = argv[0].startswith("/")
+            env = {k: v for k, v in (args.get("environment") or {}).items() if v is not None}
+            if not path and (env or len(argv) > 1):
+                raise Failure("invalid_argument", "package %s starts without arguments or environment variables" % argv[0])
             if path:
                 self.device.on("output", self.on_output)
-            env = {k: v for k, v in (args.get("environment") or {}).items() if v is not None}
             try:
                 self.pid = self.device.spawn(argv if path else argv[0], stdio="pipe" if path else "inherit", env=env or None)
             except (frida.ExecutableNotFoundError, frida.ProcessNotFoundError) as e:

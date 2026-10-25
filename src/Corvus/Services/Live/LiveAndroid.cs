@@ -100,17 +100,19 @@ public sealed partial class LiveSessionService
         if (session.Device is not { } serial) return (null, "not a device session");
         try
         {
-            var before = (await Task.Run(() => Adb.Names(serial, AnrDirectory, ct), ct).ConfigureAwait(false)).ToHashSet(StringComparer.Ordinal);
+            // ART reuses its trace_NN slots: an entry is new when its ls -l line (size, time) is.
+            var before = (await Task.Run(() => Adb.Listing(serial, AnrDirectory, ct), ct).ConfigureAwait(false)).ToHashSet(StringComparer.Ordinal);
             var r = await session.Worker.RequestAsync("art_dump", null, RequestTimeout, ct).ConfigureAwait(false);
-            if (r.GetProperty("catcher").ValueKind == System.Text.Json.JsonValueKind.Null) return (null, "the program runs no ART (no Signal Catcher thread)");
+            if (r.GetProperty("catcher").ValueKind == System.Text.Json.JsonValueKind.Null)
+                return (null, "the program has no Signal Catcher thread (no ART, or ART has not started it yet)");
             string head = $"----- pid {session.ProcessId} at ", tail = $"----- end {session.ProcessId} -----";
             var until = DateTime.UtcNow + JavaStackWait;
             while (DateTime.UtcNow < until)
             {
                 await Task.Delay(200, ct).ConfigureAwait(false);
-                foreach (var name in Adb.Names(serial, AnrDirectory, ct).Where(n => !before.Contains(n)))
+                foreach (var line in Adb.Listing(serial, AnrDirectory, ct).Where(l => !before.Contains(l)))
                 {
-                    var path = AnrDirectory + "/" + name;
+                    var path = AnrDirectory + "/" + line[(line.LastIndexOf(' ') + 1)..];
                     // ART writes the file as it walks the threads: its end line completes it.
                     var text = Adb.Text(serial, path, ct);
                     if (!text.Contains(head, StringComparison.Ordinal) || !text.Contains(tail, StringComparison.Ordinal)) continue;

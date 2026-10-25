@@ -542,6 +542,57 @@ public sealed class LiveWorkerTests : IDisposable
         }
     }
 
+    private const string DeviceFrida = """
+        __version__ = "17.24.3"
+
+
+        class InvalidArgumentError(Exception): pass
+
+
+        class _Device:
+            def on(self, *args): pass
+            def spawn(self, target, **kwargs): raise AssertionError("spawned")
+
+
+        def get_device(serial, timeout=0):
+            if serial != "emulator-5554": raise InvalidArgumentError("device not found")
+            return _Device()
+        """;
+
+    [Fact]
+    public void A_device_adb_does_not_list_and_a_package_given_arguments_are_refused_before_a_spawn()
+    {
+        var python = PythonLocator.Find([], []) ?? throw new InvalidOperationException("no Python 3");
+        var worker = _dir.File("live_worker.py");
+        File.WriteAllBytes(worker, EmbeddedScript.Read("Corvus.Native.Providers.Live.live_worker.py"));
+        File.WriteAllText(_dir.File("frida.py"), DeviceFrida);
+        var agent = _dir.File("live_agent.js");
+        File.WriteAllText(agent, "");
+        string Open(string args)
+        {
+            // Without -I, so the stand-in beside the worker is the frida it imports.
+            using var p = Process.Start(new ProcessStartInfo(python.Executable, new[] { "-u", worker, agent })
+                { RedirectStandardInput = true, RedirectStandardOutput = true, UseShellExecute = false })!;
+            try
+            {
+                p.StandardInput.WriteLine("{\"id\":1,\"op\":\"open\",\"args\":" + args + "}");
+                p.StandardInput.Flush();
+                string? reply;
+                while ((reply = p.StandardOutput.ReadLine()) != null && !reply.Contains("\"id\":1", StringComparison.Ordinal)) { }
+                return reply ?? "";
+            }
+            finally
+            {
+                p.Kill();
+                p.WaitForExit(10_000);
+            }
+        }
+        Assert.Contains("\"code\":\"not_found\"", Open("""{"device":"emulator-9999","spawn":"com.example.ledger"}"""));
+        var package = Open("""{"device":"emulator-5554","spawn":"com.example.ledger","arguments":["-x"]}""");
+        Assert.Contains("\"code\":\"invalid_argument\"", package);
+        Assert.Contains("starts without arguments or environment variables", package);
+    }
+
     [Fact]
     public void A_timeout_the_worker_reports_names_a_retry()
     {

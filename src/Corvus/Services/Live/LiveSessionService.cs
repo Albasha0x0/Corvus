@@ -516,7 +516,8 @@ public sealed partial class LiveSessionService(AssemblyWorkspace workspace, Nati
                     ? new JsonObject
                     {
                         ["device"] = device, ["spawn"] = target, ["arguments"] = new JsonArray(arguments.Select(a => (JsonNode)a).ToArray()),
-                        ["environment"] = ProgramEnvironment(environment ?? []),
+                        // This machine's variables mean nothing on the device: only the caller's entries go.
+                        ["environment"] = ProgramEnvironment(environment ?? [], new Dictionary<string, string>()),
                     }
                     : new JsonObject { ["device"] = device, ["attach"] = target }
                 : spawn

@@ -98,7 +98,7 @@ public static partial class ExternalTools
             ("push", ["-s", "{serial}", "push", "{local}", "{remote}"]),
             ("remove", ["-s", "{serial}", "shell", "rm", "-f", "{remote}"]),
             ("logcat", ["-s", "{serial}", "logcat", "-d", "-v", "threadtime"]),
-            ("names", ["-s", "{serial}", "shell", "ls", "-1", "{remote}"]),
+            ("listing", ["-s", "{serial}", "shell", "ls", "-l", "{remote}"]),
             ("cat", ["-s", "{serial}", "shell", "cat", "{remote}"]),
             ("screencap", ["-s", "{serial}", "exec-out", "screencap", "-p"]),
             ("window", ["-s", "{serial}", "shell", "dumpsys", "window", "windows"]),

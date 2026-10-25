@@ -436,9 +436,12 @@ public sealed partial class DeviceService(ServerOptions options, DexService? dex
         return new PulledFile(remotePath, full, bytes.Length, Blob.Sha256(bytes));
     }
 
-    /// <summary>The names in a device directory (ls -1); throws as adb calls do when it is missing or unreadable.</summary>
-    public IReadOnlyList<string> Names(string serial, string directory, CancellationToken ct) =>
-        Lines(serial, "names", $"listing {directory}", ("remote", directory));
+    /// <summary>
+    /// The entries of a device directory as ls -l prints them (mode, owner, size, time, name; the "total" line left out);
+    /// throws as adb calls do when it is missing or unreadable.
+    /// </summary>
+    public IReadOnlyList<string> Listing(string serial, string directory, CancellationToken ct) =>
+        [.. Lines(serial, "listing", $"listing {directory}", ("remote", directory)).Where(l => !l.StartsWith("total ", StringComparison.Ordinal))];
 
     /// <summary>A device file's text (cat), cut at 16 MB.</summary>
     public string Text(string serial, string path, CancellationToken ct) =>
