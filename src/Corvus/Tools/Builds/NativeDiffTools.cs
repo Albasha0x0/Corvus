@@ -590,7 +590,7 @@ public sealed class NativeDiffTools(AssemblyWorkspace workspace, NativeCodeServi
                  "(map_address_between_builds). Never replaces the new build's user names, comments or types; skipped items have a reason code. " +
                  "Applied as undoable edits.")]
     public Task<string> MigrateNativeNames(
-        [Description("Older build (image id or path), or a static library (.lib, .a of COFF objects) or COFF object: its functions name the starts holding their bytes.")] string oldImage,
+        [Description("Older build (image id or path), or a static library (.lib, .a) or object file (COFF, ELF): its functions name the starts holding their bytes.")] string oldImage,
         [Description(NewDescription)] string newImage,
         [Description(DryRunDefaultTrueDescription)] bool dryRun = true,
         [Description("Weakest match tier accepted: 1 (names, identical bytes) to 5 (all).")] int minTier = 5,

@@ -3,7 +3,7 @@ using Corvus.Native.Annotations;
 
 namespace Corvus.Tests;
 
-/// <summary>migrate_native_names with a COFF object holding a function of the image as its old side.</summary>
+/// <summary>migrate_native_names with an object file holding a function of the image as its old side.</summary>
 public sealed class LibraryNamesToolTests
 {
     // push rbx; sub rsp,20h; mov rbx,rcx; lea rcx,[rip+disp32]; call rel32; mov eax,[rbx+8]; add rsp,20h; pop rbx; ret
@@ -84,5 +84,8 @@ public sealed class LibraryNamesToolTests
         Assert.Null(Corvus.Tools.NativeDiffTools.LibraryFile("app.dll#2"));
         Assert.Equal(Path.GetFullPath(obj), Corvus.Tools.NativeDiffTools.LibraryFile(obj));
         Assert.Equal(Path.GetFullPath(lib), Corvus.Tools.NativeDiffTools.LibraryFile(lib));
+        var elf = dir.File("a.o");
+        File.WriteAllBytes(elf, ElfObjectFixtures.Write(62, [0xC3], [], []));
+        Assert.Equal(Path.GetFullPath(elf), Corvus.Tools.NativeDiffTools.LibraryFile(elf));
     }
 }

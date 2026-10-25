@@ -142,7 +142,55 @@ public sealed class LibrarySignaturesTests : IDisposable
         Assert.Equal(3, set.Members);
         Assert.Equal(["parse_header", "checksum_block", "tiny"], set.Functions.Select(f => f.Name));
         Assert.Contains("1 member(s) skipped: an import object (it names a DLL export; no code)", set.Notes);
-        Assert.Contains("1 member(s) skipped: an ELF relocatable object (not read)", set.Notes);
+        Assert.Contains("1 member(s) skipped: a malformed ELF object", set.Notes);
+    }
+
+    /// <summary>
+    /// parse_header as gcc emits it: the lea a REX_GOTPCRELX the linker may relax (REX, opcode and ModRM too), the call a
+    /// PLT32 to log_header.
+    /// </summary>
+    private static byte[] ElfObject() => ElfObjectFixtures.Write(62, ParseHeader, [(12, 42, 2, -4), (17, 4, 3, -4)],
+        [
+            new("parse_header", 0, (ulong)ParseHeader.Length, ElfObjectFixtures.Function, ElfObjectFixtures.Global, 1),
+            new("header_format", 0, 0, ElfObjectFixtures.NoType, ElfObjectFixtures.Global, 0),
+            new("log_header", 0, 0, ElfObjectFixtures.NoType, ElfObjectFixtures.Global, 0),
+        ]);
+
+    [Fact]
+    public void An_elf_object_function_leaves_relaxable_and_relocated_bytes_unfixed_and_records_its_call()
+    {
+        var f = Assert.Single(LibrarySignatures.Functions(Corvus.Native.Elf.ElfFile.FromBytes(ElfObject()), "parse.o", out var reason)!);
+        Assert.Null(reason);
+        Assert.Equal("parse_header", f.Name);
+        Assert.Equal(ParseHeader.Length - 7 - 4, f.FixedCount);
+        Assert.False(f.Fixed[9] || f.Fixed[11] || f.Fixed[15] || f.Fixed[17] || f.Fixed[20]);
+        Assert.True(f.Fixed[8] && f.Fixed[16] && f.Fixed[21]);
+        Assert.Equal(new LibraryCall(17, 0, "log_header"), Assert.Single(f.Calls));
+    }
+
+    [Fact]
+    public void Fuzzed_elf_objects_are_read_or_refused_with_a_reason()
+    {
+        var failures = FormatFuzz.Run(ElfObject(), b =>
+        {
+            Corvus.Native.Elf.ElfFile elf;
+            try { elf = Corvus.Native.Elf.ElfFile.FromBytes(b); }
+            catch (ToolError) { return; }
+            if (LibrarySignatures.Functions(elf, "x.o", out var reason) == null && reason == null) throw new InvalidOperationException("refused without a reason");
+        }, 300);
+        Assert.True(failures.Count == 0, string.Join("\n", failures.Take(20)));
+    }
+
+    [Fact]
+    public void An_archive_of_elf_objects_names_the_start_holding_its_function()
+    {
+        var path = _dir.File("libparse.a");
+        File.WriteAllBytes(path, CoffFixtures.Library(("parse.o", ElfObject())));
+        var set = LibrarySignatures.Read(path, default);
+        Assert.Equal(NativeArch.X64, set.Arch);
+        var (matches, ambiguous) = LibrarySignatures.Match(set, Image((0x40, Linked(0x41))), [0x40], null, default);
+        Assert.Equal((0x40u, "parse_header", "parse.o"), (Assert.Single(matches).Rva, matches[0].Name, matches[0].Member));
+        Assert.Empty(ambiguous);
     }
 
     [Fact]
@@ -152,6 +200,6 @@ public sealed class LibrarySignaturesTests : IDisposable
         File.WriteAllText(path, "plain text, not a COFF object");
         var e = Assert.Throws<ToolError>(() => LibrarySignatures.Read(path, default));
         Assert.Equal(ErrorCode.Unsupported, e.Code);
-        Assert.Contains("is not a static library or COFF object", e.Message);
+        Assert.Contains("is not a static library or object file", e.Message);
     }
 }

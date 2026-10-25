@@ -1,5 +1,7 @@
 using Corvus.Core;
 using Corvus.Core.Archives;
+using System.Buffers.Binary;
+using Corvus.Native.Elf;
 using Corvus.Native.Pe;
 
 namespace Corvus.Native.Diff;
@@ -40,8 +42,8 @@ public sealed record LibraryAmbiguity(uint Rva, IReadOnlyList<string> Names, str
 
 /// <summary>
 /// Names statically linked library functions in an image from the library files themselves: a Microsoft librarian
-/// archive (.lib), an ar archive of COFF objects, or one COFF object. A function matches a start when every byte its
-/// relocations leave alone is equal and its length fits; ELF relocatable objects are reported as not read.
+/// archive (.lib), an ar archive (.a) of COFF or ELF relocatable objects, or one object. A function matches a start
+/// when every byte its relocations leave alone is equal and its length fits.
 /// </summary>
 public static class LibrarySignatures
 {
@@ -52,9 +54,8 @@ public static class LibrarySignatures
     private const int KeyLength = 8;
 
     /// <summary>
-    /// Every function of the file at <paramref name="path"/>; members that are not COFF objects of one machine are
-    /// counted in the notes with their reason. Throws <see cref="ToolError"/> when the file is neither an archive nor
-    /// a COFF object.
+    /// Every function of the file at <paramref name="path"/>; members that are not objects of one machine are counted
+    /// in the notes with their reason. Throws <see cref="ToolError"/> when the file is neither an archive nor an object.
     /// </summary>
     public static LibrarySignatureSet Read(string path, CancellationToken ct)
     {
@@ -73,56 +74,124 @@ public static class LibrarySignatures
             ct.ThrowIfCancellationRequested();
             var bytes = data.AsSpan(at, size);
             string? reason;
-            if (bytes.StartsWith("\u007fELF"u8)) reason = "an ELF relocatable object (not read)";
-            else if (CoffObject.Read(bytes, out reason) is { } o)
+            (NativeArch Arch, List<LibraryFunction>? Functions) read = (NativeArch.Unknown, null);
+            if (bytes.StartsWith("\u007fELF"u8))
             {
-                if (arch == NativeArch.Unknown) arch = o.Arch;
-                if (o.Arch != arch) reason = $"a {o.Arch} object in a {arch} library";
-                else if (functions.Count < MaxFunctions) functions.AddRange(Functions(o, name));
+                try
+                {
+                    var elf = ElfFile.FromBytes(bytes, name);
+                    read = (elf.Arch, Functions(elf, name, out reason));
+                }
+                catch (ToolError) { reason = "a malformed ELF object"; }
+            }
+            else if (CoffObject.Read(bytes, out reason) is { } o) read = (o.Arch, [.. Functions(o, name)]);
+            if (read.Functions != null)
+            {
+                if (arch == NativeArch.Unknown) arch = read.Arch;
+                if (read.Arch != arch) reason = $"a {read.Arch} object in a {arch} library";
+                else if (functions.Count < MaxFunctions) functions.AddRange(read.Functions);
             }
             if (reason != null) skipped[reason] = skipped.GetValueOrDefault(reason) + 1;
         }
         if (members.Count == 1 && functions.Count == 0 && skipped.Count == 1 && arch == NativeArch.Unknown)
-            throw new ToolError(ErrorCode.Unsupported, $"{path} is not a static library or COFF object: {skipped.Keys.First()}.");
+            throw new ToolError(ErrorCode.Unsupported, $"{path} is not a static library or object file: {skipped.Keys.First()}.");
         var notes = skipped.OrderByDescending(s => s.Value).Select(s => $"{s.Value} member(s) skipped: {s.Key}").ToList();
         if (functions.Count >= MaxFunctions) notes.Add($"the first {MaxFunctions:N0} functions are read");
         return new LibrarySignatureSet(path, arch, functions, members.Count, notes);
     }
 
-    /// <summary>The functions of one object: each function symbol's bytes to the next symbol in its section or the section end.</summary>
+    // One code section of an object: its bytes, the symbols defined in it and the bytes the linker rewrites.
+    private sealed record CodeSection(byte[] Data, List<CodeSymbol> Symbols, List<Fixup> Fixups, bool TrimPadding);
+
+    // A symbol defined in a code section; Size null: up to the next symbol.
+    private sealed record CodeSymbol(int Offset, int? Size, string Name, bool IsFunction, bool IsPreferred);
+
+    // Bytes [Offset - Before, Offset - Before + Length) the linker rewrites; a rel32 call or jump also names its callee.
+    private readonly record struct Fixup(int Offset, int Before, int Length, int? Extra, string? Callee);
+
+    /// <summary>The functions of one COFF object: each function symbol's bytes to the next symbol in its section or the section end.</summary>
     internal static IEnumerable<LibraryFunction> Functions(CoffObject o, string member)
     {
         var bySymbol = o.Symbols.ToDictionary(y => y.Index);
         foreach (var section in o.Sections.Where(s => s.IsCode && s.Data.Length > 0))
         {
-            var starts = o.Symbols.Where(y => y.Section == section.Number && y.Value < section.Data.Length && y.StorageClass is 2 or 3 && !IsSectionName(y, section))
-                .GroupBy(y => y.Value).Select(g => g.OrderByDescending(y => y.IsFunction).ThenByDescending(y => y.IsExternal).First()).OrderBy(y => y.Value).ToList();
-            for (int i = 0; i < starts.Count; i++)
-            {
-                if (!starts[i].IsFunction) continue;
-                int from = (int)starts[i].Value, to = i + 1 < starts.Count ? (int)starts[i + 1].Value : section.Data.Length;
-                var mask = new bool[to - from];
-                Array.Fill(mask, true);
-                foreach (var r in section.Relocations)
-                {
-                    int width = CoffObject.Width(o.Machine, r.Type);
-                    for (int b = 0; b < width; b++)
-                        if (r.Offset + b >= from && r.Offset + b < to) mask[r.Offset + b - from] = false;
-                }
-                // Alignment padding (int3 or nop) after the last instruction belongs to the section, not the function.
-                int end = mask.Length;
-                while (end > 0 && mask[end - 1] && section.Data[from + end - 1] is 0xCC or 0x90) end--;
-                if (end == 0) continue;
-                var calls = new List<LibraryCall>();
-                foreach (var r in section.Relocations)
-                    if (r.Offset >= from && r.Offset + 4 <= from + end && Extra(o.Arch, r.Type) is int extra && bySymbol.TryGetValue(r.Symbol, out var callee)
-                        && Callable(callee))
-                        calls.Add(new LibraryCall((int)r.Offset - from, extra, Display(callee.Name, o.Arch)));
-                var aliases = o.Symbols.Where(y => y.Section == section.Number && y.Value == starts[i].Value && y != starts[i] && Callable(y))
-                    .Select(y => Display(y.Name, o.Arch)).Distinct().ToList();
-                yield return new LibraryFunction(Display(starts[i].Name, o.Arch), member, section.Data[from..(from + end)], mask[..end]) { Calls = calls, Aliases = aliases };
-            }
+            var symbols = o.Symbols.Where(y => y.Section == section.Number && y.Value < section.Data.Length && y.StorageClass is 2 or 3 && !IsSectionName(y, section))
+                .Select(y => new CodeSymbol((int)y.Value, null, Display(y.Name, o.Arch), y.IsFunction, y.IsExternal)).ToList();
+            var fixups = section.Relocations.Select(r => new Fixup((int)r.Offset, 0, CoffObject.Width(o.Machine, r.Type), Extra(o.Arch, r.Type),
+                bySymbol.TryGetValue(r.Symbol, out var callee) && Callable(callee) ? Display(callee!.Name, o.Arch) : null)).ToList();
+            foreach (var f in Functions(new CodeSection(section.Data, symbols, fixups, o.Arch is NativeArch.X64 or NativeArch.X86), member))
+                yield return f;
         }
+    }
+
+    // A function symbol's bytes (its size, else to the next symbol or the section end), relocated bytes unfixed.
+    private static IEnumerable<LibraryFunction> Functions(CodeSection section, string member)
+    {
+        var starts = section.Symbols.GroupBy(y => y.Offset)
+            .Select(g => (Offset: g.Key, First: g.OrderByDescending(y => y.IsFunction).ThenByDescending(y => y.IsPreferred).First(), All: g.ToList()))
+            .OrderBy(g => g.Offset).ToList();
+        for (int i = 0; i < starts.Count; i++)
+        {
+            var symbol = starts[i].First;
+            if (!symbol.IsFunction) continue;
+            int from = symbol.Offset, next = i + 1 < starts.Count ? starts[i + 1].Offset : section.Data.Length;
+            int to = symbol.Size is > 0 and var size ? (int)Math.Min((long)from + size, section.Data.Length) : next;
+            var mask = new bool[to - from];
+            Array.Fill(mask, true);
+            foreach (var r in section.Fixups)
+                for (int b = r.Offset - r.Before; b < r.Offset - r.Before + r.Length; b++)
+                    if (b >= from && b < to) mask[b - from] = false;
+            // Alignment padding (int3 or nop) after the last instruction belongs to the section, not the function.
+            int end = mask.Length;
+            while (section.TrimPadding && end > 0 && mask[end - 1] && section.Data[from + end - 1] is 0xCC or 0x90) end--;
+            if (end == 0) continue;
+            var calls = section.Fixups.Where(r => r.Extra != null && r.Callee != null && r.Offset >= from && r.Offset + 4 <= from + end)
+                .Select(r => new LibraryCall(r.Offset - from, r.Extra!.Value, r.Callee!)).ToList();
+            var aliases = starts[i].All.Where(y => y != symbol && y.IsFunction).Select(y => y.Name).Where(n => n != symbol.Name).Distinct().ToList();
+            yield return new LibraryFunction(symbol.Name, member, section.Data[from..(from + end)], mask[..end]) { Calls = calls, Aliases = aliases };
+        }
+    }
+
+    /// <summary>
+    /// The functions of one relocatable ELF object (x86, x64 and AArch64, little-endian): each function symbol's bytes for
+    /// its size, the bytes its relocations and their linker relaxations rewrite unfixed. Null with <paramref name="reason"/>
+    /// for other objects.
+    /// </summary>
+    internal static List<LibraryFunction>? Functions(ElfFile elf, string member, out string? reason)
+    {
+        reason = elf.Type != 1 ? $"an ELF {elf.TypeName}, not a relocatable object"
+            : elf.BigEndian || elf.Arch is not (NativeArch.X64 or NativeArch.X86 or NativeArch.Arm64) ? $"an ELF object for {elf.MachineName} (not read)" : null;
+        if (reason != null) return null;
+        var file = elf.FileBytes;
+        var data = file.Span;
+        var symbols = elf.StaticSymbols;
+        var relocations = elf.SectionHeaders.Where(h => h.Type is 4 or 9 && h.Info < elf.SectionHeaders.Count).ToLookup(h => (int)h.Info);
+        var result = new List<LibraryFunction>();
+        // SHT_PROGBITS with SHF_EXECINSTR.
+        foreach (var section in elf.SectionHeaders.Where(h => h.Type == 1 && (h.Flags & 4) != 0 && h.Size > 0 && Within(h, file.Length)))
+        {
+            var bytes = data.Slice((int)section.Offset, (int)section.Size).ToArray();
+            var defined = symbols.Where(y => y.SectionIndex == section.Index && y.Value < section.Size && y.Name.Length > 0
+                && y.Type is ElfSymbol.TypeFunction or ElfSymbol.TypeIndirectFunction or ElfSymbol.TypeNone or ElfSymbol.TypeObject)
+                .Select(y => new CodeSymbol((int)y.Value, y.IsFunction && y.Size > 0 ? (int)Math.Min(y.Size, section.Size) : null, y.Name, y.IsFunction,
+                    y.Binding != ElfSymbol.BindLocal)).ToList();
+            var fixups = new List<Fixup>();
+            foreach (var table in relocations[section.Index])
+                foreach (var (offset, type, symbolIndex, addend) in ElfRelocations(data, table, elf.Is64Bit))
+                {
+                    if (type == 0 || offset >= section.Size) continue;
+                    var (before, length) = ElfRewrites(elf.Arch, type);
+                    int at = (int)offset;
+                    long a = addend ?? (at + 4 <= bytes.Length ? BitConverter.ToInt32(bytes, at) : 0);
+                    var callee = symbolIndex > 0 && symbolIndex < symbols.Count && symbols[symbolIndex] is var y && y.Name.Length > 0
+                        && (y.IsFunction || !y.IsDefined && y.Type == ElfSymbol.TypeNone) ? y.Name : null;
+                    // R_X86_64_PC32, R_X86_64_PLT32, R_386_PC32, R_386_PLT32: S = P + field - A.
+                    int? extra = elf.Arch is NativeArch.X64 or NativeArch.X86 && type is 2 or 4 ? (int)(-a - 4) : null;
+                    fixups.Add(new Fixup(at, before, length, extra, callee));
+                }
+            result.AddRange(Functions(new CodeSection(bytes, defined, fixups, elf.Arch is NativeArch.X64 or NativeArch.X86), member));
+        }
+        return result;
     }
 
     // Named as the PDB layer names them: decorated names undecorated to their qualified name.
@@ -149,10 +218,72 @@ public static class LibrarySignatures
     // A section symbol (storage STATIC, value 0) carries its section's name.
     private static bool IsSectionName(CoffSymbol y, CoffSection s) => y.StorageClass == 3 && y.Value == 0 && !y.IsFunction && y.Name == s.Name;
 
+    // Entries of a SHT_RELA (explicit addend) or SHT_REL table: offset, type, symbol index, addend (null: in the field).
+    private static IEnumerable<(ulong Offset, uint Type, int Symbol, long? Addend)> ElfRelocations(ReadOnlySpan<byte> data, ElfSection table, bool is64)
+    {
+        bool rela = table.Type == 4;
+        int least = (is64 ? 8 : 4) * (rela ? 3 : 2);
+        int size = table.EntrySize is var e && e >= (ulong)least && e <= 64 ? (int)e : least;
+        if (!Within(table, data.Length)) return [];
+        var entries = new List<(ulong, uint, int, long?)>();
+        var span = data.Slice((int)table.Offset, (int)table.Size);
+        for (int at = 0; at + size <= span.Length; at += size)
+        {
+            if (is64)
+            {
+                ulong info = BinaryPrimitives.ReadUInt64LittleEndian(span[(at + 8)..]);
+                entries.Add((BinaryPrimitives.ReadUInt64LittleEndian(span[at..]), (uint)info, (int)(info >> 32), rela ? BinaryPrimitives.ReadInt64LittleEndian(span[(at + 16)..]) : null));
+            }
+            else
+            {
+                uint info = BinaryPrimitives.ReadUInt32LittleEndian(span[(at + 4)..]);
+                entries.Add((BinaryPrimitives.ReadUInt32LittleEndian(span[at..]), info & 0xFF, (int)(info >> 8), rela ? BinaryPrimitives.ReadInt32LittleEndian(span[(at + 8)..]) : null));
+            }
+        }
+        return entries;
+    }
+
+    // The section's bytes lie in the file (no wrap past 2^64).
+    private static bool Within(ElfSection h, int fileLength) => h.Offset <= (ulong)fileLength && h.Size <= (ulong)fileLength - h.Offset;
+
+    // Bytes a relocation and the linker's relaxation of it rewrite: from Before bytes ahead of its field, Length bytes.
+    // GOTPCRELX and TLS models let the linker rewrite opcodes ahead of the field (x86-64 and i386 psABI).
+    private static (int Before, int Length) ElfRewrites(NativeArch arch, uint type) => arch switch
+    {
+        NativeArch.X64 => type switch
+        {
+            1 or 24 or 25 or 33 => (0, 8),
+            12 or 13 => (0, 2),
+            14 or 15 => (0, 1),
+            // R_X86_64_TLSGD: the 16-byte call sequence; TLSLD: 12 bytes.
+            19 => (4, 16),
+            20 => (3, 12),
+            // GOTTPOFF, GOTPC32_TLSDESC, REX_GOTPCRELX: REX, opcode and ModRM; GOTPCRELX: opcode and ModRM.
+            22 or 34 or 42 => (3, 7),
+            41 => (2, 6),
+            35 => (0, 2),
+            _ => (0, 4),
+        },
+        NativeArch.X86 => type switch
+        {
+            20 or 21 => (0, 2),
+            22 or 23 => (0, 1),
+            // R_386_TLS_GD: 12-byte sequence; TLS_LDM: 11; TLS_IE: opcode; TLS_GOTIE and GOT32X: opcode and ModRM.
+            18 => (3, 12),
+            19 => (2, 11),
+            15 => (1, 5),
+            16 or 43 => (2, 6),
+            _ => (0, 4),
+        },
+        // AArch64: ABS64 and PREL64 are data; every other relocation rewrites its 4-byte instruction.
+        _ => type switch { 257 or 260 => (0, 8), 259 or 262 => (0, 2), _ => (0, 4) },
+    };
+
     /// <summary>
     /// The library functions found at <paramref name="starts"/> of <paramref name="image"/>. A start more than one name
     /// matches, and a function matching more than one start, are ambiguities and name nothing. Functions with fewer
-    /// than <see cref="MinFixedBytes"/> fixed bytes are not used. A match is refused when a relative call in it reaches
+    /// than <see cref="MinFixedBytes"/> fixed bytes are not used, nor ones that run past the next of <paramref name="starts"/>.
+    /// A match is refused when a relative call in it reaches
     /// an address that this match set or <paramref name="nameAt"/> (the image's names; null: none) names otherwise.
     /// </summary>
     public static (List<LibraryMatch> Matches, List<LibraryAmbiguity> Ambiguous) Match(LibrarySignatureSet set, INativeImage image, IEnumerable<uint> starts,
@@ -171,10 +302,14 @@ public static class LibrarySignatures
         int longest = usable.Count == 0 ? 0 : usable.Max(f => f.Bytes.Length);
         var window = new byte[longest];
         var found = new Dictionary<uint, List<LibraryFunction>>();
-        foreach (var rva in starts.Distinct())
+        var sorted = starts.Distinct().Order().ToArray();
+        for (int i = 0; i < sorted.Length; i++)
         {
             ct.ThrowIfCancellationRequested();
+            uint rva = sorted[i];
             int read = image.Read(rva, window);
+            // A function's bytes end before the next start: a longer one only shares this function's first bytes.
+            if (i + 1 < sorted.Length && sorted[i + 1] - rva < (uint)read) read = (int)(sorted[i + 1] - rva);
             if (read < KeyLength) continue;
             var span = window.AsSpan(0, read);
             var candidates = keyed.TryGetValue(Key(span), out var list) ? list.Concat(unkeyed) : unkeyed;
@@ -207,7 +342,6 @@ public static class LibrarySignatures
             for (bool changed = true; changed;)
             {
                 changed = false;
-                var placed = matches.GroupBy(m => Canon(m.Name)).Where(g => g.Count() == 1).ToDictionary(g => g.Key, g => g.First().Rva, StringComparer.Ordinal);
                 var byRva = matches.ToDictionary(m => m.Rva);
                 string? Conflict(uint rva, LibraryCall c)
                 {
@@ -215,8 +349,8 @@ public static class LibrarySignatures
                     uint target = rva + (uint)c.Offset + 4 + (uint)c.Extra + (uint)BitConverter.ToInt32(field);
                     var want = Canon(c.Symbol);
                     if (nameAt?.Invoke(target) is { } known && Canon(known) != want) return $"its call to '{c.Symbol}' reaches '{known}'";
+                    // Only a named target is evidence: calls through PLT, IFUNC and import stubs reach other addresses.
                     if (!own) return null;
-                    if (placed.TryGetValue(want, out var at) && at != target) return $"its call to '{c.Symbol}' reaches 0x{target:X}; the library places it at 0x{at:X}";
                     return byRva.TryGetValue(target, out var other) && Canon(other.Name) != want ? $"its call to '{c.Symbol}' reaches '{other.Name}'" : null;
                 }
                 foreach (var m in matches.ToList())
