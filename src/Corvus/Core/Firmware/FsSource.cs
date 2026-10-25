@@ -66,6 +66,9 @@ internal sealed class FsTree(string kind, bool allFiles, AnalysisLimits limits, 
 
     public int Count => _entries.Count;
 
+    /// <summary>Paths extracted even without allFiles: small metadata a reader describes the image from.</summary>
+    public Func<string, bool>? Keep { get; init; }
+
     /// <summary>A name read from the image that is usable as one path component.</summary>
     public static bool UsableName(string name) => name.Length > 0 && name is not ("." or "..") && name.IndexOfAny(['/', '\0']) < 0;
 
@@ -79,11 +82,12 @@ internal sealed class FsTree(string kind, bool allFiles, AnalysisLimits limits, 
         _entries.Add(new ContainerEntry(path, size, detail) { Mode = Octal(mode) });
         if (_items.Count >= limits.MaxItems) return;
         if (size < 0 || size > limits.MaxItemBytes) { Notes.Add($"{path}: {size:N0} bytes, over the item limit; listed, not extracted"); return; }
+        bool all = allFiles || Keep?.Invoke(path) == true;
         byte[] bytes;
         try
         {
             // a large file is read whole only when its start shows a binary or a package
-            if (!allFiles && size > Head && !ArchiveItems.Wanted(read(Head))) return;
+            if (!all && size > Head && !ArchiveItems.Wanted(read(Head))) return;
             bytes = read(size);
         }
         catch (Exception ex) when (Damaged(ex))
@@ -94,7 +98,7 @@ internal sealed class FsTree(string kind, bool allFiles, AnalysisLimits limits, 
         _total += bytes.Length;
         if (_total > limits.MaxTotalBytes)
             throw new ToolError(ErrorCode.LimitExceeded, $"extracting {path} passes the {limits.MaxTotalBytes:N0}-byte total limit.", "unpack fewer files or raise the limits");
-        if (allFiles || ArchiveItems.Wanted(bytes)) _items.Add(new ExtractedItem(path, bytes, $"{kind} file"));
+        if (all || ArchiveItems.Wanted(bytes)) _items.Add(new ExtractedItem(path, bytes, $"{kind} file"));
     }
 
     /// <summary>Damaged structure or data: the exceptions a reader turns into a note or a malformed-input error.</summary>

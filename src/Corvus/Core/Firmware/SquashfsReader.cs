@@ -26,7 +26,7 @@ internal sealed class SquashfsReader : IContainerReader
     private const int MetadataBlock = 8192;
 
     public static ContainerContents Read(FsSource src, bool allFiles, AnalysisLimits limits, CancellationToken ct) =>
-        FsTree.Guard(src, () => new Image(src, new FsTree("squashfs", allFiles, limits, ct)).Walk());
+        Archives.LinuxAppPackages.Snap(FsTree.Guard(src, () => new Image(src, new FsTree("squashfs", allFiles, limits, ct) { Keep = Archives.LinuxAppPackages.Metadata }).Walk()));
 
     private sealed class Image
     {

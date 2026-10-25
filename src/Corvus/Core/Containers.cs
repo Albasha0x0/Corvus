@@ -72,6 +72,7 @@ public static class Containers
         if (kind == "gamemaker data") return GameMakerData.Open(data, name, allFiles, limits, ct);
         if (kind is "lua bytecode" or "luajit bytecode") return Lua.LuaContents.Open(data, name);
         if (kind == "autoit script") return AutoIt.AutoItScript.Open(data, 0, name, allFiles, limits, ct);
+        if (kind == "elf" && Archives.LinuxAppPackages.Payload(data) is > 0 and var appImage) return Archives.LinuxAppPackages.OpenAppImage(data, appImage, name, allFiles, limits, ct);
         // an export with the pack embedded: the engine executable, then the pack, its size and "GDPC"
         if (kind is "native PE" or "elf" or "mach-o" && GodotPack.Embedded(data) is { } pack) return GodotPack.Open(data, pack, name, allFiles, limits, ct);
         // An executable from Aut2Exe: the interpreter with the script data in a resource.
