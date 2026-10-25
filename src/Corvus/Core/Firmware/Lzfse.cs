@@ -87,6 +87,49 @@ internal static class Lzfse
         }
     }
 
+    /// <summary>
+    /// The decoded size an LZFSE stream's block headers declare, or null when a header is damaged, an unknown block
+    /// magic appears or the stream ends without its end-of-stream block.
+    /// </summary>
+    public static long? DecodedSize(ReadOnlySpan<byte> src)
+    {
+        long total = 0;
+        for (int s = 0; s <= src.Length - 4;)
+        {
+            uint magic = BinaryPrimitives.ReadUInt32LittleEndian(src[s..]);
+            if (magic == EndOfStream) return total;
+            long raw, size;
+            switch (magic)
+            {
+                case Raw when s <= src.Length - 8:
+                    raw = BinaryPrimitives.ReadUInt32LittleEndian(src[(s + 4)..]);
+                    size = 8 + raw;
+                    break;
+                case Lzvn when s <= src.Length - 12:
+                    raw = BinaryPrimitives.ReadUInt32LittleEndian(src[(s + 4)..]);
+                    size = 12L + BinaryPrimitives.ReadUInt32LittleEndian(src[(s + 8)..]);
+                    break;
+                case V2 when s <= src.Length - 32:
+                {
+                    ulong v0 = BinaryPrimitives.ReadUInt64LittleEndian(src[(s + 8)..]), v1 = BinaryPrimitives.ReadUInt64LittleEndian(src[(s + 16)..]);
+                    raw = BinaryPrimitives.ReadUInt32LittleEndian(src[(s + 4)..]);
+                    size = (long)(uint)BinaryPrimitives.ReadUInt64LittleEndian(src[(s + 24)..]) + Field(v0, 20, 20) + Field(v1, 40, 20);
+                    break;
+                }
+                case V1 when s <= src.Length - V1HeaderSize:
+                    raw = BinaryPrimitives.ReadUInt32LittleEndian(src[(s + 4)..]);
+                    size = V1HeaderSize + (long)BinaryPrimitives.ReadUInt32LittleEndian(src[(s + 20)..]) + BinaryPrimitives.ReadUInt32LittleEndian(src[(s + 24)..]);
+                    break;
+                default:
+                    return null;
+            }
+            if (size > src.Length - s) return null;
+            total += raw;
+            s += (int)size;
+        }
+        return null;
+    }
+
     /// <summary>Decodes a raw LZVN stream (no block header) into <paramref name="dst"/>; returns the bytes written.</summary>
     public static int DecodeLzvn(ReadOnlySpan<byte> src, Span<byte> dst)
     {

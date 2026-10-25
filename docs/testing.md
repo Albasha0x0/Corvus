@@ -262,6 +262,7 @@ describe.
 | `CORVUS_DEBUG_ARGS` | `1` prints the call sites whose arguments were not recovered in the system DLL recovery run. | CallArgumentTests |
 | `CORVUS_DIFF_PAIRS` | Build pairs matched per source (default 6). | NativeDiffRealTests |
 | `CORVUS_APFS_DIR` | A folder of APFS container images whose files, links and bytes are compared with 7-Zip's extraction. | ApfsTests |
+| `CORVUS_ASSET_CATALOG_DIR` | A folder of compiled asset catalogs (`.car`) whose renditions, bitmap pixels, cropped images and original data are compared with carfile-go's (`CORVUS_ASSET_CATALOG_READER`). | AssetCatalogTests |
 | `CORVUS_DMG_DIR` | A folder of Apple disk images (.dmg) whose files, links and bytes are compared with 7-Zip's extraction. | AppleDiskImageTests |
 | `CORVUS_DART_RELEASES` | A folder of Dart SDK releases (`dart-<version>/dart-sdk`); each compiles a sample whose code names are compared with its debug symbols. | DartSdkProgramTests |
 | `CORVUS_FLUTTER_RELEASES` | A folder of Flutter engine releases (`flutter-<version>/bin/cache` with the Dart SDK, the patched SDK and the Android gen_snapshot for x64 and arm64); each compiles a compressed-pointer sample whose code names are compared with its debug symbols. | DartSdkProgramTests |

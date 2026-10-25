@@ -216,8 +216,15 @@ public static partial class ExternalTools
     public static readonly ExternalTool LzfseTool = new("lzfse", "lzfse (test oracle)", "CORVUS_LZFSE", ExternalToolKind.Executable,
         ["lzfse" + Exe], ["-h"], 0, "oracle for the LZFSE decoder in tests", true, Ops(("encode", ["-encode", "-i", "{file}", "-o", "{output}"])));
 
+    // carfile-go 0.8.0 tested (a CGO_ENABLED=0 build). json writes catalog.json, the renditions in tree order; png
+    // (each bitmap) and resources (cropped images, originals) write a manifest.json naming each file's rendition index.
+    public static readonly ExternalTool AssetCatalogReader = new("carfile", "carfile-go (test oracle)", "CORVUS_ASSET_CATALOG_READER", ExternalToolKind.Executable,
+        ["carfile" + Exe], ["-v"], 0, "oracle for the asset catalog reader in tests", true,
+        Ops(("json", ["-q", "-f", "json", "-o", "{output}", "{file}"]), ("png", ["-q", "-f", "png", "-o", "{output}", "{file}"]),
+            ("resources", ["-q", "-f", "resources", "-o", "{output}", "{file}"])));
+
     /// <summary>Every external program, in display order.</summary>
-    public static readonly IReadOnlyList<ExternalTool> Table = [Java, JavaDecompiler, JavaDecompiler2, PythonDecompiler, Adb, TShark, OsvScanner, GuardDog, Emulator, Capa, Aapt2, ApkSigner, DexDisassembler, ProtoCompiler, WasmText, WasmValidator, HbcDisassembler, DartSdk, FlutterSdk, RCodesign, ArchiveLister, LzfseTool];
+    public static readonly IReadOnlyList<ExternalTool> Table = [Java, JavaDecompiler, JavaDecompiler2, PythonDecompiler, Adb, TShark, OsvScanner, GuardDog, Emulator, Capa, Aapt2, ApkSigner, DexDisassembler, ProtoCompiler, WasmText, WasmValidator, HbcDisassembler, DartSdk, FlutterSdk, RCodesign, ArchiveLister, LzfseTool, AssetCatalogReader];
 
     private static IEnumerable<(string, string)> WiresharkDirectories()
     {
