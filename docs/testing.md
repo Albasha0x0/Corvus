@@ -264,6 +264,7 @@ describe.
 | `CORVUS_APFS_DIR` | A folder of APFS container images whose files, links and bytes are compared with 7-Zip's extraction. | ApfsTests |
 | `CORVUS_DMG_DIR` | A folder of Apple disk images (.dmg) whose files, links and bytes are compared with 7-Zip's extraction. | AppleDiskImageTests |
 | `CORVUS_DART_RELEASES` | A folder of Dart SDK releases (`dart-<version>/dart-sdk`); each compiles a sample whose code names are compared with its debug symbols. | DartSdkProgramTests |
+| `CORVUS_FLUTTER_RELEASES` | A folder of Flutter engine releases (`flutter-<version>/bin/cache` with the Dart SDK, the patched SDK and the Android gen_snapshot for x64 and arm64); each compiles a compressed-pointer sample whose code names are compared with its debug symbols. | DartSdkProgramTests |
 | `CORVUS_ELECTRON_APPS` | A folder of installed Electron apps; every .asar below it (six levels) is read. | ElectronGraphTests, ElectronTests, JsEndpointsTests, NodeApiTests |
 | `CORVUS_ELF_CORES` | A folder of Linux or Android ELF core files, with the program's libraries beside them. | ElfCoreTests |
 | `CORVUS_EXPORT_LIST` | A file listing assemblies whose exported projects must build; errors go to `<list>.report.txt`. | ExportBuildTests |

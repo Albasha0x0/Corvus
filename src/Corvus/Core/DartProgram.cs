@@ -253,8 +253,9 @@ public static class DartProgramReader
             next += (int)count;
             if (next - 1 > objects) throw new Truncated();
             c.Stop = next;
+            // A VM snapshot's strings in the stream (compressed pointers) are written without their canonical set.
             if (c.Canonical && (c.Cid == C.TypeArguments || c.Cid == C.Type || c.Cid == C.FunctionType || c.Cid == C.RecordType
-                || c.Cid == C.TypeParameter || c.Cid == C.String))
+                || c.Cid == C.TypeParameter || c.Cid == C.String && !(vmOnly && c.Alloc == Alloc.Lengths)))
             {
                 s.Unsigned();
                 long first = s.Unsigned();

@@ -8,8 +8,8 @@ namespace Corvus.Tests.NativeFormats;
 
 /// <summary>
 /// Code names read from snapshots the Dart SDK (CORVUS_DART), earlier Dart releases (CORVUS_DART_RELEASES) and Flutter's
-/// gen_snapshot (CORVUS_FLUTTER) compile, compared with the debug symbols the compiler writes beside them
-/// (--save-debugging-info), which name each code address as the VM prints it.
+/// gen_snapshot (CORVUS_FLUTTER; earlier releases in CORVUS_FLUTTER_RELEASES) compile, compared with the debug symbols
+/// the compiler writes beside them (--save-debugging-info), which name each code address as the VM prints it.
 /// </summary>
 [Trait("Speed", "Slow")]
 [Permit("reference-tool")]
@@ -87,23 +87,28 @@ public sealed class DartSdkProgramTests(ITestOutputHelper output) : IDisposable
     /// <paramref name="arch"/>, which compresses pointers) and returns the read program, its instructions' RVA and the debug
     /// symbols by address.
     /// </summary>
-    private (DartProgram Program, uint Text, Dictionary<uint, HashSet<string>> Symbols) CompileCompressed(string arch)
+    private (DartProgram Program, uint Text, Dictionary<uint, HashSet<string>> Symbols) CompileCompressed(string arch, string? sdk = null, string name = "flutter")
     {
-        var source = _dir.File("flutter.dart");
+        var source = _dir.File($"{name}-{arch}.dart");
         File.WriteAllText(source, Source);
-        string kernel = _dir.File("flutter.dill"), elf = _dir.File("libapp.so"), debug = _dir.File("libapp.debug");
+        string kernel = _dir.File($"{name}-{arch}.dill"), elf = _dir.File($"{name}-{arch}.so"), debug = _dir.File($"{name}-{arch}.debug");
         var tool = ExternalTools.FlutterSdk;
-        var runtime = ExternalTools.Locate(tool)!.Value.Path;
+        var exe = OperatingSystem.IsWindows() ? ".exe" : "";
         // dartaotruntime sits in <root>/bin/cache/dart-sdk/bin.
-        var root = Path.GetFullPath(Path.Combine(Path.GetDirectoryName(runtime)!, "..", "..", "..", ".."));
+        var root = sdk ?? Path.GetFullPath(Path.Combine(Path.GetDirectoryName(ExternalTools.Locate(tool)!.Value.Path)!, "..", "..", "..", ".."));
+        var bin = Path.Combine(root, "bin", "cache", "dart-sdk", "bin");
+        // Releases before the AOT frontend server snapshot run the JIT one in dart.
+        bool aot = File.Exists(Path.Combine(bin, "snapshots", "frontend_server_aot.dart.snapshot"));
+        var runtime = Path.Combine(bin, (aot ? "dartaotruntime" : "dart") + exe);
         var host = OperatingSystem.IsWindows() ? "windows-x64" : OperatingSystem.IsMacOS() ? "darwin-x64" : "linux-x64";
         var genSnapshot = Path.Combine(root, "bin", "cache", "artifacts", "engine", $"android-{arch}-release", host, "gen_snapshot" + (OperatingSystem.IsWindows() ? ".exe" : ""));
-        var run = ExternalTools.Run(runtime, ExternalTools.Arguments(tool, "kernel", ("root", root), ("output", kernel), ("source", source)), TimeSpan.FromMinutes(5), 1 << 20, default);
+        var run = ExternalTools.Run(runtime, ExternalTools.Arguments(tool, aot ? "kernel" : "kernel-jit", ("root", root), ("output", kernel), ("source", source)), TimeSpan.FromMinutes(5), 1 << 20, default);
         Assert.True(run.ExitCode == 0, run.Stderr + run.Text);
         run = ExternalTools.Run(genSnapshot, ExternalTools.Arguments(tool, "aot-elf", ("output", elf), ("debug", debug), ("kernel", kernel)), TimeSpan.FromMinutes(5), 1 << 20, default);
         Assert.True(run.ExitCode == 0, run.Stderr + run.Text);
         var image = NativeImageLoader.FromBytes(File.ReadAllBytes(elf), elf);
-        Assert.Contains("compressed-pointers", DartScan.Snapshots(File.ReadAllBytes(elf)).Single(s => s.Kind == "full-aot").Features);
+        // Releases before 3.13 write a VM and an isolate snapshot.
+        Assert.All(DartScan.Snapshots(File.ReadAllBytes(elf)).Where(s => s.Kind == "full-aot"), s => Assert.Contains("compressed-pointers", s.Features));
         var (program, text) = DartNames.Read(image)!.Value;
         var symbols = new Dictionary<uint, HashSet<string>>();
         foreach (var s in NativeImageLoader.FromBytes(File.ReadAllBytes(debug), debug).Symbols.Where(s => s.Kind == ImageSymbolKind.Function))
@@ -177,6 +182,27 @@ public sealed class DartSdkProgramTests(ITestOutputHelper output) : IDisposable
         var at = program.Code.ToLookup(c => c.Name, c => text + c.Offset);
         foreach (var name in new[] { "main", "checksumOrders", "Ledger.balanceOf", "Ledger.totals", "LedgerEntry.describe" })
             Assert.True(at[name].Any(address => symbols[address].Contains(name)), name);
+    }
+
+    // Each folder flutter-<version> holds one release's Dart SDK, patched SDK and Android gen_snapshot, as Flutter caches them.
+    [RequiresRealDataFact("CORVUS_FLUTTER_RELEASES")]
+    public void Earlier_compressed_pointer_releases_name_their_code_as_their_debug_symbols_do()
+    {
+        var sdks = Directory.GetDirectories(Environment.GetEnvironmentVariable("CORVUS_FLUTTER_RELEASES")!, "flutter-*").Order().ToList();
+        Assert.NotEmpty(sdks);
+        var problems = new List<string>();
+        foreach (var sdk in sdks)
+            foreach (var arch in new[] { "x64", "arm64" })
+            {
+                var release = $"Flutter {Path.GetFileName(sdk)[8..]} {arch}";
+                var (program, text, symbols) = CompileCompressed(arch, sdk, Path.GetFileName(sdk));
+                int same = program.Code.Count(c => symbols.TryGetValue(text + c.Offset, out var names) && names.Contains(c.Name));
+                output.WriteLine($"{release}: layout {program.Layout ?? program.Unsupported}, {same} of {program.Code.Count} names equal");
+                foreach (var c in program.Code.Where(c => !(symbols.TryGetValue(text + c.Offset, out var names) && names.Contains(c.Name))).Take(30))
+                    output.WriteLine($"  0x{text + c.Offset:X} {c.Name} / {string.Join(" | ", symbols.GetValueOrDefault(text + c.Offset) ?? [])}");
+                if (program.Unsupported != null || same * 100 < program.Code.Count * 99) problems.Add($"{release}: {same} of {program.Code.Count}");
+            }
+        Assert.True(problems.Count == 0, string.Join("; ", problems));
     }
 
     // DWARF stack traces drop the Function objects of most code; closures whose parent is gone print "<optimized out>".

@@ -191,11 +191,15 @@ public static partial class ExternalTools
         Ops(("aot", ["compile", "aot-snapshot", "-o", "{output}", "--extra-gen-snapshot-options=--save-debugging-info={debug}", "{source}"]),
             ("aot-split", ["compile", "aot-snapshot", "-o", "{output}", "--save-debugging-info={debug}", "{source}"])));
 
-    // Flutter 3.47.8 (Dart 3.13.7) tested. CORVUS_FLUTTER names the SDK folder; "kernel" runs in its dartaotruntime, "aot-elf"
-    // in the engine's gen_snapshot for an Android release (x64, arm64), which compresses pointers.
+    // Flutter 3.47.8 (Dart 3.13.7) and 3.10.6 to 3.44.9 (CORVUS_FLUTTER_RELEASES) tested. CORVUS_FLUTTER names the SDK
+    // folder; "kernel" runs in its dartaotruntime ("kernel-jit" in dart, before 3.16), "aot-elf" in the engine's
+    // gen_snapshot for an Android release (x64, arm64), which compresses pointers.
     public static readonly ExternalTool FlutterSdk = new("flutter", "Flutter SDK (test oracle)", "CORVUS_FLUTTER", ExternalToolKind.Executable,
         ["bin/cache/dart-sdk/bin/dartaotruntime" + Exe], ["--version"], 3, "oracle for compressed-pointer Dart AOT snapshots in tests", true,
         Ops(("kernel", ["{root}/bin/cache/dart-sdk/bin/snapshots/frontend_server_aot.dart.snapshot", "--sdk-root",
+                "{root}/bin/cache/artifacts/engine/common/flutter_patched_sdk_product/", "--target=flutter", "--aot", "--tfa", "-Ddart.vm.product=true",
+                "--no-print-incremental-dependencies", "--output-dill", "{output}", "{source}"]),
+            ("kernel-jit", ["{root}/bin/cache/dart-sdk/bin/snapshots/frontend_server.dart.snapshot", "--sdk-root",
                 "{root}/bin/cache/artifacts/engine/common/flutter_patched_sdk_product/", "--target=flutter", "--aot", "--tfa", "-Ddart.vm.product=true",
                 "--no-print-incremental-dependencies", "--output-dill", "{output}", "{source}"]),
             ("aot-elf", ["--deterministic", "--snapshot_kind=app-aot-elf", "--elf={output}", "--save-debugging-info={debug}", "{kernel}"])));
