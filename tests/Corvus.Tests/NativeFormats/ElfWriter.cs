@@ -70,6 +70,8 @@ internal sealed class ElfWriter
     public Dictionary<string, (string Library, string Version)> Versions { get; set; } = [];
     /// <summary>Static symbols (.symtab, not loaded).</summary>
     public List<Symbol> StaticSymbols { get; set; } = [];
+    /// <summary>Contents of a non-allocated .gnu_debugdata section (MiniDebugInfo: an xz-compressed ELF).</summary>
+    public byte[]? GnuDebugData { get; set; }
 
     private int WordSize => Is64 ? 8 : 4;
     private int SymSize => Is64 ? 24 : 16;
@@ -419,6 +421,15 @@ internal sealed class ElfWriter
             symtab.Link = (uint)sections.IndexOf(strSec) + 1;
         }
 
+        if (SectionHeaders && GnuDebugData != null)
+        {
+            var debugData = Add(".gnu_debugdata", 1, 0);
+            debugData.Alloc = false;
+            debugData.Offset = (uint)w.Length;
+            w.Bytes(GnuDebugData);
+            debugData.Size = (uint)GnuDebugData.Length;
+        }
+
         int shoff = 0, shnum = 0, shstrndx = 0;
         if (SectionHeaders)
         {
@@ -701,6 +712,47 @@ internal sealed class ElfWriter
             bool last = i + 1 == dynsym.Count || GnuHash(dynsym[i + 1].Name) % nbuckets != hh % nbuckets;
             w.U32(last ? hh | 1 : hh & ~1u);
         }
+    }
+
+    /// <summary>An .xz stream holding <paramref name="data"/> in uncompressed LZMA2 chunks, with a CRC32 check.</summary>
+    public static byte[] Xz(byte[] data)
+    {
+        static uint Crc(ReadOnlySpan<byte> b) => System.IO.Hashing.Crc32.HashToUInt32(b);
+        static void Pad(List<byte> b) { while (b.Count % 4 != 0) b.Add(0); }
+        static void Le(List<byte> b, uint v) => b.AddRange(BitConverter.GetBytes(v));
+        static void Varint(List<byte> b, ulong v) { for (; v >= 0x80; v >>= 7) b.Add((byte)(v | 0x80)); b.Add((byte)v); }
+        var o = new List<byte> { 0xFD, 0x37, 0x7A, 0x58, 0x5A, 0, 0, 1 };
+        Le(o, Crc([0, 1]));
+        // Block header: size byte, flags (one filter, no sizes), LZMA2 (0x21) with a 1-byte dictionary property.
+        var header = new List<byte> { 2, 0, 0x21, 1, 0 };
+        Pad(header);
+        Le(header, Crc(header.ToArray()));
+        var block = new List<byte>(header);
+        for (int i = 0; i < data.Length; i += 0x10000)
+        {
+            int n = Math.Min(0x10000, data.Length - i);
+            block.AddRange([(byte)(i == 0 ? 1 : 2), (byte)((n - 1) >> 8), (byte)(n - 1)]);
+            block.AddRange(data.AsSpan(i, n));
+        }
+        block.Add(0);
+        ulong unpadded = (ulong)block.Count + 4;
+        Pad(block);
+        Le(block, Crc(data));
+        o.AddRange(block);
+        var index = new List<byte> { 0 };
+        Varint(index, 1);
+        Varint(index, unpadded);
+        Varint(index, (ulong)data.Length);
+        Pad(index);
+        Le(index, Crc(index.ToArray()));
+        o.AddRange(index);
+        var footer = new List<byte>();
+        Le(footer, (uint)(index.Count / 4 - 1));
+        footer.AddRange([0, 1]);
+        Le(o, Crc(footer.ToArray()));
+        o.AddRange(footer);
+        o.AddRange([0x59, 0x5A]);
+        return o.ToArray();
     }
 
     public static uint ElfHash(string name)

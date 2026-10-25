@@ -1,3 +1,5 @@
+using Corvus.Core;
+using Corvus.Core.Firmware;
 using Corvus.Native.Pe;
 
 namespace Corvus.Native.Elf;
@@ -13,7 +15,10 @@ public sealed partial class ElfFile
 
     /// <summary>.symtab entries (index 0 included); empty for stripped files.</summary>
     public IReadOnlyList<ElfSymbol> StaticSymbols => symbols.Value.Static;
-    /// <summary>Defined function and object symbols of .dynsym and .symtab, sorted by RVA; ARM mapping symbols are left out.</summary>
+    /// <summary>
+    /// Defined function and object symbols of .dynsym, .symtab and the MiniDebugInfo .symtab (.gnu_debugdata), sorted by
+    /// RVA; ARM mapping symbols are left out.
+    /// </summary>
     public IReadOnlyList<ImageSymbol> Symbols => symbols.Value.Image;
     /// <summary>Defined global and weak dynamic symbols, in .dynsym order (ordinal 0).</summary>
     public IReadOnlyList<NativeExport> Exports => symbols.Value.Exports;
@@ -37,8 +42,9 @@ public sealed partial class ElfFile
             for (int i = 0; i < (int)count && budget.Step(); i++) result.Static.Add(ReadSymbol(table, i * (long)entry, i, strings, log, budget));
         }
 
+        var mini = MiniDebugSymbols(log);
         var seen = new HashSet<(string, uint)>();
-        foreach (var s in dyn.Concat(result.Static))
+        foreach (var s in dyn.Concat(result.Static).Concat(mini))
         {
             // absolute symbols (version definitions such as V1.0 = 0) are values, not addresses in the image
             if (!s.IsDefined || s.Name.Length == 0 || s.SectionIndex == ElfSymbol.Absolute || s.Type is ElfSymbol.TypeSection or ElfSymbol.TypeFile or ElfSymbol.TypeTls) continue;
@@ -54,7 +60,8 @@ public sealed partial class ElfFile
             if (!seen.Add((s.Name, rva))) continue;
             var kind = s.IsFunction ? ImageSymbolKind.Function : s.Type is ElfSymbol.TypeObject or ElfSymbol.TypeCommon ? ImageSymbolKind.Object : ImageSymbolKind.Other;
             var binding = s.Binding switch { ElfSymbol.BindLocal => ImageSymbolBinding.Local, ElfSymbol.BindWeak => ImageSymbolBinding.Weak, _ => ImageSymbolBinding.Global };
-            string? section = va == s.Value && s.SectionIndex < sectionHeaders.Count && s.SectionIndex is > 0 and < 0xFF00 ? sectionHeaders[s.SectionIndex].Name : SectionAt(rva)?.Name;
+            // MiniDebugInfo section indexes are the embedded file's.
+            string? section = va == s.Value && s.SectionIndex < sectionHeaders.Count && !mini.Contains(s) && s.SectionIndex is > 0 and < 0xFF00 ? sectionHeaders[s.SectionIndex].Name : SectionAt(rva)?.Name;
             result.Image.Add(new ImageSymbol(s.Name, rva, s.Size, kind, binding, section, s.Version));
         }
         result.Image.Sort((a, b) => a.Rva != b.Rva ? a.Rva.CompareTo(b.Rva) : string.CompareOrdinal(a.Name, b.Name));
@@ -74,5 +81,34 @@ public sealed partial class ElfFile
             result.Exports.Add(new NativeExport(s.Name, 0, rva, null, s.Version == null ? null : (s.VersionHidden ? "@" : "@@") + s.Version));
         }
         return result;
+    }
+
+    /// <summary>Most bytes of .gnu_debugdata unpacked.</summary>
+    private const long MaxDebugData = 64L << 20;
+    private const string MiniDebugPath = ".gnu_debugdata";
+
+    /// <summary>
+    /// The .symtab of the xz-compressed ELF in .gnu_debugdata (MiniDebugInfo, which Android and Fedora libraries keep after
+    /// stripping), at the outer file's addresses; empty when there is none or it does not decode, which the log names.
+    /// </summary>
+    private HashSet<ElfSymbol> MiniDebugSymbols(IssueLog log)
+    {
+        // One level only: an embedded file's own .gnu_debugdata is not read, which bounds the work.
+        if (Path == MiniDebugPath || sectionHeaders.FirstOrDefault(h => h.Name == ".gnu_debugdata" && h.Type != 8) is not { } section) return [];
+        if (section.Offset + section.Size > (ulong)data.Length || section.Size > int.MaxValue)
+        {
+            log.Add($".gnu_debugdata at 0x{section.Offset:X}+0x{section.Size:X} extends past the end of the file");
+            return [];
+        }
+        try
+        {
+            var inner = FromBytes(FsCodec.DecodeStream("xz", data.AsSpan((int)section.Offset, (int)section.Size), MaxDebugData), MiniDebugPath);
+            return new HashSet<ElfSymbol>(inner.StaticSymbols, ReferenceEqualityComparer.Instance);
+        }
+        catch (Exception e) when (e is InvalidDataException or ToolError)
+        {
+            log.Add($".gnu_debugdata is not read: {e.Message}");
+            return [];
+        }
     }
 }

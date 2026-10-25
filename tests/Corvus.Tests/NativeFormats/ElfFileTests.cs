@@ -494,4 +494,30 @@ public sealed class ElfFileTests(ITestOutputHelper output)
         Assert.All(elf.Relocations.Skip(1), r => Assert.Equal(ElfRelocationKind.Relative, r.Kind));
         Assert.All(elf.Relocations, r => Assert.InRange(r.SymbolIndex, 0, elf.DynamicSymbols.Count - 1));
     }
+
+    [Fact]
+    public void A_stripped_library_names_its_functions_from_the_MiniDebugInfo_symbol_table()
+    {
+        var inner = new ElfWriter();
+        inner.StaticSymbols = [new("ledger_total", ElfWriter.TextRva, 4, Bind: 0)];
+        var outer = SampleElf();
+        outer.StaticSymbols = [];
+        outer.GnuDebugData = ElfWriter.Xz(inner.Build());
+        var elf = Parse(outer);
+        Assert.Empty(elf.StaticSymbols);
+        var named = Assert.Single(elf.Symbols, s => s.Name == "ledger_total");
+        Assert.Equal(ElfWriter.TextRva, named.Rva);
+        Assert.Equal(ImageSymbolBinding.Local, named.Binding);
+        Assert.Equal(".text", named.Section);
+    }
+
+    [Fact]
+    public void Damaged_MiniDebugInfo_is_named_and_the_other_symbols_are_kept()
+    {
+        var outer = SampleElf();
+        outer.GnuDebugData = [0xFD, 0x37, 0x7A, 0x58, 0x5A, 0, 0, 1, 9, 9];
+        var elf = Parse(outer);
+        Assert.NotEmpty(elf.Symbols);
+        Assert.Contains(elf.Issues, i => i.Message.Contains(".gnu_debugdata is not read", StringComparison.Ordinal));
+    }
 }
