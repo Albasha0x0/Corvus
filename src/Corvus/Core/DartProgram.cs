@@ -24,7 +24,7 @@ public sealed record DartProgram(IReadOnlyList<DartCode> Code, int Functions, in
 /// Class, PatchClass and ClosureData objects, and the instructions table that places each Code. Names follow the VM's
 /// Function::PrintName with user-visible names, as its DWARF and stack traces print them. Read layouts: product mode,
 /// 64-bit, with or without compressed pointers, of the single program snapshot of Dart 3.13 (kDartSnapshotData) and the
-/// VM and isolate snapshots of Dart 3.6 to 3.12; any other layout is refused as unsupported.
+/// VM and isolate snapshots of Dart 3.4 to 3.12; any other layout is refused as unsupported.
 /// </summary>
 public static class DartProgramReader
 {
@@ -63,6 +63,14 @@ public static class DartProgramReader
             Record: 67, Pointer: 72, DynamicLibrary: 73, ConstMap: 87, ConstSet: 89, Array: 90, ImmutableArray: 91,
             GrowableObjectArray: 92, String: 93, OneByteString: 94, TwoByteString: 95, FirstFfi: 96, LastFfi: 111, FirstTypedData: 112,
             LastTypedData: 167, Null: 171, NumPredefined: 175),
+            Split: true, PredefinedClasses: true, FixedClosures: true, CodeStubRefs: false, PublicFuture: true),
+        new("3.4-3.5", new(Class: 5, PatchClass: 6, Function: 7, TypeParameters: 8, ClosureData: 9, WeakArray: 17, Code: 18, ObjectPool: 22,
+            PcDescriptors: 23, CodeSourceMap: 24, CompressedStackMaps: 25, LocalVarDescriptors: 26, ExceptionHandlers: 27, Context: 28,
+            ContextScope: 29, LibraryPrefix: 45, Instance: 44, TypeArguments: 46, Type: 48, FunctionType: 49, RecordType: 50,
+            TypeParameter: 51, Closure: 56, Integer: 58, Smi: 59, Mint: 60, Double: 61, Float32x4: 63, Int32x4: 64, Float64x2: 65,
+            Record: 66, Pointer: 71, DynamicLibrary: 72, ConstMap: 86, ConstSet: 88, Array: 89, ImmutableArray: 90,
+            GrowableObjectArray: 91, String: 92, OneByteString: 93, TwoByteString: 94, FirstFfi: 95, LastFfi: 110, FirstTypedData: 111,
+            LastTypedData: 166, Null: 170, NumPredefined: 174),
             Split: true, PredefinedClasses: true, FixedClosures: true, CodeStubRefs: false, PublicFuture: true),
     ];
 
