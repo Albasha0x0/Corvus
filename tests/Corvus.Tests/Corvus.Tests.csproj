@@ -61,6 +61,7 @@
     <None Include="Containers\LzfseFixtures\*.lzfse" CopyToOutputDirectory="PreserveNewest" />
     <None Include="Mobile\ArkFixtures\*.abc;Mobile\ArkFixtures\*.txt" CopyToOutputDirectory="PreserveNewest" />
     <None Include="Containers\GameMakerFixtures\*.win" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="Containers\LuaFixtures\*.luac;Containers\LuaFixtures\*.ljbc" CopyToOutputDirectory="PreserveNewest" />
     <None Include="Containers\GodotFixtures\*.pck;Containers\GodotFixtures\*.gd" CopyToOutputDirectory="PreserveNewest" />
     <None Include="Containers\UnrealFixtures\*.pak;Containers\UnrealFixtures\*.utoc;Containers\UnrealFixtures\*.ucas" CopyToOutputDirectory="PreserveNewest" />
     <None Include="Containers\StixSchemas\**\*.json" CopyToOutputDirectory="PreserveNewest" />

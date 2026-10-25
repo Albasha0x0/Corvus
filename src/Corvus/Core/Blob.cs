@@ -62,6 +62,8 @@ public static class Blob
         if (UnrealPak.Looks(b)) return "unreal pak";
         if (UnrealIoStore.Looks(b)) return "unreal utoc";
         if (GameMakerData.Looks(b)) return "gamemaker data";
+        if (Lua.LuaBytecode.Looks(b)) return "lua bytecode";
+        if (Lua.LuaJitBytecode.Looks(b)) return "luajit bytecode";
         if (StartsWith(b, "PYZ\0"u8) && b.Length >= 12 && Python.PyVersion.FromMagic(b[4..]) != null) return "pyinstaller pyz";
         if (Python.PyVersion.LooksLikePyc(b)) return "python bytecode";
         if (LooksLikeText(b)) return "text";

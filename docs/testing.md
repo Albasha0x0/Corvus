@@ -307,6 +307,8 @@ describe.
 | `CORVUS_LIVE_ANDROID` | adb serial of a device (an emulator) running frida-server as root; the device session test runs a DEX built here on it. | LiveAndroidRealTests |
 | `CORVUS_LIVE_SOAK_MINUTES` | Minutes the observed program runs in the long session test (default 2). | LiveLongSessionRealTests |
 | `CORVUS_LLVM_BIN` | An LLVM bin folder (clang, llvm-dwp, llvm-readobj, ...) that builds the DWARF and format fixtures and checks their output. | Arm64FormatCodeTests, DwarfDebugMapTests, DwarfObjectTests, DwarfOracleTests, DwarfSplitTests, DwarfVariablesTests, ElfFileTests, FormatWriterTests, ItaniumDemangleTests, MachOFileTests, NativeFixtures |
+| `CORVUS_LUA_CHUNKS` | A folder of Lua and LuaJIT chunks compared with the reference listings of `CORVUS_LUA_TOOLS`. | LuaBytecodeTests |
+| `CORVUS_LUA_TOOLS` | A folder of Lua and LuaJIT builds (`lua-<version>/src/luac` for 5.1.5, 5.2.4, 5.3.6 and 5.4.7; `luajit-2.0/src`, `luajit-2.1/src`): each chunk's functions, instructions and constants are compared with `luac -l -l` and `luajit -bl` of its version; the same builds rebuild the Lua fixtures. | LuaBytecodeTests, tests/Corvus.Tests/Containers/LuaFixtures/build.ps1 |
 | `CORVUS_MOBILE_APPS` | A folder of app packages (.apk, .ipa), searched two levels deep. | AppGraphTests, MobileRulesTests |
 | `CORVUS_MSI_LISTER` | The lessmsi command line the MSI listings are compared with. | InstallerComparisonTests |
 | `CORVUS_NATIVEAOT_SAMPLES` | `1` builds the NativeAOT sample for several frameworks and options and checks the recovered names against its PDB (Windows, with the C++ build tools). | LiveCompiledNamesRealTests, NativeAotSampleTests |
