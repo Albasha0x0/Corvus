@@ -289,7 +289,7 @@ describe.
 | `CORVUS_FIXTURE_SWIFT` | The swiftc that builds the Swift string form fixtures (default: swiftc on PATH). | tests/Corvus.Tests/NativeAnalysis/StringFormFixtures/build.ps1 |
 | `CORVUS_FIXTURE_SWIFT_STATIC_SDK` | The musl-1.2.5.sdk folder of the Swift Static Linux SDK, for the Linux Swift string form fixtures. | tests/Corvus.Tests/NativeAnalysis/StringFormFixtures/build.ps1 |
 | `CORVUS_FORMAT_FUZZ_ITERATIONS` | Mutated inputs per ELF and Mach-O fuzz test (default 300). | ElfFileTests, MachOFileTests |
-| `CORVUS_FS_REFERENCE` | The program that runs the firmware reference script as root: sh on Linux, wsl.exe on Windows. | FirmwareComparisonTests |
+| `CORVUS_FS_REFERENCE` | The program that runs the firmware and rpm reference scripts (the firmware one as root): sh on Linux, wsl.exe on Windows; the rpm script needs rpm, rpm2cpio and cpio. | FirmwareComparisonTests, RpmReaderTests |
 | `CORVUS_FUZZ_CASES` | Mutated inputs per container and inspection fixture (defaults 40 and 30). | InspectionTests, UnpackTests |
 | `CORVUS_FUZZ_COUNT` | Seeds of the simplify and save fuzz tests (defaults 40 and 60). | SaveFidelityTests, SimplifyFuzzTests |
 | `CORVUS_FUZZ_SEED` | One simplify fuzz seed to run, or `random` for a fresh one. | SimplifyFuzzTests |
@@ -354,6 +354,7 @@ describe.
 | `CORVUS_R2R_COMPOSITE_DIR` | A composite ReadyToRun app: the output of a self-contained `dotnet publish` with composite ReadyToRun. | ReadyToRunTests |
 | `CORVUS_REFERENCE_SERVER` | The server the agent task runner compares against (`{"command": ..., "args": [...]}`). | tests/agents/run-tasks.ps1 |
 | `CORVUS_RELEASE_WSL` | The WSL distribution release.ps1 checks the update from the previous release in (default Ubuntu). | release.ps1 |
+| `CORVUS_RPM_PACKAGES` | A folder of rpm packages compared with what rpm reads through `CORVUS_FS_REFERENCE`. | RpmReaderTests |
 | `CORVUS_SECOND_GHIDRA_DIR` | A second Ghidra installation; `./test.ps1 -SecondGhidra` runs the engine tests on it. | test.ps1 |
 | `CORVUS_SERVER_EXE` | A published server to time for the catalog latency figure (default: the test build through dotnet). | CatalogTimingTests |
 | `CORVUS_SETUP_LISTER` | The innounp command line the Inno Setup listings are compared with. | InstallerComparisonTests |
