@@ -21,26 +21,31 @@ internal sealed class LiveStackWalk : IProcessMemory
     private readonly LiveSession _session;
     private readonly CoreArch _arch;
     private readonly Func<ulong, bool>? _atFunctionStart;
+    private readonly Func<LiveModuleState, string>? _file;
     private readonly ConcurrentDictionary<(ulong, string), CoreImage?> _images = new();
     private readonly object _gate = new();
     private ulong _sp;
     private byte[] _stack = [];
     private DumpModule[] _modules = [];
 
-    private LiveStackWalk(LiveSession session, CoreArch arch, Func<ulong, bool>? atFunctionStart)
+    private LiveStackWalk(LiveSession session, CoreArch arch, Func<ulong, bool>? atFunctionStart, Func<LiveModuleState, string>? file)
     {
         _session = session;
         _arch = arch;
         _atFunctionStart = atFunctionStart;
+        _file = file;
     }
 
-    /// <summary>The walker for a session's architecture (Frida's names), or null when it has no register file here.</summary>
-    public static LiveStackWalk? For(LiveSession session, Func<ulong, bool>? atFunctionStart = null) => session.Arch switch
+    /// <summary>
+    /// The walker for a session's architecture (Frida's names), or null when it has no register file here; <paramref name="file"/>
+    /// gives a module's file to read (a device module's pulled copy), by default its path.
+    /// </summary>
+    public static LiveStackWalk? For(LiveSession session, Func<ulong, bool>? atFunctionStart = null, Func<LiveModuleState, string>? file = null) => session.Arch switch
     {
-        "x64" => new(session, CoreArch.X64, atFunctionStart),
-        "ia32" => new(session, CoreArch.X86, atFunctionStart),
-        "arm64" => new(session, CoreArch.Arm64, atFunctionStart),
-        "arm" => new(session, CoreArch.Arm, atFunctionStart),
+        "x64" => new(session, CoreArch.X64, atFunctionStart, file),
+        "ia32" => new(session, CoreArch.X86, atFunctionStart, file),
+        "arm64" => new(session, CoreArch.Arm64, atFunctionStart, file),
+        "arm" => new(session, CoreArch.Arm, atFunctionStart, file),
         _ => null,
     };
 
@@ -71,8 +76,16 @@ internal sealed class LiveStackWalk : IProcessMemory
         ulong.TryParse(s.StartsWith("0x", StringComparison.OrdinalIgnoreCase) ? s[2..] : s, NumberStyles.HexNumber, CultureInfo.InvariantCulture, out var v) ? v : 0;
 
     private CoreImage? ImageAt(ulong address) => ModuleAt(address) is { } m
-        ? _images.GetOrAdd((m.Base, m.Path), _ => ElfAt(m.Path) is { } file ? CoreImage.FromFile(file, m, this, m.Path, "") : null)
+        ? _images.GetOrAdd((m.Base, m.Path), _ => ElfAt(FileOf(m)) is { } file ? CoreImage.FromFile(file, m, this, m.Path, "") : null)
         : null;
+
+    private string FileOf(DumpModule m)
+    {
+        if (_file == null) return m.Path;
+        LiveModuleState? module;
+        lock (_session.Modules) module = _session.Modules.FirstOrDefault(x => x.Base == m.Base);
+        return module == null ? m.Path : _file(module);
+    }
 
     private static ElfFile? ElfAt(string path)
     {

@@ -1,10 +1,12 @@
 """Session worker: a local program observed through Frida, on the worker protocol (one JSON object per line).
 
-Ops: hello; open {attach, stopped | spawn, arguments, cwd, temp, tmp, children}; info; set {id, address}; clear {id}; watch {id, address, args,
+Ops: hello; open {device, attach, stopped | spawn, arguments, cwd, temp, tmp, children}; info; set {id, address}; clear {id}; watch {id, address, args,
 perSecond}; unwatch {id}; defer_module {name}; undefer_module {name}; release_load {thread}; load_script {id, source} (replies with its top-level exception);
-unload_script {id}; read {address, length}; capture_memory {path, protection, limit}; resume {thread}; resume_child {pid, stopped | hold | keep}; drop_child {pid};
+unload_script {id}; art_dump (Android: ART writes its thread dump; catcher: the Signal Catcher thread, or null); read {address, length}; capture_memory {path, protection, limit}; resume {thread}; resume_child {pid, stopped | hold | keep}; drop_child {pid};
 close {end, keep_handed}.
 Events: ready, stop (with stack: the bytes from the stack pointer up, outside Windows), calls, module, thread, exception, exit_status, output, exit, script_error, user_script, child.
+With device (an adb serial), the program runs on that Android device, reached through the frida-server running there
+and the adb server; spawn takes a program path on the device or a package name, attach a pid or a process name.
 A program started here stays suspended until the first resume; close resumes every held thread, and ends the
 program only when this worker started it. A module named by defer_module holds its loading thread (module event with
 held) until release_load; a fatal exception event, and exit_status {code}, hold their thread until the
@@ -50,6 +52,14 @@ MemoryAccessMonitor.enable(ranges.map(r => ({ base: r.base, size: r.size })), { 
 """
 HOLD_WAIT = 5  # seconds a hold waits for the child to reach its code; one that never does runs on unheld
 CAPTURE_CHUNK = 1 << 20  # bytes of one read while memory is saved
+
+
+def device_of(serial):
+    """The adb-connected device with this serial, as Frida lists it through the adb server."""
+    try:
+        return frida.get_device(serial, timeout=5)
+    except frida.InvalidArgumentError as e:
+        raise Failure("not_found", "device %s is not listed by the adb server (%s)" % (serial, e))
 
 
 def parent_of(pid):
@@ -113,6 +123,9 @@ def error_of(e):
     transport = getattr(frida, "TransportError", ())
     if isinstance(e, timed_out) or isinstance(e, transport) and "timeout was reached" in str(e).lower():
         return {"code": "timeout", "message": message}
+    # A device session whose device runs no frida-server.
+    if isinstance(e, getattr(frida, "ServerNotRunningError", ())):
+        return {"code": "provider_unavailable", "message": message}
     return {"code": "failed", "message": message}
 
 
@@ -364,8 +377,22 @@ class Session:
     def open(self, args):
         if self.session is not None:
             raise Failure("invalid_argument", "this worker already holds a session")
-        self.device = frida.get_local_device()
-        if args.get("spawn"):
+        serial = args.get("device")
+        self.device = device_of(serial) if serial else frida.get_local_device()
+        if serial and args.get("spawn"):
+            argv = [args["spawn"]] + list(args.get("arguments") or [])
+            # A package name starts the app, without arguments or piped stdio; a program path takes both.
+            path = argv[0].startswith("/")
+            if path:
+                self.device.on("output", self.on_output)
+            env = {k: v for k, v in (args.get("environment") or {}).items() if v is not None}
+            try:
+                self.pid = self.device.spawn(argv if path else argv[0], stdio="pipe" if path else "inherit", env=env or None)
+            except (frida.ExecutableNotFoundError, frida.ProcessNotFoundError) as e:
+                raise Failure("not_found", str(e))
+            self.spawned = True
+            self.suspended = True
+        elif args.get("spawn"):
             argv = [args["spawn"]] + list(args.get("arguments") or [])
             # The program's stdio is piped through Frida: on our stdout it could write protocol lines.
             self.device.on("output", self.on_output)
@@ -682,6 +709,8 @@ def handle(state, op, args):
         return state.load_script(args)
     if op == "unload_script":
         return state.unload_script(args)
+    if op == "art_dump":
+        return {"catcher": state.require().art_dump()}
     if op == "export":
         return {"address": state.require().export_of(args["module"], args["name"])}
     if op == "read":

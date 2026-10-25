@@ -671,6 +671,16 @@ rpc.exports = {
     delete watches[id];
     return true;
   },
+  // ART prints every thread's Java stack when its Signal Catcher thread takes SIGQUIT. The signal goes to that
+  // thread alone: sent to the process, it could reach a Frida thread, which does not block it and would end the
+  // program. Null in a process without ART.
+  artDump() {
+    const named = id => { try { return File.readAllText(`/proc/self/task/${id}/comm`).trim(); } catch (e) { return null; } };
+    const catcher = threadIds().find(id => named(id) === 'Signal Catcher');
+    if (catcher === undefined) return null;
+    const tgkill = new NativeFunction(Process.getModuleByName('libc.so').getExportByName('tgkill'), 'int', ['int', 'int', 'int']);
+    return tgkill(Process.id, catcher, 3) === 0 ? catcher : null;
+  },
   exportOf(module, name) {
     const m = Process.findModuleByName(module), e = m === null ? null : m.findExportByName(name);
     return e === null ? null : e.toString();

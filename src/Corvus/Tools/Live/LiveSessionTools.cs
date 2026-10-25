@@ -112,18 +112,19 @@ public sealed partial class LiveSessionTools(ServerOptions options, LiveSessionS
         public IReadOnlyList<LiveNamedAddress>? NamedAddresses { get; init; }
     }
 
-    [McpServerTool(Name = "live_session", Title = "Session on a local program", UseStructuredContent = true, OutputSchemaType = typeof(LiveSessionReport))]
-    [Description("Open, list, inspect or close a session on a program: its id, backend and modules matched to images; snapshot saves a dump.")]
+    [McpServerTool(Name = "live_session", Title = "Session on a program", UseStructuredContent = true, OutputSchemaType = typeof(LiveSessionReport))]
+    [Description("Open, list, inspect or close a session on a program: id, backend, modules matched to images; snapshot saves a dump.")]
     public Task<string> LiveSession(
         [Description("What to do.")] string action = "list",
         [Description("attach: pid or name; spawn: program path (started suspended); processes: name filter; *_child: child pid.")] string? program = null,
         [Description("spawn: program arguments.")] string[]? arguments = null,
         [Description("spawn: NAME=value variables.")] string[]? environment = null,
         [Description(SessionDescription)] string? session = null,
-        [Description("snapshot: dump file (default: temp).")] string? outputPath = null,
+        [Description("snapshot: dump file (default temp).")] string? outputPath = null,
         [Description("Overwrite outputPath.")] bool overwrite = false,
-        [Description("Hold child processes by image name (* any) at start.")] string[]? childNames = null,
+        [Description("Hold children by image name (* any) at start.")] string[]? childNames = null,
         [Description("Download a missing DAC.")] bool downloadDac = false,
+        [Description("adb serial; device runs frida-server.")] string? device = null,
         CancellationToken cancellationToken = default) =>
         Task.Run(async () =>
         {
@@ -143,12 +144,16 @@ public sealed partial class LiveSessionTools(ServerOptions options, LiveSessionS
                 case "attach" or "spawn":
                     if (string.IsNullOrWhiteSpace(program))
                         throw new ToolError(ErrorCode.InvalidArgument, $"action={a} needs program.", a == "spawn" ? "program=<path to the program>" : "program=<process id or name>");
-                    if (a == "attach" && program.Trim() == "0" && OperatingSystem.IsWindows()) throw LiveProcessService.IdleProcess();
+                    if (a == "attach" && program.Trim() == "0" && OperatingSystem.IsWindows() && string.IsNullOrWhiteSpace(device)) throw LiveProcessService.IdleProcess();
                     var names = childNames?.Where(n => !string.IsNullOrWhiteSpace(n)).Select(n => n.Trim()).ToList();
                     if (names?.Contains("*") == true) names = [];
                     else if (names is { Count: 0 }) names = null;
-                    var opened = await live.OpenAsync(a == "spawn", Scoped(a == "spawn", program), arguments ?? [], cancellationToken,
-                        a == "spawn" ? environment : null, names, downloadDac: downloadDac).ConfigureAwait(false);
+                    var serial = string.IsNullOrWhiteSpace(device) ? null : device.Trim();
+                    if (serial != null && options.LiveAllow.Count > 0)
+                        throw new ToolError(ErrorCode.AccessDenied, "--live-allow names folders on this machine, so device sessions are refused while it is set.",
+                            "start the server without --live-allow to open a device session");
+                    var opened = await live.OpenAsync(a == "spawn", serial != null ? program : Scoped(a == "spawn", program), arguments ?? [], cancellationToken,
+                        a == "spawn" ? environment : null, names, downloadDac: downloadDac, device: serial).ConfigureAwait(false);
                     return Report(a, opened);
                 case "children":
                     return Report(a, live.Get(RequireSession(session)));
@@ -274,7 +279,7 @@ public sealed partial class LiveSessionTools(ServerOptions options, LiveSessionS
     }
 
     [McpServerTool(Name = "live_break", Title = "Stop points in a session", UseStructuredContent = true, OutputSchemaType = typeof(LiveStopPointReport))]
-    [Description("Set, list or clear stop points (name, module!export, file:line, address); continue resumes held threads; wait returns the next stop with a named stack.")]
+    [Description("Set, list or clear stop points; continue resumes held threads; wait returns the next stop with a named stack.")]
     public Task<string> LiveBreak(
         [Description(SessionDescription)] string session,
         [Description("What to do.")] string action = "list",
@@ -335,6 +340,7 @@ public sealed partial class LiveSessionTools(ServerOptions options, LiveSessionS
                     await live.IndexedAsync(s, TimeSpan.FromSeconds(15), cancellationToken).ConfigureAwait(false);
                     await live.ClrAsync(s, cancellationToken).ConfigureAwait(false);
                     stop = Stop(s, held, head, named, cancellationToken);
+                    if (s.Device != null) await JavaFrames(s, held, head, cancellationToken).ConfigureAwait(false);
                 }
             }
             var next = Dropped(s, head, watch: false, out var failedPoints);
@@ -362,6 +368,19 @@ public sealed partial class LiveSessionTools(ServerOptions options, LiveSessionS
         for (int i = 0; i < frames.Count; i++) text.AppendLine($"  #{i} {Hex(frames[i].Address)} {frames[i].Display}{Src(frames[i].Source)}");
         return new LiveStop(held.Thread.ToString(CultureInfo.InvariantCulture), "stop point", held.Point,
             frames.Select(f => new LiveFrame(Hex(f.Address), f.Image?.Id ?? f.Module, f.Module == null ? null : f.Display, f.Source)).ToList()); // module+offset when no image is loaded
+    }
+
+    // Java frames are text only: the structured stop keeps the native stack.
+    private async Task JavaFrames(Services.LiveSession s, LiveHeldStop held, StringBuilder text, CancellationToken ct)
+    {
+        var (java, unknown) = await live.JavaStackAsync(s, held.Thread, ct).ConfigureAwait(false);
+        if (java == null)
+        {
+            text.AppendLine($"Java frames unknown: {unknown}");
+            return;
+        }
+        text.AppendLine($"Java frames (ART, thread \"{java.Name}\", {java.State}): {java.Frames.Count}");
+        for (int i = 0; i < java.Frames.Count; i++) text.AppendLine($"  j{i} {java.Frames[i].Method}{Src(java.Frames[i].Source)}");
     }
 
     [McpServerTool(Name = "live_watch", Title = "Record calls in a session", UseStructuredContent = true, OutputSchemaType = typeof(LiveWatchReport))]
@@ -430,7 +449,7 @@ public sealed partial class LiveSessionTools(ServerOptions options, LiveSessionS
         }, cancellationToken);
 
     [McpServerTool(Name = "live_script", Title = "User script in a session", UseStructuredContent = true, OutputSchemaType = typeof(LiveScriptReport))]
-    [Description("Load, list or unload your own Frida script in a session's program; its messages are events (live_events from=<script>). Needs --live-scripting.")]
+    [Description("Load, list or unload your Frida script in a session's program; its messages are events (live_events from=<script>). Needs --live-scripting.")]
     public Task<string> LiveScriptCalls(
         [Description(SessionDescription)] string session,
         [Description("What to do.")] string action = "list",
@@ -488,7 +507,7 @@ public sealed partial class LiveSessionTools(ServerOptions options, LiveSessionS
     [Description("Read a held thread's registers and program memory as typed values, named through the loaded images.")]
     public Task<string> LiveRead(
         [Description(SessionDescription)] string session,
-        [Description("Thread id; default the earliest held one.")] string? thread = null,
+        [Description("Thread id; default the first held.")] string? thread = null,
         [Description("Register names, comma-separated; default all.")] string? registers = null,
         [Description("An address, register or name to read.")] string? memory = null,
         [Description("memory: int8..uint64, float, double, pointer, cstring, utf16; [n] for arrays.")] string? type = null,
@@ -695,7 +714,7 @@ public sealed partial class LiveSessionTools(ServerOptions options, LiveSessionS
     [Description("Page a session's events with a cursor and filters; polling never re-sends earlier ones.")]
     public Task<string> LiveEvents(
         [Description(SessionDescription)] string session,
-        [Description("Cursor of an earlier page; default the oldest event kept.")] string? cursor = null,
+        [Description("Cursor of an earlier page; default the oldest kept.")] string? cursor = null,
         [Description("Only this kind.")] string? kind = null,
         [Description("Only this thread id.")] string? thread = null,
         [Description("Only events of this watch or script id.")] string? from = null,

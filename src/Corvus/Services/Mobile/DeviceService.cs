@@ -170,6 +170,27 @@ public sealed partial class DeviceService(ServerOptions options, DexService? dex
         };
     }
 
+    /// <summary>
+    /// Waits up to <paramref name="wait"/> for device <paramref name="serial"/> to be ready (adb state "device"): a device
+    /// is offline for a few seconds after the adb server starts. Throws not_found when adb does not list it, access_denied
+    /// when it is unauthorized, provider_unavailable when it stays in another state.
+    /// </summary>
+    public void WaitReady(string serial, TimeSpan wait, CancellationToken ct)
+    {
+        var until = DateTime.UtcNow + wait;
+        while (true)
+        {
+            var state = Devices(ct).Items.FirstOrDefault(d => d.Serial == serial)?.State;
+            if (state == "device") return;
+            if (state == "unauthorized") throw new ToolError(ErrorCode.AccessDenied, $"device {serial} is unauthorized.", "accept the USB debugging prompt on the device");
+            if (DateTime.UtcNow >= until)
+                throw state == null
+                    ? new ToolError(ErrorCode.NotFound, $"adb lists no device {serial}.", "list_android_devices shows the connected devices")
+                    : new ToolError(ErrorCode.ProviderUnavailable, $"device {serial} is {state}.", "reconnect it, then list_android_devices");
+            Task.Delay(TimeSpan.FromMilliseconds(500), ct).Wait(ct);
+        }
+    }
+
     /// <summary>The device views of get_android_device_info.</summary>
     public static readonly string[] DeviceViews = ["props", "processes", "features", "services", "settings", "files", "screen", "window", "display", "bugreport"];
 
@@ -414,6 +435,18 @@ public sealed partial class DeviceService(ServerOptions options, DexService? dex
         var bytes = File.ReadAllBytes(full);
         return new PulledFile(remotePath, full, bytes.Length, Blob.Sha256(bytes));
     }
+
+    /// <summary>The names in a device directory (ls -1); throws as adb calls do when it is missing or unreadable.</summary>
+    public IReadOnlyList<string> Names(string serial, string directory, CancellationToken ct) =>
+        Lines(serial, "names", $"listing {directory}", ("remote", directory));
+
+    /// <summary>A device file's text (cat), cut at 16 MB.</summary>
+    public string Text(string serial, string path, CancellationToken ct) =>
+        Check(Run(ExternalTools.Arguments(Adb, "cat", ("serial", serial), ("remote", path)), Short, MaxTextBytes, ct), $"reading {path}");
+
+    /// <summary>Removes a device file (rm -f); a missing file is not an error.</summary>
+    public void Remove(string serial, string path, CancellationToken ct) =>
+        Check(Run(ExternalTools.Arguments(Adb, "remove", ("serial", serial), ("remote", path)), Short, MaxTextBytes, ct), $"removing {path}");
 
     /// <summary>Most log bytes read in one call: the newest are kept when a buffer holds more.</summary>
     public const int MaxLogBytes = 8 << 20;

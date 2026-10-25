@@ -293,6 +293,7 @@ describe.
 | `CORVUS_INSTALLERS` | A folder of installers (NSIS, Inno Setup, MSI, WiX Burn) compared by file name and size with the reference listers. | InstallerComparisonTests |
 | `CORVUS_JAVA_JARS` | A folder of jars (searched three levels deep) disassembled and compared with javap. | JvmClassTests |
 | `CORVUS_LARGE_NATIVE_IMAGE` | A native image of 100 MB or more, for speed measurements. | SimilarFunctionsRealTests |
+| `CORVUS_LIVE_ANDROID` | adb serial of a device (an emulator) running frida-server as root; the device session test runs a DEX built here on it. | LiveAndroidRealTests |
 | `CORVUS_LIVE_SOAK_MINUTES` | Minutes the observed program runs in the long session test (default 2). | LiveLongSessionRealTests |
 | `CORVUS_LLVM_BIN` | An LLVM bin folder (clang, llvm-dwp, llvm-readobj, ...) that builds the DWARF and format fixtures and checks their output. | Arm64FormatCodeTests, DwarfDebugMapTests, DwarfObjectTests, DwarfOracleTests, DwarfSplitTests, DwarfVariablesTests, ElfFileTests, FormatWriterTests, ItaniumDemangleTests, MachOFileTests, NativeFixtures |
 | `CORVUS_MOBILE_APPS` | A folder of app packages (.apk, .ipa), searched two levels deep. | AppGraphTests, MobileRulesTests |

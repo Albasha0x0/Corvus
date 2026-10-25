@@ -2842,9 +2842,9 @@ Structured output: `processId`, `name`, `view`, `path`, `architecture`, `wow64`,
 
 ### live_session
 
-**Session on a local program** (edit, open-world)
+**Session on a program** (edit, open-world)
 
-Open, list, inspect or close a session on a program: its id, backend and modules matched to images; snapshot saves a dump.
+Open, list, inspect or close a session on a program: id, backend, modules matched to images; snapshot saves a dump.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -2853,10 +2853,11 @@ Open, list, inspect or close a session on a program: its id, backend and modules
 | `arguments` | string[] |  |  | spawn: program arguments. |
 | `environment` | string[] |  |  | spawn: NAME=value variables. |
 | `session` | string |  |  | Session id from live_session. |
-| `outputPath` | string |  |  | snapshot: dump file (default: temp). |
+| `outputPath` | string |  |  | snapshot: dump file (default temp). |
 | `overwrite` | boolean |  |  | Overwrite outputPath. |
-| `childNames` | string[] |  |  | Hold child processes by image name (* any) at start. |
+| `childNames` | string[] |  |  | Hold children by image name (* any) at start. |
 | `downloadDac` | boolean |  |  | Download a missing DAC. |
+| `device` | string |  |  | adb serial; device runs frida-server. |
 
 Structured output: `action`, `session`, `backend`, `program`, `processId`, `state`, `modules`, `sessions`, `processes`, `snapshot`.
 
@@ -2864,7 +2865,7 @@ Structured output: `action`, `session`, `backend`, `program`, `processId`, `stat
 
 **Stop points in a session** (edit, open-world)
 
-Set, list or clear stop points (name, module!export, file:line, address); continue resumes held threads; wait returns the next stop with a named stack.
+Set, list or clear stop points; continue resumes held threads; wait returns the next stop with a named stack.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -2904,7 +2905,7 @@ Read a held thread's registers and program memory as typed values, named through
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `session` | string | yes |  | Session id from live_session. |
-| `thread` | string |  |  | Thread id; default the earliest held one. |
+| `thread` | string |  |  | Thread id; default the first held. |
 | `registers` | string |  |  | Register names, comma-separated; default all. |
 | `memory` | string |  |  | An address, register or name to read. |
 | `type` | string |  |  | memory: int8..uint64, float, double, pointer, cstring, utf16; [n] for arrays. |
@@ -2922,7 +2923,7 @@ Page a session's events with a cursor and filters; polling never re-sends earlie
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `session` | string | yes |  | Session id from live_session. |
-| `cursor` | string |  |  | Cursor of an earlier page; default the oldest event kept. |
+| `cursor` | string |  |  | Cursor of an earlier page; default the oldest kept. |
 | `kind` | string |  |  | Only this kind. Values: stop, call, script, exception, module, thread, child, output, error, exit. |
 | `thread` | string |  |  | Only this thread id. |
 | `from` | string |  |  | Only events of this watch or script id. |
@@ -2935,7 +2936,7 @@ Structured output: `session`, `items`, `cursor`, `dropped`, `namedAddresses`.
 
 **User script in a session** (destructive, open-world)
 
-Load, list or unload your own Frida script in a session's program; its messages are events (live_events from=<script>). Needs --live-scripting.
+Load, list or unload your Frida script in a session's program; its messages are events (live_events from=<script>). Needs --live-scripting.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|

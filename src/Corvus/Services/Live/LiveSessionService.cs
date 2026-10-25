@@ -18,6 +18,10 @@ namespace Corvus.Services;
 /// <summary>A module of the observed program; <see cref="Image"/> is the loaded image it matched by path, <see cref="Assembly"/> the loaded assembly it is.</summary>
 public sealed record LiveModuleState(string Name, ulong Base, ulong Size, string Path)
 {
+    /// <summary>A device module's file, pulled here; null for a local module or until it is pulled.</summary>
+    public string? Copy { get; set; }
+    /// <summary>Where the module's file is read here: the pulled copy, else <see cref="Path"/>.</summary>
+    public string LocalPath => Copy ?? Path;
     public LoadedNative? Image { get; set; }
     public LoadedAssembly? Assembly { get; set; }
     public bool Contains(ulong address) => address >= Base && address - Base < Size;
@@ -118,6 +122,8 @@ public sealed class LiveSession
     public string Backend { get; }
     public string Program { get; }
     public bool Spawned { get; }
+    /// <summary>The adb serial of the Android device the program runs on; null for a program on this machine.</summary>
+    public string? Device { get; init; }
     /// <summary>When the session opened (UTC).</summary>
     public DateTime Opened { get; } = DateTime.UtcNow;
     public int ProcessId { get; internal set; }
@@ -125,7 +131,7 @@ public sealed class LiveSession
     /// <summary>windows, linux or darwin (Frida's names).</summary>
     public string Platform { get; internal set; } = "";
     /// <summary>An x64 or x86 program on an ARM64 Windows machine, which runs it under emulation.</summary>
-    public bool Emulated => OperatingSystem.IsWindows() && System.Runtime.InteropServices.RuntimeInformation.OSArchitecture == System.Runtime.InteropServices.Architecture.Arm64 && Arch is "x64" or "ia32";
+    public bool Emulated => Device == null && OperatingSystem.IsWindows() && System.Runtime.InteropServices.RuntimeInformation.OSArchitecture == System.Runtime.InteropServices.Architecture.Arm64 && Arch is "x64" or "ia32";
     internal WorkerConnection Worker { get; }
     /// <summary>Unwinds stops from the stack bytes they carry (outside Windows); null where the architecture has no register file.</summary>
     internal LiveStackWalk? Stacks { get; set; }
@@ -463,7 +469,7 @@ public sealed partial class LiveSessionService(AssemblyWorkspace workspace, Nati
 
     /// <summary>Attaches to a process (id or name) or starts <paramref name="program"/>; returns the open session.</summary>
     public async Task<LiveSession> OpenAsync(bool spawn, string program, IReadOnlyList<string> arguments, CancellationToken ct,
-        IReadOnlyList<string>? environment = null, IReadOnlyList<string>? childNames = null, bool downloadDac = false)
+        IReadOnlyList<string>? environment = null, IReadOnlyList<string>? childNames = null, bool downloadDac = false, string? device = null)
     {
         if (_sessions.Values.Count(s => !s.Closed) >= MaxSessions)
             throw new ToolError(ErrorCode.LimitExceeded, $"{MaxSessions} sessions are open.", "close one with live_session action=close");
@@ -472,8 +478,16 @@ public sealed partial class LiveSessionService(AssemblyWorkspace workspace, Nati
         if (childNames != null && OperatingSystem.IsMacOS() && Backend is FridaBackend)
             throw new ToolError(ErrorCode.Unsupported, "Following child processes is not supported on macOS: Frida's child gating misses a fork there intermittently, so a child can run unobserved.",
                 "open a session on the child once it runs (action=attach program=<process id or name>)");
+        if (device != null && childNames != null)
+            throw new ToolError(ErrorCode.Unsupported, "Following child processes is not supported in a device session.",
+                "open a session on the child once it runs (action=attach device=<serial> program=<process id or name>)");
         string target = program.Trim();
-        if (spawn)
+        // A device program is named as the device names it (a path, package, process name or id); Frida checks it.
+        if (device != null)
+        {
+            if (target.Length == 0) throw new ToolError(ErrorCode.InvalidArgument, "program is empty.", "program=<device path, package, process name or id>");
+        }
+        else if (spawn)
         {
             target = InputFiles.RequireRegularFile(target, "program");
             if (!File.Exists(target)) throw new ToolError(ErrorCode.NotFound, $"No program at {target}.", "program=<path to the program's file>");
@@ -485,8 +499,10 @@ public sealed partial class LiveSessionService(AssemblyWorkspace workspace, Nati
             if (int.TryParse(target, out var id) && OperatingSystem.IsLinux() && LiveProgramScope.ImagePath(id) is { } image && Native.Live.StaticProgram.Is(image))
                 throw Native.Live.StaticProgram.Refusal(image);
         }
+        // adb names a device that is missing, unauthorized or offline; Frida only finds none.
+        if (device != null) await Task.Run(() => Adb.WaitReady(device, DeviceReadyWait, ct), ct).ConfigureAwait(false);
         var worker = Backend.Start();
-        var session = new LiveSession("live-" + Interlocked.Increment(ref _next), Backend.Name, target, spawn, worker) { DownloadDac = downloadDac };
+        var session = new LiveSession("live-" + Interlocked.Increment(ref _next), Backend.Name, target, spawn, worker) { DownloadDac = downloadDac, Device = device };
         worker.EventReceived += e => OnEvent(session, e);
         try
         {
@@ -495,7 +511,15 @@ public sealed partial class LiveSessionService(AssemblyWorkspace workspace, Nati
             var frida = hello.ValueKind == JsonValueKind.Object && hello.TryGetProperty("frida", out var v) ? v.GetString() : null;
             if (FridaVersions.Refusal(frida) is { } old) throw new ToolError(ErrorCode.ProviderUnavailable, old, FridaBackend.Upgrade);
             if (FridaVersions.Warning(frida) is { } untested) session.Add("error", null, null, untested);
-            var args = spawn
+            var args = device != null
+                ? spawn
+                    ? new JsonObject
+                    {
+                        ["device"] = device, ["spawn"] = target, ["arguments"] = new JsonArray(arguments.Select(a => (JsonNode)a).ToArray()),
+                        ["environment"] = ProgramEnvironment(environment ?? []),
+                    }
+                    : new JsonObject { ["device"] = device, ["attach"] = target }
+                : spawn
                 ? new JsonObject
                 {
                     ["spawn"] = target, ["arguments"] = new JsonArray(arguments.Select(a => (JsonNode)a).ToArray()),
@@ -513,7 +537,7 @@ public sealed partial class LiveSessionService(AssemblyWorkspace workspace, Nati
             }
             var info = await worker.RequestAsync("open", args, RequestTimeout, ct).ConfigureAwait(false);
             session.ProcessId = info.GetProperty("pid").GetInt32();
-            if (OperatingSystem.IsWindows())
+            if (device == null && OperatingSystem.IsWindows())
             {
                 // full query rights let stop frames be checked against page protection; the limited right still reads the exit code
                 foreach (var access in new[] { Native.Live.LiveNative.PROCESS_QUERY_INFORMATION, Native.Live.LiveNative.PROCESS_QUERY_LIMITED_INFORMATION })
@@ -534,14 +558,15 @@ public sealed partial class LiveSessionService(AssemblyWorkspace workspace, Nati
             session.Suspended = info.TryGetProperty("suspended", out var s) && s.GetBoolean();
             if (info.TryGetProperty("spawn_retried", out var retried))
                 session.Add("error", null, null, $"the program's first start timed out in Frida ({retried.GetString()})");
-            session.Stacks = LiveStackWalk.For(session, address => Name(session, address) is { Function: not null, Offset: 0 });
+            session.Stacks = LiveStackWalk.For(session, address => Name(session, address) is { Function: not null, Offset: 0 },
+                device == null ? null : m => DeviceFile(session, m));
             lock (session.Modules)
             {
                 foreach (var m in info.GetProperty("modules").EnumerateArray().Select(Module))
                     if (!session.Modules.Any(x => x.Base == m.Base)) session.Modules.Add(m); // a load event may have come first
                 // Frida lists modules in no fixed order (and names a system DLL as the main module of a program started
                 // suspended): the program's own module, by the path the OS reports, leads, as the rest of the session expects
-                var mainPath = spawn ? target : LiveProgramScope.ImagePath(session.ProcessId);
+                var mainPath = spawn ? target : device == null ? LiveProgramScope.ImagePath(session.ProcessId) : null;
                 if (mainPath != null && session.Modules.FindIndex(x => SamePath(x.Path, mainPath)) is > 0 and var at)
                 {
                     var own = session.Modules[at];
@@ -554,6 +579,7 @@ public sealed partial class LiveSessionService(AssemblyWorkspace workspace, Nati
         {
             worker.Kill("open failed");
             worker.Dispose();
+            if (device != null) throw;
             // the backend sees only that tracing failed (a started program exits with status 1); the setting says why
             if (e is ToolError { Code: ErrorCode.Failed or ErrorCode.AccessDenied } t && Native.Live.PtraceScope.Refusing(started: spawn) is { } scope)
                 throw Native.Live.PtraceScope.Refusal(scope, t.Message);
@@ -568,7 +594,7 @@ public sealed partial class LiveSessionService(AssemblyWorkspace workspace, Nati
             throw;
         }
         // The program's own image joins the static model: loaded (it is the file being analyzed) and indexed in the background.
-        if (session.Modules.FirstOrDefault() is { } main && File.Exists(main.Path))
+        if (device == null && session.Modules.FirstOrDefault() is { } main && File.Exists(main.Path))
         {
             try
             {
@@ -647,7 +673,7 @@ public sealed partial class LiveSessionService(AssemblyWorkspace workspace, Nati
     private LoadedNative? Match(LiveModuleState m)
     {
         if (m.Image is { } image && workspace.Natives.Contains(image)) return image;
-        m.Image = workspace.Natives.FirstOrDefault(n => n.SliceName == null && InputFiles.SamePath(n.FilePath, m.Path));
+        m.Image = workspace.Natives.FirstOrDefault(n => n.SliceName == null && InputFiles.SamePath(n.FilePath, m.LocalPath)) ?? SameBuild(m);
         if (m.Image == null && (m.Assembly == null || !workspace.Assemblies.Contains(m.Assembly))) m.Assembly = AssemblyOf(m);
         return m.Image;
     }
@@ -676,8 +702,8 @@ public sealed partial class LiveSessionService(AssemblyWorkspace workspace, Nati
     private LoadedNative? ImageOf(LiveModuleState m)
     {
         if (Match(m) is { } native) return native;
-        if (!File.Exists(m.Path)) return null;
-        native = workspace.LoadAny(m.Path).Native;
+        if (!File.Exists(m.LocalPath)) return null;
+        native = workspace.LoadAny(m.LocalPath).Native;
         if (native != null) m.Image = native;
         return native;
     }
@@ -1077,13 +1103,14 @@ public sealed partial class LiveSessionService(AssemblyWorkspace workspace, Nati
             var managed = ManagedName(session, address, null);
             return managed is not { Offset: 0 } && session.CompiledName(address) is { } compiled ? compiled : managed ?? new(address, null, null, 0, null, 0, null, null);
         }
+        if (session.Device != null) DeviceFile(session, module);
         var rva = (uint)(address - module.Base);
         // A return address can be the first byte past a noreturn call at a
         // function's end, so the call before it names the frame.
         var call = returnAddress && rva > 0 ? rva - 1 : rva;
         var native = Match(module);
         if (native == null)
-            return ManagedName(session, address, module) ?? (NearestSymbol(module.Path, call) is { } e ? new(address, module.Name, null, rva, e.Name, rva - e.Rva, null, null)
+            return ManagedName(session, address, module) ?? (NearestSymbol(module.LocalPath, call) is { } e ? new(address, module.Name, null, rva, e.Name, rva - e.Rva, null, null)
                 : new(address, module.Name, null, rva, null, 0, null, null));
         string? function = null, source = null;
         long offset = 0;
@@ -1097,7 +1124,7 @@ public sealed partial class LiveSessionService(AssemblyWorkspace workspace, Nati
         }
         // code the module writes at run time (a packed DLL) has no file bytes to index: its exports name it
         else if (native.Image.Sections.FirstOrDefault(s => s.Contains(rva)) is { IsExecutable: true } s && rva - s.Rva >= s.RawSize
-                 && NearestSymbol(module.Path, call) is { } e)
+                 && NearestSymbol(module.LocalPath, call) is { } e)
             (function, offset) = (e.Name, rva - e.Rva);
         if (PdbService.StateOf(native)?.Pdb.Source is { } lines && lines.Lookup([call], ct)[0] is { } at)
             source = $"{at.File ?? "?"}:{at.Line}";
@@ -1172,6 +1199,7 @@ public sealed partial class LiveSessionService(AssemblyWorkspace workspace, Nati
             var m = Named()
                     ?? throw new ToolError(ErrorCode.NotFound, $"The program has no module '{name}'.", "live_session action=status lists its modules");
             var export = t[(bang + 1)..];
+            if (session.Device != null) DeviceFile(session, m);
             var native = ImageOf(m);
             // An emulated program calls a hybrid DLL's x64 or x86 view (ARM64X,
             // CHPE), whose exports the file's own table does not hold. Other
@@ -1788,5 +1816,6 @@ public sealed partial class LiveSessionService(AssemblyWorkspace workspace, Nati
             s.Worker.Kill("server exit");
         StopTimelines();
         StopConsoles();
+        DeleteDeviceFiles();
     }
 }
