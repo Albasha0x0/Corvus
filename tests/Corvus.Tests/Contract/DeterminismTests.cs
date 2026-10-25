@@ -37,6 +37,9 @@ public class DeterminismTests
     {
         using var dir = new TempDir();
         var native = McpProtocolTests.NativeSample(dir);
+        // Its PDB beside it ends the search there: a miss would count the machine-wide symbol caches (WinDbg's,
+        // Visual Studio's), which other classes' tools create during a full run.
+        File.WriteAllBytes(dir.File("seed.pdb"), PdbBuilder.Sample(new Guid(Enumerable.Range(1, 16).Select(i => (byte)i).ToArray()), 1).Build());
         int run = 0;
         async Task<List<string>> RunAsync()
         {
@@ -63,6 +66,7 @@ public class DeterminismTests
         var differing = first.Zip(second).Where(p => p.First != p.Second).Select(p => FirstDifference(p.First, p.Second)).ToList();
         Assert.True(differing.Count == 0, "answers differ between two processes: " + string.Join(", ", differing));
         Assert.All(first, a => Assert.DoesNotContain("error=True", a.Split('\n')[0]));
+        Assert.DoesNotContain("PDB not found", first.Single(a => a.StartsWith("get_pe_info ", StringComparison.Ordinal)));
     }
 
     /// <summary>
