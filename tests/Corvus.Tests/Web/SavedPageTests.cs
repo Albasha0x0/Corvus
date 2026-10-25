@@ -117,6 +117,44 @@ public sealed class SavedPageTests : IDisposable
     }
 
     [Fact]
+    public void Script_URLs_are_matched_against_the_policy_sources()
+    {
+        var known = View($"""
+            <!doctype html><!-- saved from url=(0035)https://ledger.example.com/reports -->
+            <meta http-equiv="Content-Security-Policy" content="script-src 'self' https://cdn.example.net/lib/ *.example.org:8443 'nonce-n1' '{HelloSha384}'">
+            <script src="ledger_files/app.js"></script>
+            <script src="http://ledger.example.com/app.js"></script>
+            <script src="https://cdn.example.net/lib/chart.js"></script>
+            <script src="https://cdn.example.net/other.js"></script>
+            <script src="https://a.example.org:8443/x.js"></script>
+            <script src="https://example.org:8443/x.js"></script>
+            <script src="https://cdn.example.com/x.js" nonce="n1"></script>
+            <script src="https://cdn.example.com/t.js" integrity="{HelloSha384}" crossorigin="anonymous"></script>
+            """);
+        Assert.Equal(["allowed by 'self'", "blocked by script-src", "allowed by https://cdn.example.net/lib/", "blocked by script-src",
+            "allowed by *.example.org:8443", "blocked by script-src", "allowed by nonce", "allowed by hash (integrity)"], known.Resources.Select(r => r.CspVerdict));
+        Assert.Contains("https://cdn.example.net/other.js: blocked by script-src", known.Review);
+
+        // No saved-from comment or base element: a verdict that depends on the page's origin or scheme is unknown.
+        var unknown = View("""
+            <!doctype html><meta http-equiv="Content-Security-Policy" content="script-src 'self' cdn.example.net">
+            <script src="app.js"></script>
+            <script src="https://cdn.example.net/a.js"></script>
+            <script src="http://cdn.example.net/a.js"></script>
+            <script src="https://other.example/a.js"></script>
+            """);
+        Assert.Equal(["allowed by 'self'", "allowed by cdn.example.net", "unknown (the page's URL is not saved)", "unknown (the page's URL is not saved)"],
+            unknown.Resources.Select(r => r.CspVerdict));
+
+        var strict = View("""
+            <!doctype html><meta http-equiv="Content-Security-Policy" content="script-src 'nonce-n1' 'strict-dynamic' https:">
+            <script src="https://cdn.example.net/a.js"></script>
+            <script src="https://cdn.example.net/b.js" nonce="n1"></script>
+            """);
+        Assert.Equal(["blocked by script-src ('strict-dynamic' needs a nonce or hash)", "allowed by nonce"], strict.Resources.Select(r => r.CspVerdict));
+    }
+
+    [Fact]
     public void A_policy_without_hashes_names_what_weakens_it()
     {
         var facts = View("""

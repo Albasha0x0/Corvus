@@ -21,7 +21,7 @@ public static partial class SavedPage
         [property: Description("match, mismatch, unknown (bytes not saved), or no supported hash; with the algorithm compared.")] string? IntegrityCheck,
         string? CrossOrigin,
         [property: Description("An inline script's hash in CSP source form ('sha256-...').")] string? CspHash,
-        [property: Description("An inline script's verdict under the meta policy: allowed by hash, nonce or 'unsafe-inline', blocked, or no policy.")] string? CspVerdict,
+        [property: Description("A script's verdict under the meta policy: allowed by hash, nonce, 'unsafe-inline' or the source matching its URL, blocked, unknown, or no policy.")] string? CspVerdict,
         IReadOnlyList<string>? Notes);
 
     /// <summary>An import map entry: the scope it applies in (null for top-level imports), the specifier and the address it maps to.</summary>
@@ -87,7 +87,7 @@ public static partial class SavedPage
             }
             a.TryGetValue("src", out var src);
             resources.Add(src != null && kind is "classic" or "module"
-                ? External("script", kind, src, a, folder, pageUrl, notes)
+                ? External("script", kind, src, a, folder, pageUrl, policies)
                 : Inline(kind, m.Groups[2].Value, a, policies));
         }
         foreach (Match m in StartTag("link").Matches(body))
@@ -96,13 +96,13 @@ public static partial class SavedPage
             var rel = a.GetValueOrDefault("rel")?.Trim().ToLowerInvariant() ?? "";
             if (!a.TryGetValue("href", out var linkHref) || !(a.ContainsKey("integrity") || rel is "modulepreload" || rel.Split(' ').Contains("stylesheet"))) continue;
             if (resources.Count >= MaxResources) break;
-            resources.Add(External("link", rel, linkHref, a, folder, pageUrl, notes));
+            resources.Add(External("link", rel, linkHref, a, folder, pageUrl, null));
         }
         if (policies.Count == 0) notes.Add("no Content-Security-Policy meta element; a policy in the response headers is unknown (headers are not saved with a page)");
         return new Page(pageUrl, title, resources, imports, importIntegrity, policies, notes);
     }
 
-    private static Resource External(string element, string kind, string src, Dictionary<string, string> a, string folder, string? pageUrl, List<string> pageNotes)
+    private static Resource External(string element, string kind, string src, Dictionary<string, string> a, string folder, string? pageUrl, List<Policy>? policies)
     {
         var notes = new List<string>();
         a.TryGetValue("integrity", out var integrity);
@@ -143,8 +143,9 @@ public static partial class SavedPage
             }
             else location = "not saved";
         }
+        var verdict = policies == null ? null : policies.Count == 0 ? "no policy" : ExternalVerdict(policies, src, pageUrl, a.GetValueOrDefault("nonce"), integrity);
         return new Resource(element, kind, src, location, file, bytes?.Length, integrity, integrity == null ? null : CheckIntegrity(integrity, bytes), cors,
-            null, null, notes.Count > 0 ? notes : null);
+            null, verdict, notes.Count > 0 ? notes : null);
     }
 
     private static Resource Inline(string kind, string text, Dictionary<string, string> a, List<Policy> policies)
@@ -178,6 +179,77 @@ public static partial class SavedPage
         }
         return reasons.Distinct().Count() == 1 ? reasons[0] : string.Join("; ", reasons);
     }
+
+    // Every policy applies: a script loads only when each one allows its URL; an unknown verdict outranks an allowed one.
+    private static string ExternalVerdict(List<Policy> policies, string src, string? pageUrl, string? nonce, string? integrity)
+    {
+        var reasons = new List<string>();
+        foreach (var p in policies)
+        {
+            var reason = UrlVerdict(p, src, pageUrl, nonce, integrity);
+            if (reason.StartsWith("blocked", StringComparison.Ordinal)) return reason;
+            reasons.Add(reason);
+        }
+        return reasons.FirstOrDefault(r => r.StartsWith("unknown", StringComparison.Ordinal)) ?? string.Join("; ", reasons.Distinct());
+    }
+
+    // CSP Level 3, "Does url match source list": a parser-inserted script needs a nonce, its integrity hashes, or a
+    // matching source; 'strict-dynamic' leaves only the first two.
+    private static string UrlVerdict(Policy p, string src, string? pageUrl, string? nonce, string? integrity)
+    {
+        var s = p.ScriptSources;
+        if (s.Count == 0) return $"allowed ({p.ScriptDirective} absent)";
+        if (nonce != null && s.Contains($"'nonce-{nonce}'", StringComparer.Ordinal)) return "allowed by nonce";
+        var hashes = integrity?.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries).Select(t => t.Split('?')[0])
+            .Where(t => t.StartsWith("sha256-", StringComparison.Ordinal) || t.StartsWith("sha384-", StringComparison.Ordinal) || t.StartsWith("sha512-", StringComparison.Ordinal)).ToList();
+        if (hashes is { Count: > 0 } && hashes.All(h => s.Contains($"'{h}'", StringComparer.Ordinal))) return "allowed by hash (integrity)";
+        if (s.Contains("'strict-dynamic'", StringComparer.Ordinal)) return $"blocked by {p.ScriptDirective} ('strict-dynamic' needs a nonce or hash)";
+        bool relative = !src.StartsWith("//", StringComparison.Ordinal) && (src.StartsWith('/') || !Uri.TryCreate(src, UriKind.Absolute, out _));
+        // An unsaved page URL is tried as both an https: and an http: page; a source that differs between them is unknown.
+        Uri[] pages = pageUrl != null && Uri.TryCreate(pageUrl, UriKind.Absolute, out var page) ? [page] : [new("https://page.invalid/"), new("http://page.invalid/")];
+        bool unknown = false;
+        foreach (var x in s)
+        {
+            var results = pages.Select(pg => Uri.TryCreate(pg, src, out var url) ? SourceMatches(x, url, pg, pages.Length == 1 || relative) : false).Distinct().ToList();
+            if (results is [true]) return $"allowed by {x}";
+            if (results.Count > 1 || results.Contains(null)) unknown = true;
+        }
+        return unknown ? "unknown (the page's URL is not saved)" : "blocked by " + p.ScriptDirective;
+    }
+
+    /// <summary>Whether source expression <paramref name="x"/> matches <paramref name="url"/> on <paramref name="page"/>; null when it depends on an unknown origin.</summary>
+    private static bool? SourceMatches(string x, Uri url, Uri page, bool originKnown)
+    {
+        if (x.Equals("'self'", StringComparison.OrdinalIgnoreCase))
+            return !originKnown ? null : url.Host == page.Host && (url.Scheme == page.Scheme && url.Port == page.Port || page.Scheme == "http" && url.Scheme == "https" && url.IsDefaultPort);
+        if (x.StartsWith('\'')) return false;
+        if (x == "*") return url.Scheme is "http" or "https" or "ftp" || url.Scheme == page.Scheme;
+        if (x.EndsWith(':') && !x.Contains('/')) return SchemeMatches(x[..^1].ToLowerInvariant(), url.Scheme);
+        string rest = x;
+        string? scheme = null;
+        if (x.IndexOf("://", StringComparison.Ordinal) is var i and > 0) { scheme = x[..i].ToLowerInvariant(); rest = x[(i + 3)..]; }
+        if (!SchemeMatches(scheme ?? page.Scheme, url.Scheme)) return false;
+        int slash = rest.IndexOf('/');
+        string hostPort = slash < 0 ? rest : rest[..slash], host = hostPort;
+        string? path = slash < 0 ? null : rest[slash..], port = null;
+        if (hostPort.LastIndexOf(':') is var c and >= 0) { host = hostPort[..c]; port = hostPort[(c + 1)..]; }
+        host = host.ToLowerInvariant();
+        bool hostOk = host == "*" || (host.StartsWith("*.", StringComparison.Ordinal) ? url.Host.EndsWith(host[1..], StringComparison.Ordinal) : url.Host == host);
+        bool portOk = port switch
+        {
+            null => url.IsDefaultPort,
+            "*" => true,
+            _ => int.TryParse(port, out var n) && (n == url.Port || n == 80 && url.Scheme == "https" && url.Port == 443),
+        };
+        if (!hostOk || !portOk) return false;
+        if (path is null or "") return true;
+        var want = Uri.UnescapeDataString(path);
+        var have = Uri.UnescapeDataString(url.AbsolutePath);
+        return want.EndsWith('/') ? have.StartsWith(want, StringComparison.Ordinal) : have == want;
+    }
+
+    // CSP's "scheme-part match": a source scheme also admits its secure upgrade.
+    private static bool SchemeMatches(string source, string scheme) => source == scheme || (source, scheme) is ("http", "https") or ("ws", "wss") or ("ws", "http") or ("ws", "https") or ("wss", "https");
 
     /// <summary>The SRI verdict for <paramref name="integrity"/> over <paramref name="bytes"/> (null when not saved): only the strongest listed algorithm counts.</summary>
     public static string CheckIntegrity(string integrity, byte[]? bytes)
