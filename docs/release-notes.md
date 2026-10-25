@@ -26,6 +26,10 @@ Corvus is now licensed under the Apache License 2.0. [d11df476](https://github.c
 - **IDA:** with `CORVUS_IDA_CONNECT=1`, a database open in IDA 9 or newer that runs `corvus_connect.py`
   (`corvus ida-script`) is read and edited in place, without a local install; Corvus never saves, rebases or closes it
   (IDA Pro 9.3 on Windows; Linux and macOS not checked). [076cade3](https://github.com/Albasha0x0/Corvus/commit/076cade3)
+- **Dart:** Dart AOT images name their code from the snapshot's Function and Class objects, as the VM's stack traces
+  print it, as the `dart` layer; `summarize_file view=flutter` reports the count (Dart 3.13 program snapshots: product,
+  64-bit, uncompressed pointers; compressed pointers, as Flutter's mobile builds use, and earlier Dart are reported as
+  not read). [3ebac8c6](https://github.com/Albasha0x0/Corvus/commit/3ebac8c6)
 - **Native names:** `migrate_native_names` takes a static library (.lib, .a) or object file (COFF, ELF) as its
   old side: each function names the start holding its bytes, and a call reaching another name refuses it (MSVC
   14.29 x64 CRT, glibc and musl x64; x86 and AArch64 objects read, not checked on a real program).
