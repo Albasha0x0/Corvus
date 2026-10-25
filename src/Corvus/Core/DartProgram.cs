@@ -24,7 +24,7 @@ public sealed record DartProgram(IReadOnlyList<DartCode> Code, int Functions, in
 /// Class, PatchClass and ClosureData objects, and the instructions table that places each Code. Names follow the VM's
 /// Function::PrintName with user-visible names, as its DWARF and stack traces print them. Read layouts: product mode,
 /// 64-bit, with or without compressed pointers, of the single program snapshot of Dart 3.13 (kDartSnapshotData) and the
-/// VM and isolate snapshots of Dart 3.4 to 3.12; any other layout is refused as unsupported.
+/// VM and isolate snapshots of Dart 3.0 to 3.12; any other layout is refused as unsupported.
 /// </summary>
 public static class DartProgramReader
 {
@@ -41,9 +41,13 @@ public static class DartProgramReader
     /// One release's stream format. Split: a VM snapshot whose objects are the isolate snapshot's base objects.
     /// PredefinedClasses: the Class cluster lists the predefined classes it fills before the new ones. FixedClosures:
     /// a Closure has no length. CodeStubRefs: the Code cluster starts with the LazyCompile and UnknownDartCode refs.
-    /// PublicFuture: the release's names print dart:async's _Future as Future.
+    /// PublicFuture: the release's names print dart:async's _Future as Future. TagHeaders: a cluster starts with the
+    /// object tags (cid from bit 12, canonical bit 1), not with cid &lt;&lt; 1 | canonical. SimdInstances: Float32x4,
+    /// Int32x4 and Float64x2 clusters are written as instances. PatchOrigins: a PatchClass holds its origin class
+    /// after the patched one. TypeParameterClassIds: a TypeParameter carries its parameterized class id.
     /// </summary>
-    private sealed record Layout(string Release, Cids C, bool Split, bool PredefinedClasses, bool FixedClosures, bool CodeStubRefs, bool PublicFuture);
+    private sealed record Layout(string Release, Cids C, bool Split, bool PredefinedClasses, bool FixedClosures, bool CodeStubRefs, bool PublicFuture,
+        bool TagHeaders = true, bool SimdInstances = false, bool PatchOrigins = false, bool TypeParameterClassIds = false);
 
     // Class ids generated from each release's class_id.h; formats from its app_snapshot.cc.
     private static readonly Layout[] Layouts =
@@ -72,6 +76,32 @@ public static class DartProgramReader
             GrowableObjectArray: 91, String: 92, OneByteString: 93, TwoByteString: 94, FirstFfi: 95, LastFfi: 110, FirstTypedData: 111,
             LastTypedData: 166, Null: 170, NumPredefined: 174),
             Split: true, PredefinedClasses: true, FixedClosures: true, CodeStubRefs: false, PublicFuture: true),
+        new("3.2-3.3", new(Class: 5, PatchClass: 6, Function: 7, TypeParameters: 8, ClosureData: 9, WeakArray: 17, Code: 18, ObjectPool: 22,
+            PcDescriptors: 23, CodeSourceMap: 24, CompressedStackMaps: 25, LocalVarDescriptors: 26, ExceptionHandlers: 27, Context: 28,
+            ContextScope: 29, LibraryPrefix: 45, Instance: 44, TypeArguments: 46, Type: 48, FunctionType: 49, RecordType: 50,
+            TypeParameter: 51, Closure: 56, Integer: 58, Smi: 59, Mint: 60, Double: 61, Float32x4: 63, Int32x4: 64, Float64x2: 65,
+            Record: 66, Pointer: 71, DynamicLibrary: 72, ConstMap: 86, ConstSet: 88, Array: 89, ImmutableArray: 90,
+            GrowableObjectArray: 91, String: 92, OneByteString: 93, TwoByteString: 94, FirstFfi: 97, LastFfi: 112, FirstTypedData: 113,
+            LastTypedData: 168, Null: 172, NumPredefined: 176),
+            Split: true, PredefinedClasses: true, FixedClosures: true, CodeStubRefs: false, PublicFuture: true, TagHeaders: false, SimdInstances: true),
+        new("3.1", new(Class: 5, PatchClass: 6, Function: 7, TypeParameters: 8, ClosureData: 9, WeakArray: 17, Code: 18, ObjectPool: 22,
+            PcDescriptors: 23, CodeSourceMap: 24, CompressedStackMaps: 25, LocalVarDescriptors: 26, ExceptionHandlers: 27, Context: 28,
+            ContextScope: 29, LibraryPrefix: 45, Instance: 44, TypeArguments: 46, Type: 48, FunctionType: 49, RecordType: 50,
+            TypeParameter: 51, Closure: 56, Integer: 58, Smi: 59, Mint: 60, Double: 61, Float32x4: 63, Int32x4: 64, Float64x2: 65,
+            Record: 66, Pointer: 71, DynamicLibrary: 72, ConstMap: 86, ConstSet: 88, Array: 89, ImmutableArray: 90,
+            GrowableObjectArray: 91, String: 92, OneByteString: 93, TwoByteString: 94, FirstFfi: 97, LastFfi: 112, FirstTypedData: 113,
+            LastTypedData: 168, Null: 172, NumPredefined: 176),
+            Split: true, PredefinedClasses: true, FixedClosures: true, CodeStubRefs: false, PublicFuture: true, TagHeaders: false, SimdInstances: true,
+            PatchOrigins: true),
+        new("3.0", new(Class: 5, PatchClass: 6, Function: 7, TypeParameters: 8, ClosureData: 9, WeakArray: 17, Code: 18, ObjectPool: 22,
+            PcDescriptors: 23, CodeSourceMap: 24, CompressedStackMaps: 25, LocalVarDescriptors: 26, ExceptionHandlers: 27, Context: 28,
+            ContextScope: 29, LibraryPrefix: 45, Instance: 44, TypeArguments: 46, Type: 48, FunctionType: 49, RecordType: 50,
+            TypeParameter: 52, Closure: 57, Integer: 59, Smi: 60, Mint: 61, Double: 62, Float32x4: 64, Int32x4: 65, Float64x2: 66,
+            Record: 67, Pointer: 72, DynamicLibrary: 73, ConstMap: 87, ConstSet: 89, Array: 90, ImmutableArray: 91,
+            GrowableObjectArray: 92, String: 93, OneByteString: 94, TwoByteString: 95, FirstFfi: 98, LastFfi: 113, FirstTypedData: 114,
+            LastTypedData: 169, Null: 173, NumPredefined: 177),
+            Split: true, PredefinedClasses: true, FixedClosures: true, CodeStubRefs: false, PublicFuture: true, TagHeaders: false, SimdInstances: true,
+            PatchOrigins: true, TypeParameterClassIds: true),
     ];
 
     // Serializer's kDeltaEncodedTypedDataCid reuses kNativePointerCid.
@@ -174,8 +204,17 @@ public static class DartProgramReader
         for (long i = 0; i < clusterCount; i++)
         {
             if ((i & 63) == 0) ct.ThrowIfCancellationRequested();
-            uint tags = (uint)s.Signed(32);
-            var c = new Cluster { Cid = (int)(tags >> 12), Canonical = (tags & 2) != 0, Start = next };
+            var c = new Cluster { Start = next };
+            if (layout.TagHeaders)
+            {
+                uint tags = (uint)s.Signed(32);
+                (c.Cid, c.Canonical) = ((int)(tags >> 12), (tags & 2) != 0);
+            }
+            else
+            {
+                long header = s.Signed(64);
+                (c.Cid, c.Canonical) = ((int)(header >> 1 & uint.MaxValue), (header & 1) != 0);
+            }
             c.Alloc = AllocOf(layout, c.Cid, compressed);
             long count = s.Unsigned();
             if (count > objects - (next - 1)) throw new Truncated();
@@ -329,7 +368,12 @@ public static class DartProgramReader
             else if (cid == C.Float32x4 || cid == C.Int32x4 || cid == C.Float64x2)
                 for (int k = 0; k < n; k++) s.Skip(16);
             else if (cid == C.TypeParameter)
-                for (int k = 0; k < n; k++) { s.Refs(3); s.Signed(16); s.Signed(16); s.Byte(); }
+                for (int k = 0; k < n; k++)
+                {
+                    s.Refs(3);
+                    if (layout.TypeParameterClassIds) s.Signed(32);
+                    s.Signed(16); s.Signed(16); s.Byte();
+                }
             else if (cid == C.Type)
                 for (int k = 0; k < n; k++) { s.Refs(3); s.Unsigned(); }
             else if (cid == C.FunctionType)
@@ -407,7 +451,7 @@ public static class DartProgramReader
                 }
             }
             else if (cid == C.PatchClass)
-                for (int r = c.Start; r < c.Stop; r++) { o.Patches[r] = s.Ref(); s.Ref(); }
+                for (int r = c.Start; r < c.Stop; r++) { o.Patches[r] = s.Ref(); s.Refs(layout.PatchOrigins ? 2 : 1); }
             else if (cid == C.TypeParameters)
                 s.Refs(4L * n);
             else if (cid == C.ClosureData)
@@ -424,6 +468,8 @@ public static class DartProgramReader
             if (done) break;
         }
         if (!done && !(vmOnly && clusters.Count > 0)) throw new Truncated();
+        // Releases differ in a PatchClass's ref count; a misread one points at something other than a class.
+        if (o.Patches.Values.Any(wrapped => !o.Classes.ContainsKey(wrapped))) throw new Truncated();
         return o;
     }
 
@@ -484,7 +530,9 @@ public static class DartProgramReader
     private static Alloc AllocOf(Layout layout, int cid, bool compressed)
     {
         var C = layout.C;
-        if (cid >= C.NumPredefined || cid == C.Instance || cid >= C.FirstFfi && cid <= C.LastFfi) return Alloc.Instance;
+        if (cid >= C.NumPredefined || cid == C.Instance || cid >= C.FirstFfi && cid <= C.LastFfi
+            || layout.SimdInstances && (cid == C.Float32x4 || cid == C.Int32x4 || cid == C.Float64x2))
+            return Alloc.Instance;
         if (cid >= C.FirstTypedData && cid <= C.LastTypedData)
             return (cid - C.FirstTypedData) % 4 == 0 ? Alloc.Lengths : Alloc.Fixed;
         if (cid == C.PcDescriptors || cid == C.CodeSourceMap || cid == C.CompressedStackMaps || cid == C.String || cid == C.OneByteString || cid == C.TwoByteString)
