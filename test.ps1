@@ -820,6 +820,7 @@ if ($offload) {
     $candidates = @(Get-RemoteClasses $tests -TestHost:($offload.Kind -eq 'ssh') -hostVariables $offload.Variables); $mixed = @(Get-MixedClasses $tests)
     # The engine classes are dealt by engine permits times logical processors: the host runs the small machine's count,
     # this machine its own; a host whose processors are unknown counts as many as here.
+    Import-Module (Join-Path $root 'test-time.psm1') -Force
     $permitSource = Join-Path $tests 'Support/MachinePermits.cs'
     $hereWork = (Get-EnginePermits $permitSource (Get-CimInstance Win32_ComputerSystem).TotalPhysicalMemory) * [Environment]::ProcessorCount
     $hostWork = (Get-EnginePermits $permitSource 0) * $(if ($offload.Processors -gt 0) { $offload.Processors } else { [Environment]::ProcessorCount })
