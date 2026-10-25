@@ -264,6 +264,9 @@ describe.
 | `CORVUS_APFS_DIR` | A folder of APFS container images whose files, links and bytes are compared with 7-Zip's extraction. | ApfsTests |
 | `CORVUS_ARK_DIR` | A folder of Ark bytecode files (`.abc`), each method disassembled and compared with ark_disasm (`CORVUS_ARK_DISASSEMBLER`). | ArkBytecodeTests |
 | `CORVUS_ASSET_CATALOG_DIR` | A folder of compiled asset catalogs (`.car`) whose renditions, bitmap pixels, cropped images and original data are compared with carfile-go's (`CORVUS_ASSET_CATALOG_READER`). | AssetCatalogTests |
+| `CORVUS_AUTOIT_REFERENCE` | The source folder of AutoIt-Ripper (run with `python`): each compiled script's installed files, source text and token lines are compared with its extraction. | AutoItScriptTests |
+| `CORVUS_AUTOIT_RELEASES` | A folder of official AutoIt releases (`autoit-<version>` holding `Aut2Exe\Aut2exe.exe`): each compiles `ledger.au3` to x86 and x64 executables for the comparison; 3.2.4.9, 3.2.6.0, 3.3.14.5 and 3.3.18.0 rebuild the fixtures. | AutoItScriptTests, tests/Corvus.Tests/Containers/AutoItFixtures/build.ps1 |
+| `CORVUS_AUTOIT_SCRIPTS` | A folder of compiled AutoIt scripts (`.a3x` and executables) compared with `CORVUS_AUTOIT_REFERENCE`. | AutoItScriptTests |
 | `CORVUS_DMG_DIR` | A folder of Apple disk images (.dmg) whose files, links and bytes are compared with 7-Zip's extraction. | AppleDiskImageTests |
 | `CORVUS_DART_RELEASES` | A folder of Dart SDK releases (`dart-<version>/dart-sdk`); each compiles a sample whose code names are compared with its debug symbols. | DartSdkProgramTests |
 | `CORVUS_FLUTTER_RELEASES` | A folder of Flutter engine releases (`flutter-<version>/bin/cache` with the Dart SDK, the patched SDK and the Android gen_snapshot for x64 and arm64); each compiles a compressed-pointer sample whose code names are compared with its debug symbols. | DartSdkProgramTests |

@@ -363,7 +363,8 @@ internal sealed class ArkFile
         return shift < 64 && (b & 0x40) != 0 ? value | -1L << shift : value;
     }
 
-    private static uint Adler32(ReadOnlySpan<byte> data)
+    /// <summary>The Adler-32 checksum of <paramref name="data"/> (RFC 1950); 1 for empty data.</summary>
+    internal static uint Adler32(ReadOnlySpan<byte> data)
     {
         uint a = 1, b = 0;
         // 5552 bytes is the longest run whose sums cannot overflow before the modulo.

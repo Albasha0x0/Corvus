@@ -71,8 +71,11 @@ public static class Containers
         if (kind == "unreal utoc") return UnrealIoStore.Open(data, name, location, allFiles, limits, ct);
         if (kind == "gamemaker data") return GameMakerData.Open(data, name, allFiles, limits, ct);
         if (kind is "lua bytecode" or "luajit bytecode") return Lua.LuaContents.Open(data, name);
+        if (kind == "autoit script") return AutoIt.AutoItScript.Open(data, 0, name, allFiles, limits, ct);
         // an export with the pack embedded: the engine executable, then the pack, its size and "GDPC"
         if (kind is "native PE" or "elf" or "mach-o" && GodotPack.Embedded(data) is { } pack) return GodotPack.Open(data, pack, name, allFiles, limits, ct);
+        // An executable from Aut2Exe: the interpreter with the script data in a resource.
+        if (kind == "native PE" && AutoIt.AutoItScript.Find(data) is >= 0 and var script) return AutoIt.AutoItScript.Open(data, script, name, allFiles, limits, ct);
         if ((kind == "gzip" || kind == "data") && UnityWebData.Decompress(data, name, limits.MaxItemBytes) is { } web)
             return UnityWebData.Open(web, name, location, allFiles, limits, ct, kind == "gzip" ? "gzip" : "Brotli");
         if (kind == "text" && Captures.LooksLikeHar(data) && Captures.Open(data, flows: false, allFiles, limits, ct) is { } har) return har;
