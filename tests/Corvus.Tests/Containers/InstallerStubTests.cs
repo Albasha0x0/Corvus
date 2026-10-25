@@ -138,9 +138,9 @@ public sealed class InstallerStubTests
 
     /// <summary>
     /// A Unicode NSIS installer, one solid deflate stream: SetOutPath $INSTDIR\sub, File a.txt, File /oname=$PLUGINSDIR\p.dll,
-    /// WriteUninstaller $INSTDIR\uninst.exe.
+    /// WriteUninstaller $INSTDIR\uninst.exe. <paramref name="wide"/> writes the block headers of a 64-bit build (8-byte offsets).
     /// </summary>
-    private static byte[] NsisFixture()
+    private static byte[] NsisFixture(bool wide = false)
     {
         var strings = new MemoryStream();
         strings.Write([0, 0]);
@@ -160,13 +160,15 @@ public sealed class InstallerStubTests
             [20, 0, String(PluginsDir, @"\p.dll"), 9, 0, 0, 0],
             [62, String(InstDir, @"\uninst.exe"), 16, 0, 0, 0, 0],
         ];
-        int entriesAt = 4 + 8 * 8, stringsAt = entriesAt + code.Length * 28, langAt = stringsAt + (int)strings.Length;
+        int entriesAt = 4 + 8 * (wide ? 12 : 8), stringsAt = entriesAt + code.Length * 28, langAt = stringsAt + (int)strings.Length;
         var header = new BinaryWriter(new MemoryStream());
         header.Write(0);
         for (int i = 0; i < 8; i++)
         {
             var (at, count) = i switch { 2 => (entriesAt, code.Length), 3 => (stringsAt, 0), 4 => (langAt, 0), _ => (0, 0) };
-            header.Write(at); header.Write(count);
+            if (wide) header.Write((long)at);
+            else header.Write(at);
+            header.Write(count);
         }
         foreach (var entry in code) foreach (var v in entry) header.Write(v);
         header.Write(strings.ToArray());
@@ -188,10 +190,12 @@ public sealed class InstallerStubTests
         return pe.Build();
     }
 
-    [Fact]
-    public void An_NSIS_installer_lists_its_files_under_their_install_paths()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void An_NSIS_installer_lists_its_files_under_their_install_paths(bool wideBlockHeaders)
     {
-        var setup = NsisFixture();
+        var setup = NsisFixture(wideBlockHeaders);
         Assert.True(new NsisInstallerReader().Accepts(setup, "setup.exe"));
         var c = Containers.Open(setup, "setup.exe", AnalysisLimits.Default, default, allFiles: true);
         Assert.Equal("NSIS installer", c.Kind);

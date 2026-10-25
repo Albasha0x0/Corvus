@@ -261,11 +261,11 @@ internal sealed class NsisInstallerReader : IContainerReader
 
         public static Script? Parse(byte[] h)
         {
-            if (h.Length < 4 + Blocks * 8) return null;
-            uint Block(int i, int field) => BinaryPrimitives.ReadUInt32LittleEndian(h.AsSpan(4 + i * 8 + field * 4));
-            uint entries = Block(EntriesBlock, 0), count = Block(EntriesBlock, 1), strings = Block(StringsBlock, 0);
+            // A 64-bit build writes each block header as a UINT_PTR offset and an int count: 12 bytes, not 8.
+            if ((Layout(h, 8) ?? Layout(h, 12)) is not var (offsets, counts)) return null;
+            uint entries = offsets[EntriesBlock], count = counts[EntriesBlock], strings = offsets[StringsBlock];
             if (entries > h.Length || count > (h.Length - entries) / EntryBytes || strings >= h.Length) return null;
-            var table = h.AsSpan((int)strings, (int)(Math.Min(Block(StringsBlock + 1, 0), (uint)h.Length) is var end && end > strings ? end - strings : h.Length - strings));
+            var table = h.AsSpan((int)strings, (int)(Math.Min(offsets[StringsBlock + 1], (uint)h.Length) is var end && end > strings ? end - strings : h.Length - strings));
             bool unicode = IsUnicode(table);
             // NSIS 3 codes strings with 1-4 in both builds; NSIS 2 (ANSI only) with 252-255
             var reader = new Strings(h, (int)strings, unicode, unicode || table.IndexOfAnyInRange((byte)1, (byte)4) >= 0);
@@ -296,6 +296,28 @@ internal sealed class NsisInstallerReader : IContainerReader
                 }
             }
             return new Script(files, unicode);
+        }
+
+        /// <summary>
+        /// The block offsets and counts with <paramref name="size"/>-byte block headers; null unless the pages, sections,
+        /// entries, strings and language tables blocks lie in order inside the header.
+        /// </summary>
+        private static (uint[] Offsets, uint[] Counts)? Layout(byte[] h, int size)
+        {
+            if (h.Length < 4 + Blocks * size) return null;
+            var offsets = new uint[Blocks];
+            var counts = new uint[Blocks];
+            for (int i = 0; i < Blocks; i++)
+            {
+                var b = h.AsSpan(4 + i * size);
+                ulong offset = size == 8 ? BinaryPrimitives.ReadUInt32LittleEndian(b) : BinaryPrimitives.ReadUInt64LittleEndian(b);
+                if (offset > (ulong)h.Length) return null;
+                offsets[i] = (uint)offset;
+                counts[i] = BinaryPrimitives.ReadUInt32LittleEndian(b[(size - 4)..]);
+            }
+            for (int i = 1; i <= StringsBlock + 1; i++)
+                if (offsets[i] != 0 && offsets[i - 1] > offsets[i]) return null;
+            return offsets[EntriesBlock] >= 4 + Blocks * size ? (offsets, counts) : null;
         }
 
         /// <summary>Relative names join the output folder; $INSTDIR\ is dropped and separators become '/'.</summary>
