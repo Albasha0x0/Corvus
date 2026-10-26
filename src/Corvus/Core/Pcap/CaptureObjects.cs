@@ -3,8 +3,8 @@ using System.Globalization;
 namespace Corvus.Core.Pcap;
 
 /// <summary>
-/// A pcap / pcapng capture as a container, read in one streaming pass: TCP reassembled (<see cref="TcpStreams"/>), HTTP/1.x
-/// and HTTP/2 responses exported as files named host/path like HAR bodies (decoded by their Content-Encoding), TLS
+/// A pcap / pcapng capture as a container, read in one streaming pass: TCP reassembled (<see cref="TcpStreams"/>), HTTP/1.x,
+/// HTTP/2 and HTTP/3 (<see cref="QuicCapture"/>) responses exported as files named host/path like HAR bodies (decoded by their Content-Encoding), TLS
 /// decrypted with a key log (a file, or the pcapng's decryption secrets blocks), and every other TCP stream written as its
 /// two directions under streams/. Encrypted streams without keys are counted, not written.
 /// </summary>
@@ -20,7 +20,8 @@ internal static class CaptureObjects
         public List<TlsSummary> Tls { get; } = [];
     }
 
-    public static Result Read(Stream stream, TlsKeyLog? keyLog, AnalysisLimits limits, CancellationToken ct)
+    /// <summary>The capture's objects, streams and TLS summaries; <paramref name="sections"/> receives the HTTP/3 field sections decoded.</summary>
+    public static Result Read(Stream stream, TlsKeyLog? keyLog, AnalysisLimits limits, CancellationToken ct, List<QuicCapture.Section>? sections = null)
     {
         var collector = new Captures.Collector(Kind, "capture", allFiles: true, limits, ct);
         var keys = keyLog ?? new TlsKeyLog();
@@ -31,16 +32,20 @@ internal static class CaptureObjects
         long maxBody = Math.Min(limits.MaxItemBytes, Array.MaxLength);
         ITcpConsumer Open(TcpConnectionInfo info) => new Sniffer(info, keys, collector, maxBody, tls, () => http++, () => raw++, () => rawEncrypted++);
         var tcp = new TcpStreams(Open);
+        var quic = new QuicCapture(keys, r => { http++; collector.Add(r); }, maxBody);
         long frames = 0;
         foreach (var f in reader.Frames(ct))
         {
             if ((++frames & 0xFFF) == 0) ct.ThrowIfCancellationRequested();
             var span = f.Data.Span;
-            if (!PacketDecoder.TryDecode(f.LinkType, span, out var p) || p.Protocol != PacketDecoder.Tcp) continue;
+            if (!PacketDecoder.TryDecode(f.LinkType, span, out var p) || p.Protocol is not (PacketDecoder.Tcp or PacketDecoder.Udp)) continue;
             int length = Math.Max(0, Math.Min(p.PayloadLength, span.Length - p.PayloadStart));
-            tcp.Add(p, span.Slice(p.PayloadStart, length), f.Micros);
+            if (p.Protocol == PacketDecoder.Udp) { if (!p.Fragment) quic.Add(p, span.Slice(p.PayloadStart, length)); }
+            else tcp.Add(p, span.Slice(p.PayloadStart, length), f.Micros);
         }
         tcp.Finish();
+        quic.Finish();
+        sections?.AddRange(quic.Sections);
         var contents = collector.Contents();
         var notes = contents.Notes;
         notes.AddRange(reader.Issues);
@@ -52,12 +57,18 @@ internal static class CaptureObjects
             notes.Add($"{tls.Count} TLS connection(s): {string.Join(", ", outcomes)}" + (keys.Sessions > 0 ? $"; key log of {keys.Sessions} session(s)" +
                       (fromBlocks > 0 ? " (from the capture's decryption secrets)" : "") : "") + ".");
         }
+        var quicConnections = quic.Connections.ToList();
+        if (quicConnections.Count > 0)
+            notes.Add($"{quicConnections.Count} QUIC connection(s): {string.Join(", ", quicConnections.GroupBy(q => q.Outcome).Select(g => $"{g.Count()} {g.Key}"))}" +
+                      (quic.Responses > 0 ? $"; {quic.Responses} HTTP/3 object(s)" : "") + ".");
         if (raw > 0) notes.Add($"{raw} other TCP stream(s) written under streams/ (decrypted ones under tls-streams/), client and server bytes in two files.");
         if (rawEncrypted > 0) notes.Add($"{rawEncrypted} TLS stream(s) without keys not written (pass keyLog to decrypt).");
         var result = new Result(contents);
         foreach (var (info, s) in tls)
             result.Tls.Add(new TlsSummary(info.Server, s.ClientHello?.ServerName, Version(s.Version), $"0x{s.Cipher:x4}", s.Alpn,
                 s.ClientHello?.Ja3(), s.ClientHello?.Ja4(), s.ServerHello?.Ja4(), s.Outcome ?? "handshake not seen"));
+        foreach (var q in quicConnections)
+            result.Tls.Add(new TlsSummary(q.Server, q.ServerName, q.Version, q.Cipher, q.Alpn, null, null, null, q.Outcome));
         return result;
     }
 

@@ -48,6 +48,7 @@
     <None Include="NativeFormats\ItaniumCorpus.txt" CopyToOutputDirectory="PreserveNewest" />
     <None Include="NativeFormats\SwiftManglings.txt" CopyToOutputDirectory="PreserveNewest" />
     <None Include="Containers\QuicInitials.txt" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="Containers\Http3Fixtures\**" CopyToOutputDirectory="PreserveNewest" />
     <None Include="Containers\TlsSessions.txt" CopyToOutputDirectory="PreserveNewest" />
     <None Include="TokenCorpus\**" CopyToOutputDirectory="PreserveNewest" />
     <None Include="Engines\IsaFixtures\*.elf;Engines\IsaFixtures\*.bin" CopyToOutputDirectory="PreserveNewest" />

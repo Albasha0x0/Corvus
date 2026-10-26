@@ -85,7 +85,7 @@ internal sealed class Hpack
         }
     }
 
-    private static bool Integer(ReadOnlySpan<byte> b, ref int at, int prefix, out ulong value)
+    internal static bool Integer(ReadOnlySpan<byte> b, ref int at, int prefix, out ulong value)
     {
         value = 0;
         if (at >= b.Length) return false;

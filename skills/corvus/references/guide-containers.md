@@ -34,8 +34,9 @@ time, SSE / NDJSON message shapes and WebSocket messages; kind=packet takes a
 Wireshark display filter (ip.addr==10.0.0.1 and tcp.port==443, dns.qry.name contains "api", tls.sni==x, not udp) and lists a
 pcap / pcapng capture's matching frames, streamed at any size, with the fields it names (also h2c, QUIC Initial,
 SMB2 and Kerberos names in-process, JA3 / JA4; other fields through TShark when CORVUS_TSHARK finds it). unpack_container on
-a pcap reassembles TCP and writes HTTP/1.x and HTTP/2 responses as files, other streams under streams/, and tls.json
-(version, cipher, JA3 / JA4 / JA4S); keyLog (SSLKEYLOGFILE) or the pcapng's secrets blocks decrypt TLS 1.2 / 1.3; kind=dart lists a
+a pcap reassembles TCP and writes HTTP/1.x, HTTP/2 and HTTP/3 (QUIC) responses as files, other streams under streams/, and
+tls.json (version, cipher, JA3 / JA4 / JA4S); keyLog (SSLKEYLOGFILE) or the pcapng's secrets blocks decrypt TLS 1.2 / 1.3 and
+QUIC; summarize_file view=qlog reads QUIC event logs; kind=dart lists a
 Flutter app's Dart package: / dart: URIs and identifiers (summarize_file view=flutter gives its packages).
 summarize_file view=protobuf rebuilds embedded protobuf descriptors as .proto files.
 summarize_file view=script reads PowerShell, batch, VBScript and JavaScript with their transformation layers peeled to plain

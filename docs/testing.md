@@ -478,6 +478,9 @@ missing.
   request bodies) must export exactly the files `tshark --export-objects http` exports, by SHA-256. With
   `CORVUS_CAPTURES` (key logs beside them as `<name>*.keys`), every object TShark exports must be among ours; TShark's
   `object<frame>` files from frames that start no HTTP message are counted apart.
+- **HTTP/3 field sections against Wireshark** (`Http3Tests`, `CORVUS_TSHARK`, TShark 4.6.9): an aioquic 1.2.0 capture
+  (`Containers/Http3Fixtures/build.py`: five requests, a key update, AES-256-GCM) decrypted with its key log; every
+  HTTP/3 field section, its stream and field lines in order, must equal what TShark decodes.
 - **Package review on real packages** (`PackageDatasetTests`): `CORVUS_PACKAGES_BAD` (known-bad npm, PyPI and VS Code
   packages) and `CORVUS_PACKAGES_GOOD` (ordinary ones), each grouped in subfolders; prints the noteworthy share per
   subfolder and checks both against floors. `CORVUS_PACKAGES_REPORT` names a file for one line per package.

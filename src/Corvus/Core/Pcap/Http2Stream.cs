@@ -1,5 +1,4 @@
 using System.Buffers.Binary;
-using System.Globalization;
 
 namespace Corvus.Core.Pcap;
 
@@ -25,11 +24,8 @@ internal sealed class Http2Stream(string scheme, string server, Action<CapturedR
         public byte BlockFlags;
     }
 
-    private sealed class Exchange
+    private sealed class Exchange : HttpExchange
     {
-        public string Method = "?", Path = "/", Authority = "", Scheme = "";
-        public int Status;
-        public string? Mime, Encoding;
         public MemoryStream? Body;
         public bool Truncated, Done;
     }
@@ -129,29 +125,7 @@ internal sealed class Http2Stream(string scheme, string server, Action<CapturedR
             if (_streams.Count >= MaxStreams) return true;
             _streams[stream] = x = new Exchange();
         }
-        foreach (var (name, value) in headers)
-        {
-            if (side.Client)
-            {
-                switch (name)
-                {
-                    case ":method": x.Method = value; break;
-                    case ":path": x.Path = value; break;
-                    case ":authority": x.Authority = value; break;
-                    case ":scheme": x.Scheme = value; break;
-                    case "host" when x.Authority.Length == 0: x.Authority = value; break;
-                }
-            }
-            else
-            {
-                switch (name)
-                {
-                    case ":status": _ = int.TryParse(value, NumberStyles.None, CultureInfo.InvariantCulture, out x.Status); break;
-                    case "content-type": x.Mime ??= value; break;
-                    case "content-encoding": x.Encoding ??= value; break;
-                }
-            }
-        }
+        x.Take(headers, side.Client);
         // an interim (1xx) response is followed by the final one's headers
         if (!side.Client && x.Status >= 200) x.Body ??= new MemoryStream();
         if ((side.BlockFlags & 1) != 0 && !side.Client) Finish(stream);
