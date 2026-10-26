@@ -159,6 +159,20 @@ public sealed class SetupTests : IDisposable
         Assert.False(target.Install("corvus", launch).Changed);
     }
 
+    // Regression: 1d77b83a's push run lost a server's exit message when stdout ended first.
+    // The program closes stdout, then writes its error 300 ms later (sh: Git's on Windows).
+    [Fact]
+    public void A_server_whose_stdout_ends_before_its_error_is_reported_with_that_error()
+    {
+        var sh = OperatingSystem.IsWindows()
+            ? BundleTests.FindOnPath("git.exe") is { } git ? new[] { "..", "../.." }.Select(up => Path.GetFullPath(Path.Combine(Path.GetDirectoryName(git)!, up, "usr", "bin", "sh.exe"))).FirstOrDefault(File.Exists) : null
+            : "/bin/sh";
+        if (sh == null || !File.Exists(sh)) return;
+        var r = SelfTest.Run(new ServerLaunch(sh, ["-c", "exec 1>&-; sleep 0.3; echo bad setting >&2"]), TimeSpan.FromSeconds(30));
+        Assert.False(r.Ok);
+        Assert.Contains("server output: bad setting", r.Detail);
+    }
+
     [Trait("Speed", "Slow")]
     [Fact]
     public void Status_StartsEachRegistrationWithItsOwnArgsAndEnv_AndTheRealServer()

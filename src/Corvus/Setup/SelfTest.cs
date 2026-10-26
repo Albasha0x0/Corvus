@@ -48,12 +48,12 @@ internal static class SelfTest
                     },
                 });
                 var init = Receive(p, 1, timeout - clock.Elapsed);
-                if (init == null) return Fail("no reply to initialize", stderr);
+                if (init == null) return Fail("no reply to initialize", stderr, p);
                 var version = init["result"]?["serverInfo"]?["version"]?.GetValue<string>();
                 Send(p, new JsonObject { ["jsonrpc"] = "2.0", ["method"] = "notifications/initialized" });
                 Send(p, new JsonObject { ["jsonrpc"] = "2.0", ["id"] = 2, ["method"] = "tools/list" });
                 var tools = Receive(p, 2, timeout - clock.Elapsed)?["result"]?["tools"]?.AsArray();
-                if (tools == null) return Fail("no reply to tools/list", stderr);
+                if (tools == null) return Fail("no reply to tools/list", stderr, p);
                 // A development relay adds its own tool; the catalog is the server's.
                 foreach (var added in tools.Where(t => t?["name"]?.GetValue<string>() == Corvus.Relay.DevRelay.ApplyTool).ToList()) tools.Remove(added);
                 var names = tools.Select(t => t?["name"]?.GetValue<string>() ?? "").Where(n => n.Length > 0).ToList();
@@ -63,7 +63,7 @@ internal static class SelfTest
                 return new Result(true, $"version {version}, {tools.Count} tools, started in {clock.Elapsed.TotalSeconds:0.0} s", names,
                     [.. tools.OfType<JsonNode>()], [.. prompts?.OfType<JsonNode>() ?? []], version, clock.Elapsed.TotalSeconds);
             }
-            catch (IOException ex) { return Fail(ex.Message, stderr); }
+            catch (IOException ex) { return Fail(ex.Message, stderr, p); }
             finally
             {
                 try { p.Kill(entireProcessTree: true); } catch (InvalidOperationException) { }
@@ -71,8 +71,11 @@ internal static class SelfTest
         }
     }
 
-    private static Result Fail(string message, System.Text.StringBuilder stderr)
+    private static Result Fail(string message, System.Text.StringBuilder stderr, Process p)
     {
+        // Stdout can end before the async stderr reader delivers the exit message; an exited server's
+        // streams are drained first (the parameterless WaitForExit waits for them).
+        if (p.WaitForExit(TimeSpan.FromSeconds(2))) p.WaitForExit();
         string log;
         lock (stderr) log = stderr.ToString().Trim();
         return new Result(false, log.Length > 0 ? $"{message}; server output: {log[..Math.Min(log.Length, 500)]}" : message);
