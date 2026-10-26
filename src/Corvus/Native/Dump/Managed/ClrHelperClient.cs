@@ -56,8 +56,7 @@ internal sealed class ClrHelperClient : IClrBackend, ILiveClrReads
     private static ClrHelperClient Start(string helper, string[] arguments)
     {
         // ClrMD creates its default symbol cache (%TEMP%\symbols) on every dump open: the decoder gets a temporary folder of its own
-        var temp = Path.Combine(Path.GetTempPath(), "corvus-clr32", $"{Environment.ProcessId}-{Guid.NewGuid():N}");
-        Directory.CreateDirectory(temp);
+        var temp = Native.Providers.PrivateFolder.Create(Path.Combine(Path.GetTempPath(), "corvus-clr32", $"{Environment.ProcessId}-{Guid.NewGuid():N}"));
         ChildProcess process;
         try
         {

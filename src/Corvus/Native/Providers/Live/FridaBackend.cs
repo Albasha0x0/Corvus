@@ -160,7 +160,7 @@ public sealed class FridaBackend : ILiveBackend
         var agent = EmbeddedScript.Extract(AgentResource, dir, "live_agent", ".js");
         // Frida unpacks its helper DLLs into TEMP and leaves them: each worker gets a folder of its own, removed when it ends.
         var temp = Path.Combine(dir, "live-temp", Guid.NewGuid().ToString("N")[..12]);
-        Directory.CreateDirectory(temp);
+        PrivateFolder.Create(temp);
         if (OperatingSystem.IsWindows()) AllowSandboxedReads(temp);
         var start = new ChildProcessStart(python.Executable, ["-I", "-u", worker, agent])
         {

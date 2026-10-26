@@ -28,8 +28,7 @@ public sealed partial class LiveSessionService
             throw new ToolError(ErrorCode.Unsupported, "a live YARA scan is not supported on macOS.", "search_container kind=yara scans the program's files");
         var dir = Path.Combine(Path.GetTempPath(), "corvus-live-yara", $"{Environment.ProcessId}-{Guid.NewGuid():N}");
         // The capture holds the program's memory: readable by this user only, and deleted after the scan.
-        if (OperatingSystem.IsWindows()) Directory.CreateDirectory(dir);
-        else Directory.CreateDirectory(dir, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+        Native.Providers.PrivateFolder.Create(dir);
         try
         {
             var capture = Path.Combine(dir, "memory.bin");

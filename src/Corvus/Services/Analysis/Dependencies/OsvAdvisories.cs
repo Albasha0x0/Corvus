@@ -40,7 +40,7 @@ internal static class OsvAdvisories
         var dir = Path.Combine(Path.GetTempPath(), "corvus-osv", $"{Environment.ProcessId}-{Guid.NewGuid():N}");
         try
         {
-            Directory.CreateDirectory(dir);
+            Native.Providers.PrivateFolder.Create(dir);
             // osv-scanner picks its CycloneDX reader by the .cdx.json file name.
             var sbom = Path.Combine(dir, "components.cdx.json");
             File.WriteAllBytes(sbom, Bom(candidates));

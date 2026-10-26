@@ -46,7 +46,7 @@ public static class WorkerBuild
         await Gate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            Directory.CreateDirectory(directory);
+            PrivateFolder.Create(directory);
             using var processLock = await LockAsync(Path.Combine(directory, ".build.lock"), cancellationToken).ConfigureAwait(false);
             if (File.Exists(jars.Boot) && File.Exists(jars.Worker)) return jars;
             await Task.Run(() => Build(java, classpath, sources, directory, jars), cancellationToken).ConfigureAwait(false);

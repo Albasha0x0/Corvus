@@ -69,6 +69,7 @@ public sealed class JavaDecompilerService(DexService dex) : IDisposable
         try
         {
             string input = Path.Combine(work, "in"), output = Path.Combine(work, "out");
+            Native.Providers.PrivateFolder.Create(work);
             Directory.CreateDirectory(output);
             foreach (var (name, bytes) in JvmClasses.WithNested(full, top, ct))
             {

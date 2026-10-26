@@ -17,7 +17,7 @@ public sealed record GhidraDirectories(string Root)
 
     public void Create()
     {
-        foreach (var d in new[] { Home, Settings, Cache, Temp, Workers }) Directory.CreateDirectory(d);
+        foreach (var d in new[] { Home, Settings, Cache, Temp, Workers }) PrivateFolder.Create(d);
     }
 }
 

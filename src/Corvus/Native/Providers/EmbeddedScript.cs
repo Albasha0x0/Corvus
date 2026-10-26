@@ -26,7 +26,7 @@ public static class EmbeddedScript
     {
         var bytes = Read(resourceName);
         var hash = Convert.ToHexStringLower(SHA256.HashData(bytes))[..16];
-        Directory.CreateDirectory(directory);
+        PrivateFolder.Create(directory);
         return Place(Path.Combine(directory, $"{stem}-{hash}{extension}"), bytes);
     }
 

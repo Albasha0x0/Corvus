@@ -56,7 +56,10 @@ IDA (through idalib), Ghidra, the JADX server and the 32-bit dump decoder also r
 runs in a Job Object that ends it with the server and caps its memory (`CORVUS_ENGINE_MEMORY_MB`); on Linux and macOS
 each leads its own process group, which a shell parent ends within a second of the server ending, even when the server
 is killed. `get_engine_status` shows the worker's process id. IDA runs with a private user directory and no user
-plugins; Ghidra with private home, settings, cache and temporary folders. Engine workers inherit the server's
+plugins; Ghidra with private home, settings, cache and temporary folders. The folders workers run code from or write
+into (worker scripts and builds, these private folders, per-worker temporary folders, memory captures) are closed to
+other user accounts, even under a shared `CORVUS_DATA_DIR` or `TEMP`: on Windows a protected DACL grants only the
+user, SYSTEM and Administrators; elsewhere they are created with mode 0700. Engine workers inherit the server's
 environment (Ghidra without the Java option variables); other external tools get a minimal one. These engines parse
 the input themselves; their own vulnerabilities are outside this boundary, but report any way through Corvus to reach
 them with more than an input file.

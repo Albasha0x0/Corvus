@@ -304,8 +304,7 @@ public sealed class IdaProvider(IdaProviderOptions? options = null) : INativeDec
     /// </summary>
     private string PrivateUserDirectory()
     {
-        var dir = Path.Combine(Cache.Root, ProviderId, "idausr");
-        Directory.CreateDirectory(dir);
+        var dir = PrivateFolder.Create(Path.Combine(Cache.Root, ProviderId, "idausr"));
         foreach (var userDir in IdaInstallation.UserDirectories())
         {
             if (Path.GetFullPath(userDir).Equals(Path.GetFullPath(dir), StringComparison.OrdinalIgnoreCase) || !Directory.Exists(userDir)) continue;

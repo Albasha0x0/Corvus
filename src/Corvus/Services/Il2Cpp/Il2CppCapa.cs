@@ -274,7 +274,7 @@ public static class Il2CppCapa
         var dir = Path.Combine(Path.GetTempPath(), "corvus-capa", $"{Environment.ProcessId}-{Guid.NewGuid():N}");
         try
         {
-            Directory.CreateDirectory(dir);
+            Native.Providers.PrivateFolder.Create(dir);
             var file = Path.Combine(dir, "features.frz");
             File.WriteAllBytes(file, freeze);
             var run = Native.Providers.ExternalTools.Run(probe.Path!, Native.Providers.ExternalTools.Arguments(Native.Providers.ExternalTools.Capa, "freeze", ("file", file)),
