@@ -46,6 +46,90 @@ public sealed class AppGraphTests(Xunit.Abstractions.ITestOutputHelper output) :
         Assert.Equal(g.Edges.Skip(1).Take(2), page.Edges);
     }
 
+    [Fact]
+    public void Cordova_and_capacitor_calls_join_their_plugin_classes()
+    {
+        using var dir = new TempDir();
+        var dexBytes = JniBindingsTests.Dex(b =>
+        {
+            var camera = b.Class("Lorg/apache/cordova/camera/CameraLauncher;", 1, "Lorg/apache/cordova/CordovaPlugin;");
+            camera.Method("execute", "Z", ["Ljava/lang/String;", "Lorg/json/JSONArray;", "Lorg/apache/cordova/CallbackContext;"], 1,
+                ConstString(0, "takePicture"), Return(0x0f, 0)).Registers = 5;
+            b.Class("Lorg/apache/cordova/CoreAndroid;", 1, "Lorg/apache/cordova/CordovaPlugin;");
+            var plugin = b.Class("Lcom/capacitorjs/plugins/camera/CameraPlugin;", 1, "Lcom/getcapacitor/Plugin;");
+            plugin.Annotations.Add(("Lcom/getcapacitor/annotation/CapacitorPlugin;", 1, [("name", "Camera")]));
+            plugin.Method("getPhoto", "V", ["Lcom/getcapacitor/PluginCall;"], 1, ReturnVoid()).Annotations.Add(("Lcom/getcapacitor/PluginMethod;", 1, []));
+            plugin.Method("pickImages", "V", ["Lcom/getcapacitor/PluginCall;"], 1, ReturnVoid()).Annotations.Add(("Lcom/getcapacitor/PluginMethod;", 1, []));
+        });
+        var config = AxmlWriter.Write(new AxmlWriter.Node("widget").Add(
+            new AxmlWriter.Node("feature", AxmlWriter.String("name", "Camera", ns: null))
+                .Add(new AxmlWriter.Node("param", AxmlWriter.String("name", "android-package", ns: null), AxmlWriter.String("value", "org.apache.cordova.camera.CameraLauncher", ns: null))),
+            new AxmlWriter.Node("feature", AxmlWriter.String("name", "CoreAndroid", ns: null))
+                .Add(new AxmlWriter.Node("param", AxmlWriter.String("name", "android-package", ns: null), AxmlWriter.String("value", "org.apache.cordova.CoreAndroid", ns: null)))));
+        var cordova = Encoding.UTF8.GetBytes(
+            "exec(function (r) { done(r, 1); }, fail, 'Camera', 'takePicture', [q, 50]);\n" +
+            "cordova.exec(null, null, \"CoreAndroid\", action, []);\n" +
+            "exec(ok, fail, 'Geolocation', 'getLocation', []); // no feature\n" +
+            "codeexec(a, b, 'Not', 'Exec', []);");
+        var capacitor = Encoding.UTF8.GetBytes("const Camera = registerPlugin('Camera', { web: () => import('./web') });\nCamera.getPhoto({ quality: 90 });\nconst Share = registerPlugin(\"Share\");");
+        var apk = AndroidSamples.Save(dir, "hybrid.apk", AndroidSamples.Apk(30, ("classes.dex", dexBytes), ("res/xml/config.xml", config),
+            ("assets/www/plugins/camera.js", cordova), ("assets/www/app.js", capacitor)));
+        var g = Graph().Build(apk, 0, 500, default);
+        foreach (var e in g.Edges.Where(e => e.Kind.EndsWith("_plugin", StringComparison.Ordinal))) output.WriteLine($"{e.Kind}: {e.From} -> {e.To} ({e.Basis})");
+        Assert.Contains(g.Layers, l => l.Layer == "web" && l.Items == 2);
+        var cordovaKind = g.EdgeKinds.Single(k => k.Kind == "cordova_plugin");
+        Assert.Equal((2, 3, "partial"), (cordovaKind.Edges, cordovaKind.Candidates, cordovaKind.Coverage));
+        Assert.Equal("1 call(s) unbound: Geolocation (no config.xml feature)", cordovaKind.Reason);
+        Assert.Contains(g.Edges, e => e.Kind == "cordova_plugin" && e.From == "assets/www/plugins/camera.js:exec(Camera.takePicture)"
+            && e.To == "Lorg/apache/cordova/camera/CameraLauncher;->execute" && e.Basis == "config_feature, action_string");
+        Assert.Contains(g.Edges, e => e.Kind == "cordova_plugin" && e.From == "assets/www/plugins/camera.js:exec(CoreAndroid.?)" && e.Basis == "config_feature");
+        var capacitorKind = g.EdgeKinds.Single(k => k.Kind == "capacitor_plugin");
+        Assert.Equal((2, 3, "partial"), (capacitorKind.Edges, capacitorKind.Candidates, capacitorKind.Coverage));
+        Assert.StartsWith("1 plugin(s) with no native class", capacitorKind.Reason);
+        Assert.Contains(g.Edges, e => e.Kind == "capacitor_plugin" && e.From == "assets/www/app.js:registerPlugin(Camera)" && e.To == "Lcom/capacitorjs/plugins/camera/CameraPlugin;");
+        Assert.Contains(g.Edges, e => e.Kind == "capacitor_plugin" && e.From == "assets/www/app.js:Camera.getPhoto()"
+            && e.To == "Lcom/capacitorjs/plugins/camera/CameraPlugin;->getPhoto(Lcom/getcapacitor/PluginCall;)V");
+        Assert.DoesNotContain(g.Edges, e => e.From.Contains("pickImages", StringComparison.Ordinal));
+    }
+
+    /// <summary>
+    /// CORVUS_HYBRID_APPS: Cordova and Capacitor packages. Each must join its plugin calls; every class Capacitor's own
+    /// registry (assets/capacitor.plugins.json) lists, and every Cordova service its exec() calls name, must be bound or
+    /// named in the coverage reason.
+    /// </summary>
+    [RequiresRealDataFact("CORVUS_HYBRID_APPS")]
+    [Trait("Speed", "Slow")]
+    public void Real_hybrid_packages_join_their_plugin_calls()
+    {
+        var failures = new List<string>();
+        int packages = 0;
+        foreach (var apk in Directory.EnumerateFiles(Environment.GetEnvironmentVariable("CORVUS_HYBRID_APPS")!, "*.apk", SearchOption.AllDirectories).Order(StringComparer.Ordinal))
+        {
+            var name = Path.GetFileName(apk);
+            var g = Graph().Build(apk, 0, 2000, default);
+            var bridges = g.EdgeKinds.Where(k => k.Kind is "cordova_plugin" or "capacitor_plugin").ToList();
+            foreach (var k in bridges) output.WriteLine($"{name}: {k.Kind} {k.Edges}/{k.Candidates} {k.Coverage} {k.Reason}");
+            foreach (var e in g.Edges.Where(e => e.Kind.EndsWith("_plugin", StringComparison.Ordinal)).Take(12)) output.WriteLine($"  {e.From} -> {e.To} ({e.Basis})");
+            foreach (var n in g.Notes.Where(n => n.StartsWith("Capacitor", StringComparison.Ordinal) || n.StartsWith("Cordova", StringComparison.Ordinal))) output.WriteLine($"  note: {n}");
+            if (bridges.Count == 0 || bridges.All(k => k.Edges == 0)) failures.Add($"{name}: no plugin call joined");
+            using var zip = System.IO.Compression.ZipFile.OpenRead(apk);
+            if (zip.GetEntry("assets/capacitor.plugins.json") is { } registry)
+            {
+                using var s = registry.Open();
+                foreach (var plugin in System.Text.Json.JsonDocument.Parse(s).RootElement.EnumerateArray())
+                {
+                    var descriptor = "L" + plugin.GetProperty("classpath").GetString()!.Replace('.', '/') + ";";
+                    var classpath = plugin.GetProperty("classpath").GetString()!;
+                    if (!g.Edges.Any(e => e.To.StartsWith(descriptor, StringComparison.Ordinal)) && !g.Notes.Any(n => n.StartsWith("Capacitor: ", StringComparison.Ordinal) && n.Contains(classpath, StringComparison.Ordinal)))
+                        failures.Add($"{name}: registry class {classpath} is neither joined nor noted");
+                }
+            }
+            packages++;
+        }
+        Assert.True(packages > 0, "no packages");
+        Assert.True(failures.Count == 0, string.Join("\n", failures));
+    }
+
     /// <summary>Damaged packages: the view and the graph answer or throw a tool error.</summary>
     [Trait("Smoke", "push")]
     [Fact]

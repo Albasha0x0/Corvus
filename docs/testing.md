@@ -368,6 +368,7 @@ describe.
 | `CORVUS_QT_RESOURCES` | A folder of `.rcc` files, compared with Qt through `CORVUS_QT_PYTHON`, and Qt programs whose compiled-in collections must be found and expand. | QtResourceTests |
 | `CORVUS_SWF_DUMP` | `swfdump.jar` of the Apache Flex SDK (4.16.1), run with java from `JAVA_HOME` or `PATH`. | SwfTests |
 | `CORVUS_SWF_FILES` | A folder of `.swf` files (searched recursively; the Flex SDK folder holds 20), compared with `CORVUS_SWF_DUMP`. | SwfTests |
+| `CORVUS_HYBRID_APPS` | A folder of Cordova and Capacitor packages (.apk, searched recursively); each must join its plugin calls, and every class of capacitor.plugins.json is joined or named. | AppGraphTests |
 | `CORVUS_REGISTRY_HIVES` | A folder of registry hive files (searched recursively), each compared with the Offline Registry Library (Windows). | RegistryHiveTests |
 | `CORVUS_R2R_COMPOSITE_DIR` | A composite ReadyToRun app: the output of a self-contained `dotnet publish` with composite ReadyToRun. | ReadyToRunTests |
 | `CORVUS_REALM_FILES` | A folder searched for Realm files (any name, by their header) compared with the realm package through `CORVUS_REALM_REFERENCE`. | RealmTests |

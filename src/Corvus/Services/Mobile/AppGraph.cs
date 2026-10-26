@@ -9,14 +9,14 @@ using Corvus.Core.Mobile;
 namespace Corvus.Services.Mobile;
 
 public sealed record AppLayer(
-    [property: Description("dex, native, dotnet, il2cpp or js.")] string Layer,
+    [property: Description("dex, native, dotnet, il2cpp, js or web.")] string Layer,
     [property: Description("How many items the layer holds (classes, libraries, assemblies, methods, strings).")] int Items,
     string What);
 
 public sealed record AppEdgeKind(
     [property: Description("jni (DEX native method to .so function), java_dotnet (Java callable wrapper or bound class to .NET type), unity_java " +
                            "(Unity C# to the Java class it names), il2cpp_native (C# method to its libil2cpp.so code), js_native_module (JS bundle to a " +
-                           "React Native module class).")] string Kind,
+                           "React Native module class), cordova_plugin, capacitor_plugin (web code to plugin class).")] string Kind,
     int Edges,
     [property: Description("The items that could have an edge of this kind (native methods, Unity calls, modules ...).")] int Candidates,
     [property: Description("complete, partial (candidates without an edge; reason says which) or unknown (the layer was not read).")] string Coverage,
@@ -32,7 +32,7 @@ public sealed record AppGraphFacts(IReadOnlyList<AppLayer> Layers, IReadOnlyList
 /// <summary>
 /// One graph of an Android package's code layers (DEX, native libraries, .NET, Il2Cpp, JS bundle) with the edges between
 /// them, each verified the way its bridge binds at run time: JNI name mangling and RegisterNatives tables, [Register] and
-/// crc64 wrapper names, Unity's Java calls by class name, Il2Cpp metadata addresses, React Native module names. Composes
+/// crc64 wrapper names, Unity's Java calls by class name, Il2Cpp metadata addresses, React Native module names, Cordova and Capacitor plugin names. Composes
 /// the bridge services; coverage per edge kind says what is joined and what is not.
 /// </summary>
 public sealed class AppGraph(DexService dex, JniBindings jni, JavaDotNetMap map, Il2CppRawLoader? il2cpp = null)
@@ -66,6 +66,8 @@ public sealed class AppGraph(DexService dex, JniBindings jni, JavaDotNetMap map,
         if (index != null && libraries.Count > 0) Jni(full, wrappers, kinds, edges, notes, ct);
         Il2Cpp(full, entries, layers, kinds, edges, notes, ct);
         if (index != null) Js(full, index, layers, kinds, edges, notes, ct);
+        if (index != null)
+            using (var package = AndroidPackage.Open(full)) WebBridges.Add(package, entries, index, layers, kinds, edges, notes, ct);
 
         var ordered = edges.OrderBy(e => e.Kind, StringComparer.Ordinal).ThenBy(e => e.From, StringComparer.Ordinal).ThenBy(e => e.To, StringComparer.Ordinal).ToList();
         offset = Math.Max(0, offset);
