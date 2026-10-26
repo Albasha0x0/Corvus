@@ -185,7 +185,20 @@ internal sealed class RunStatus : IStatusSection
         new("started", ServerIdentity.StartedAt.ToString("yyyy-MM-ddTHH:mm:ssZ", CultureInfo.InvariantCulture)),
         new("dataDir", Native.Providers.DataFolder.Root,
             Environment.GetEnvironmentVariable(Native.Providers.DataFolder.RootVariable) is { Length: > 0 } ? Native.Providers.DataFolder.RootVariable : "default"),
+        .. Config(ConfigFile.Current) is { } config ? [config] : Array.Empty<StatusField>(),
     ];
+
+    /// <summary>What startup read from corvus.json: the variables it set, left to the environment and refused; null without a file.</summary>
+    internal static StatusField? Config(ConfigFile.Report r)
+    {
+        static string Names(IReadOnlyList<string> names) => string.Join(", ", names);
+        if (!r.Found) return null;
+        string value = r.Problem != null ? $"{StatusPaths.Short(r.Path)} not applied: {r.Problem}"
+            : $"{StatusPaths.Short(r.Path)}: {r.Applied.Count} set" + (r.Applied.Count > 0 ? $" ({Names(r.Applied)})" : "")
+              + (r.Overridden.Count > 0 ? $"; the environment sets {Names(r.Overridden)}" : "")
+              + (r.Refused.Count > 0 ? $"; refused {Names(r.Refused)}" : "");
+        return new("config", value, r.Source == ConfigFile.Variable ? ConfigFile.Variable : "default");
+    }
 }
 
 /// <summary>Status paths under the data folder name it once (run.dataDir), so a long folder does not repeat in every section.</summary>

@@ -3,7 +3,8 @@
 Every server option, environment variable and security switch.
 
 - Options go in the client entry's `args`, variables in its `env`; both apply when the client starts the server.
-- An option wins over its variable. Switch variables take `1`, `true` or `on`. `server_status` shows the values in effect.
+- An option wins over its variable, and a variable set in the environment wins over [corvus.json](#config-file).
+  Switch variables take `1`, `true` or `on`. `server_status` shows the values in effect and where each came from.
 - Setup commands and install-script options: [installation.md](installation.md). Command line: [cli.md](cli.md). Tool
   arguments: [tools.md](tools.md).
 
@@ -16,6 +17,7 @@ Every server option, environment variable and security switch.
 | [Security switches](#security-switches) | What can run, attach, change a device or replace the loaded file |
 | [Claude Code](#claude-code) | Turning switches on for every project or one, and checking them |
 | [Server options](#server-options) | Loading, limits, engines, tool profiles, logging |
+| [Config file](#config-file) | Variables for every server and command of this user |
 | [Environment variables](#environment-variables) | Folders and caches, engines, external programs, network, install |
 
 ## Security switches
@@ -141,6 +143,29 @@ Limit which programs a session may start or attach to (a value, so it goes in `e
 | `--trace-args` | `CORVUS_TRACE_ARGS` | off | See [Security switches](#security-switches). |
 
 Logs go to stderr; stdout carries only the protocol.
+
+## Config file
+
+`corvus.json` in the data folder (`CORVUS_DATA_DIR`, by default `<LocalAppData>/Corvus`), or the file `CORVUS_CONFIG`
+names, sets variables for every server and command this user starts, so they need not repeat in each client entry.
+It is read once at startup; worker processes inherit what it sets.
+
+```json
+{
+  // Comments and trailing commas are allowed.
+  "CORVUS_OFFLINE": true,
+  "CORVUS_ANALYSIS_CACHE_MB": 65536,
+  "CORVUS_GHIDRA_DIR": "D:/tools/ghidra"
+}
+```
+
+- Keys are `CORVUS_` variables; values are strings, numbers or `true`/`false` (`1`/`0`).
+- A variable already set in the environment wins over the file, and an option wins over both.
+- Refused there, with a warning on stderr: the [security switches](#security-switches) (they stay in the client entry,
+  where the client shows them), `CORVUS_DATA_DIR` and `CORVUS_CONFIG`.
+- A file that is not valid JSON applies nothing.
+- `server_status` (`run.config`) names the file, the variables it set, those the environment set instead and those it
+  refused; the field appears when a file exists. A status value a file variable set names `corvus.json` as its source.
 
 ## Environment variables
 

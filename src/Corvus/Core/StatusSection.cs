@@ -41,7 +41,7 @@ public static class StatusSections
         var reads = sections.OrderBy(s => s.Order).ThenBy(s => s.Name, StringComparer.Ordinal)
             .Select(s => Task.Factory.StartNew(() =>
             {
-                try { return new StatusSection(s.Name, [.. s.Fields(services)]); }
+                try { return new StatusSection(s.Name, [.. s.Fields(services).Select(f => f with { Source = ConfigFile.Shown(f.Source) })]); }
                 catch (Exception ex) when (ex is not OutOfMemoryException)
                 {
                     return new StatusSection(s.Name, [new StatusField("error", ex.Message)]);
