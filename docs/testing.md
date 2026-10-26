@@ -280,6 +280,7 @@ describe.
 | `CORVUS_ELECTRON_APPS` | A folder of installed Electron apps; every .asar below it (six levels) is read. | ElectronGraphTests, ElectronTests, JsEndpointsTests, NodeApiTests |
 | `CORVUS_ELF_CORES` | A folder of Linux or Android ELF core files, with the program's libraries beside them. | ElfCoreTests |
 | `CORVUS_ESE_FILES` | A folder searched for ESE databases (`*.edb`) compared with pyesedb through `CORVUS_FS_REFERENCE`. | EseTests |
+| `CORVUS_EVTX_FILES` | A folder searched for Windows event log files (`*.evtx`) whose records are compared with wevtutil through `CORVUS_WEVTUTIL`. | EvtxTests |
 | `CORVUS_EXPORT_LIST` | A file listing assemblies whose exported projects must build; errors go to `<list>.report.txt`. | ExportBuildTests |
 | `CORVUS_EXPORT_REAL` | `1` exports real libraries to projects and builds them. | ExportBuildTests |
 | `CORVUS_FIRMWARE_IMAGES` | A folder of firmware images whose filesystems are compared file by file with the reference extractors. | FirmwareComparisonTests |
@@ -384,6 +385,7 @@ describe.
 | `CORVUS_VCALL_SAMPLE` | Call sites of that image sampled (default 150). | VirtualCallTests |
 | `CORVUS_WASM_DIR` | A folder of .wasm files, validated and converted to text, compared with WABT. | WasmTextTests, WasmValidationTests |
 | `CORVUS_WEBPACK_APPS` | A folder of folders, each an app's extracted webpack output. | JsRuntimeTests |
+| `CORVUS_WEVTUTIL` | wevtutil (Windows 11 25H2, build 26200) that the event logs under `CORVUS_EVTX_FILES` and the built ones are compared with. | EvtxTests |
 | `CORVUS_WPF_APPS` | A folder of WPF programs (.exe, three levels deep) whose BAML must decompile to XAML that parses. | XamlEventsTests |
 | `CORVUS_SEED_VALIDATE` | How many engine seeds to compare with a cold analysis of their input; the night's run sets `3`. | EngineSeedTests, nightly.ps1, test-reuse.psm1 |
 | `CORVUS_TEST_REMOTE` | The test host (`user@host`) prepared by `test-remote-setup.ps1`; a whole-suite run sends its offloaded classes there when it answers over ssh. | host-tier.ps1, test-remote-setup.ps1, test-remote.psm1, test.ps1 |
@@ -490,6 +492,10 @@ missing.
   the certificates openssl reads from each file (`crl2pkcs7`, `x509`) must be the ones read here, with the same serial,
   validity, SHA-256 fingerprint and SPKI pin. Chains, pins, PKCS #7 and PKCS #12 contents, requests and CRLs are checked
   on certificates the tests build.
+- **Event logs against wevtutil** (`EvtxTests`, `CORVUS_WEVTUTIL`, `CORVUS_EVTX_FILES`, Windows 11 25H2, build 26200):
+  every record of each log, exported and as the service holds it, must render to the XML wevtutil writes, matched by
+  EventRecordID. The built logs (`Support/EvtxSamples.cs`: three templates, a string array, empty optional values, a
+  nested binary XML value) must render the same through wevtutil.
 - **HTTP/3 field sections against Wireshark** (`Http3Tests`, `CORVUS_TSHARK`, TShark 4.6.9): an aioquic 1.2.0 capture
   (`Containers/Http3Fixtures/build.py`: five requests, a key update, AES-256-GCM) decrypted with its key log; every
   HTTP/3 field section, its stream and field lines in order, must equal what TShark decodes.
