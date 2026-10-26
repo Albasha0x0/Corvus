@@ -38,7 +38,8 @@ Its `[Description]` texts become the MCP tool description: keep them accurate an
 2. `tests/Corvus.Tests/ContractSweepData` (same layout): every parameter naming a file the tool writes.
 3. `src/Corvus/Core/Toolsets.cs`: the tool in exactly one family.
 4. `src/Corvus/Mcp/Guide.cs`: the tool named in the core or a topic.
-5. `docs/features.md`: a tool table row; update the tool count there and in `README.md`.
+5. `docs/features.md`: a tool table row; update the tool count there, in `README.md` and in its translations
+   (`README.*.md`).
 6. Tests: the tool's own, and a case in `McpProtocolTests.ToolCases` so it is called over stdio.
 
 The guard tests (catalog audit and size ceiling, layering, README sync, parameter domains, contract sweep, guide
@@ -70,7 +71,8 @@ the regenerated files.
   paragraph naming the tests run. Issue references go in `Fixes #N` / `Refs #N` / `Upstream:` trailers.
 - The commit-msg hook (`.githooks/commit-msg`, enabled with the pre-push hook) rejects a subject or line width that
   does not follow this.
-- A pull request describes what changed and how it was tested, and keeps the README and docs in sync.
+- A pull request describes what changed and how it was tested, and keeps the README, its translations and docs in
+  sync; `TranslatedReadmeTests` fails when a translation lacks a code block, link or number of `README.md`.
 
 ## Releasing
 

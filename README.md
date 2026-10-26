@@ -1,5 +1,7 @@
 # Corvus
 
+**English** · [简体中文](README.zh-CN.md) · [日本語](README.ja.md)
+
 **Reverse engineering and security analysis for AI agents.** Corvus is an MCP server that reads, traces, compares and patches compiled
 programs: .NET assemblies and native PE, ELF and Mach-O binaries. One self-contained binary, no runtime to install,
 nothing uploaded; by default nothing it reads is executed.
