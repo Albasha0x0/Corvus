@@ -343,6 +343,8 @@ public static partial class ExternalTools
     /// </summary>
     public static ExternalToolProbe Probe(ExternalTool tool, TimeSpan wait)
     {
+        // Without version arguments nothing runs, so there is no check to report as running.
+        if (tool.VersionArguments.Length == 0) return Probe(tool);
         // A thread of its own for the same reason as SessionTools.OwnThread.
         var probe = Task.Factory.StartNew(() => Probe(tool), CancellationToken.None, TaskCreationOptions.LongRunning, TaskScheduler.Default);
         if (((IAsyncResult)probe).AsyncWaitHandle.WaitOne(wait) || Locate(tool) is not { } at) return probe.GetAwaiter().GetResult();

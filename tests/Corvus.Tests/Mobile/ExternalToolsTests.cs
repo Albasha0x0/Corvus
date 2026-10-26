@@ -53,6 +53,18 @@ public class ExternalToolsTests : IDisposable
         Assert.Equal((adb, "PATH"), ExternalTools.Locate(ExternalTools.Adb));
     }
 
+    // Regression: c1cbd3ef push run, the jars reported "check running" when the 300 ms status wait passed on a loaded machine.
+    [Fact]
+    public void A_tool_without_a_version_check_is_never_reported_as_running_one()
+    {
+        using var dir = new TempDir();
+        File.WriteAllBytes(dir.File("vineflower-1.11.1.jar"), [0x50, 0x4B]);
+        using var env = new EnvironmentScope().Set("CORVUS_JAVA_DECOMPILER2", dir.Path);
+        // A zero wait ends before any thread can finish: the old bounded probe always reported the check as running.
+        var probe = ExternalTools.Probe(ExternalTools.JavaDecompiler2, TimeSpan.Zero);
+        Assert.Equal(("1.11.1", null), (probe.Version, probe.VersionUnknown));
+    }
+
     [Fact]
     public void Callers_probing_one_file_at_once_share_one_version_check()
     {
