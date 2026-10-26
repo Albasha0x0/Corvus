@@ -197,6 +197,11 @@ jobs:
       # The full pass release.ps1 released on (release/tests.json in the tagged commit): listed below and attested.
       - name: Test summary
         run: cp release/tests.json corvus-tests.json
+      # README.md and docs/ as a static HTML site linked to this tag's source; a link that does not resolve fails it.
+      - name: Docs site
+        run: |
+          dotnet run --project tools/DocsSite -c Release -- . "$RUNNER_TEMP/site" --source "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/blob/$GITHUB_REF_NAME"
+          (cd "$RUNNER_TEMP/site" && zip -qr "$GITHUB_WORKSPACE/corvus-docs.zip" .)
       # The installers and `update` refuse a build whose SHA-256 is not listed here.
       - name: Checksums
         run: sha256sum corvus-* CorvusRE.*.nupkg > SHA256SUMS && cat SHA256SUMS
@@ -207,11 +212,11 @@ jobs:
             corvus-*
             CorvusRE.*.nupkg
             SHA256SUMS
-      # The SBOM attested against the packages it describes.
+      # The SBOM attested against the packages it describes (not the docs site).
       - uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
         with:
           subject-path: |
-            corvus-*.zip
+            corvus-win-*.zip
             corvus-*.tar.gz
             corvus-*.mcpb
             CorvusRE.*.nupkg

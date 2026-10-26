@@ -61,6 +61,9 @@ public partial class ReleaseProvenanceTests
         Assert.True(At("-fn corvus-sbom.cdx.json") < At("sha256sum corvus-*"));
         // The test summary is listed and attested like the SBOM: corvus-* covers both.
         Assert.True(At("cp release/tests.json corvus-tests.json") is > 0 and var copied && copied < At("sha256sum corvus-*"));
+        // The docs site is listed and has provenance like them, but the SBOM does not describe it.
+        Assert.True(At("\"$GITHUB_WORKSPACE/corvus-docs.zip\"") is > 0 and var site && site < At("sha256sum corvus-*"));
+        Assert.DoesNotContain("corvus-*.zip", release[release.LastIndexOf("uses: actions/attest@", StringComparison.Ordinal)..At("sbom-path:")], StringComparison.Ordinal);
         Assert.True(At("sha256sum corvus-*") < At("uses: actions/attest@"));
         Assert.True(At("uses: actions/attest@") < At("uses: softprops/action-gh-release@"));
         var provenance = release[At("uses: actions/attest@")..At("sbom-path:")];

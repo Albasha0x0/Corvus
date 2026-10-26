@@ -12,10 +12,11 @@
     <EnableSourceControlManagerQueries>false</EnableSourceControlManagerQueries>
   </PropertyGroup>
 
-  <!-- The shipped closure restores from committed lock files (packages.lock.json). On CI runners (CI=true, as GitHub
-       Actions sets it) every restore is locked: a package version or hash the lock file does not name fails restore,
-       so CI and the release build exactly the reviewed packages. A local restore rewrites the lock file. -->
-  <PropertyGroup Condition="'$(MSBuildProjectName)' == 'Corvus' or '$(MSBuildProjectName)' == 'Corvus.Clr32'">
+  <!-- The shipped closure, and the generator of the documentation site the release attaches, restore from committed
+       lock files (packages.lock.json). On CI runners (CI=true, as GitHub Actions sets it) every restore is locked: a
+       package version or hash the lock file does not name fails restore, so CI and the release build exactly the
+       reviewed packages. A local restore rewrites the lock file. -->
+  <PropertyGroup Condition="'$(MSBuildProjectName)' == 'Corvus' or '$(MSBuildProjectName)' == 'Corvus.Clr32' or '$(MSBuildProjectName)' == 'DocsSite'">
     <RestorePackagesWithLockFile>true</RestorePackagesWithLockFile>
     <RestoreLockedMode Condition="'$(CI)' == 'true'">true</RestoreLockedMode>
   </PropertyGroup>

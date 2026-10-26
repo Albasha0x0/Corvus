@@ -171,6 +171,8 @@
     <ProjectReference Include="..\TestFixture\TestFixture.csproj" />
     <ProjectReference Include="..\TestFixture.Consumer\TestFixture.Consumer.csproj" />
     <ProjectReference Include="..\TestFixture.FakeTools\TestFixture.FakeTools.csproj" />
+    <!-- The documentation site generator, whose output the link tests check. -->
+    <ProjectReference Include="..\..\tools\DocsSite\DocsSite.csproj" />
   </ItemGroup>
 
   <!-- The fake tools also as a native program, which starts in about 20 ms instead of 70 ms. FakeTool.Executable takes it

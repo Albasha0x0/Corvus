@@ -78,6 +78,9 @@ its commit, date and strength, the tests it ran, each test family's newest pass 
 to nightly runs, whether the IDA and Ghidra tests ran, the external tools not found, and the OS and SDK. A fact the
 test records do not hold is `unknown`. It is listed in `SHA256SUMS` and covered by the provenance attestation.
 
+`corvus-docs.zip` holds this documentation as a static HTML site for the release (open `index.html`); links to other
+repository files point at the tagged source. It is listed in `SHA256SUMS` and covered by the provenance attestation.
+
 **From source.** `./publish.ps1` (add `-SelfContained` for a build that needs no .NET), then
 `publish/corvus install`.
 
