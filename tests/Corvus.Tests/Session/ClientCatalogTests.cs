@@ -64,6 +64,98 @@ public sealed class ClientCatalogTests : IDisposable
     }
 
     [Fact]
+    public void Hermes_and_DeepSeek_Harness_files_follow_their_homes()
+    {
+        Assert.Equal(_home.Path("AppData", "Local", "hermes", "config.yaml"), Client("hermes").Target.Path);
+        Assert.Equal(_home.Path("AppData", "Local", "hermes-dev", "config.yaml"), Client("hermes", new() { ["HERMES_DATA_DIR_SUFFIX"] = "-dev" }).Target.Path);
+        Assert.Equal(_home.Path(".hermes", "config.yaml"), Client("hermes", os: HostOs.Linux).Target.Path);
+        Assert.Equal(_home.Path("h", "config.yaml"), Client("hermes", new() { ["HERMES_HOME"] = "~/h" }).Target.Path);
+        Assert.Equal(_home.Path(".dsh", "cordis.patch.yml"), Client("deepseek-harness").Target.Path);
+        Assert.Equal(_home.Path("d", "cordis.patch.yml"), Client("deepseek-harness", new() { ["DSH_HOME"] = "~/d" }).Target.Path);
+    }
+
+    [Fact]
+    public void A_Hermes_entry_is_added_beside_the_users_servers_and_removed_without_a_trace()
+    {
+        var target = new HermesYamlTarget(_home.Path("config.yaml"));
+        const string original = "# user settings\nmodel: hermes-4\nmcp_servers:\n  github:\n    command: npx\n    args:\n      - -y\n      - '@modelcontextprotocol/server-github'\n\ntoolsets: [web]\n";
+        File.WriteAllText(target.Path, original);
+
+        Assert.True(target.Install("corvus", SetupHome.Launch).Changed);
+        var text = File.ReadAllText(target.Path);
+        Assert.StartsWith("# user settings\nmodel: hermes-4\nmcp_servers:\n  github:\n    command: npx\n    args:\n      - -y\n      - '@modelcontextprotocol/server-github'\n  corvus:\n    command: ", text);
+        Assert.EndsWith("\n\ntoolsets: [web]\n", text);
+        var entry = target.Current("corvus")!;
+        Assert.Equal(SetupHome.Launch.Command, entry.Command);
+        Assert.Equal(SetupHome.Launch.WithSwitches(SetupHome.Launch.Args), entry.Args);
+        Assert.Equal(["-y", "@modelcontextprotocol/server-github"], target.Current("github")!.Args);
+        Assert.False(target.Install("corvus", SetupHome.Launch).Changed);
+
+        File.WriteAllText(target.Path, text.Replace("  corvus:\n", "  corvus:\n    enabled: false\n"));
+        Assert.True(target.Current("corvus")!.Disabled);
+        Assert.True(target.Enable("corvus").Changed);
+        Assert.False(target.Current("corvus")!.Disabled);
+
+        Assert.True(target.Uninstall("corvus").Changed);
+        Assert.Equal(original, File.ReadAllText(target.Path));
+    }
+
+    [Fact]
+    public void A_Hermes_file_without_servers_gets_the_mapping_and_a_flow_mapping_is_refused()
+    {
+        var target = new HermesYamlTarget(_home.Path("config.yaml"));
+        File.WriteAllText(target.Path, "model: hermes-4\n");
+        Assert.True(target.Install("corvus", SetupHome.Launch).Changed);
+        Assert.StartsWith("model: hermes-4\n\nmcp_servers:\n  corvus:\n    command: ", File.ReadAllText(target.Path));
+        Assert.True(target.Uninstall("corvus").Changed);
+        Assert.Equal("model: hermes-4\n", File.ReadAllText(target.Path));
+
+        File.WriteAllText(target.Path, "mcp_servers: {github: {command: npx}}\n");
+        var refused = target.Install("corvus", SetupHome.Launch);
+        Assert.False(refused.Changed);
+        Assert.Contains("not a block mapping", refused.Message);
+        Assert.Equal(SetupAction.Blocked, target.Preview("corvus", SetupHome.Launch).Action);
+    }
+
+    [Fact]
+    public void A_Hermes_entry_under_an_old_name_is_renamed_with_its_env()
+    {
+        var target = new HermesYamlTarget(_home.Path("config.yaml"));
+        File.WriteAllText(target.Path, "mcp_servers:\n  old:\n    command: \"x\"\n    args: [\"--keep\"]\n    env:\n      A: \"1\"\n");
+        Assert.True(target.Rename("old", "corvus", SetupHome.Launch).Changed);
+        Assert.Null(target.Current("old"));
+        var entry = target.Current("corvus")!;
+        Assert.Equal(SetupHome.Launch.Command, entry.Command);
+        Assert.Contains("--keep", entry.Args);
+        Assert.Equal("1", entry.Env["A"]);
+    }
+
+    [Fact]
+    public void A_DeepSeek_Harness_row_is_inserted_as_its_own_patch_and_removed_without_a_trace()
+    {
+        var target = new HarnessPatchTarget(_home.Path("cordis.patch.yml"));
+        const string original = "# home patch\n- insert:\n    - id: llm-x\n      config:\n        a: 1\n";
+        File.WriteAllText(target.Path, original);
+
+        Assert.True(target.Install("corvus", SetupHome.Launch).Changed);
+        var text = File.ReadAllText(target.Path);
+        Assert.StartsWith(original + "\n- insert:\n    - id: mcp-corvus\n      name: '@deepseek-ai/dsh-mcp-client'\n      config:\n        serverName: corvus\n        transport: stdio\n        command: ", text);
+        Assert.Equal(SetupHome.Launch.WithSwitches(SetupHome.Launch.Args), target.Current("corvus")!.Args);
+        Assert.False(target.Install("corvus", SetupHome.Launch).Changed);
+
+        File.WriteAllText(target.Path, text.Replace("      config:\n        serverName: corvus", "      disabled: true\n      config:\n        serverName: corvus"));
+        Assert.True(target.Current("corvus")!.Disabled);
+        Assert.True(target.Enable("corvus").Changed);
+        Assert.False(target.Current("corvus")!.Disabled);
+
+        Assert.True(target.Uninstall("corvus").Changed);
+        Assert.Equal(original, File.ReadAllText(target.Path));
+
+        File.WriteAllText(target.Path, "rows: []\n");
+        Assert.Contains("not a YAML sequence", target.Install("corvus", SetupHome.Launch).Message);
+    }
+
+    [Fact]
     public void OmpAndPi_FollowProfilesAndAgentFolders()
     {
         Assert.Equal(_home.Path(".omp", "profiles", "work", "agent", "mcp.json"), Client("omp", new() { ["OMP_PROFILE"] = "work" }).Target.Path);
@@ -279,7 +371,7 @@ public sealed class ClientCatalogTests : IDisposable
     {
         var env = _home.Env(os: HostOs.Windows);
         var all = ClientCatalog.All(env);
-        Assert.Equal(32, all.Count);
+        Assert.Equal(34, all.Count);
         var output = new StringWriter();
         Assert.Equal(0, SetupCli.TryRun(["install", "--no-check", "--client", string.Join(",", all.Select(c => c.Id))], output, env, SetupHome.Launch));
         foreach (var client in ClientCatalog.All(env))

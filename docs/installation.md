@@ -228,6 +228,8 @@ folder), the entry's shape, and the environment variables that move the file. `-
 | `factory-droid` | Factory Droid | JSON `mcpServers` | `~/.factory/mcp.json` | `~/.factory/mcp.json` | `~/.factory/mcp.json` |  | 9,500 tokens; no call limit; full |
 | `trae` | Trae | JSON `mcpServers` | `%APPDATA%/Trae/User/mcp.json` | `~/Library/Application Support/Trae/User/mcp.json` | `~/.config/Trae/User/mcp.json` | `XDG_CONFIG_HOME` | 9,500 tokens; no call limit; full |
 | `codebuddy` | CodeBuddy | JSON `mcpServers` | `~/.codebuddy/.mcp.json` | `~/.codebuddy/.mcp.json` | `~/.codebuddy/.mcp.json` |  | 9,500 tokens; no call limit; full |
+| `hermes` | Hermes | YAML `mcp_servers` | `%LOCALAPPDATA%/hermes/config.yaml` | `~/.hermes/config.yaml` | `~/.hermes/config.yaml` | `HERMES_DATA_DIR_SUFFIX`, `HERMES_HOME` | 9,500 tokens; no call limit; full |
+| `deepseek-harness` | DeepSeek Harness | YAML `insert` row | `~/.dsh/cordis.patch.yml` | `~/.dsh/cordis.patch.yml` | `~/.dsh/cordis.patch.yml` | `DSH_HOME` | 9,500 tokens; no call limit; full |
 <!-- clients:end -->
 
 ## The agent skill

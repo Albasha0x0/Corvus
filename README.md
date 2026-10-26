@@ -97,8 +97,8 @@ Each step in the showcases and [guides](docs/guides/1-first-session.md) is check
 
 Supported clients: Claude Code, Claude Desktop, Cursor, Windsurf, VS Code, VS Code Insiders, VSCodium, Cline, Roo Code,
 Kilo Code, Visual Studio, Codex, Gemini CLI, Qwen Code, GitHub Copilot CLI, OpenCode, Crush, Zed, LM Studio,
-Amazon Q, Kiro, Antigravity, Devin, Command Code, Grok Build, OMP, Pi, Kimi Code, Qoder, Factory Droid, Trae and
-CodeBuddy. Any other client: `corvus config`.
+Amazon Q, Kiro, Antigravity, Devin, Command Code, Grok Build, OMP, Pi, Kimi Code, Qoder, Factory Droid, Trae,
+CodeBuddy, Hermes and DeepSeek Harness. Any other client: `corvus config`.
 
 ## Documentation
 

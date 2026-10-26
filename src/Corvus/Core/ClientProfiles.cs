@@ -76,6 +76,8 @@ public static class ClientProfiles
         Plain("factory-droid", "Factory Droid", "factory-droid", "droid"),
         Plain("trae", "Trae", "trae"),
         Plain("codebuddy", "CodeBuddy", "codebuddy"),
+        Plain("hermes", "Hermes", "hermes"),
+        Plain("deepseek-harness", "DeepSeek Harness", "deepseek-harness", "dsh"),
     ];
 
     /// <summary>The profile of a client id (or the unknown row's id); null for anything else.</summary>

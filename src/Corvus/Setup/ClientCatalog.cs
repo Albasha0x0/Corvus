@@ -198,6 +198,15 @@ internal static class ClientCatalog
         Add("trae", "Trae", [], Json(Path.Combine(trae, "mcp.json"), Plain), Dir(trae));
         Add("codebuddy", "CodeBuddy", ["codebuddy-code"], Json(env.InHome(".codebuddy", ".mcp.json"), Stdio), Dir(env.InHome(".codebuddy")) || env.HasTool("codebuddy"));
 
+        // HERMES_HOME replaces Hermes' folder; its default takes HERMES_DATA_DIR_SUFFIX (hermes_constants.py).
+        var hermesSuffix = env.Set("HERMES_DATA_DIR_SUFFIX") ?? "";
+        var hermes = env.Set("HERMES_HOME") is { } hermesHome ? env.ExpandPath(hermesHome)
+            : env.Os == HostOs.Windows ? Path.Combine(env.LocalAppData, "hermes" + hermesSuffix) : env.InHome(".hermes" + hermesSuffix);
+        Add("hermes", "Hermes", ["hermes-agent"], new HermesYamlTarget(Path.Combine(hermes, "config.yaml")), Dir(hermes) || env.HasTool("hermes"));
+        // The home-level patch applies to every profile.
+        var dsh = env.Set("DSH_HOME") is { } dshHome ? env.ExpandPath(dshHome) : env.InHome(".dsh");
+        Add("deepseek-harness", "DeepSeek Harness", ["dsh"], new HarnessPatchTarget(Path.Combine(dsh, "cordis.patch.yml")), Dir(dsh) || env.HasTool("dsh"));
+
         return list;
     }
 

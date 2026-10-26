@@ -115,6 +115,8 @@ public class DocsTests
     {
         JsonTarget json => $"JSON `{string.Join(".", json.Container)}`",
         CodexTomlTarget => "TOML `[mcp_servers]`",
+        HermesYamlTarget => "YAML `mcp_servers`",
+        HarnessPatchTarget => "YAML `insert` row",
         _ => target.GetType().Name,
     };
 
