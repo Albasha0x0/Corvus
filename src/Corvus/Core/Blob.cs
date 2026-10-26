@@ -59,6 +59,9 @@ public static class Blob
         if (UnityWebData.Looks(b)) return "unitywebdata";
         if (GodotPack.Looks(b)) return "godotpck";
         if (JImage.JImageFile.Looks(b)) return "jimage";
+        if (Firmware.Esp32.Esp32Flash.Find(b) != null) return "esp32 flash";
+        if (Firmware.Esp32.Esp32PartitionTable.Is(b)) return "esp32 partition table";
+        if (Firmware.Esp32.Esp32Nvs.Looks(b)) return "esp32 nvs";
         if (Archives.QtResources.Looks(b)) return "qt resources";
         if (Flash.SwfFile.Looks(b)) return "flash swf";
         if (Registry.RegistryHive.Looks(b)) return "registry hive";

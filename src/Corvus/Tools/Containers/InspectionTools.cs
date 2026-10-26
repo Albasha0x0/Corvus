@@ -18,7 +18,7 @@ public sealed class InspectionTools(InspectionService inspection, AssemblyWorksp
     private const string PathParam = "A .NET assembly or container, a Unity build folder, package or zip, or a serialized file or bundle; pass this or assembly.";
 
     // The views that read each paging parameter; any other view refuses it.
-    private static readonly string[] TableViews = ["sqlite", "sqlite-recover", "lmdb", "ese", "berkeleydb", "realm", "evtx", "procmon", "registry", "pri"];
+    private static readonly string[] TableViews = ["sqlite", "sqlite-recover", "lmdb", "ese", "berkeleydb", "realm", "evtx", "procmon", "registry", "pri", "esp32"];
     private static readonly string[] ColumnViews = ["sqlite", "sqlite-recover"];
     private static readonly string[] LimitViews = [.. TableViews, "protobuf", "layers", "unity", "leveldb", "qlog", "certificate"];
     private static readonly string[] OffsetViews = [.. LimitViews, "script", "python", "xbf"];
@@ -33,19 +33,19 @@ public sealed class InspectionTools(InspectionService inspection, AssemblyWorksp
 
     [McpServerTool(Name = "summarize_file", Title = "Summarize file", UseStructuredContent = true, OutputSchemaType = typeof(FileSummaryRecord))]
     [Description("Read a file or assembly, not run: type, hashes, signature, containers, assemblies, highlights (toolchain, " +
-                 "capabilities, packagers), entry points. view= takes package, raw (headerless code), " +
+                 "capabilities, packagers), entry points. view=: package, raw (headerless code), " +
                  "script (layers), sqlite, unity (MonoBehaviour fields); views lists the rest.")]
     public Task<string> SummarizeFile(
-        [Description("File (assembly, executable, bundle, package, zip, .asar) or folder.")] string? path = null,
+        [Description("File (assembly, executable, package, archive) or folder.")] string? path = null,
         [Description(AssemblyParam)] string? assembly = null,
         [Description("A view the overview lists.")] string view = "overview",
-        [Description("Table; lmdb, berkeleydb: database; evtx: provider/id; procmon: process/PID/operation/result; registry: key; pri: name.")] string? table = null,
+        [Description("Table; lmdb, berkeleydb: database; evtx: provider/id; procmon: process/PID/operation/result; registry: key; pri: name; esp32: namespace.")] string? table = null,
         [Description("With table=: these columns, rowid too.")] string[]? columns = null,
-        [Description("unity: only assets of this script class.")] string? script = null,
+        [Description("unity: assets of this script class.")] string? script = null,
         [Description(ToolSupport.RowOffsetDescription)] long offset = 0,
         [Description(ToolSupport.LimitDescription)] int? limit = null,
         [Description("Write dependencies here, CycloneDX 1.6.")] string? sbomPath = null,
-        [Description("Write findings here as STIX 2.1.")] string? stixPath = null,
+        [Description("Write findings here, STIX 2.1.")] string? stixPath = null,
         [Description("Overwrite either file.")] bool overwrite = false,
         RequestContext<CallToolRequestParams> context = null!,
         CancellationToken cancellationToken = default) => OrderedProgress.Run(context, async progress =>
