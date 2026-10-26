@@ -20,7 +20,7 @@ public sealed class SourceMap
 
     private readonly string _mappings;
     private readonly List<Checkpoint> _checkpoints = [];
-    private readonly List<(int Line, int Column, SourceMap Map)>? _sections;
+    private readonly List<(int Line, int Column, SourceMap Map, int Sources, int Names)>? _sections;
 
     public IReadOnlyList<string> Sources { get; }
     public IReadOnlyList<string?> SourcesContent { get; }
@@ -64,7 +64,7 @@ public sealed class SourceMap
                     continue;
                 }
                 var child = new SourceMap(map);
-                _sections.Add((off.GetProperty("line").GetInt32(), off.GetProperty("column").GetInt32(), child));
+                _sections.Add((off.GetProperty("line").GetInt32(), off.GetProperty("column").GetInt32(), child, sources.Count, names.Count));
                 sources.AddRange(child.Sources);
                 content.AddRange(child.SourcesContent);
                 names.AddRange(child.Names);
@@ -192,7 +192,7 @@ public sealed class SourceMap
             var section = _sections.LastOrDefault(x => x.Line < line || (x.Line == line && x.Column <= column));
             if (section.Map == null) return null;
             int l = line - section.Line, c = l == 0 ? column - section.Column : column;
-            return section.Map.Find(l, c) is { } hit ? hit with { Line = line } : null;
+            return section.Map.Find(l, c) is { } hit ? Shift(hit, section.Line, section.Column, section.Sources, section.Names) : null;
         }
         // the last checkpoint before the target, then a forward decode
         int lo = 0, hi = _checkpoints.Count - 1, from = -1;
@@ -239,14 +239,19 @@ public sealed class SourceMap
             foreach (var seg in Decode(default)) yield return seg;
             yield break;
         }
-        int sources = 0;
-        foreach (var (line, column, map) in _sections)
-        {
+        foreach (var (line, column, map, sources, names) in _sections)
             foreach (var seg in map.All())
-                yield return seg with { Line = seg.Line + line, Column = seg.Line == 0 ? seg.Column + column : seg.Column, Source = seg.Source < 0 ? -1 : seg.Source + sources };
-            sources += map.Sources.Count;
-        }
+                yield return Shift(seg, line, column, sources, names);
     }
+
+    // A section's segment in this map's terms: its first line's columns, and its source and name indexes, offset.
+    private static MapSegment Shift(MapSegment seg, int line, int column, int sources, int names) => seg with
+    {
+        Line = seg.Line + line,
+        Column = seg.Line == 0 ? seg.Column + column : seg.Column,
+        Source = seg.Source < 0 ? -1 : seg.Source + sources,
+        Name = seg.Name < 0 ? -1 : seg.Name + names,
+    };
 
     /// <summary>The map a JavaScript file names: an inline data: URL, a URL relative to the file, or a sibling .map. Null when none.</summary>
     public static (SourceMap Map, string Location)? Locate(string file, byte[] text)
