@@ -123,6 +123,22 @@ corvus install
   names the command that updates it (`dotnet tool update -g CorvusRE`).
 - The package carries the MCP Registry entry (`.mcp/server.json`).
 
+## Container image
+
+Each release pushes a container image of the Linux build, `ghcr.io/albasha0x0/corvus:<version>` (and `latest`), for
+linux/amd64 and linux/arm64 ([Dockerfile](../Dockerfile)). It is built on Microsoft's chiseled .NET runtime-deps image,
+pinned by digest: no shell or package manager, and the server runs as the non-root user 1654. Run it as an MCP stdio
+server with a read-only root, temporary files on tmpfs and the inputs mounted read-only:
+
+```sh
+docker run -i --rm --read-only --tmpfs /tmp --network none -v "$PWD:/work:ro" ghcr.io/albasha0x0/corvus
+```
+
+- Paths are container paths: a file in the mounted folder is `/work/<name>`.
+- Caches and kept results go to `/data` (`CORVUS_DATA_DIR`), a volume; `-v corvus-data:/data` keeps them between runs.
+- Engines (IDA, Ghidra), Python and live sessions are not in the image; `corvus status` names each as not available.
+- `docker build -f Dockerfile out` packages a published Linux build (`out`) the same way.
+
 ## Registering with clients
 
 `corvus install [client...]` registers the program it is run from (an installed copy registers its stable `current`

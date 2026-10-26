@@ -404,6 +404,7 @@ describe.
 | `CORVUS_TEST_SCP` | The scp program, or a `.ps1` script standing in for it; OpenSSH's own when unset. | test-remote-setup.ps1, test-remote.psm1 |
 | `CORVUS_TEST_SSH` | The ssh program, or a `.ps1` script standing in for it; OpenSSH's own when unset. | test-remote-setup.ps1, test-remote.psm1 |
 | `CORVUS_WINDOWS_APP_SDK` | A Microsoft.WindowsAppSDK package version whose XAML compiler builds the test app. | XbfCompilerTests |
+| `CORVUS_CONTAINER_ENGINE` | docker (29.1 tested), which builds the image from a linux-x64 publish and runs the server in it with a read-only root: a tool call on a mounted file answers, and a result one container keeps in the data volume is read by the next. | ContainerImageTests |
 
 ### Variables the test scripts set
 

@@ -33,7 +33,9 @@ curl -fsSL https://raw.githubusercontent.com/Albasha0x0/Corvus/main/install.sh |
 The installer checks the download against the release's `SHA256SUMS` and, when `gh` is signed in, its signed build
 provenance (without `gh` it says "provenance not checked"), then registers Corvus with the MCP clients it finds. As a plugin (server and skill; needs the .NET 10 SDK): `/plugin install corvus --marketplace Albasha0x0/Corvus`
 in Claude Code, `codex plugin marketplace add Albasha0x0/Corvus` then `corvus` in `/plugins` in Codex
-([installation](docs/installation.md#claude-code-and-codex-plugins)). Restart your client and ask:
+([installation](docs/installation.md#claude-code-and-codex-plugins)). As a container with a read-only root:
+`docker run -i --rm --read-only --tmpfs /tmp -v "$PWD:/work:ro" ghcr.io/albasha0x0/corvus`
+([installation](docs/installation.md#container-image)). Restart your client and ask:
 
 > Load app.dll with Corvus and explain how it builds its export file. Cite the methods you read.
 

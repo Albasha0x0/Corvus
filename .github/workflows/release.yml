@@ -224,6 +224,34 @@ jobs:
             SHA256SUMS
           generate_release_notes: true
 
+  # The container image (Dockerfile) of the released linux-x64 and linux-arm64 archives, pushed to ghcr.io under the
+  # version and latest as one multi-platform tag. The Dockerfile has no RUN step, so neither platform needs emulation.
+  image:
+    needs: release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: package-linux-*
+          merge-multiple: true
+      - name: Build and push
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          image="ghcr.io/${GITHUB_REPOSITORY,,}"; version="${GITHUB_REF_NAME#v}"
+          echo "$GH_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+          docker buildx create --use --driver-opt image=moby/buildkit:v0.25.1@sha256:79cc6476ab1a3371c9afd8b44e7c55610057c43e18d9b39b68e2b0c2475cc1b6
+          for pair in x64:amd64 arm64:arm64; do
+            rid="${pair%%:*}"; arch="${pair#*:}"
+            mkdir "out-$arch" && tar -xzf "corvus-linux-$rid.tar.gz" -C "out-$arch"
+            docker buildx build --platform "linux/$arch" --provenance=false -t "$image:$version-$arch" --push -f Dockerfile "out-$arch"
+          done
+          docker buildx imagetools create -t "$image:$version" -t "$image:latest" "$image:$version-amd64" "$image:$version-arm64"
+
   # nuget.org by Trusted Publishing (policy corvus-release: this repository, this workflow, package CorvusRE), then the
   # MCP Registry by the workflow's GitHub identity. The package is the release asset, checked against SHA256SUMS.
   publish:
