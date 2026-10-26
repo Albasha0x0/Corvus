@@ -3017,7 +3017,7 @@ JavaScript bundles and their source maps.
 
 **Analyze a JavaScript bundle** (read-only, idempotent)
 
-Bundler, modules, source map of a JS file, statically. position: to original; diff: with source=; runtime: webpack chunks; flow: values through calls, returns, closures, promises to effects, origins: back, unknowns marked. Hermes, Ark too.
+Bundler, modules, source map of JS, statically. position: to original; diff: with source=; runtime: webpack chunks; flow: values to effects; origins: back; unknowns marked; beautify: layout, scope renames. Hermes, Ark too.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -3026,7 +3026,7 @@ Bundler, modules, source map of a JS file, statically. position: to original; di
 | `line` | integer |  |  | position, flow: 1-based generated line. |
 | `column` | integer |  |  | See line. |
 | `source` | string |  |  | source: path or index; diff: old bundle. |
-| `query` | string |  |  | Module id; search filter; function #id or name; flow: name, quoted literal, sinks, sink:KIND or module:ID. |
+| `query` | string |  |  | Module id; search filter; function #id or name; flow: name, quoted literal, sinks, sink:KIND, module:ID; beautify: a=b, a@line:col=b, auto. |
 | `limit` | integer |  |  | flow: max flows (50). |
 | `offset` | integer |  |  |  |
 | `maxTokens` | integer |  |  |  |

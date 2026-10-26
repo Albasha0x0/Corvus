@@ -23,15 +23,16 @@ public sealed partial class WebTools(OutputPager pager)
     }
 
     [McpServerTool(Name = "analyze_js", Title = "Analyze a JavaScript bundle", UseStructuredContent = true, OutputSchemaType = typeof(JsResult))]
-    [Description("Bundler, modules, source map of a JS file, statically. position: to original; diff: with source=; runtime: " +
-                 "webpack chunks; flow: values through calls, returns, closures, promises to effects, origins: back, unknowns marked. Hermes, Ark too.")]
+    [Description("Bundler, modules, source map of JS, statically. position: to original; diff: with source=; runtime: " +
+                 "webpack chunks; flow: values to effects; origins: back; unknowns marked; beautify: " +
+                 "layout, scope renames. Hermes, Ark too.")]
     public string AnalyzeJs(
         [Description("A .js, Hermes or Ark file, or a package.")] string path,
         [Description("View.")] string view = "summary",
         [Description("position, flow: 1-based generated line.")] int? line = null,
         [Description("See line.")] int? column = null,
         [Description("source: path or index; diff: old bundle.")] string? source = null,
-        [Description("Module id; search filter; function #id or name; flow: name, quoted literal, sinks, sink:KIND or module:ID.")] string? query = null,
+        [Description("Module id; search filter; function #id or name; flow: name, quoted literal, sinks, sink:KIND, module:ID; beautify: a=b, a@line:col=b, auto.")] string? query = null,
         [Description("flow: max flows (50).")] int? limit = null,
         [Description(ToolSupport.CharOffsetDescription)] int offset = 0,
         [Description(ToolSupport.MaxTokensDescription)] int? maxTokens = null)
@@ -174,8 +175,52 @@ public sealed partial class WebTools(OutputPager pager)
                                                               (s.Module != null ? $" [module {s.Module}]" : "")));
                 return ToolOutput.With(pager.Page(text, offset, maxTokens), new JsResult("secrets", Total: rows.Count) { Secrets = rows.Take(500).ToList() });
             }
+            case "beautify":
+            {
+                var text = System.Text.Encoding.UTF8.GetString(JsAnalysis.Read(path));
+                var words = (query ?? "").Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+                bool auto = words.Contains("auto", StringComparer.OrdinalIgnoreCase);
+                var requested = string.Join(",", words.Where(w => !w.Equals("auto", StringComparison.OrdinalIgnoreCase)));
+                JsBeautify.Result r;
+                try { r = JsBeautify.Format(text, requested.Length > 0 ? requested : null, auto, default); }
+                catch (InvalidDataException ex) { throw new ToolError(ErrorCode.MalformedInput, $"{Path.GetFileName(path)}: {ex.Message}"); }
+                var lines = JsBeautify.LineStarts(text);
+                // Lines end in \n alone: the pager counts offsets in that form.
+                var sb = new StringBuilder();
+                int originalLines = lines.Count - (text.EndsWith('\n') ? 1 : 0);
+                sb.Append($"// {Path.GetFileName(path)}: {originalLines:N0} lines -> {r.Origins.Count:N0}; {r.Renames.Count} binding(s) renamed\n");
+                foreach (var n in r.Renames)
+                {
+                    var (l, c) = JsBeautify.Position(lines, n.Declared);
+                    sb.Append($"//   {n.From} -> {n.To} ({l}:{c}, {n.Reason})\n");
+                }
+                foreach (var note in r.Notes.Take(50)) sb.Append("// " + note + "\n");
+                int header = sb.Length;
+                sb.Append(r.Text);
+                int start = offset;
+                if (line is int wanted && wanted > 0)
+                {
+                    // Start the page at the output line holding the original position.
+                    int target = lines[Math.Min(wanted, lines.Count) - 1] + Math.Max(0, (column ?? 1) - 1);
+                    start = header + Nth(r.Text, Math.Max(0, r.Origins.Count(o => o <= target) - 1));
+                }
+                return ToolOutput.With(pager.Page(sb.ToString(), start, maxTokens), new JsResult("beautify", Total: r.Origins.Count));
+            }
             default:
-                throw new ToolError(ErrorCode.InvalidArgument, $"unknown view '{view}'.", "pass view=summary, modules, module, search, refs, position, sources, source, endpoints, secrets, diff, runtime, flow or origins");
+                throw new ToolError(ErrorCode.InvalidArgument, $"unknown view '{view}'.", "pass view=summary, modules, module, search, refs, position, sources, source, endpoints, secrets, diff, runtime, flow, origins or beautify");
         }
+    }
+
+    // The character offset of line n (0-based) of s.
+    private static int Nth(string s, int n)
+    {
+        int at = 0;
+        for (int i = 0; i < n; i++)
+        {
+            int nl = s.IndexOf('\n', at);
+            if (nl < 0) return s.Length;
+            at = nl + 1;
+        }
+        return at;
     }
 }

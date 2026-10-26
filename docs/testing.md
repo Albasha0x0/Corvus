@@ -308,6 +308,7 @@ describe.
 | `CORVUS_IL2CPP_STRINGS_DIR` | A folder of dummy assemblies with stringliteral.json and script.json (and optionally GameAssembly.dll) beside it. | DumpRealDataTests, Il2CppNavigationTests, Il2CppStringTests |
 | `CORVUS_INSTALLERS` | A folder of installers (NSIS, Inno Setup, MSI, WiX Burn) compared by file name and size with the reference listers. | InstallerComparisonTests |
 | `CORVUS_JAVA_JARS` | A folder of jars (searched three levels deep) disassembled and compared with javap. | JvmClassTests |
+| `CORVUS_JS_FILES` | A folder searched for `.js`, `.mjs` and `.cjs` files: each is laid out by analyze_js view=beautify with its tokens unchanged, and renamed with names from evidence to the same bindings with the same site counts. | JsBeautifyTests |
 | `CORVUS_LARGE_NATIVE_IMAGE` | A native image of 100 MB or more, for speed measurements. | SimilarFunctionsRealTests |
 | `CORVUS_LEVELDB_DIRS` | A folder searched for LevelDB databases (folders holding CURRENT) compared with libleveldb through `CORVUS_FS_REFERENCE` and `CORVUS_LEVELDB_DUMP`; keys and values hold no backslash bytes, which leveldbutil does not escape. | LevelDbTests |
 | `CORVUS_LEVELDB_DUMP` | leveldbutil built from leveldb 1.23 with Snappy, run through `CORVUS_FS_REFERENCE` with reference.py (python3 and plyvel): every record of each table and log file. | LevelDbTests |
@@ -320,6 +321,7 @@ describe.
 | `CORVUS_LUA_TOOLS` | A folder of Lua and LuaJIT builds (`lua-<version>/src/luac` for 5.1.5, 5.2.4, 5.3.6 and 5.4.7; `luajit-2.0/src`, `luajit-2.1/src`): each chunk's functions, instructions and constants are compared with `luac -l -l` and `luajit -bl` of its version; the same builds rebuild the Lua fixtures. | LuaBytecodeTests, tests/Corvus.Tests/Containers/LuaFixtures/build.ps1 |
 | `CORVUS_MOBILE_APPS` | A folder of app packages (.apk, .ipa), searched two levels deep. | AppGraphTests, MobileRulesTests |
 | `CORVUS_MSI_LISTER` | The lessmsi command line the MSI listings are compared with. | InstallerComparisonTests |
+| `CORVUS_NODE` | node (22.17.0), which runs the beautify fixture, its terser output and that output beautified and renamed; all three print the same lines. | JsBeautifyTests |
 | `CORVUS_NATIVEAOT_SAMPLES` | `1` builds the NativeAOT sample for several frameworks and options and checks the recovered names against its PDB (Windows, with the C++ build tools). | LiveCompiledNamesRealTests, NativeAotSampleTests |
 | `CORVUS_NATIVE_ADAPTER_SAMPLE` | Images per folder the adapter consistency test reads (default 60; 0 for all). | NativeAdapterConsistencyTests |
 | `CORVUS_NATIVE_LARGE_IMAGE` | One large image whose code index is measured for time, memory and completeness. | NativeCodeSweepTests |
@@ -478,6 +480,10 @@ missing.
   request bodies) must export exactly the files `tshark --export-objects http` exports, by SHA-256. With
   `CORVUS_CAPTURES` (key logs beside them as `<name>*.keys`), every object TShark exports must be among ours; TShark's
   `object<frame>` files from frames that start no HTTP message are counted apart.
+- **JavaScript layout and renaming** (`JsBeautifyTests`, `CORVUS_NODE`, `CORVUS_JS_FILES`): `Web/BeautifyFixtures/program.js`
+  (block scopes, hoisting, destructuring, classes with private fields, labels, ASI, a direct eval) minified by terser
+  5.39.0 (`build.js`); node prints the same lines for the original, the terser output and that output beautified with
+  names from evidence. Every script under `CORVUS_JS_FILES` keeps its token sequence and its bindings' site counts.
 - **HTTP/3 field sections against Wireshark** (`Http3Tests`, `CORVUS_TSHARK`, TShark 4.6.9): an aioquic 1.2.0 capture
   (`Containers/Http3Fixtures/build.py`: five requests, a key update, AES-256-GCM) decrypted with its key log; every
   HTTP/3 field section, its stream and field lines in order, must equal what TShark decodes.
