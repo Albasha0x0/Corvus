@@ -85,8 +85,12 @@ public sealed class WorkerConnection : IDisposable
         _remediation = remediation;
         _options = options;
         _lastLineTicks = options.Time.GetTimestamp();
-        new Thread(ReadStdout) { IsBackground = true, Name = name + " stdout" }.Start();
-        new Thread(ReadStderr) { IsBackground = true, Name = name + " stderr" }.Start();
+        // The readers are made here, before a Dispose can close the pipes: made on their own threads, a reader that
+        // started after a Dispose threw on the closed stream and ended the whole process.
+        var stdout = new StreamReader(_process.StandardOutput, new UTF8Encoding(false), false, 4096, leaveOpen: true);
+        var stderr = new StreamReader(_process.StandardError, new UTF8Encoding(false), false, 4096, leaveOpen: true);
+        new Thread(() => ReadStdout(stdout)) { IsBackground = true, Name = name + " stdout" }.Start();
+        new Thread(() => ReadStderr(stderr)) { IsBackground = true, Name = name + " stderr" }.Start();
         new Thread(WriteStdin) { IsBackground = true, Name = name + " stdin" }.Start();
         // Responses and the exit message written just before exit are still in
         // the pipes: closed means their EOF, or exit plus a short grace for the
@@ -470,11 +474,11 @@ public sealed class WorkerConnection : IDisposable
 
     private static string Seconds(TimeSpan t) => t.TotalSeconds < 120 ? $"{t.TotalSeconds:0.#} s" : $"{t.TotalMinutes:0.#} min";
 
-    private void ReadStdout()
+    private void ReadStdout(StreamReader reader)
     {
         try
         {
-            using var reader = new StreamReader(_process.StandardOutput, new UTF8Encoding(false), false, 4096, leaveOpen: true);
+            using var _ = reader;
             while (reader.ReadLine() is { } line)
             {
                 Volatile.Write(ref _lastLineTicks, _options.Time.GetTimestamp());
@@ -510,11 +514,11 @@ public sealed class WorkerConnection : IDisposable
         OnClosed();
     }
 
-    private void ReadStderr()
+    private void ReadStderr(StreamReader reader)
     {
         try
         {
-            using var reader = new StreamReader(_process.StandardError, new UTF8Encoding(false), false, 4096, leaveOpen: true);
+            using var _ = reader;
             var buffer = new char[4096];
             int n;
             var line = new StringBuilder();

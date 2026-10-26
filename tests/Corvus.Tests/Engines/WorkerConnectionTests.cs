@@ -378,4 +378,43 @@ public class WorkerConnectionTests
             Assert.DoesNotContain("keeps running", next); // the worker may have been stopped
         }
     }
+
+    // Regression: two push runs on 2026-10-26 ended with an unhandled "Stream was not readable" thrown on a stderr
+    // reader thread that made its StreamReader after the connection was disposed.
+    [Fact]
+    public void A_connection_disposed_before_its_reader_threads_run_ends_without_an_unhandled_error()
+    {
+        using var fake = new FakeWorkerProcess();
+        var late = new LatePipes(fake);
+        var connection = WorkerConnection.Attach(late, "test worker");
+        connection.Dispose();
+        late.Disposed.Set();
+        // A reader that still opened its pipe now would throw on the closed stream and end the test host.
+        Thread.Sleep(500);
+        Assert.Equal(0, late.OpenedAfterDispose);
+    }
+
+    // Hands out the pipes only after the connection was disposed (bounded), as a reader thread scheduled late sees them.
+    private sealed class LatePipes(FakeWorkerProcess inner) : ChildProcess
+    {
+        public readonly ManualResetEventSlim Disposed = new();
+        public int OpenedAfterDispose;
+
+        private Stream Late(Stream s)
+        {
+            if (Disposed.Wait(200)) Interlocked.Increment(ref OpenedAfterDispose);
+            return s;
+        }
+
+        public override int Id => inner.Id;
+        public override Stream StandardInput => inner.StandardInput;
+        public override Stream StandardOutput => Late(inner.StandardOutput);
+        public override Stream StandardError => Late(inner.StandardError);
+        public override bool HasExited => inner.HasExited;
+        public override int? ExitCode => inner.ExitCode;
+        public override Task Exited => inner.Exited;
+        public override IReadOnlyList<int> TreeProcessIds() => inner.TreeProcessIds();
+        public override void Kill() => inner.Kill();
+        public override void Dispose() => inner.Dispose();
+    }
 }
