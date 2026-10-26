@@ -244,7 +244,7 @@
       "type": "string"
     },
     "items": {
-      "description": "List views: module, region, thread or frame rows.",
+      "description": "List views: module, region, thread, frame or element rows.",
       "type": "array"
     },
     "offset": {

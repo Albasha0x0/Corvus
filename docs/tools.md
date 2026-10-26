@@ -2823,12 +2823,12 @@ Running programs: read-only inspection, and sessions with stop points, call reco
 
 **Inspect a running process (read-only)** (read-only, idempotent, open-world)
 
-Inspects a running Windows process read-only, naming addresses as dumps do. view=summary: identity, counts, main module, largest committed regions; modules (PDB, file on disk), regions, threads (TEB, stack, start), stacks (registers and frames): paged rows. Query, VM-read and get-context access only; nothing is written, suspended or connected.
+Inspects a running Windows process read-only, naming addresses as dumps do. summary: identity, counts, main module, largest regions; modules, regions, threads, stacks (registers, frames), windows (UI tree, class procedures): paged rows. Query and read access only; nothing is written or suspended.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `process` | string | yes |  | Process id (decimal or 0x hex), name (notepad[.exe]; a shared name is refused with the ids) or session id (live-1). |
-| `view` | string |  | `summary` | summary, modules, regions, threads or stacks. |
+| `view` | string |  | `summary` | summary, modules, regions, threads, stacks or windows. |
 | `thread` | string |  |  | threads: only this one; stacks: the thread walked (default first). Id or name. |
 | `offset` | integer |  |  |  |
 | `limit` | integer |  | `50` |  |
@@ -2837,6 +2837,7 @@ Inspects a running Windows process read-only, naming addresses as dumps do. view
 | `imageDirectories` | string |  |  | Program binary folders (';'-separated), for modules whose file is unreadable. |
 | `timeoutSeconds` | integer |  | `20` | Time limit in seconds (up to 120). |
 | `maxTokens` | integer |  |  |  |
+| `imagePath` | string |  |  | windows: PNG of the first window. |
 
 Structured output: `processId`, `name`, `view`, `path`, `architecture`, `wow64`, `runtime`, `access`, `detached`, `handlesOpened`, `handlesClosed`, `stillRunning`, `notes`, `startTimeUtc`, `counts`, `mainModule`, `largestRegions`, `thread`, `stackStop`, `items`, `offset`, `total`, `limit`, `totalExact`, `hasMore`, `nextOffset`.
 

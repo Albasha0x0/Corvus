@@ -132,6 +132,12 @@ internal static class DumpText
         (t.StartAddress != null ? $", start {t.StartSymbol ?? t.StartAddress}" : "") + (t.SuspendCount > 0 ? $", suspended {t.SuspendCount}" : "") + $", priority {t.Priority})" +
         (t.Registers != null ? $"\nregisters: {t.Registers}" : "") + (t.Error != null && t.Location != null ? $"\nerror: {t.Error}" : "");
 
+    public static string UiElement(LiveProcessService.UiRow e) =>
+        $"{new string(' ', 2 * Math.Min(e.Depth, 16))}{e.ControlType}{(e.Name != null ? $" \"{e.Name}\"" : "")}" + (e.AutomationId != null ? $" id={e.AutomationId}" : "") +
+        (e.ClassName != null ? $" class={e.ClassName}" : "") + (e.Framework != null ? $" ({e.Framework})" : "") + $" [{e.Bounds}]" + (e.Enabled ? "" : " disabled") + (e.Offscreen ? " offscreen" : "") +
+        (e.Window != null ? $" hwnd={e.Window}" : "") + (e.ControlId is { } c ? $" control={c}" : "") +
+        (e.ClassProcedure != null ? $" proc={e.ClassProcedureSymbol ?? e.ClassProcedure}" : "") + (e.Notifies != null ? $" notifies {e.Notifies}" : "");
+
     public static string Memory(MinidumpService.MemoryRow m) =>
         $"{m.Base}-{m.End} {m.Size}" + (m.State != null ? $" {m.State}" : "") + (m.Protection != null ? $" {m.Protection}" : "") + (m.Type != null ? $" {m.Type}" : "") +
         (m.Module != null ? $" {m.Module}" : "") + (m.Captured is { } cap && m.State != "free" ? $" captured {cap:N0}" : "");

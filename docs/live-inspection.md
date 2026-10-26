@@ -4,7 +4,7 @@ Two ways to look at a running program:
 
 | | `inspect_process` | Session tools (`live_*`) |
 |---|---|---|
-| What it does | One read-only look: modules, memory regions, threads, call stacks | Start or attach to a program, set stop points, record calls, collect coverage and traces |
+| What it does | One read-only look: modules, memory regions, threads, call stacks, UI elements | Start or attach to a program, set stop points, record calls, collect coverage and traces |
 | Writes the program's memory | No | Yes: stop points, watches and coverage patch code in memory (see [Sessions](#sessions)) |
 | Opt-in | None; registered by default | Registered by default, refused until the server starts with an opt-in switch |
 | Platforms | Windows (elsewhere `provider_unavailable`) | Windows, Linux, macOS; `live_timeline` and `live_console` Windows only |
@@ -61,6 +61,24 @@ Tested by `LiveProcessTests.Inspecting_a_child_leaves_it_unchanged_and_running` 
 owns (findstr waiting on input) is inspected with stacks; the SHA-256 of every writable committed region of its image
 (which also catches a protection change: regions would merge or split) and its threads' suspend counts (kernel value
 and scheduler wait reason) match before and after, and the child then takes more input and exits normally.
+
+## Windows and their handlers
+
+`inspect_process view=windows` lists the UI Automation control view of the program's visible top-level windows, depth
+first: control type, name, automation id, class name, framework, bounds and window handle. An element with a window
+handle names its class window procedure (`GetClassLongPtr(GCLP_WNDPROC)`) as dumps name addresses; a child control
+also names its control id and the parent class procedure that receives its notifications (`WM_COMMAND`, `WM_NOTIFY`).
+`imagePath` saves a PNG of the first window as the program draws it (`PrintWindow`, `PW_RENDERFULLCONTENT`).
+
+- The program's UI threads answer each UI Automation query (`WM_GETOBJECT`) and draw the image (`WM_PRINT`); no other
+  handle or right is added. Queries time out after 2 s to connect and 5 s per call, so a hung program is bounded.
+- Another process cannot read a window's own procedure (`GWLP_WNDPROC`) or a dialog procedure (`DWLP_DLGPROC`):
+  Windows returns 0. A subclassed window's or a dialog's own handler is reported as unknown.
+- At most 2,000 elements and 16 levels; the result names the cut.
+
+Tested by `LiveWindowsTests` on a window program the test builds: the elements equal a C walk of the same control view
+(CUIAutomation8 through the SDK headers), the window's class procedure and its button's notifications name `MainProc`
+from the PDB, and the image has the window's size.
 
 ## Why not DbgEng
 

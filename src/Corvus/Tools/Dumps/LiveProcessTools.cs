@@ -11,12 +11,12 @@ namespace Corvus.Tools;
 public sealed class LiveProcessTools(LiveProcessService live, LiveSessionService sessions)
 {
     [McpServerTool(Name = "inspect_process", Title = "Inspect a running process (read-only)", UseStructuredContent = true, OutputSchemaType = typeof(LiveProcessService.LiveReport))]
-    [Description("Inspects a running Windows process read-only, naming addresses as dumps do. view=summary: identity, " +
-                 "counts, main module, largest committed regions; modules (PDB, file on disk), regions, threads (TEB, stack, start), stacks " +
-                 "(registers and frames): paged rows. Query, VM-read and get-context access only; nothing is written, suspended or connected.")]
+    [Description("Inspects a running Windows process read-only, naming addresses as dumps do. summary: identity, counts, main module, " +
+                 "largest regions; modules, regions, threads, stacks (registers, frames), windows (UI tree, class procedures): paged rows. " +
+                 "Query and read access only; nothing is written or suspended.")]
     public Task<string> InspectProcess(
         [Description("Process id (decimal or 0x hex), name (notepad[.exe]; a shared name is refused with the ids) or session id (live-1).")] string process,
-        [Description("summary, modules, regions, threads or stacks.")] string view = "summary",
+        [Description("summary, modules, regions, threads, stacks or windows.")] string view = "summary",
         [Description("threads: only this one; stacks: the thread walked (default first). Id or name.")] string? thread = null,
         [Description(ToolSupport.RowOffsetDescription)] int offset = 0,
         [Description(ToolSupport.LimitDescription)] int limit = LiveProcessService.DefaultLimit,
@@ -25,11 +25,12 @@ public sealed class LiveProcessTools(LiveProcessService live, LiveSessionService
         [Description("Program binary folders (';'-separated), for modules whose file is unreadable.")] string? imageDirectories = null,
         [Description("Time limit in seconds (up to 120).")] int timeoutSeconds = LiveProcessService.DefaultTimeoutSeconds,
         [Description(ToolSupport.MaxTokensDescription)] int? maxTokens = null,
+        [Description("windows: PNG of the first window.")] string? imagePath = null,
         CancellationToken cancellationToken = default) => Task.Run(async () =>
     {
         if (LiveSessionService.IsSessionId(process))
             process = sessions.Running(process).ProcessId.ToString(System.Globalization.CultureInfo.InvariantCulture);
-        var r = await live.Inspect(process, view, thread, offset, limit, regionFilter, maxFrames, imageDirectories, timeoutSeconds, cancellationToken);
+        var r = await live.Inspect(process, view, thread, offset, limit, regionFilter, maxFrames, imageDirectories, timeoutSeconds, cancellationToken, imagePath);
         var header = DumpText.LiveHeader(r);
         return r.View switch
         {
@@ -37,6 +38,7 @@ public sealed class LiveProcessTools(LiveProcessService live, LiveSessionService
             "modules" => Rows(r, header, o => DumpText.Module((MinidumpService.ModuleSummary)o), "module", limit),
             "regions" => Rows(r, header, o => DumpText.Memory((MinidumpService.MemoryRow)o), "region", limit),
             "threads" => Rows(r, header, o => DumpText.LiveThread((LiveProcessService.ThreadRow)o), "thread", limit),
+            "windows" => Rows(r, header, o => DumpText.UiElement((LiveProcessService.UiRow)o), "element", limit),
             _ => Rows(r, header + (r.Thread is { } t ? "thread: " + DumpText.LiveThread(t) + "\n" : "") + (r.StackStop != null ? $"walk ended: {r.StackStop}\n" : ""),
                 o => DumpText.Frame((MinidumpService.StackFrame)o), "frame", limit),
         };

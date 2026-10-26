@@ -21,7 +21,7 @@ public sealed class LiveProcessService(MinidumpService dumps)
     private const int MaxCandidates = 20;
 
     /// <summary>inspect_process views: the summary report, then the paged lists (stacks: the frames of one thread).</summary>
-    public static readonly string[] Views = ["summary", "modules", "regions", "threads", "stacks"];
+    public static readonly string[] Views = ["summary", "modules", "regions", "threads", "stacks", "windows"];
     private static readonly string[] RegionFilters = ["committed", "all", "executable", "writable", "image", "private", "mapped"];
     private const int LargestRegions = 10;
 
@@ -35,6 +35,19 @@ public sealed class LiveProcessService(MinidumpService dumps)
         [property: Description("module!function+0xoffset of the instruction pointer.")] string? Location,
         string? Registers,
         [property: Description("What could not be read for this thread (exited, registers not read), or null.")] string? Error);
+
+    /// <summary>
+    /// One UI Automation element of view=windows, depth first under its top-level window; an element with a window
+    /// handle adds its class procedure and, for a child control, the parent procedure it notifies.
+    /// </summary>
+    public sealed record UiRow(int Depth, string ControlType, string? Name, string? AutomationId, string? ClassName, string? Framework,
+        string? Window, [property: Description("x,y width x height, in screen pixels.")] string Bounds, bool Enabled, bool Offscreen)
+    {
+        [Description("The window class's procedure (GCLP_WNDPROC).")] public string? ClassProcedure { get; init; }
+        [Description("module!function of the class procedure.")] public string? ClassProcedureSymbol { get; init; }
+        public int? ControlId { get; init; }
+        [Description("A child control's notifications (WM_COMMAND, WM_NOTIFY) go to this parent class procedure, module!function.")] public string? Notifies { get; init; }
+    }
 
     public sealed record LiveCounts(int Modules, int Threads,
         [property: Description("Committed regions.")] int Regions,
@@ -62,13 +75,13 @@ public sealed class LiveProcessService(MinidumpService dumps)
         [Description("The largest committed regions.")] public IReadOnlyList<MinidumpService.MemoryRow>? LargestRegions { get; init; }
         [Description("view=stacks: the thread walked.")] public ThreadRow? Thread { get; init; }
         [Description("view=stacks: why the walk ended (end_of_stack, max_frames, left_the_stack, ...).")] public string? StackStop { get; init; }
-        [Description("List views: module, region, thread or frame rows.")] public IReadOnlyList<object>? Items { get; init; }
+        [Description("List views: module, region, thread, frame or element rows.")] public IReadOnlyList<object>? Items { get; init; }
         public int? Offset { get; init; }
         public int? Total { get; init; }
     }
 
     public async Task<LiveReport> Inspect(string process, string? view, string? thread, int offset, int limit, string? regionFilter, int maxFrames,
-        string? imageDirectories, int timeoutSeconds, CancellationToken ct)
+        string? imageDirectories, int timeoutSeconds, CancellationToken ct, string? imagePath = null)
     {
         // arguments first: a bad call is answered alike on every platform
         var v = (view ?? "summary").Trim().ToLowerInvariant();
@@ -76,6 +89,7 @@ public sealed class LiveProcessService(MinidumpService dumps)
         string filter = (regionFilter ?? "committed").Trim().ToLowerInvariant();
         if (!RegionFilters.Contains(filter))
             throw new ToolError(ErrorCode.InvalidArgument, $"regionFilter '{regionFilter}' is not one of {string.Join(", ", RegionFilters)}.");
+        if (imagePath != null && v != "windows") throw new ToolError(ErrorCode.InvalidArgument, "imagePath goes with view=windows.");
         if (timeoutSeconds < 1 || timeoutSeconds > MaxTimeoutSeconds)
             throw new ToolError(ErrorCode.InvalidArgument, $"timeoutSeconds must be 1-{MaxTimeoutSeconds}.");
         if (!OperatingSystem.IsWindows())
@@ -87,7 +101,7 @@ public sealed class LiveProcessService(MinidumpService dumps)
         try
         {
             return await Task.Run(() => Run(pid, name, v, thread, Math.Max(0, offset), Math.Clamp(limit, 1, MaxListLimit), filter, Math.Clamp(maxFrames, 1, MaxFrames),
-                imageDirectories, timeout.Token), timeout.Token);
+                imageDirectories, timeout.Token, imagePath), timeout.Token);
         }
         catch (OperationCanceledException) when (!ct.IsCancellationRequested)
         {
@@ -97,7 +111,7 @@ public sealed class LiveProcessService(MinidumpService dumps)
     }
 
     private async Task<LiveReport> Run(int pid, string name, string view, string? threadFilter, int offset, int limit, string filter, int maxFrames,
-        string? imageDirectories, CancellationToken ct)
+        string? imageDirectories, CancellationToken ct, string? imagePath)
     {
         var clock = Stopwatch.StartNew();
         var notes = new List<string>();
@@ -112,7 +126,7 @@ public sealed class LiveProcessService(MinidumpService dumps)
             if (live.ModulesNote != null) notes.Add(live.ModulesNote);
             MinidumpService.HostsClr(live, out var runtime);
             if (runtime == null && live.Modules.Any(m => m.FileName.Equals("GameAssembly.dll", StringComparison.OrdinalIgnoreCase))) runtime = "Il2Cpp (Unity)";
-            report = new LiveReport(pid, name, view, live.ImagePath, MinidumpService.ArchName(live.Arch, 0xFFFF), live.Wow64, runtime, AccessList(),
+            report = new LiveReport(pid, name, view, live.ImagePath, MinidumpService.ArchName(live.Arch, 0xFFFF), live.Wow64, runtime, AccessList(view == "windows"),
                 false, 0, 0, false, 0, notes) { StartTimeUtc = view == "summary" ? live.StartTimeUtc?.ToString("u") : null };
             switch (view)
             {
@@ -158,6 +172,9 @@ public sealed class LiveProcessService(MinidumpService dumps)
                     if (!live.CanReadContexts) notes.Add($"registers of a {live.Arch} process are not read by this server ({System.Runtime.InteropServices.RuntimeInformation.ProcessArchitecture}).");
                     break;
                 }
+                case "windows":
+                    report = await Windows(report, session, pid, offset, limit, imagePath, notes, ct);
+                    break;
                 default: // stacks: the frames of one thread
                 {
                     var entries = live.Threads(ct);
@@ -286,13 +303,61 @@ public sealed class LiveProcessService(MinidumpService dumps)
         throw new ToolError(ErrorCode.NotFound, $"process {live.Pid} has no thread '{t}'.", "pass a thread id (decimal or 0x hex) or a thread name");
     }
 
-    internal static IReadOnlyList<string> AccessList() =>
+    internal static IReadOnlyList<string> AccessList(bool windows = false) =>
     [
+        .. windows ? (string[])["view=windows: UI Automation queries and PrintWindow (WM_PRINT), answered by the program's UI threads; window class data (GetClassLongPtr)"] : [],
         $"process: OpenProcess PROCESS_QUERY_INFORMATION | PROCESS_VM_READ (0x{LiveProcess.ProcessAccess:X})",
         $"each listed thread, one at a time: OpenThread THREAD_GET_CONTEXT | THREAD_QUERY_INFORMATION (0x{LiveProcess.ThreadAccess:X})",
         "thread list: system snapshot (CreateToolhelp32Snapshot TH32CS_SNAPTHREAD), no handle to the process",
         "never: memory writes, protection changes, breakpoints, debugger attach, thread suspend/resume/creation, adding code to the process",
     ];
+
+    // The UI Automation tree of the process's visible top-level windows, each window handle joined to its class procedure.
+    private async Task<LiveReport> Windows(LiveReport report, MinidumpService.Session session, int pid, int offset, int limit, string? imagePath, List<string> notes, CancellationToken ct)
+    {
+        var windows = UiAutomation.TopLevelWindows(pid);
+        if (windows.Count == 0) notes.Add($"process {pid} has no visible top-level window.");
+        var elements = UiAutomation.Read(windows, ct, out var truncated);
+        if (truncated) notes.Add($"the tree was cut at {UiAutomation.MaxElements} elements or {UiAutomation.MaxDepth} levels.");
+        notes.Add("Procedures are class procedures: Windows does not let another process read a window's own procedure (GWLP_WNDPROC) or a dialog's (DWLP_DLGPROC), so a subclassed window's or a dialog's own handler is unknown.");
+        var symbols = new Dictionary<ulong, string?>();
+        async Task<string?> Symbol(ulong address)
+        {
+            if (address == 0) return null;
+            if (!symbols.TryGetValue(address, out var s)) symbols[address] = s = (await dumps.Locate(session, address, false, ct)).Symbol;
+            return s;
+        }
+        var rows = new List<object>();
+        foreach (var e in elements.Skip(offset).Take(limit))
+        {
+            var row = new UiRow(e.Depth, e.ControlType, e.Name, e.AutomationId, e.ClassName, e.Framework, e.Window == 0 ? null : $"0x{e.Window:X}",
+                $"{e.X},{e.Y} {e.Width}x{e.Height}", e.Enabled, e.Offscreen);
+            if (e.Window != 0)
+            {
+                var (procedure, id, parent) = UiAutomation.WindowClass(new IntPtr(unchecked((long)e.Window)));
+                string? notifies = null;
+                if (parent != IntPtr.Zero && UiAutomation.WindowClass(parent).ClassProcedure is var p && p != 0) notifies = await Symbol(p) ?? $"0x{p:X}";
+                row = row with
+                {
+                    ClassProcedure = procedure == 0 ? null : $"0x{procedure:X}", ClassProcedureSymbol = await Symbol(procedure),
+                    ControlId = parent != IntPtr.Zero ? id : null, Notifies = notifies,
+                };
+            }
+            rows.Add(row);
+        }
+        report = report with { Items = rows, Offset = offset, Total = elements.Count };
+        if (imagePath == null || windows.Count == 0) return report;
+        var image = UiAutomation.Image(windows[0]);
+        if (image == null)
+        {
+            notes.Add("the first window did not draw into an image (PrintWindow failed).");
+            return report;
+        }
+        var path = Path.GetFullPath(imagePath);
+        await File.WriteAllBytesAsync(path, image.Value.Png, ct);
+        notes.Add($"image of window 0x{windows[0]:X} saved: {path} ({image.Value.Width}x{image.Value.Height}, {image.Value.Png.Length:N0} bytes)");
+        return report;
+    }
 
     private static bool Matches(DumpMemoryRegion r, string filter) => filter switch
     {
