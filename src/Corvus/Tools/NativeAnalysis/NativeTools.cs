@@ -382,7 +382,7 @@ public sealed partial class NativeTools(AssemblyWorkspace workspace, OutputPager
         [Description(ImageDescription)] string image,
         [Description(AddressDescription)] string? address = null,
         [Description("Instead of address: up to 100 addresses.")] string[]? addresses = null,
-        CancellationToken cancellationToken = default) => OnImage(image, native =>
+        CancellationToken cancellationToken = default) => AfterNames(image, addresses ?? (string?[])[address], cancellationToken, () => OnImage(image, native =>
     {
         if ((addresses is { Length: > 0 }) == !string.IsNullOrWhiteSpace(address))
             throw new ToolError(ErrorCode.InvalidArgument, "Pass address or addresses (one of them).", "address=<one>, or addresses=[...] for several");
@@ -408,7 +408,19 @@ public sealed partial class NativeTools(AssemblyWorkspace workspace, OutputPager
         {
             Results = batch.Items, Failed = batch.Failed,
         });
-    }, cancellationToken);
+    }, cancellationToken));
+
+    /// <summary>
+    /// Runs <paramref name="work"/> after building the code index of <paramref name="image"/> when one of <paramref name="texts"/>
+    /// is a name, so a name the index holds is not reported unknown while the build runs; the build runs outside the workspace lock.
+    /// </summary>
+    private async Task<string> AfterNames(string image, string?[] texts, CancellationToken ct, Func<Task<string>> work)
+    {
+        if (code != null && texts.Any(t => !string.IsNullOrWhiteSpace(t) && NativeAddress.IsName(t))
+            && workspace.GetNative(Targets.Native(workspace, image).Id) is var native && code.Ready(native) == null)
+            await code.Index(native, null, ct);
+        return await work();
+    }
 
     /// <summary>resolve_address for one address.</summary>
     private (string Text, AddressInfo Info) Resolve(LoadedNative native, string address, CancellationToken cancellationToken)

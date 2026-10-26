@@ -209,6 +209,15 @@ public sealed class NativeTypeInfoTests : IDisposable
         Assert.Equal(["g_Team at 0x140003010"], type.Globals);
     }
 
+    // Regression: resolve_address read names only from a finished code index, so a PDB global was unknown while the
+    // build ran (quick set, Typed_address_inside_a_global_gives_the_field_path).
+    [Fact]
+    public async Task A_pdb_name_resolves_before_the_code_index_is_built()
+    {
+        var resolve = new NativeTools(_env.Workspace, _env.Pager, _code);
+        Assert.Contains("typed data: g_Team = g_Team.count (int)", await resolve.ResolveAddress(_image, "g_Team"));
+    }
+
     [Fact]
     public async Task Typed_address_inside_a_global_gives_the_field_path()
     {

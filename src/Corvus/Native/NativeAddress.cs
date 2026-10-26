@@ -167,6 +167,15 @@ public static class NativeAddress
         value >= image.ImageBase && value - image.ImageBase < image.SizeOfImage ? (uint)(value - image.ImageBase)
             : throw new ToolError(ErrorCode.NotFound, $"VA {text} is outside {Path.GetFileName(image.Path)} (0x{image.ImageBase:X}-0x{image.ImageBase + image.SizeOfImage:X}).");
 
+    /// <summary>Whether <see cref="Parse"/> looks <paramref name="text"/> up as a name first: false for the rva:, va:, off: and offset: forms, 0x and #.</summary>
+    public static bool IsName(string text)
+    {
+        var t = text.Trim();
+        int colon = t.IndexOf(':');
+        if (colon > 0 && t[..colon].ToLowerInvariant() is "rva" or "va" or "off" or "offset") return false;
+        return !(t.StartsWith("0x", StringComparison.OrdinalIgnoreCase) || t.StartsWith('#')) || Number(t) == null;
+    }
+
     /// <summary>Hex with 0x prefix or h suffix, plain hex digits, or decimal with a leading '#'.</summary>
     public static ulong? Number(string text)
     {
