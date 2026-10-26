@@ -23,6 +23,8 @@ public static partial class Guide
         and version, serialized files, bundles), the Unity version and the .wasm / .framework.js beside it; unpack_container extracts them.
         Qt resource collections (.rcc, or compiled into a Qt 5 / 6 program): list_assemblies with path lists each file with its
         locale and storage; unpack_container writes them expanded.
+        Flash SWF files: list_assemblies with path lists the ActionScript 3 blocks (.abc, with a .classes.txt outline), actions,
+        images, sounds and binary data, named by SymbolClass; unpack_container writes them.
         Traffic captures (HAR, mitmproxy flow files): list_assemblies with path lists each response (method, status, MIME type, URL)
         as host/path (the query folded into a short hash); unpack_container writes the bodies, decoded from base64 and their
         Content-Encoding (gzip, deflate, br, zstd). Nothing is fetched or replayed.
