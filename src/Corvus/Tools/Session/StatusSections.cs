@@ -30,8 +30,7 @@ internal sealed class BudgetStatus : IStatusSection
                 o.TimeoutSeconds == defaults.TimeoutSeconds ? "default" : "--timeout");
         bool json = string.Equals(Environment.GetEnvironmentVariable(CallFilter.ResultModeVariable), "json", StringComparison.OrdinalIgnoreCase);
         yield return new("delivery", json ? "text block = the structured JSON, plus structuredContent"
-            : "text, plus structuredContent where a tool has an output schema; each part fitted alone: lists continue at nextOffset, " +
-              "other results keep their head and a resultId", json ? CallFilter.ResultModeVariable : "default");
+            : "text, plus structuredContent where a tool has an output schema; each part fitted alone", json ? CallFilter.ResultModeVariable : "default");
     }
 
     /// <summary>The connected client's clientInfo.name, when the server is in this provider.</summary>
