@@ -446,10 +446,12 @@ public sealed class InspectionService(AssemblyWorkspace workspace, NativeCodeSer
         Core.Mobile.AndroidManifestSummary? manifest = null;
         Core.Mobile.AndroidNetworkSecurityConfig? config = null;
         string? configFile = null;
+        Dictionary<string, string>? pins = null;
         if (package)
             try
             {
                 using var apk = Core.Mobile.AndroidPackage.Open(full, Limits);
+                pins = CertificatePins(apk, ct);
                 manifest = Core.Mobile.AndroidManifestSummary.Of(apk.Manifest, apk.Resources);
                 if (manifest.Application.NetworkSecurityConfig is { } reference && reference.IndexOf(" = res/", StringComparison.Ordinal) is var at and > 0
                     && apk.Read(reference[(at + 3)..]) is { } xml)
@@ -460,9 +462,26 @@ public sealed class InspectionService(AssemblyWorkspace workspace, NativeCodeSer
                 }
             }
             catch (ToolError e) { notes.Add($"manifest not read: {e.Message}"); }
-        var subject = new MobileSubject { Platform = "android", Dex = index, Manifest = manifest, NetworkConfig = config, NetworkConfigFile = configFile };
+        var subject = new MobileSubject { Platform = "android", Dex = index, Manifest = manifest, NetworkConfig = config, NetworkConfigFile = configFile, CertificatePins = pins };
         var found = Features.Detect(subject, ct);
         return MobileReport(Path.GetFileName(full), index.Methods.Count, found, [.. notes, .. index.Notes.Take(5), .. subject.Notes]);
+    }
+
+    /// <summary>SHA-256 SPKI digests of the certificate files a package carries outside META-INF (at most 200 files of 1 MB), to "file #index subject".</summary>
+    private static Dictionary<string, string> CertificatePins(Core.Mobile.AndroidPackage apk, CancellationToken ct)
+    {
+        var pins = new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (var name in apk.Entries.Where(n => !n.StartsWith("META-INF/", StringComparison.Ordinal) && CertificateFile.HasCertificateExtension(n)).Take(200))
+        {
+            if (apk.Length(name) is <= 0 or > 1 << 20 || apk.Read(name) is not { } bytes) continue;
+            try
+            {
+                foreach (var c in CertificateFile.Read(bytes, checkMachine: false, ct).Certificates)
+                    pins.TryAdd(c.Pin["sha256/".Length..], $"{name} #{c.Index} {c.Subject}");
+            }
+            catch (InvalidDataException) { }
+        }
+        return pins;
     }
 
     private FeatureReport IpaSurvey(string full, CancellationToken ct)

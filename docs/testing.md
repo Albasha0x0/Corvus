@@ -252,6 +252,7 @@ describe.
 | `CORVUS_BUNDLE_PAIRS` | A folder of folders, each holding two builds of one JavaScript bundle as old.* and new.*. | JsBundleFilesTests, JsDiffTests |
 | `CORVUS_CALLPATH_TARGET` | A method to search call paths to (default: picked from the assemblies). | SerialTimingTests |
 | `CORVUS_CAPTURES` | A folder of network captures (key logs beside them as `<name>*.keys`) whose HTTP objects are compared with TShark's. | CaptureObjectsTSharkTests |
+| `CORVUS_CERT_FILES` | A folder searched for certificate files (`.pem`, `.crt`, `.cer`, `.der`, `.p7b`, `.p12`, ...) compared with openssl through `CORVUS_OPENSSL`. | CertificateFileTests |
 | `CORVUS_CDB` | The cdb debugger the minidump stacks are compared with (default: the Windows SDK's). | MinidumpRealTests |
 | `CORVUS_CLAUDE` | The claude command line that validates the plugin manifests (default: claude on PATH). | PluginManifestTests |
 | `CORVUS_CLIENT_CHECKS` | `1` runs the real-client checks: each installed agent client answers a known question through this build (model calls cost tokens). | ClientCheckTests, tests/agents/run-tasks.ps1 |
@@ -335,6 +336,7 @@ describe.
 | `CORVUS_NATIVE_TOOL_SWEEP_LIMIT` | Images of the native tool sweep (default 120 in an exhaustive run, a quarter of it in a routine one). | NativeToolSweepTests |
 | `CORVUS_NATIVE_TOOL_SWEEP_PF_LIMIT` | Images from the program folders in the native tool sweep (default 120 in an exhaustive run, a quarter of it in a routine one). | NativeToolSweepTests |
 | `CORVUS_NETWORK_TESTS` | `1` runs the tests that download from Microsoft's symbol server (runtime DACs, PDBs). | ElfCoreHeapRealTests, ManagedDumpRealTests, PdbOracleTests |
+| `CORVUS_OPENSSL` | openssl (3.2.4) that the certificate files under `CORVUS_CERT_FILES` are compared with. | CertificateFileTests |
 | `CORVUS_PACKAGES_BAD` | A folder of known-bad packages (npm, PyPI, editor extensions) in subfolders; the noteworthy share is checked against floors. | PackageDatasetTests |
 | `CORVUS_PACKAGES_GOOD` | A folder of ordinary packages, grouped the same way. | PackageDatasetTests |
 | `CORVUS_PACKAGES_REPORT` | A file for one line per package (folder, file, review, findings). | PackageDatasetTests |
@@ -484,6 +486,10 @@ missing.
   (block scopes, hoisting, destructuring, classes with private fields, labels, ASI, a direct eval) minified by terser
   5.39.0 (`build.js`); node prints the same lines for the original, the terser output and that output beautified with
   names from evidence. Every script under `CORVUS_JS_FILES` keeps its token sequence and its bindings' site counts.
+- **Certificate files against openssl** (`CertificateFileTests`, `CORVUS_OPENSSL`, `CORVUS_CERT_FILES`, OpenSSL 3.2.4):
+  the certificates openssl reads from each file (`crl2pkcs7`, `x509`) must be the ones read here, with the same serial,
+  validity, SHA-256 fingerprint and SPKI pin. Chains, pins, PKCS #7 and PKCS #12 contents, requests and CRLs are checked
+  on certificates the tests build.
 - **HTTP/3 field sections against Wireshark** (`Http3Tests`, `CORVUS_TSHARK`, TShark 4.6.9): an aioquic 1.2.0 capture
   (`Containers/Http3Fixtures/build.py`: five requests, a key update, AES-256-GCM) decrypted with its key log; every
   HTTP/3 field section, its stream and field lines in order, must equal what TShark decodes.

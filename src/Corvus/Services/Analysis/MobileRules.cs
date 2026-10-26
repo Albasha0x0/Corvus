@@ -22,6 +22,8 @@ public sealed class MobileSubject
     /// <summary>The config's file in the package (res/xml/....xml).</summary>
     public string? NetworkConfigFile { get; init; }
     public PlistDict? InfoPlist { get; init; }
+    /// <summary>SHA-256 SPKI digests (base64) of the certificates the package carries, each to its file, index and subject.</summary>
+    public IReadOnlyDictionary<string, string>? CertificatePins { get; init; }
 
     private DexRuleScan? _dex;
     private AppleObjcMetadata? _objc;
@@ -83,7 +85,7 @@ public sealed class MobileSubject
 /// from a server trust without calling SecTrustEvaluate*), "sym:REGEX" (imports and symbols, Swift names mangled) and
 /// "plist:ats-insecure" / "plist:pinned-domains" (Info.plist App Transport Security). Apple rules also use "str:".
 /// </summary>
-internal sealed class MobileRules : ISurveyRuleProvider
+internal sealed partial class MobileRules : ISurveyRuleProvider
 {
     private const int MaxLocations = 5;
 
@@ -231,7 +233,7 @@ internal sealed class MobileRules : ISurveyRuleProvider
         if (subject.Mobile is not { } mobile) return null;
         int colon = feature.IndexOf(':');
         var (kind, pattern) = (feature[..colon], feature[(colon + 1)..]);
-        return kind switch
+        var evidence = kind switch
         {
             "dex" when mobile.Dex != null => mobile.DexScan(ct).Evidence(feature),
             "apk" => Package(mobile, feature, pattern),
@@ -240,7 +242,21 @@ internal sealed class MobileRules : ISurveyRuleProvider
             "sym" when subject.Native != null => Symbols(subject.Native, feature, pattern),
             _ => null,
         };
+        return evidence != null && mobile.CertificatePins is { Count: > 0 } pins ? Joined(evidence, pins) : evidence;
     }
+
+    /// <summary>Each location that names a SHA-256 pin of a certificate the package carries gains that certificate.</summary>
+    private static Evidence Joined(Evidence evidence, IReadOnlyDictionary<string, string> pins) => evidence with
+    {
+        Locations = [.. evidence.Locations.Select(l =>
+        {
+            var matched = PinText().Matches(l).Select(m => m.Groups[1].Value).Distinct().Where(pins.ContainsKey).Select(p => pins[p]).ToList();
+            return matched.Count == 0 ? l : $"{l} (pins {string.Join("; ", matched)})";
+        })],
+    };
+
+    [System.Text.RegularExpressions.GeneratedRegex("(?i)sha-?256/([A-Za-z0-9+/]{43}=)")]
+    private static partial System.Text.RegularExpressions.Regex PinText();
 
     private static Evidence? Of(string feature, List<string> found, string? basis = null) =>
         found.Count == 0 ? null : new Evidence(feature, found.Count, [.. found.Take(MaxLocations)]) { Basis = basis };
@@ -267,7 +283,7 @@ internal sealed class MobileRules : ISurveyRuleProvider
                 found.AddRange(nsc.Where(s => s.TrustAnchors.Contains("user")).Select(s => $"{Where(s)}: <certificates src=\"user\">"));
                 break;
             case "pins":
-                found.AddRange(nsc.Where(s => s.Pins.Count > 0).Select(s => $"{Where(s)}: {s.Pins.Count} pin(s){(s.PinExpiration != null ? ", expire " + s.PinExpiration : "")}"));
+                found.AddRange(nsc.Where(s => s.Pins.Count > 0).Select(s => $"{Where(s)}: {s.Pins.Count} pin(s) {string.Join(" ", s.Pins.Take(4))}{(s.Pins.Count > 4 ? " ..." : "")}{(s.PinExpiration != null ? ", expire " + s.PinExpiration : "")}"));
                 break;
         }
         return Of(feature, found);

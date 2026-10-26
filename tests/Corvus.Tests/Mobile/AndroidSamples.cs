@@ -64,13 +64,16 @@ internal static class AndroidSamples
             new Node("domain", new Attr(null, "includeSubdomains", 0, 0x12, uint.MaxValue)) { Text = "example.com" })));
 
     /// <summary>An APK with the sample manifest and resources plus <paramref name="extra"/> entries.</summary>
-    public static byte[] Apk(int targetSdk = 30, params (string Name, byte[] Data)[] extra)
+    public static byte[] Apk(int targetSdk = 30, params (string Name, byte[] Data)[] extra) => Apk(NetworkSecurityConfig(), targetSdk, extra);
+
+    /// <summary>As <see cref="Apk(int, ValueTuple{string, byte[]}[])"/> with <paramref name="networkConfig"/> as the network security config.</summary>
+    public static byte[] Apk(byte[] networkConfig, int targetSdk = 30, params (string Name, byte[] Data)[] extra)
     {
         var resources = Resources(); // assigns the ids the manifest references
         return ContainerFixtures.Zip([
             ("AndroidManifest.xml", Manifest(targetSdk)),
             ("resources.arsc", resources),
-            ("res/xml/network_security_config.xml", NetworkSecurityConfig()),
+            ("res/xml/network_security_config.xml", networkConfig),
             ("res/layout/main.xml", AxmlWriter.Write(new Node("LinearLayout", Ref("text", AppName, 0x0101014f)))),
             ("assets/config.json", "{\"endpoint\":\"https://api.example.com\"}"u8.ToArray()),
             .. extra]);

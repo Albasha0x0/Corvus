@@ -20,7 +20,7 @@ public sealed class InspectionTools(InspectionService inspection, AssemblyWorksp
     [McpServerTool(Name = "summarize_file", Title = "Summarize file", UseStructuredContent = true, OutputSchemaType = typeof(FileSummaryRecord))]
     [Description("First look at a file or assembly, not run: type, hashes, signature, containers, assemblies, highlights (toolchain, " +
                  "capabilities, packagers), entry points. view= values include package (pre-install review), raw (headerless code), " +
-                 "script (layers peeled), sqlite (table= pages), unity (MonoBehaviour fields), all; views lists those that apply.")]
+                 "script (layers peeled), sqlite (table=), unity (MonoBehaviour fields), all; views lists what applies.")]
     public Task<string> SummarizeFile(
         [Description("File (assembly, executable, bundle, package, zip, .asar), .app or source folder.")] string? path = null,
         [Description(AssemblyParam)] string? assembly = null,
@@ -38,9 +38,9 @@ public sealed class InspectionTools(InspectionService inspection, AssemblyWorksp
         {
             var name = string.IsNullOrWhiteSpace(view) ? "overview" : view.Trim().ToLowerInvariant();
             if (table != null && name is not ("sqlite" or "sqlite-recover" or "lmdb" or "ese" or "berkeleydb" or "realm") || columns != null && name is not ("sqlite" or "sqlite-recover")
-                || limit != null && name is not ("sqlite" or "sqlite-recover" or "protobuf" or "layers" or "unity" or "leveldb" or "lmdb" or "ese" or "berkeleydb" or "realm" or "qlog")
-                || offset != 0 && name is not ("sqlite" or "sqlite-recover" or "protobuf" or "layers" or "script" or "unity" or "leveldb" or "lmdb" or "ese" or "berkeleydb" or "realm" or "qlog"))
-                throw new ToolError(ErrorCode.InvalidArgument, "table, columns, offset and limit page the rows of view=sqlite and view=sqlite-recover (table, offset and limit also view=lmdb, view=ese, view=berkeleydb and view=realm; offset and limit also view=protobuf, view=layers, view=unity, view=leveldb and view=qlog; offset view=script).",
+                || limit != null && name is not ("sqlite" or "sqlite-recover" or "protobuf" or "layers" or "unity" or "leveldb" or "lmdb" or "ese" or "berkeleydb" or "realm" or "qlog" or "certificate")
+                || offset != 0 && name is not ("sqlite" or "sqlite-recover" or "protobuf" or "layers" or "script" or "unity" or "leveldb" or "lmdb" or "ese" or "berkeleydb" or "realm" or "qlog" or "certificate"))
+                throw new ToolError(ErrorCode.InvalidArgument, "table, columns, offset and limit page the rows of view=sqlite and view=sqlite-recover (table, offset and limit also view=lmdb, view=ese, view=berkeleydb and view=realm; offset and limit also view=protobuf, view=layers, view=unity, view=leveldb, view=qlog and view=certificate; offset view=script).",
                     "pass view=sqlite with table=, or drop them");
             if (script != null && name != "unity") throw new ToolError(ErrorCode.InvalidArgument, "script selects the assets of view=unity.", "pass view=unity with script=, or drop it");
             if (columns != null && table == null) throw new ToolError(ErrorCode.InvalidArgument, "columns selects columns of a table: pass table= with it.");

@@ -281,6 +281,28 @@ public sealed class MobileRulesTests(ITestOutputHelper output) : IDisposable
             Locations(Rule(Survey(path), "android-weak-hash")));
     }
 
+    [Fact]
+    public void Pins_name_the_certificate_files_the_package_carries()
+    {
+        using var key = System.Security.Cryptography.ECDsa.Create(System.Security.Cryptography.ECCurve.NamedCurves.nistP256);
+        using var ca = new System.Security.Cryptography.X509Certificates.CertificateRequest("CN=Example Pinned CA", key,
+            System.Security.Cryptography.HashAlgorithmName.SHA256).CreateSelfSigned(DateTimeOffset.UnixEpoch, new DateTimeOffset(2120, 1, 1, 0, 0, 0, TimeSpan.Zero));
+        var pin = Convert.ToBase64String(System.Security.Cryptography.SHA256.HashData(ca.PublicKey.ExportSubjectPublicKeyInfo()));
+        var config = AxmlWriter.Write(new AxmlWriter.Node("network-security-config").Add(
+            new AxmlWriter.Node("domain-config").Add(
+                new AxmlWriter.Node("domain") { Text = "api.example.com" },
+                new AxmlWriter.Node("pin-set").Add(new AxmlWriter.Node("pin", AxmlWriter.String("digest", "SHA-256", ns: null)) { Text = pin }))));
+        var b = new DexBuilder();
+        b.Class("Lcom/example/app/Pins;").Method("pin", "Ljava/lang/String;", [], 9, Asm.ConstString(0, "sha256/" + pin), Asm.Return(0x11, 0)).Registers = 1;
+        var path = _dir.File("app.apk");
+        File.WriteAllBytes(path, AndroidSamples.Apk(config, 30, ("classes.dex", b.Build()),
+            ("res/raw/pinned_ca.pem", System.Text.Encoding.ASCII.GetBytes(ca.ExportCertificatePem()))));
+        var joined = " (pins res/raw/pinned_ca.pem #0 CN=Example Pinned CA)";
+        var found = Locations(Rule(Survey(path, "MASVS-NETWORK"), "android-pinning"));
+        Assert.Contains($"res/xml/network_security_config.xml: domain-config api.example.com: 1 pin(s) SHA-256/{pin}{joined}", found);
+        Assert.Contains(found, l => l.StartsWith("Lcom/example/app/Pins;->pin()", StringComparison.Ordinal) && l.EndsWith(joined, StringComparison.Ordinal));
+    }
+
     private static byte[] PinnedConfig() =>
         AxmlWriter.Write(new AxmlWriter.Node("network-security-config").Add(
             new AxmlWriter.Node("base-config").Add(new AxmlWriter.Node("trust-anchors").Add(
