@@ -97,6 +97,25 @@ public sealed class DecompileBatchTests : IDisposable
     }
 
     [Fact]
+    public async Task Engine_all_decompiles_with_each_engine_in_turn_and_keeps_a_failure_as_its_item()
+    {
+        var ghidra = new BatchProvider("ghidra");
+        var (tools, ida, native, _, second) = await Setup(ghidra);
+        var text = await tools.DecompileNative(native.Id, "First", engine: "all");
+        int idaAt = text.IndexOf("/* ida */", StringComparison.Ordinal), ghidraAt = text.IndexOf("/* ghidra */", StringComparison.Ordinal);
+        Assert.True(idaAt >= 0 && ghidraAt > idaAt, text);
+        Assert.Equal((1, 1), (ida.Decompiles, ghidra.Decompiles));
+
+        ghidra.Failing.Add(second);
+        text = await tools.DecompileNative(native.Id, "Second", engine: "all");
+        Assert.Contains("/* ida */", text);
+        Assert.Contains($"// ghidra: failed: decompilation failed at 0x{second:X}", text);
+
+        var e = await Assert.ThrowsAsync<ToolError>(() => tools.DecompileNative(native.Id, functions: ["First"], engine: "all"));
+        Assert.Equal(ErrorCode.InvalidArgument, e.Code);
+    }
+
+    [Fact]
     public async Task Address_and_functions_are_exclusive()
     {
         var (tools, _, native, _, _) = await Setup();

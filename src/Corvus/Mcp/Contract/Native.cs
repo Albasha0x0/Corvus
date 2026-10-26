@@ -65,7 +65,7 @@ public static partial class ParameterDomains
         ["get_cfg"] = new Dictionary<string, Domain> { ["engine"] = Engine },
         ["find_xrefs"] = new Dictionary<string, Domain> { ["engine"] = Engine, ["direction"] = Of(["to", "from", "both"]), ["kind"] = Of(["any", "code", "data", "metadata"]), ["scope"] = Of(["typed", "all"]) },
         ["native_call_tree"] = new Dictionary<string, Domain> { ["direction"] = Of(["callers", "callees", "both"]), ["calls"] = Of(["all", "direct", "virtual"]), ["engine"] = Engine },
-        ["decompile_native"] = new Dictionary<string, Domain> { ["engine"] = DecompilerEngine },
+        ["decompile_native"] = new Dictionary<string, Domain> { ["engine"] = Of(["auto", "ida", "ghidra", "all"]) },
         ["search_decompiled"] = new Dictionary<string, Domain> { ["engine"] = DecompilerEngine },
         ["emulate_native"] = new Dictionary<string, Domain> { ["engine"] = Of(["auto", "ghidra", "speakeasy"]) },
         ["get_native_type"] = new Dictionary<string, Domain>

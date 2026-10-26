@@ -83,9 +83,9 @@ public sealed partial class NativeAnalysisTools
     }
 
     [McpServerTool(Name = "decompile_native", Title = "Decompile native function", UseStructuredContent = true, OutputSchemaType = typeof(DecompileReport))]
-    [Description("C pseudocode of a native function via IDA (Hex-Rays) or Ghidra. The first call runs auto-analysis (seconds to minutes); database " +
-                 "and answers kept per file. Names, comments and types are pushed first; user types win. functions=: several per " +
-                 "request, failures per item.")]
+    [Description("C pseudocode of a native function via IDA or Ghidra; engine=all: each in turn. The first call analyzes (seconds to minutes); " +
+                 "database, answers kept per file. Names, comments and types go in first; user types win. functions=: several per " +
+                 "request, errors per item.")]
     public Task<string> DecompileNative(
         [Description(NativeTools.ImageDescription)] string image,
         [Description(NativeTools.AddressDescription)] string? address = null,
@@ -125,6 +125,12 @@ public sealed partial class NativeAnalysisTools
         if (!batch || callers) (native, rva) = await Task.Run(() => Resolve(image, callers ? callersOf! : address!), cancellationToken);
         if (native!.Image is WasmImage wasm && string.IsNullOrWhiteSpace(engine))
             return await Task.Run(() => WasmDecompile(native, wasm, batch && !callers ? functions! : [address ?? callersOf!], rva, batch && !callers, offset, maxTokens), cancellationToken);
+        if (string.Equals(engine?.Trim(), AllEngines, StringComparison.OrdinalIgnoreCase))
+        {
+            if (batch || pcode || refs)
+                throw new ToolError(ErrorCode.InvalidArgument, "engine=all takes one address, without functions, callersOf, refs or view=pcode.", "pass address alone");
+            return await EachEngine(native!, address!, rva, addresses, offset, maxTokens, limit, progress, cancellationToken);
+        }
         var choice = EngineChoice.EngineOnly(engine, engines, native!);
         // another process decompiled this function in the database state saved on disk, after the same pushes: no engine needed
         string? setup = !batch && !refs && !pcode && engines.OutputCache != null ? SetupDigest(native!) : null;
@@ -137,12 +143,8 @@ public sealed partial class NativeAnalysisTools
                 new DecompileReport(native!.Id, choice.Engine, [SingleItem(native, address!, rva, answered.Start, answered.Name, answered.Text)], 1, 1, 0, 0, null)
                     { EngineNote = choice.Note }, maxTokens);
         }
-        var session = await engines.Session(native!, choice.Engine, new Progress<NativeProviderProgress>(p =>
-            progress.Report(new ProgressNotificationValue { Progress = (float)p.Elapsed.TotalSeconds, Message = p.Stage })), cancellationToken);
+        var session = await DecompilerSession(native!, choice.Engine, progress, cancellationToken);
         EngineReport.Answered(choice, engines, session);
-        if (!session.DecompilerAvailable)
-            throw new ToolError(ErrorCode.Unsupported, $"The {session.ProviderId} decompiler is not available for {session.Arch} code here.",
-                "disassemble the function instead, or install/license the decompiler for this architecture");
         var pushed = await Push(native!, session, cancellationToken);
         if (pcode)
         {
@@ -160,31 +162,7 @@ public sealed partial class NativeAnalysisTools
             // offset counts inputs here; a text past the budget is kept whole under a resultId
             return ToolOutput.Report(pushed + text, report with { EngineNote = choice.Note });
         }
-        if (types != null) await types.EnsureMethodAsync(native!, session, code?.Ready(native!)?.FunctionAt(rva)?.Start ?? rva, cancellationToken);
-        DecompiledFunction? decompiled = null;
-        string single;
-        using (EngineReport.Heartbeat(progress, $"{session.ProviderId} decompiling {NativeAddress.Va(native!.Image, rva)}"))
-        {
-            try
-            {
-                single = pager.GetOrCreate(TextKey(native!, session, rva, addresses), () =>
-                {
-                    decompiled = session.DecompileWithinAsync(rva, limit, cancellationToken).GetAwaiter().GetResult();
-                    return FunctionText(native!, session, decompiled, addresses);
-                });
-            }
-            catch (ToolError e) when (e.Code == ErrorCode.NotFound && code?.Ready(native!)?.FunctionAt(rva) is { } ours)
-            {
-                // the engine has no function there but the built-in analysis has: say how to make one
-                var other = session.ProviderId == "ida" ? "ghidra" : "ida";
-                throw new ToolError(ErrorCode.NotFound, $"{e.Message} ({NativeEngineService.DisplayName(session.ProviderId)}); the built-in analysis has a function at " +
-                    $"{NativeAddress.Va(native!.Image, ours.Start)}.",
-                    $"define_native image={native.Id} address={NativeAddress.Va(native.Image, ours.Start)} kind=function engine={session.ProviderId} makes it, or engine={other}")
-                    { Details = e.Details };
-            }
-        }
-        uint? functionStart = decompiled?.StartRva ?? code?.Ready(native!)?.FunctionAt(rva)?.Start;
-        var name = FunctionName(native!, functionStart, decompiled?.Name);
+        var (single, functionStart, name) = await Single(native!, session, rva, addresses, limit, progress, cancellationToken);
         // the digest after the open: a PDB the engine fetched during it is part of the state this answer was made in
         if (setup != null) engines.Remember(native!, session, SetupDigest(native!), AnswerKind(addresses), rva, new DecompileAnswer(pushed, single, functionStart, name));
         (string Text, List<DecompileRef> Items)? objects = refs
@@ -195,6 +173,91 @@ public sealed partial class NativeAnalysisTools
         return NotesHeader(native!, rva, offset) + pushed + ToolOutput.Text(pager, single, offset, new DecompileReport(native!.Id, session.ProviderId, [item], 1, 1, 0, 0, null)
             { EngineNote = choice.Note }, maxTokens) + (offset == 0 && objects != null ? objects.Value.Text : "");
     });
+
+    /// <summary>The engine value that decompiles with each installed engine in turn.</summary>
+    private const string AllEngines = "all";
+
+    /// <summary>The engine's session; unsupported when its decompiler cannot read this architecture.</summary>
+    private async Task<INativeDecompilerSession> DecompilerSession(LoadedNative native, string engine, IProgress<ProgressNotificationValue> progress, CancellationToken ct)
+    {
+        var session = await engines.Session(native, engine, new Progress<NativeProviderProgress>(p =>
+            progress.Report(new ProgressNotificationValue { Progress = (float)p.Elapsed.TotalSeconds, Message = p.Stage })), ct);
+        if (!session.DecompilerAvailable)
+            throw new ToolError(ErrorCode.Unsupported, $"The {session.ProviderId} decompiler is not available for {session.Arch} code here.",
+                "disassemble the function instead, or install/license the decompiler for this architecture");
+        return session;
+    }
+
+    /// <summary>One function's pseudocode text (cached per push state), its start and the name in effect.</summary>
+    private async Task<(string Text, uint? Start, string? Name)> Single(LoadedNative native, INativeDecompilerSession session, uint rva, bool addresses,
+        TimeSpan? limit, IProgress<ProgressNotificationValue> progress, CancellationToken ct)
+    {
+        if (types != null) await types.EnsureMethodAsync(native, session, code?.Ready(native)?.FunctionAt(rva)?.Start ?? rva, ct);
+        DecompiledFunction? decompiled = null;
+        string text;
+        using (EngineReport.Heartbeat(progress, $"{session.ProviderId} decompiling {NativeAddress.Va(native.Image, rva)}"))
+        {
+            try
+            {
+                text = pager.GetOrCreate(TextKey(native, session, rva, addresses), () =>
+                {
+                    decompiled = session.DecompileWithinAsync(rva, limit, ct).GetAwaiter().GetResult();
+                    return FunctionText(native, session, decompiled, addresses);
+                });
+            }
+            catch (ToolError e) when (e.Code == ErrorCode.NotFound && code?.Ready(native)?.FunctionAt(rva) is { } ours)
+            {
+                // the engine has no function there but the built-in analysis has: say how to make one
+                var other = session.ProviderId == "ida" ? "ghidra" : "ida";
+                throw new ToolError(ErrorCode.NotFound, $"{e.Message} ({NativeEngineService.DisplayName(session.ProviderId)}); the built-in analysis has a function at " +
+                    $"{NativeAddress.Va(native.Image, ours.Start)}.",
+                    $"define_native image={native.Id} address={NativeAddress.Va(native.Image, ours.Start)} kind=function engine={session.ProviderId} makes it, or engine={other}")
+                    { Details = e.Details };
+            }
+        }
+        uint? start = decompiled?.StartRva ?? code?.Ready(native)?.FunctionAt(rva)?.Start;
+        return (text, start, FunctionName(native, start, decompiled?.Name));
+    }
+
+    /// <summary>
+    /// engine=all: the function from each installed engine in turn, one item per engine in that order; an engine that
+    /// fails is its item's error, one not installed is named in the note. provider_unavailable without any.
+    /// </summary>
+    private async Task<string> EachEngine(LoadedNative native, string address, uint rva, bool addresses, int offset, int? maxTokens, TimeSpan? limit,
+        IProgress<ProgressNotificationValue> progress, CancellationToken ct)
+    {
+        var sb = new StringBuilder(NotesHeader(native, rva, offset));
+        var items = new List<DecompileItem>();
+        List<string> used = [], missing = [];
+        foreach (var id in engines.ProviderIds)
+        {
+            if (engines.UnavailabilityOf(id) is { } u) { missing.Add($"{NativeEngineService.DisplayName(id)} not available ({u.Reason})"); continue; }
+            used.Add(id);
+            try
+            {
+                var session = await DecompilerSession(native, id, progress, ct);
+                var pushed = await Push(native, session, ct);
+                var (text, start, name) = await Single(native, session, rva, addresses, limit, progress, ct);
+                sb.Append(pushed).Append(text).Append('\n');
+                items.Add(SingleItem(native, address, rva, start, name, text));
+            }
+            catch (ToolError e)
+            {
+                sb.Append($"// {id}: {ToolError.CodeName(e.Code)}: {e.Message}\n\n");
+                items.Add(new DecompileItem(address, NativeAddress.Va(native.Image, rva), null, null, "error", ToolError.CodeName(e.Code), e.Message, 0, 0));
+            }
+        }
+        if (used.Count == 0)
+        {
+            var u = engines.Unavailability!.Value;
+            throw new ToolError(ErrorCode.ProviderUnavailable, $"No native decompiler engine is available: {u.Reason}", u.Remediation);
+        }
+        ToolOutput.Facet("pseudocode");
+        int ok = items.Count(i => i.Status == "ok");
+        var note = $"engine=all: {string.Join(", ", used)}, one item each in that order" + (missing.Count > 0 ? "; " + string.Join("; ", missing) : "");
+        return ToolOutput.Text(pager, sb.ToString(), offset,
+            new DecompileReport(native.Id, AllEngines, items, used.Count, ok, used.Count - ok, 0, null) { EngineNote = note }, maxTokens);
+    }
 
     /// <summary>One function's pseudocode as served without an engine: the stable header, the text, its start and name.</summary>
     internal sealed record DecompileAnswer(string Header, string Text, uint? Start, string? Name);

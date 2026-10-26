@@ -1499,13 +1499,13 @@ Structured output: `image`, `query`, `type`, `candidates`, `totalCandidates`, `o
 
 **Decompile native function** (read-only, idempotent, open-world, long-running)
 
-C pseudocode of a native function via IDA (Hex-Rays) or Ghidra. The first call runs auto-analysis (seconds to minutes); database and answers kept per file. Names, comments and types are pushed first; user types win. functions=: several per request, failures per item.
+C pseudocode of a native function via IDA or Ghidra; engine=all: each in turn. The first call analyzes (seconds to minutes); database, answers kept per file. Names, comments and types go in first; user types win. functions=: several per request, errors per item.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `image` | string | yes |  | Image id, name or path. |
 | `address` | string |  |  | Hex VA/RVA (rva:/va:/off:), export, module!import or function. |
-| `engine` | string |  |  | Default auto. Values: auto, ida, ghidra. |
+| `engine` | string |  |  | Default auto. Values: auto, ida, ghidra, all. |
 | `addresses` | boolean |  |  | Prefix lines with their source address. |
 | `offset` | integer |  |  | Character offset; with functions/callersOf the first input (nextInput). |
 | `maxTokens` | integer |  |  |  |
