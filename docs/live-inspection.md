@@ -127,8 +127,8 @@ virtual machine: a session observes the program, it does not contain it.
 under its inspector (`--inspect=PORT` or `--inspect-brk=PORT`; an Electron program's pages with
 `--remote-debugging-port=PORT`); `inspector:HOST:PORT`, `inspector:ws://HOST:PORT/ID` and a `#TARGET` suffix (id, type
 or title) name others. Only loopback hosts are accepted, since an inspector runs any code it is sent. The session is
-served by Corvus itself over the Chrome DevTools Protocol; nothing is loaded into the program, and closing the session
-removes its stop points and lets it run on.
+served by Corvus itself over the Chrome DevTools Protocol; nothing is loaded into the program except the IPC recorder
+below, and closing the session removes its stop points and lets it run on.
 
 - `live_session action=status` lists the program's scripts with the source map each names and the sources it holds.
 - `live_break at=FILE:LINE` takes an original source a loaded script's map names (`src/app.ts:12`): the point goes on
@@ -137,6 +137,11 @@ removes its stop points and lets it run on.
 - `live_break wait=true` returns the paused frames by function and script position, each with the original position
   its map gives. A program started with `--inspect-brk` opens suspended: set stop points, then `continue`.
 - `live_events kind=output` shows `console.*` calls.
+- `live_session action=ipc` on an Electron main process records its IPC from the first call on and lists each route
+  (channel, direction, `send`, `sendSync`, `invoke` or its result) with its message count and value shape (types and
+  keys, never values), joined to the static IPC rows of the app at `app.getAppPath()` (`search_container
+  kind=electron`): the main and renderer sites on both sides. Channels the code names that no message used are listed
+  as not seen. The recorder keeps 500 routes; messages of later new routes are counted as dropped.
 
 Native actions (`live_watch`, `live_read`, `live_coverage`, `live_script`, snapshots) are refused on these sessions.
 `--live-allow` is checked against the process id the program reports once the session opens.

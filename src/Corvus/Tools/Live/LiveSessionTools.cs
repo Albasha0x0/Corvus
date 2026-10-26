@@ -46,6 +46,8 @@ public sealed partial class LiveSessionTools(ServerOptions options, LiveSessionS
     {
         public IReadOnlyList<LiveProcessRow>? Processes { get; init; }
         public LiveSnapshot? Snapshot { get; init; }
+        [Description("action=ipc: one line per route: direction, kind, channel, shape, count, code sites.")]
+        public string? Ipc { get; init; }
     }
 
     public sealed record LiveStopPoint(string Id,
@@ -179,12 +181,15 @@ public sealed partial class LiveSessionTools(ServerOptions options, LiveSessionS
                     return Report(a, current);
                 case "snapshot":
                     return await Snapshot(live.Get(RequireSession(session)), outputPath, overwrite, cancellationToken).ConfigureAwait(false);
+                case "ipc":
+                    var recorded = live.Get(RequireSession(session));
+                    return Ipc(recorded, await live.IpcAsync(recorded, cancellationToken).ConfigureAwait(false));
                 case "close":
                     var closing = live.Get(RequireSession(session));
                     await live.CloseAsync(closing, "closed by request").ConfigureAwait(false);
                     return Report(a, closing);
                 default:
-                    throw new ToolError(ErrorCode.InvalidArgument, $"Unknown action '{action}'.", "action=list, processes, attach, spawn, status, snapshot, close, children, attach_child or release_child");
+                    throw new ToolError(ErrorCode.InvalidArgument, $"Unknown action '{action}'.", "action=list, processes, attach, spawn, status, snapshot, ipc, close, children, attach_child or release_child");
             }
         }, cancellationToken);
 
@@ -207,6 +212,18 @@ public sealed partial class LiveSessionTools(ServerOptions options, LiveSessionS
             throw;
         }
         return opened;
+    }
+
+    // Each channel route seen with its count and shape, then the routes only the code names; values are never kept.
+    private static string Ipc(Services.LiveSession s, LiveIpcLedger ledger)
+    {
+        var text = new StringBuilder($"{s.Id} IPC in the Electron main process of {ledger.App ?? "an unknown app path"}: ");
+        text.AppendLine($"{ledger.Rows.Count(r => r.Count > 0)} route(s) seen, {ledger.Rows.Count(r => r.Count == 0)} named by the code only; {ledger.CodeRows} IPC site(s) read from the code");
+        var lines = ledger.Rows.Select(r => r.Count > 0 ? $"{r.Direction} {r.Kind} {r.Channel} {r.Shape} x{r.Count}: {r.Code}" : $"{r.Direction} {r.Channel} not seen: {r.Code}").ToList();
+        foreach (var l in lines) text.AppendLine("  " + l);
+        if (ledger.Dropped > 0) text.AppendLine($"{ledger.Dropped} message(s) of new routes not kept (limit {Native.Providers.Live.Inspector.ElectronIpc.MaxKeys} routes)");
+        text.AppendLine("Recorded since the first action=ipc; value shapes only, never values.");
+        return ToolOutput.With(text.ToString(), new LiveSessionReport("ipc", s.Id, s.Backend, s.Program, s.ProcessId, s.State, [], []) { Ipc = string.Join('\n', lines) });
     }
 
     private async Task<string> Snapshot(Services.LiveSession s, string? outputPath, bool overwrite, CancellationToken ct)

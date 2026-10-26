@@ -154,6 +154,28 @@ internal static class ElectronInspector
         finally { stream?.Dispose(); }
     }
 
+    /// <summary>
+    /// The surface rows of the app at <paramref name="app"/> (what app.getAppPath() returns): an .asar as summarize_file
+    /// reads it, or an app folder's own scripts; empty when it is neither.
+    /// </summary>
+    internal static IReadOnlyList<ElectronRow> AppSurface(string app, CancellationToken ct)
+    {
+        if (Directory.Exists(app))
+        {
+            var files = Folder(app);
+            var paths = files.Files.Select(f => f.Path).ToHashSet(StringComparer.Ordinal);
+            var graph = new ElectronGraph { AddonPackages = ElectronGraph.Addons(app), Exists = paths.Contains };
+            var surface = new List<ElectronRow>();
+            WebPreferences(files, null, [], surface, graph, ct);
+            return surface;
+        }
+        if (!File.Exists(app)) return [];
+        // The archive is read from its path; the head only identifies it.
+        var head = new byte[64 * 1024];
+        using (var f = File.OpenRead(app)) head = head[..f.ReadAtLeast(head, head.Length, throwOnEndOfStream: false)];
+        return Of(app, head, ct)?.Surface ?? [];
+    }
+
     private static AppFiles Folder(string root)
     {
         var files = new List<(string, long)>();

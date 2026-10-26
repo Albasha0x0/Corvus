@@ -325,7 +325,7 @@ describe.
 | `CORVUS_MSI_LISTER` | The lessmsi command line the MSI listings are compared with. | InstallerComparisonTests |
 | `CORVUS_NODE` | node (22.17.0), which runs the beautify fixture, its terser output and that output beautified and renamed; all three print the same lines. It also runs a compiled script with a source map under `--inspect-brk` for the inspector session tests. | JsBeautifyTests, LiveInspectorTests |
 | `CORVUS_JDK` | a JDK folder (11.0.24, 22.0.1, 24.0.1 tested): javac compiles a two-thread program, java runs it under its JDWP agent, and jstack's frames for the held and the main thread equal the session's. | LiveJvmTests |
-| `CORVUS_ELECTRON` | electron.exe (33.2.0, Node 20.18.0), which runs a hidden-window app written by the test under `--inspect` and `--remote-debugging-port`; its main process and page each stop at a line. | LiveInspectorTests |
+| `CORVUS_ELECTRON` | electron.exe (33.2.0, Node 20.18.0), which runs a hidden-window app written by the test under `--inspect` and `--remote-debugging-port`; its main process and page each stop at a line, and the main process's IPC routes are counted with their shapes and code sites. | LiveInspectorTests |
 | `CORVUS_NATIVEAOT_SAMPLES` | `1` builds the NativeAOT sample for several frameworks and options and checks the recovered names against its PDB (Windows, with the C++ build tools). | LiveCompiledNamesRealTests, NativeAotSampleTests |
 | `CORVUS_NATIVE_ADAPTER_SAMPLE` | Images per folder the adapter consistency test reads (default 60; 0 for all). | NativeAdapterConsistencyTests |
 | `CORVUS_NATIVE_LARGE_IMAGE` | One large image whose code index is measured for time, memory and completeness. | NativeCodeSweepTests |

@@ -97,6 +97,9 @@ public sealed partial class LiveInspectorTests : IDisposable
         // Ops sent straight to the worker are refused there.
         var read = await Assert.ThrowsAsync<ToolError>(() => _service.ReadAsync(_service.Get("live-1"), 0x1000, 16, default));
         Assert.Contains("'read' works on native code", read.Message);
+        // The program is held at its first statement, so the IPC recorder cannot be evaluated yet.
+        var ipc = await Assert.ThrowsAsync<ToolError>(() => _tools.LiveSession("ipc", session: "live-1"));
+        Assert.Contains("paused and evaluates nothing until it runs", ipc.Message);
         await _tools.LiveSession("close", session: "live-1");
     }
 
@@ -203,6 +206,97 @@ public sealed partial class LiveInspectorTests : IDisposable
             Assert.Matches(@"#0 render page\.js:4:\d+ = src/page\.ts:3:1", stop);
             await _tools.LiveSession("close", session: "live-2");
             // Both sessions closed with the program still running.
+            Assert.False(electron.HasExited);
+        }
+        finally
+        {
+            electron.Kill(entireProcessTree: true);
+        }
+    }
+
+    /// <summary>
+    /// CORVUS_ELECTRON runs a hidden-window app written here: a preload bridge, an invoke channel, a send channel, a
+    /// main-to-renderer channel and a listener no renderer sends to. Each route is counted with its value shape and the
+    /// code sites on both sides; the unused listener is reported as not seen.
+    /// </summary>
+    [RequiresRealDataFact("CORVUS_ELECTRON")]
+    [Trait("Speed", "Slow")]
+    public async Task An_electron_apps_ipc_routes_are_counted_by_shape_and_joined_to_their_code()
+    {
+        var app = Path.Combine(_dir.Path, "ipc");
+        Directory.CreateDirectory(app);
+        File.WriteAllText(Path.Combine(app, "package.json"), """{"name":"sample","main":"main.js"}""");
+        File.WriteAllText(Path.Combine(app, "main.js"), """
+            const { app, BrowserWindow, ipcMain } = require('electron');
+            const path = require('path');
+            ipcMain.handle('settings:get', async (event, key) => ({ key, value: 42, tags: ['a'] }));
+            ipcMain.on('log:write', (event, entry) => {});
+            ipcMain.on('unused:ping', () => {});
+            app.whenReady().then(() => {
+              const win = new BrowserWindow({ show: false, webPreferences: { preload: path.join(__dirname, 'preload.js') } });
+              win.loadFile(path.join(__dirname, 'index.html'));
+              setInterval(() => win.webContents.send('clock:tick', { at: Date.now() }), 200);
+            });
+            """);
+        File.WriteAllText(Path.Combine(app, "preload.js"), """
+            const { contextBridge, ipcRenderer } = require('electron');
+            contextBridge.exposeInMainWorld('api', {
+              get: (key) => ipcRenderer.invoke('settings:get', key),
+              log: (text) => ipcRenderer.send('log:write', { level: 'info', text }),
+              onTick: (f) => ipcRenderer.on('clock:tick', (event, value) => f(value)),
+            });
+            """);
+        File.WriteAllText(Path.Combine(app, "index.html"), """<!DOCTYPE html><html><head><title>sample</title></head><body><script src="page.js"></script></body></html>""");
+        File.WriteAllText(Path.Combine(app, "page.js"), """
+            window.api.onTick(() => {});
+            setInterval(async () => { await window.api.get('theme'); window.api.log('saved'); }, 200);
+            """);
+
+        var info = new ProcessStartInfo(Environment.GetEnvironmentVariable("CORVUS_ELECTRON")!) { RedirectStandardError = true, UseShellExecute = false };
+        foreach (var a in new[] { "--inspect=0", app }) info.ArgumentList.Add(a);
+        using var electron = Process.Start(info)!;
+        try
+        {
+            string? main = null;
+            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(60));
+            while (main == null && await electron.StandardError.ReadLineAsync(cts.Token) is { } line)
+                if (line.StartsWith("Debugger listening on ", StringComparison.Ordinal)) main = line["Debugger listening on ".Length..].Trim();
+            Assert.NotNull(main);
+            _ = electron.StandardError.ReadToEndAsync();
+            await _tools.LiveSession("attach", program: "inspector:" + main);
+
+            // Messages sent before the first read are not recorded: read until every route has been seen.
+            LiveIpcLedger ledger;
+            var until = DateTime.UtcNow.AddSeconds(30);
+            while ((ledger = await _service.IpcAsync(_service.Get("live-1"), default)).Rows.Count(r => r.Count > 0) < 4 && DateTime.UtcNow < until)
+                await Task.Delay(300);
+            var text = await _tools.LiveSession("ipc", session: "live-1");
+            _output.WriteLine(text);
+
+            Assert.Equal(app, ledger.App);
+            var seen = ledger.Rows.Where(r => r.Count > 0).Select(r => $"{r.Direction} {r.Kind} {r.Channel} {r.Shape}").Order(StringComparer.Ordinal);
+            Assert.Equal(
+            [
+                "main-to-renderer invoke-result settings:get {key:string,tags:[string],value:number}",
+                "main-to-renderer send clock:tick ({at:number})",
+                "renderer-to-main invoke settings:get (string)",
+                "renderer-to-main send log:write ({level:string,text:string})",
+            ], seen.Where(s => !s.StartsWith("main-to-renderer invoke-error", StringComparison.Ordinal)));
+            var invoke = ledger.Rows.Single(r => r.Kind == "invoke");
+            Assert.Matches(@"^main listener main\.js:3:\d+ \(ipcMain\.handle\); renderer sender preload\.js:3:\d+ \(ipcRenderer\.invoke\)$", invoke.Code);
+            var tick = ledger.Rows.Single(r => r.Channel == "clock:tick" && r.Count > 0);
+            Assert.Matches(@"^main sender main\.js:9:\d+ \(webContents\.send\); renderer listener preload\.js:5:\d+ \(ipcRenderer\.on\)$", tick.Code);
+            var unused = ledger.Rows.Single(r => r.Channel == "unused:ping");
+            Assert.Equal((0, "renderer-to-main"), (unused.Count, unused.Direction));
+            Assert.Matches(@"^main listener main\.js:5:\d+ \(ipcMain\.on\); no renderer sender read$", unused.Code);
+            Assert.Contains("value shapes only, never values", text);
+            Assert.DoesNotContain("theme", text);
+
+            // The recorder keeps counting between reads.
+            var before = invoke.Count;
+            await Task.Delay(1000);
+            Assert.True((await _service.IpcAsync(_service.Get("live-1"), default)).Rows.Single(r => r.Kind == "invoke").Count > before);
+            await _tools.LiveSession("close", session: "live-1");
             Assert.False(electron.HasExited);
         }
         finally

@@ -351,7 +351,7 @@ internal sealed partial class ElectronGraph
 
         return _rows.OrderBy(r => r.File, StringComparer.Ordinal).ThenBy(r => r.Start)
             .Take(ElectronSurface.MaxRows)
-            .Select(r => new ElectronRow(r.Kind, r.Value, r.Site) { Call = r.Call, Link = r.Link }).ToList();
+            .Select(r => new ElectronRow(r.Kind, r.Value, r.Site) { Call = r.Call, Link = r.Link, Role = r.Literal ? r.Role : null }).ToList();
     }
 
     /// <summary>Literal channels and how many have both a sender and a listener.</summary>

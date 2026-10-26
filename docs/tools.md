@@ -2849,7 +2849,7 @@ Open, list, inspect or close a session on a program: id, backend, modules matche
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `action` | string |  | `list` | What to do. Values: list, processes, attach, spawn, status, snapshot, close, children, attach_child, release_child. |
+| `action` | string |  | `list` | What to do. Values: list, processes, attach, spawn, status, snapshot, ipc, close, children, attach_child, release_child. |
 | `program` | string |  |  | attach: pid, name, inspector:PORT, jdwp:PORT (JVM), ttd:PATH (recording); spawn: program path (started suspended); processes: name filter; *_child: child pid. |
 | `arguments` | string[] |  |  | spawn: program arguments. |
 | `environment` | string[] |  |  | spawn: NAME=value variables. |
@@ -2860,7 +2860,7 @@ Open, list, inspect or close a session on a program: id, backend, modules matche
 | `downloadDac` | boolean |  |  | Download a missing DAC. |
 | `device` | string |  |  | adb serial; device runs frida-server. |
 
-Structured output: `action`, `session`, `backend`, `program`, `processId`, `state`, `modules`, `sessions`, `processes`, `snapshot`.
+Structured output: `action`, `session`, `backend`, `program`, `processId`, `state`, `modules`, `sessions`, `processes`, `snapshot`, `ipc`.
 
 ### live_break
 

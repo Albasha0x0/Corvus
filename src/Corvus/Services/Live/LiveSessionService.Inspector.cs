@@ -39,6 +39,8 @@ public sealed class LiveScriptRuntime(string kind)
     public string? Runtime { get; internal set; }
     public Dictionary<string, LiveScriptState> Scripts { get; } = new(StringComparer.Ordinal);
     public IReadOnlyList<LiveJvmThread> Threads { get; internal set; } = [];
+    // The app's static IPC rows, read once per app path.
+    internal (string? App, IReadOnlyList<Analysis.ElectronRow> Rows)? IpcCode { get; set; }
 }
 
 /// <summary>A JVM thread: id, name, state, whether a stop point holds it, its stack depth and its first frames.</summary>

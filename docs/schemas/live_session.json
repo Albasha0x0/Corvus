@@ -117,6 +117,10 @@
         "dump"
       ]
     },
+    "ipc": {
+      "description": "action=ipc: one line per route: direction, kind, channel, shape, count, code sites.",
+      "type": "string"
+    },
     "notices": {
       "type": "array",
       "items": {

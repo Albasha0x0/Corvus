@@ -7,7 +7,7 @@ namespace Corvus.Native.Providers.Live.Inspector;
 
 /// <summary>
 /// The <c>corvus inspector-worker</c> process: the session worker protocol answered over one V8 inspector connection
-/// (Chrome DevTools Protocol). Ops: hello, open, scripts, source, set, clear, resume, close. Events: stop (a pause, with
+/// (Chrome DevTools Protocol). Ops: hello, open, scripts, source, set, clear, resume, ipc, close. Events: stop (a pause, with
 /// its frames by script position), output (console calls) and exit (the connection ended). Positions are 0-based.
 /// </summary>
 internal static class InspectorWorker
@@ -55,6 +55,7 @@ internal static class InspectorWorker
                     ["set"] = SetAsync,
                     ["clear"] = ClearAsync,
                     ["resume"] = ResumeAsync,
+                    ["ipc"] = IpcAsync,
                     ["close"] = CloseAsync,
                 };
                 // Ops on native code are refused by name, so every tool that sends one says why.
@@ -110,6 +111,24 @@ internal static class InspectorWorker
             }
             // A paused program evaluates nothing until it runs: the value stays unknown.
             catch (ToolError) { return null; }
+        }
+
+        // Installs the IPC recorder in an Electron main process (once) and returns its ledger.
+        private async Task<JsonNode?> IpcAsync(JsonObject args, CancellationToken ct)
+        {
+            lock (_gate)
+                if (_paused) throw new ToolError(ErrorCode.Conflict, "the program is paused and evaluates nothing until it runs", "live_break action=continue, then read IPC again");
+            var r = await Cdp.SendAsync("Runtime.evaluate", new JsonObject
+            {
+                ["expression"] = ElectronIpc.Expression, ["returnByValue"] = true, ["silent"] = true, ["includeCommandLineAPI"] = true,
+            }, CommandTimeout, ct).ConfigureAwait(false);
+            if (r.TryGetProperty("exceptionDetails", out var ex))
+                throw new ToolError(ErrorCode.Unsupported, "the IPC recorder failed: " + (ex.TryGetProperty("exception", out var e) && e.TryGetProperty("description", out var d) ? d.GetString() : ex.GetProperty("text").GetString()));
+            var value = JsonNode.Parse(r.GetProperty("result").GetProperty("value").GetRawText())!.AsObject();
+            if (value["error"] is { } error)
+                throw new ToolError(ErrorCode.Unsupported, $"IPC is recorded in an Electron main process: {error.GetValue<string>()}.",
+                    "attach to the main process's inspector (electron --inspect=PORT), not a page's");
+            return value;
         }
 
         private JsonArray Scripts()

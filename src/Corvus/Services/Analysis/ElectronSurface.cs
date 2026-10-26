@@ -13,6 +13,9 @@ public sealed record ElectronRow(string Kind, string Value, string Site)
 
     [System.ComponentModel.Description("IPC: the paired sites or unpaired; window: its preload; native-call: the add-on.")]
     public string? Link { get; init; }
+
+    /// <summary>A literal IPC channel's side: send-main, listen-main, send-renderer or listen-renderer; null otherwise.</summary>
+    internal string? Role { get; init; }
 }
 
 /// <summary>The surface rows of one script, found by their call shapes (minified code keeps these property names).</summary>
