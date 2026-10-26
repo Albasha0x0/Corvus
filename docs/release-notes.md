@@ -1,5 +1,103 @@
 # Release notes
 
+## 2.7.0
+
+165 tools and 15 prompts, as in 2.6.0: everything new is a parameter, an action, a view or a kind of an existing tool.
+
+### Highlights
+
+- Open a session on a program on an Android device, a Node or Electron program through its V8 inspector, a JVM
+  through JDWP, or a TTD recording, and stop at original source lines.
+- Read databases and logs without their libraries, with deleted records recovered: LevelDB, LMDB, ESE, Berkeley DB,
+  Realm, registry hives, Windows event logs and Process Monitor captures.
+- Open Apple disk images, HFS+ and APFS volumes, asset catalogs, rpm, AppImage, snap and HarmonyOS packages, Java
+  runtime images, ESP32 flash images and model files on any OS.
+- Name the code of Dart AOT images from Dart 3.0 to 3.13, compressed pointers included, and emulate x86, x64 and ARM64
+  code without Ghidra.
+
+### Breaking changes
+
+None.
+
+### Changes
+
+- **Live, Android:** `live_session device=SERIAL` spawns or attaches through the device's frida-server; a stop adds
+  the held thread's Java frames, joined to their DEX methods (Android 14 x86_64 emulator, Frida 17.24.3; arm64 devices
+  not checked). [ff3515e0](https://github.com/Albasha0x0/Corvus/commit/ff3515e0) [6a2d4aed](https://github.com/Albasha0x0/Corvus/commit/6a2d4aed) [70e6be17](https://github.com/Albasha0x0/Corvus/commit/70e6be17)
+- **Live, V8:** `program=inspector:PORT` opens a session over the Chrome DevTools Protocol; `live_break at=FILE:LINE`
+  takes original source positions, and `action=ipc` counts an Electron app's IPC routes joined to their code (node
+  22.17.0, Electron 33.2.0; loopback only). [a9716f6a](https://github.com/Albasha0x0/Corvus/commit/a9716f6a) [5d29e5f2](https://github.com/Albasha0x0/Corvus/commit/5d29e5f2)
+- **Live, JVM:** `program=jdwp:PORT` lists threads and stacks and stops at `File.java:LINE` (HotSpot JDK 11, 22 and
+  24 on Windows x64; Linux not checked). [9cdde5ba](https://github.com/Albasha0x0/Corvus/commit/9cdde5ba)
+- **Live, TTD:** `program=ttd:PATH` replays a TTD recording forward with stop points, call recording and reads (x64
+  recordings, TTD 1.11.617; rr recordings not read). [b266b59d](https://github.com/Albasha0x0/Corvus/commit/b266b59d)
+- **Process:** `inspect_process view=windows` lists a program's UI Automation tree with each window's class procedure
+  and a PNG of its first window (Windows). [62831bdf](https://github.com/Albasha0x0/Corvus/commit/62831bdf)
+- **Emulation:** `emulate_native engine=ours` runs x86, x64 and ARM64 integer code in process with the Ghidra
+  worker's memory layout; `auto` picks it without Ghidra. Floating point, vector arithmetic and system calls stop the
+  run by name (ARM64 not checked on hardware). [30b900f3](https://github.com/Albasha0x0/Corvus/commit/30b900f3)
+- **Dart:** Dart AOT images name their code for Dart 3.0 to 3.13 and Flutter 3.10 to 3.47, compressed pointers
+  included; 99.5% or more of names equal the debug symbols. [5c4f08e8](https://github.com/Albasha0x0/Corvus/commit/5c4f08e8) [f0f42c29](https://github.com/Albasha0x0/Corvus/commit/f0f42c29) [cf9569a6](https://github.com/Albasha0x0/Corvus/commit/cf9569a6) [2e9be512](https://github.com/Albasha0x0/Corvus/commit/2e9be512) [bdaf59ea](https://github.com/Albasha0x0/Corvus/commit/bdaf59ea) [2472c621](https://github.com/Albasha0x0/Corvus/commit/2472c621)
+- **ELF:** function names are read from MiniDebugInfo (`.gnu_debugdata`). [0a1ebcd1](https://github.com/Albasha0x0/Corvus/commit/0a1ebcd1)
+- **Mach-O:** a signature's code requirements show as `codesign -d -r-` prints them. [94521155](https://github.com/Albasha0x0/Corvus/commit/94521155)
+- **Raw code:** `format=raw arch=m68k` loads 68000 code; an iNES or NES 2.0 ROM unpacks to the CPU's view at power-on.
+  [752d8b12](https://github.com/Albasha0x0/Corvus/commit/752d8b12)
+- **Engines:** `decompile_native engine=all` returns IDA's and Ghidra's text for one address in one call.
+  [26247645](https://github.com/Albasha0x0/Corvus/commit/26247645)
+- **Apple images:** UDIF disk images (every chunk method, LZFSE included), HFS+ and APFS volumes, decmpfs files and
+  compiled asset catalogs open as containers (compared with 7-Zip 26.04 and carfile-go 0.8.0; sealed and encrypted
+  volumes not read). [f7e891b8](https://github.com/Albasha0x0/Corvus/commit/f7e891b8) [0720a0f0](https://github.com/Albasha0x0/Corvus/commit/0720a0f0) [147fba90](https://github.com/Albasha0x0/Corvus/commit/147fba90) [66af06a6](https://github.com/Albasha0x0/Corvus/commit/66af06a6)
+- **Databases:** `summarize_file` views `leveldb`, `lmdb`, `ese`, `berkeleydb` and `realm` page records and recover
+  deleted ones, each compared with its reference library. [9f3713ac](https://github.com/Albasha0x0/Corvus/commit/9f3713ac) [270c1082](https://github.com/Albasha0x0/Corvus/commit/270c1082) [b34b2606](https://github.com/Albasha0x0/Corvus/commit/b34b2606) [be786125](https://github.com/Albasha0x0/Corvus/commit/be786125) [9b89cdf1](https://github.com/Albasha0x0/Corvus/commit/9b89cdf1)
+- **Windows files:** views `registry` (hives, deleted keys), `evtx` (event logs, records in free space), `procmon`
+  (Process Monitor captures) and `pri` (package resource indexes). [1d77b83a](https://github.com/Albasha0x0/Corvus/commit/1d77b83a) [46fa138e](https://github.com/Albasha0x0/Corvus/commit/46fa138e) [28293642](https://github.com/Albasha0x0/Corvus/commit/28293642) [3bddd78c](https://github.com/Albasha0x0/Corvus/commit/3bddd78c)
+- **Packages:** rpm, AppImage and snap packages, Java runtime images (`lib/modules`) and HarmonyOS packages with Ark
+  bytecode (OpenHarmony 5.1.0 SDK). [cf368dde](https://github.com/Albasha0x0/Corvus/commit/cf368dde) [59dbc850](https://github.com/Albasha0x0/Corvus/commit/59dbc850) [c4c22c0a](https://github.com/Albasha0x0/Corvus/commit/c4c22c0a) [2836b6f8](https://github.com/Albasha0x0/Corvus/commit/2836b6f8)
+- **Containers:** Unreal pak and IoStore, GameMaker data, Lua and LuaJIT bytecode, compiled AutoIt scripts, Qt
+  resource collections (compiled-in ones too), SWF files, and ESP32 flash images, partition tables and NVS.
+  [d826ba28](https://github.com/Albasha0x0/Corvus/commit/d826ba28) [de0f101b](https://github.com/Albasha0x0/Corvus/commit/de0f101b) [75a819b0](https://github.com/Albasha0x0/Corvus/commit/75a819b0) [a0b23874](https://github.com/Albasha0x0/Corvus/commit/a0b23874) [a489d2bb](https://github.com/Albasha0x0/Corvus/commit/a489d2bb) [0b91da28](https://github.com/Albasha0x0/Corvus/commit/0b91da28)
+- **Models:** `summarize_file view=model` reads safetensors, GGUF, ONNX and PyTorch files and walks pickles on a
+  symbolic stack, so nothing is imported or run. [687f52f3](https://github.com/Albasha0x0/Corvus/commit/687f52f3)
+- **Certificates:** `summarize_file view=certificate` reads PEM, DER, PKCS #7 and PKCS #12 files and builds their
+  chains; APK pins name the bundled certificate they match. [ba7cf5c8](https://github.com/Albasha0x0/Corvus/commit/ba7cf5c8)
+- **Captures:** HTTP/3 objects export from QUIC v1 and v2 captures, and `view=qlog` reads qlog event logs.
+  [4cafc0e1](https://github.com/Albasha0x0/Corvus/commit/4cafc0e1)
+- **Web:** `view=page` checks a saved page's scripts, Subresource Integrity, import maps and meta CSP; `analyze_js`
+  gains `view=beautify` with renames by scope, `view=react` and `view=jsx`; `view=flight` reads React Server Components
+  payloads; `view=wasm` shows a component's world in WIT. [da7fe193](https://github.com/Albasha0x0/Corvus/commit/da7fe193) [651f325c](https://github.com/Albasha0x0/Corvus/commit/651f325c) [d27cda83](https://github.com/Albasha0x0/Corvus/commit/d27cda83) [8548d808](https://github.com/Albasha0x0/Corvus/commit/8548d808) [6d69475f](https://github.com/Albasha0x0/Corvus/commit/6d69475f) [d6c40cfc](https://github.com/Albasha0x0/Corvus/commit/d6c40cfc)
+- **Mobile:** the layers view joins Cordova and Capacitor calls to their plugin classes. [36285815](https://github.com/Albasha0x0/Corvus/commit/36285815)
+- **Setup:** install, config and status register Kimi Code, Qoder, Droid, Trae, CodeBuddy, Hermes and DeepSeek
+  Harness; `corvus.json` in the data folder sets `CORVUS_` variables. [8da13d49](https://github.com/Albasha0x0/Corvus/commit/8da13d49) [84a9f748](https://github.com/Albasha0x0/Corvus/commit/84a9f748) [f5fc9b46](https://github.com/Albasha0x0/Corvus/commit/f5fc9b46)
+- **Status:** `server_status` lists running and finished calls, and the external programs not found share one row.
+  [00f871c9](https://github.com/Albasha0x0/Corvus/commit/00f871c9) [30b900f3](https://github.com/Albasha0x0/Corvus/commit/30b900f3)
+- **Release:** a container image with a read-only root is pushed to ghcr.io (linux-x64, linux-arm64), and the
+  documentation is attached as a static HTML site. [ff515342](https://github.com/Albasha0x0/Corvus/commit/ff515342) [395a189c](https://github.com/Albasha0x0/Corvus/commit/395a189c)
+- **Docs:** Simplified Chinese and Japanese README translations. [58741f97](https://github.com/Albasha0x0/Corvus/commit/58741f97)
+
+### Fixes
+
+- **Engines:** worker folders are closed to other user accounts, and a worker connection disposed under load no
+  longer ends the server. [2d7e3a56](https://github.com/Albasha0x0/Corvus/commit/2d7e3a56) [42fb7d84](https://github.com/Albasha0x0/Corvus/commit/42fb7d84)
+- **Native:** `resolve_address` resolves a name while the code index is still building. [0a3a2f27](https://github.com/Albasha0x0/Corvus/commit/0a3a2f27)
+- **Containers:** 64-bit NSIS installers list their files, Godot 3 packs embedded in executables read, and every
+  `summarize_file` view that pages takes its paging parameters. [b0ba843e](https://github.com/Albasha0x0/Corvus/commit/b0ba843e) [2393b92c](https://github.com/Albasha0x0/Corvus/commit/2393b92c) [de1509ab](https://github.com/Albasha0x0/Corvus/commit/de1509ab)
+- **Web:** positions in later sections of an indexed source map name the right source, and `analyze_js view=beautify`
+  is accepted through the server. [57422e53](https://github.com/Albasha0x0/Corvus/commit/57422e53) [c1cbd3ef](https://github.com/Albasha0x0/Corvus/commit/c1cbd3ef)
+- **Status:** `server_status` stays within its report budget on a busy server and on a machine without the external
+  programs; a jar tool is never reported as a running check. [501b3294](https://github.com/Albasha0x0/Corvus/commit/501b3294) [27dfb735](https://github.com/Albasha0x0/Corvus/commit/27dfb735) [255ec779](https://github.com/Albasha0x0/Corvus/commit/255ec779) [30b900f3](https://github.com/Albasha0x0/Corvus/commit/30b900f3)
+- **Setup:** a server check keeps the server's exit message when its stdout ends first. [01d21b2c](https://github.com/Albasha0x0/Corvus/commit/01d21b2c)
+- **Mobile:** a device wait requires the device's shell to answer, so a device listed as ready that stopped answering
+  is named. [30b900f3](https://github.com/Albasha0x0/Corvus/commit/30b900f3)
+
+### In progress
+
+- **Live, Frida:** a module loaded inside `SHGetKnownFolderPath` is missing from Frida's module registry; Corvus keeps
+  its workaround until a Frida release ships the fix (frida/frida-gum#1190).
+- **Live, browser:** sessions on a browser page over the Chrome DevTools Protocol.
+- **Live, Android:** arm64 devices and Il2Cpp programs on a device.
+- **Emulation:** ARM64 checked against hardware.
+- **Tests:** push runs within 15 minutes, and IDA tests split across two test hosts.
+
 ## 2.6.0
 
 165 tools and 15 prompts, as in 2.5.1: everything new is a parameter, an action, a view or a kind of an existing tool.
