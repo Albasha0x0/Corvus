@@ -118,7 +118,7 @@ public sealed partial class LiveSessionTools(ServerOptions options, LiveSessionS
     [Description("Open, list, inspect or close a session on a program: id, backend, modules matched to images; snapshot saves a dump.")]
     public Task<string> LiveSession(
         [Description("What to do.")] string action = "list",
-        [Description("attach: pid, name, inspector:PORT (Node, Electron) or jdwp:PORT (JVM); spawn: program path (started suspended); processes: name filter; *_child: child pid.")] string? program = null,
+        [Description("attach: pid, name, inspector:PORT, jdwp:PORT (JVM), ttd:PATH (recording); spawn: program path (started suspended); processes: name filter; *_child: child pid.")] string? program = null,
         [Description("spawn: program arguments.")] string[]? arguments = null,
         [Description("spawn: NAME=value variables.")] string[]? environment = null,
         [Description(SessionDescription)] string? session = null,
@@ -156,7 +156,9 @@ public sealed partial class LiveSessionTools(ServerOptions options, LiveSessionS
                     if (serial != null && options.LiveAllow.Count > 0)
                         throw new ToolError(ErrorCode.AccessDenied, "--live-allow names folders on this machine, so device sessions are refused while it is set.",
                             "start the server without --live-allow to open a device session");
-                    var opened = await live.OpenAsync(a == "spawn", serial != null ? program : Scoped(a == "spawn", program), arguments ?? [], cancellationToken,
+                    // A recording runs nothing, so --live-allow, which scopes running programs, does not apply.
+                    var recording = Native.Providers.Live.Ttd.TtdWorker.Is(program);
+                    var opened = await live.OpenAsync(a == "spawn", serial != null || recording ? program : Scoped(a == "spawn", program), arguments ?? [], cancellationToken,
                         a == "spawn" ? environment : null, names, downloadDac: downloadDac, device: serial).ConfigureAwait(false);
                     return Report(a, opened);
                 case "children":

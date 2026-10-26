@@ -139,6 +139,25 @@ Closing removes the stop points and detaches (VirtualMachine.Dispose), so the pr
 one listening on the port before the session connects, which `--live-allow` checks. Native actions are refused.
 Tested with JDK 11.0.24, 22.0.1 and 24.0.1 (HotSpot, Windows x64).
 
+### Time travel recordings (TTD)
+
+`live_session action=attach program=ttd:PATH` opens a session on a recording made with TTD.exe (`TTD.exe -out DIR
+program.exe`). The session replays the recording with the TTD Replay API; nothing runs. Set `CORVUS_TTD` to a folder
+holding `TTDReplay.dll` and `TTDReplayCPU.dll`, copied from WinDbg's `amd64\ttd` folder (the Store install cannot be
+loaded in place).
+
+- The session opens held at the recording's first position, with every module the recording loaded.
+- `live_break` sets stop points by name, `module!export` or address; `continue` replays forward to the next one. A
+  stop names its stack (x64 unwind data from each module's file, else from the recording) and its position, as
+  WinDbg's `!tt` takes it.
+- `live_watch` records each call to a function: arguments at entry, return value and caller.
+- `live_read` reads registers and memory at the current position.
+- The end of the recording ends the session's program.
+
+Replay moves forward only. Writes, scripts, coverage and child processes are refused. Windows x64 recordings only.
+Tested with TTD 1.11.617 (WinDbg 1.2610.1001.0); calls and stacks equal WinDbg's `TTD.Calls` and `k` on the same
+recording. rr recordings (Linux) are not read.
+
 ### Frida
 
 A session runs a worker on Frida's Python bindings. Either install them

@@ -194,6 +194,7 @@ Optional. `server_status` shows where each was found, its version, or the fix.
 | Variable | Program | Used for |
 |---|---|---|
 | `CORVUS_FRIDA_PYTHON` | Python with Frida's bindings (tested: 17.24.3 to 17.x; 17.0 or newer required) | The session tools' worker. |
+| `CORVUS_TTD` | Folder holding `TTDReplay.dll` and `TTDReplayCPU.dll`, copied from WinDbg's `amd64\ttd` (tested: TTD 1.11.617) | Sessions on TTD recordings (`program=ttd:PATH`). |
 | `CORVUS_JAVA` | JDK 17+ (`JAVA_HOME`, `PATH`) | The Java decompilers. |
 | `CORVUS_JAVA_DECOMPILER` | [jadx-headless-mcp](https://github.com/1013503897/jadx-headless-mcp) jar | `decompile_java`: Java and Kotlin source. |
 | `CORVUS_JAVA_DECOMPILER2` | [Vineflower](https://github.com/Vineflower/vineflower) jar | `decompile_java engine=vineflower`. |

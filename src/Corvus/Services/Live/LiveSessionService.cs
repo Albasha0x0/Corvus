@@ -482,9 +482,14 @@ public sealed partial class LiveSessionService(AssemblyWorkspace workspace, Nati
         if (_sessions.Values.Count(s => !s.Closed) >= MaxSessions)
             throw new ToolError(ErrorCode.LimitExceeded, $"{MaxSessions} sessions are open.", "close one with live_session action=close");
         if (Native.Providers.Live.Inspector.InspectorEndpoint.Is(program) || Native.Providers.Live.Jdwp.JdwpWorker.Is(program)) return await OpenScriptRuntimeAsync(program, ct).ConfigureAwait(false);
-        if (Backend.Unavailable() is { } missing)
+        // A recording replays in its own worker; nothing runs, so no process checks apply.
+        var recording = Native.Providers.Live.Ttd.TtdWorker.Is(program);
+        if (recording && (spawn || device != null || childNames != null))
+            throw new ToolError(ErrorCode.InvalidArgument, "A recording is opened with action=attach program=ttd:<path>, without device or children.");
+        var backend = recording ? new Native.Providers.Live.Ttd.TtdBackend() : Backend;
+        if (backend.Unavailable() is { } missing)
             throw new ToolError(ErrorCode.ProviderUnavailable, missing.Reason, missing.Remediation);
-        if (childNames != null && OperatingSystem.IsMacOS() && Backend is FridaBackend)
+        if (childNames != null && OperatingSystem.IsMacOS() && backend is FridaBackend)
             throw new ToolError(ErrorCode.Unsupported, "Following child processes is not supported on macOS: Frida's child gating misses a fork there intermittently, so a child can run unobserved.",
                 "open a session on the child once it runs (action=attach program=<process id or name>)");
         if (device != null && childNames != null)
@@ -502,7 +507,7 @@ public sealed partial class LiveSessionService(AssemblyWorkspace workspace, Nati
             if (!File.Exists(target)) throw new ToolError(ErrorCode.NotFound, $"No program at {target}.", "program=<path to the program's file>");
             if (Native.Live.StaticProgram.Is(target)) throw Native.Live.StaticProgram.Refusal(target);
         }
-        else
+        else if (!recording)
         {
             LiveProgramScope.RefuseOwnChain(target);
             if (int.TryParse(target, out var id) && OperatingSystem.IsLinux() && LiveProgramScope.ImagePath(id) is { } image && Native.Live.StaticProgram.Is(image))
@@ -510,17 +515,17 @@ public sealed partial class LiveSessionService(AssemblyWorkspace workspace, Nati
         }
         // adb names a device that is missing, unauthorized or offline; Frida only finds none.
         if (device != null) await Task.Run(() => Adb.WaitReady(device, DeviceReadyWait, ct), ct).ConfigureAwait(false);
-        var worker = Backend.Start();
-        var session = new LiveSession("live-" + Interlocked.Increment(ref _next), Backend.Name, target, spawn, worker) { DownloadDac = downloadDac, Device = device };
+        var worker = backend.Start();
+        var session = new LiveSession("live-" + Interlocked.Increment(ref _next), backend.Name, target, spawn, worker) { DownloadDac = downloadDac, Device = device };
         worker.EventReceived += e => OnEvent(session, e);
         try
         {
             await worker.WaitReadyAsync(StartTimeout, ct).ConfigureAwait(false);
             var hello = await worker.RequestAsync("hello", null, StartTimeout, ct).ConfigureAwait(false);
             var frida = hello.ValueKind == JsonValueKind.Object && hello.TryGetProperty("frida", out var v) ? v.GetString() : null;
-            if (FridaVersions.Refusal(frida) is { } old) throw new ToolError(ErrorCode.ProviderUnavailable, old, FridaBackend.Upgrade);
-            if (FridaVersions.Warning(frida) is { } untested) session.Add("error", null, null, untested);
-            var args = device != null
+            if (!recording && FridaVersions.Refusal(frida) is { } old) throw new ToolError(ErrorCode.ProviderUnavailable, old, FridaBackend.Upgrade);
+            if (!recording && FridaVersions.Warning(frida) is { } untested) session.Add("error", null, null, untested);
+            var args = recording ? new JsonObject { ["ttd"] = target } : device != null
                 ? spawn
                     ? new JsonObject
                     {
@@ -547,7 +552,8 @@ public sealed partial class LiveSessionService(AssemblyWorkspace workspace, Nati
             }
             var info = await worker.RequestAsync("open", args, RequestTimeout, ct).ConfigureAwait(false);
             session.ProcessId = info.GetProperty("pid").GetInt32();
-            if (device == null && OperatingSystem.IsWindows())
+            // A recording's process id names the recorded process, long gone; another process may hold it now.
+            if (device == null && !recording && OperatingSystem.IsWindows())
             {
                 // full query rights let stop frames be checked against page protection; the limited right still reads the exit code
                 foreach (var access in new[] { Native.Live.LiveNative.PROCESS_QUERY_INFORMATION, Native.Live.LiveNative.PROCESS_QUERY_LIMITED_INFORMATION })
@@ -561,7 +567,7 @@ public sealed partial class LiveSessionService(AssemblyWorkspace workspace, Nati
                 }
             }
             // two sessions in one process place their hooks independently, at the same functions
-            if (_sessions.Values.FirstOrDefault(o => o.ProcessId == session.ProcessId && o.State is not ("closed" or "exited" or "failed")) is { } other)
+            if (!recording && _sessions.Values.FirstOrDefault(o => o.ProcessId == session.ProcessId && o.State is not ("closed" or "exited" or "failed")) is { } other)
                 throw new ToolError(ErrorCode.Conflict, $"Process {session.ProcessId} is already in session {other.Id}.", $"use {other.Id}, or close it first (live_session action=close session={other.Id})");
             session.Arch = info.GetProperty("arch").GetString() ?? "";
             session.Platform = info.TryGetProperty("platform", out var platform) ? platform.GetString() ?? "" : "";
@@ -804,7 +810,9 @@ public sealed partial class LiveSessionService(AssemblyWorkspace workspace, Nati
                 int hits = body.TryGetProperty("hits", out var h) ? h.GetInt32() : 0;
                 if (session.StopPoints.TryGetValue(point, out var sp)) sp.Hits = hits;
                 var thread = Thread();
-                session.Add("stop", thread, frames.FirstOrDefault(), $"stop point {point} hit {hits}",
+                // A recording's stop names its TTD position, as WinDbg's !tt takes it.
+                var position = body.TryGetProperty("position", out var pos) ? $" at position {pos.GetString()}" : "";
+                session.Add("stop", thread, frames.FirstOrDefault(), $"stop point {point} hit {hits}{position}",
                     seq => new LiveHeldStop(seq, thread ?? 0, point, registers, frames));
                 break;
             }
