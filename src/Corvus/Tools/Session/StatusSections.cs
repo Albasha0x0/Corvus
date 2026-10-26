@@ -107,6 +107,20 @@ internal sealed class CallsStatus : IStatusSection
 
     private const int LockUsersShown = 4;
 
+    /// <summary>
+    /// One field, kept small for the status budget: the calls running, oldest first, with their time so far, then the
+    /// finished ones, newest first, with outcome and time; "none" before any call. Status calls are not running calls here.
+    /// </summary>
+    internal static StatusField Activity(CallActivity activity, DateTimeOffset now)
+    {
+        var (all, finished) = activity.Snapshot();
+        var running = all.Where(c => c.Tool != "server_status").ToList();
+        if (running.Count == 0 && finished.Count == 0) return new("activity", "none");
+        string List(IEnumerable<string> calls) => string.Join(", ", calls) is { Length: > 0 } list ? list : "none";
+        return new("activity", $"running: {List(running.Select(c => $"{c.Tool} {(now - c.Started).TotalSeconds:0.0} s"))}; " +
+            $"finished, newest first: {List(finished.Select(c => $"{c.Tool} {c.Outcome} {c.Milliseconds:0} ms"))}");
+    }
+
     public IEnumerable<StatusField> Fields(IServiceProvider services)
     {
         if (services.GetService<ServerOptions>() is { } options)
@@ -116,6 +130,8 @@ internal sealed class CallsStatus : IStatusSection
                 (leftovers.Running < leftovers.Max ? "" : "; new calls wait, then are refused as busy"), LeftoverWork.MaxVariable);
             yield return new("joined", $"{CallJoin.For(options).Running} read-only runs shared by identical calls");
         }
+        if (services.GetService<CallActivity>() is { } activity)
+            yield return Activity(activity, DateTimeOffset.UtcNow);
         // This call holds no lock, so every holder is another call or background work.
         if (services.GetService<AssemblyWorkspace>() is { } workspace)
         {

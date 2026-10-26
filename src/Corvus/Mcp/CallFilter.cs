@@ -51,6 +51,11 @@ internal static partial class CallFilter
             log.Cancelled();
             throw;
         }
+        catch
+        {
+            log.Failed();
+            throw;
+        }
         // The bookkeeping below keeps the client's cancellation: Execute's scope, deadline included, has ended.
         using var waits = AssemblyWorkspace.CancelWaitsWith(cancellationToken, tool);
         services?.GetService<ResourceSubscriptions>()?.Check();

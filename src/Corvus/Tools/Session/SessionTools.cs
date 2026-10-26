@@ -74,7 +74,7 @@ public sealed class SessionTools(AssemblyWorkspace workspace, IndexingService in
         EngineLimits EngineTimeLimits,
         IReadOnlyList<EngineSession> EngineSessions,
         CatalogFilter ToolsFileAndTrace,
-        [property: Description("budget, results (kept-result store), caches, calls (leftover calls, lock holders), workers (child PIDs), run.")]
+        [property: Description("budget, results (kept results), caches, calls (activity, leftover, lock holders), workers (child PIDs), run.")]
         IReadOnlyList<StatusSection> Sections);
 
     [McpServerTool(Name = "server_status", Title = "Server status", UseStructuredContent = true)]

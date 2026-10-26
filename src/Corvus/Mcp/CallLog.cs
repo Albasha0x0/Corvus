@@ -25,6 +25,8 @@ public sealed class CallLog
     private readonly CallTrace? _trace;
     private readonly long _started = Stopwatch.GetTimestamp();
     private readonly Native.Providers.EngineUse.Record _engine;
+    private readonly CallActivity? _activity;
+    private readonly long _activityId;
 
     private CallLog(CallToolRequestParams? request, IServiceProvider? services)
     {
@@ -32,6 +34,8 @@ public sealed class CallLog
         _log = services?.GetService<ILoggerFactory>()?.CreateLogger("Corvus.Calls") is { } l && l.IsEnabled(LogLevel.Information) ? l : null;
         _trace = CallTrace.For(services?.GetService<ServerOptions>());
         _engine = Native.Providers.EngineUse.Begin();
+        _activity = services?.GetService<CallActivity>();
+        if (_activity != null) _activityId = _activity.Start(request?.Name ?? "?");
     }
 
     /// <summary>Starts the record on the call's flow (the engine record lives there).</summary>
@@ -44,6 +48,9 @@ public sealed class CallLog
 
     public void Cancelled() => Write("cancelled", null, 0, 0);
 
+    /// <summary>The call ended with an exception no result was made from.</summary>
+    public void Failed() => Write("exception", null, 0, 0);
+
     public void Completed(CallToolResult result)
     {
         var (text, structured) = Tokens(result);
@@ -53,6 +60,7 @@ public sealed class CallLog
     private void Write(string outcome, CallToolResult? result, long textTokens, long structuredTokens)
     {
         var ms = Milliseconds;
+        _activity?.End(_activityId, ms, outcome);
         _log?.LogInformation(Template, _request?.Name, outcome, (long)ms, textTokens, structuredTokens, Engine ?? "-");
         _trace?.Record(_request?.Name, _request?.Arguments, ms, outcome == "ok" ? null : outcome, result, textTokens, structuredTokens);
     }

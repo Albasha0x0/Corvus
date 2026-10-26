@@ -279,7 +279,7 @@
       }
     },
     "sections": {
-      "description": "budget, results (kept-result store), caches, calls (leftover calls, lock holders), workers (child PIDs), run.",
+      "description": "budget, results (kept results), caches, calls (activity, leftover, lock holders), workers (child PIDs), run.",
       "type": "array",
       "items": {
         "type": "object",

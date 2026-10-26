@@ -95,6 +95,7 @@ public static class ServerHost
             .AddSingleton<OutputPager>()
             .AddSingleton<ResultStore>()
             .AddSingleton<RecentCalls>()
+            .AddSingleton<CallActivity>()
             .AddSingleton<DecompilerService>()
             .AddSingleton<SearchService>()
             .AddSingleton<ReferenceService>()
