@@ -53,6 +53,20 @@ public sealed class RegistryHiveTests(ITestOutputHelper output) : IDisposable
         return (RegistryFileView.Facts)new RegistryFileView().Inspect(f, default)!.Detail;
     }
 
+    // Regression: summarize_file refused table=, offset= and limit= for view=registry (1d77b83a).
+    [Fact]
+    public async Task Summarize_file_pages_a_key_of_a_hive()
+    {
+        var path = _dir.File("paged.dat");
+        File.WriteAllBytes(path, new HiveSamples().Build(Sample()));
+        await using var server = await InProcessServer.StartAsync();
+        var r = await server.Client.CallToolAsync("summarize_file", new Dictionary<string, object?> { ["path"] = path, ["view"] = "registry", ["table"] = "Software", ["offset"] = 1, ["limit"] = 1 });
+        Assert.NotEqual(true, r.IsError);
+        var detail = r.StructuredContent!.Value.GetProperty("detail");
+        Assert.Equal(("Software", 3, 1, 2), (detail.GetProperty("path").GetString(), detail.GetProperty("subkeys").GetInt32(),
+            detail.GetProperty("subkeyPage").GetArrayLength(), detail.GetProperty("next").GetInt32()));
+    }
+
     [Fact]
     public void A_hive_lists_its_keys_and_values_by_type()
     {

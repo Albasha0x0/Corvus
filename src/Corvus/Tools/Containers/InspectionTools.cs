@@ -17,6 +17,20 @@ public sealed class InspectionTools(InspectionService inspection, AssemblyWorksp
     private const string AssemblyParam = "A loaded assembly; pass this or path.";
     private const string PathParam = "A .NET assembly or container, a Unity build folder, package or zip, or a serialized file or bundle; pass this or assembly.";
 
+    // The views that read each paging parameter; any other view refuses it.
+    private static readonly string[] TableViews = ["sqlite", "sqlite-recover", "lmdb", "ese", "berkeleydb", "realm", "evtx", "procmon", "registry"];
+    private static readonly string[] ColumnViews = ["sqlite", "sqlite-recover"];
+    private static readonly string[] LimitViews = [.. TableViews, "protobuf", "layers", "unity", "leveldb", "qlog", "certificate"];
+    private static readonly string[] OffsetViews = [.. LimitViews, "script", "python", "xbf"];
+
+    /// <summary>The first paging parameter passed that <paramref name="view"/> does not read, with the views that do; null when all apply.</summary>
+    internal static (string Parameter, string[] Views)? Refused(string view, bool table, bool columns, bool offset, bool limit) =>
+        table && !TableViews.Contains(view) ? ("table", TableViews)
+        : columns && !ColumnViews.Contains(view) ? ("columns", ColumnViews)
+        : offset && !OffsetViews.Contains(view) ? ("offset", OffsetViews)
+        : limit && !LimitViews.Contains(view) ? ("limit", LimitViews)
+        : null;
+
     [McpServerTool(Name = "summarize_file", Title = "Summarize file", UseStructuredContent = true, OutputSchemaType = typeof(FileSummaryRecord))]
     [Description("Read a file or assembly, not run: type, hashes, signature, containers, assemblies, highlights (toolchain, " +
                  "capabilities, packagers), entry points. view= takes package, raw (headerless code), " +
@@ -37,11 +51,9 @@ public sealed class InspectionTools(InspectionService inspection, AssemblyWorksp
         CancellationToken cancellationToken = default) => OrderedProgress.Run(context, async progress =>
         {
             var name = string.IsNullOrWhiteSpace(view) ? "overview" : view.Trim().ToLowerInvariant();
-            if (table != null && name is not ("sqlite" or "sqlite-recover" or "lmdb" or "ese" or "berkeleydb" or "realm" or "evtx" or "procmon") || columns != null && name is not ("sqlite" or "sqlite-recover")
-                || limit != null && name is not ("sqlite" or "sqlite-recover" or "protobuf" or "layers" or "unity" or "leveldb" or "lmdb" or "ese" or "berkeleydb" or "realm" or "qlog" or "certificate" or "evtx" or "procmon")
-                || offset != 0 && name is not ("sqlite" or "sqlite-recover" or "protobuf" or "layers" or "script" or "unity" or "leveldb" or "lmdb" or "ese" or "berkeleydb" or "realm" or "qlog" or "certificate" or "evtx" or "procmon"))
-                throw new ToolError(ErrorCode.InvalidArgument, "table, columns, offset and limit page the rows of view=sqlite and view=sqlite-recover (table, offset and limit also view=lmdb, view=ese, view=berkeleydb, view=realm, view=evtx and view=procmon; offset and limit also view=protobuf, view=layers, view=unity, view=leveldb, view=qlog and view=certificate; offset view=script).",
-                    "pass view=sqlite with table=, or drop them");
+            if (Refused(name, table != null, columns != null, offset != 0, limit != null) is { } refused)
+                throw new ToolError(ErrorCode.InvalidArgument, $"{refused.Parameter}= applies to view={string.Join(", view=", refused.Views)}, not view={name}.",
+                    $"drop {refused.Parameter}=, or pass one of those views");
             if (script != null && name != "unity") throw new ToolError(ErrorCode.InvalidArgument, "script selects the assets of view=unity.", "pass view=unity with script=, or drop it");
             if (columns != null && table == null) throw new ToolError(ErrorCode.InvalidArgument, "columns selects columns of a table: pass table= with it.");
             var options = new FileViewOptions(name, table, columns, offset, limit) { Sbom = sbomPath != null, Stix = stixPath != null, Script = script };
