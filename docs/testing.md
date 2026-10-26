@@ -368,6 +368,7 @@ describe.
 | `CORVUS_QT_RESOURCES` | A folder of `.rcc` files, compared with Qt through `CORVUS_QT_PYTHON`, and Qt programs whose compiled-in collections must be found and expand. | QtResourceTests |
 | `CORVUS_SWF_DUMP` | `swfdump.jar` of the Apache Flex SDK (4.16.1), run with java from `JAVA_HOME` or `PATH`. | SwfTests |
 | `CORVUS_SWF_FILES` | A folder of `.swf` files (searched recursively; the Flex SDK folder holds 20), compared with `CORVUS_SWF_DUMP`. | SwfTests |
+| `CORVUS_REGISTRY_HIVES` | A folder of registry hive files (searched recursively), each compared with the Offline Registry Library (Windows). | RegistryHiveTests |
 | `CORVUS_R2R_COMPOSITE_DIR` | A composite ReadyToRun app: the output of a self-contained `dotnet publish` with composite ReadyToRun. | ReadyToRunTests |
 | `CORVUS_REALM_FILES` | A folder searched for Realm files (any name, by their header) compared with the realm package through `CORVUS_REALM_REFERENCE`. | RealmTests |
 | `CORVUS_REALM_REFERENCE` | A folder holding `node_modules/realm`; RealmTests runs reference.js with node from PATH and this folder as NODE_PATH. | RealmTests |
@@ -516,6 +517,11 @@ missing.
   in order, each sprite's tags and the binary data sizes; per ActionScript 3 block the pool, method, class, script and
   body counts and every class with its base class, interfaces and instance traits. Every image and block must read
   without a note. LZMA files are checked on built files (`Support/SwfSamples.cs`) only; the SDK ships zlib files.
+- **Registry hives against the Offline Registry Library** (`RegistryHiveTests`, `CORVUS_REGISTRY_HIVES`, offreg.dll of
+  Windows 11): every key with its class name and last write time, and every value with its type and data, in the order
+  the library enumerates them, must be the ones read here: built hives (`Support/HiveSamples.cs`: lh and ri lists,
+  format 1.3 and 1.5), hives the library writes for Windows 5.1 and 6.1 (2,000 subkeys, a 100 KB value), and real hives.
+  Deleted keys are checked on built hives only; the library does not show them.
 - **HTTP/3 field sections against Wireshark** (`Http3Tests`, `CORVUS_TSHARK`, TShark 4.6.9): an aioquic 1.2.0 capture
   (`Containers/Http3Fixtures/build.py`: five requests, a key update, AES-256-GCM) decrypted with its key log; every
   HTTP/3 field section, its stream and field lines in order, must equal what TShark decodes.

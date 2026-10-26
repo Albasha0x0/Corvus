@@ -553,14 +553,14 @@ File inspection, containers and wrapped apps, Unity overview.
 
 **Summarize file** (read-only, idempotent)
 
-Read a file or assembly, not run: type, hashes, signature, containers, assemblies, highlights (toolchain, capabilities, packagers), entry points. view= takes package (install review), raw (headerless code), script (layers), sqlite, unity (MonoBehaviour fields); views lists what applies.
+Read a file or assembly, not run: type, hashes, signature, containers, assemblies, highlights (toolchain, capabilities, packagers), entry points. view= takes package, raw (headerless code), script (layers), sqlite, unity (MonoBehaviour fields); views lists the rest.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `path` | string |  |  | File (assembly, executable, bundle, package, zip, .asar) or folder. |
 | `assembly` | string |  |  | A loaded assembly; pass this or path. |
-| `view` | string |  | `overview` | A view the overview lists. Values: overview, managed, dependencies, android, apple, berkeleydb, certificate, electron, ese, evtx, firmware, flutter, go, harmony, hermes, installer, layers, leveldb, lmdb, lnk, native, nib, office, package, page, pcap, pdf, plist, procmon, protobuf, python, qlog, raw, realm, rust, script, sqlite, sqlite-recover, unity, wasm, xbf, all. |
-| `table` | string |  |  | sqlite, ese, realm: table; lmdb, berkeleydb: database; evtx: provider/id; procmon: process/PID/operation/result. |
+| `view` | string |  | `overview` | A view the overview lists. Values: overview, managed, dependencies, android, apple, berkeleydb, certificate, electron, ese, evtx, firmware, flutter, go, harmony, hermes, installer, layers, leveldb, lmdb, lnk, native, nib, office, package, page, pcap, pdf, plist, procmon, protobuf, python, qlog, raw, realm, registry, rust, script, sqlite, sqlite-recover, unity, wasm, xbf, all. |
+| `table` | string |  |  | sqlite, ese, realm: table; lmdb, berkeleydb: database; evtx: provider/id; procmon: process/PID/operation/result; registry: key. |
 | `columns` | string[] |  |  | With table=: these columns, rowid too. |
 | `script` | string |  |  | unity: only assets of this script class. |
 | `offset` | integer |  |  |  |

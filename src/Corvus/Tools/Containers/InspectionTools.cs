@@ -19,13 +19,13 @@ public sealed class InspectionTools(InspectionService inspection, AssemblyWorksp
 
     [McpServerTool(Name = "summarize_file", Title = "Summarize file", UseStructuredContent = true, OutputSchemaType = typeof(FileSummaryRecord))]
     [Description("Read a file or assembly, not run: type, hashes, signature, containers, assemblies, highlights (toolchain, " +
-                 "capabilities, packagers), entry points. view= takes package (install review), raw (headerless code), " +
-                 "script (layers), sqlite, unity (MonoBehaviour fields); views lists what applies.")]
+                 "capabilities, packagers), entry points. view= takes package, raw (headerless code), " +
+                 "script (layers), sqlite, unity (MonoBehaviour fields); views lists the rest.")]
     public Task<string> SummarizeFile(
         [Description("File (assembly, executable, bundle, package, zip, .asar) or folder.")] string? path = null,
         [Description(AssemblyParam)] string? assembly = null,
         [Description("A view the overview lists.")] string view = "overview",
-        [Description("sqlite, ese, realm: table; lmdb, berkeleydb: database; evtx: provider/id; procmon: process/PID/operation/result.")] string? table = null,
+        [Description("sqlite, ese, realm: table; lmdb, berkeleydb: database; evtx: provider/id; procmon: process/PID/operation/result; registry: key.")] string? table = null,
         [Description("With table=: these columns, rowid too.")] string[]? columns = null,
         [Description("unity: only assets of this script class.")] string? script = null,
         [Description(ToolSupport.RowOffsetDescription)] long offset = 0,

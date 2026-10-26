@@ -43,7 +43,8 @@ public static partial class Guide
         tls.json (version, cipher, JA3 / JA4 / JA4S); keyLog (SSLKEYLOGFILE) or the pcapng's secrets blocks decrypt TLS 1.2 / 1.3 and
         QUIC; summarize_file view=qlog reads QUIC event logs; view=certificate reads PEM, DER, PKCS #7 and PKCS #12
         files (fingerprints, SPKI pins, chains); view=evtx pages a Windows event log's events, recovered ones too;
-        view=procmon pages a Process Monitor log's events; kind=dart lists a Flutter app's Dart
+        view=procmon pages a Process Monitor log's events; view=registry reads a
+        registry hive file (table= a key path) with its deleted keys; kind=dart lists a Flutter app's Dart
         package: / dart: URIs and identifiers (summarize_file view=flutter gives its packages).
         summarize_file view=protobuf rebuilds embedded protobuf descriptors as .proto files.
         summarize_file view=script reads PowerShell, batch, VBScript and JavaScript with their transformation layers peeled to plain
