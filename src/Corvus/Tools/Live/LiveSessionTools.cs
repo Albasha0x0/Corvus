@@ -118,7 +118,7 @@ public sealed partial class LiveSessionTools(ServerOptions options, LiveSessionS
     [Description("Open, list, inspect or close a session on a program: id, backend, modules matched to images; snapshot saves a dump.")]
     public Task<string> LiveSession(
         [Description("What to do.")] string action = "list",
-        [Description("attach: pid or name; spawn: program path (started suspended); processes: name filter; *_child: child pid.")] string? program = null,
+        [Description("attach: pid, name or inspector:PORT (Node, Electron); spawn: program path (started suspended); processes: name filter; *_child: child pid.")] string? program = null,
         [Description("spawn: program arguments.")] string[]? arguments = null,
         [Description("spawn: NAME=value variables.")] string[]? environment = null,
         [Description(SessionDescription)] string? session = null,
@@ -147,6 +147,7 @@ public sealed partial class LiveSessionTools(ServerOptions options, LiveSessionS
                     if (string.IsNullOrWhiteSpace(program))
                         throw new ToolError(ErrorCode.InvalidArgument, $"action={a} needs program.", a == "spawn" ? "program=<path to the program>" : "program=<process id or name>");
                     if (a == "attach" && program.Trim() == "0" && OperatingSystem.IsWindows() && string.IsNullOrWhiteSpace(device)) throw LiveProcessService.IdleProcess();
+                    if (Native.Providers.Live.Inspector.InspectorEndpoint.Is(program)) return Report(a, await OpenInspector(a, program, device, childNames, cancellationToken).ConfigureAwait(false));
                     var names = childNames?.Where(n => !string.IsNullOrWhiteSpace(n)).Select(n => n.Trim()).ToList();
                     if (names?.Contains("*") == true) names = [];
                     else if (names is { Count: 0 }) names = null;
@@ -184,9 +185,31 @@ public sealed partial class LiveSessionTools(ServerOptions options, LiveSessionS
             }
         }, cancellationToken);
 
+    // A program already running under its inspector; --live-allow is checked against its process once it is known.
+    private async Task<Services.LiveSession> OpenInspector(string action, string program, string? device, string[]? childNames, CancellationToken ct)
+    {
+        if (action != "attach" || !string.IsNullOrWhiteSpace(device) || childNames != null)
+            throw new ToolError(ErrorCode.InvalidArgument, "An inspector is attached to: start the program with --inspect=PORT yourself, on this machine, without childNames.",
+                "action=attach program=inspector:PORT");
+        var opened = await live.OpenAsync(false, program, [], ct).ConfigureAwait(false);
+        if (options.LiveAllow.Count == 0) return opened;
+        try
+        {
+            if (opened.ProcessId <= 0) throw new ToolError(ErrorCode.AccessDenied, "The inspector's target names no process, so --live-allow cannot be checked.", "start the server without --live-allow");
+            LiveProgramScope.Attach(opened.ProcessId.ToString(CultureInfo.InvariantCulture), options.LiveAllow);
+        }
+        catch (ToolError)
+        {
+            await live.CloseAsync(opened, "outside --live-allow").ConfigureAwait(false);
+            throw;
+        }
+        return opened;
+    }
+
     private async Task<string> Snapshot(Services.LiveSession s, string? outputPath, bool overwrite, CancellationToken ct)
     {
         LiveSessionService.Live(s);
+        if (s.JavaScript != null) throw new ToolError(ErrorCode.Unsupported, $"{s.Id} is a V8 inspector session: a snapshot writes a native process dump.", $"live_session action=attach program={s.ProcessId} opens a process session");
         if (dumps == null) throw new ToolError(ErrorCode.Unsupported, "This server has no dump reader.", "open the dump file with open_minidump");
         if (s.Emulated)
             throw new ToolError(ErrorCode.Unsupported,
@@ -238,6 +261,20 @@ public sealed partial class LiveSessionTools(ServerOptions options, LiveSessionS
         return rows.OrderBy(r => r.Name, StringComparer.OrdinalIgnoreCase).ThenBy(r => r.ProcessId).ToList();
     }
 
+    // A script session's own scripts, each with the map it names; the runtime's internal scripts are counted only.
+    private static void Scripts(Services.LiveJavaScript js, StringBuilder text)
+    {
+        const int Shown = 100;
+        List<Services.LiveScriptState> all;
+        lock (js.Scripts) all = [.. js.Scripts.Values];
+        var own = all.Where(s => s.Url.Length > 0 && !s.Url.StartsWith("node:", StringComparison.Ordinal)).OrderBy(s => s.Url, StringComparer.Ordinal).ToList();
+        text.AppendLine($"inspector target {js.Target}{(js.Runtime != null ? $", {js.Runtime}" : "")}");
+        text.AppendLine($"{all.Count} scripts, {own.Count} of the program, {own.Count(s => s.MapUrl != null)} naming a source map:");
+        foreach (var s in own.Take(Shown))
+            text.AppendLine($"  {s.Url}{(s.MapUrl == null ? "" : s.Map != null ? $"  map: {s.Map.Sources.Count} source(s)" : s.MapNote != null ? $"  map: {s.MapNote}" : "  map named")}");
+        if (own.Count > Shown) text.AppendLine($"  ... {own.Count - Shown} more");
+    }
+
     private static int ChildId(string? program) =>
         int.TryParse(program?.Trim(), NumberStyles.None, CultureInfo.InvariantCulture, out var pid) && pid > 0 ? pid
             : throw new ToolError(ErrorCode.InvalidArgument, "This action needs the child's process id as program.", "program=<pid from live_session action=children>");
@@ -270,7 +307,8 @@ public sealed partial class LiveSessionTools(ServerOptions options, LiveSessionS
                 text.AppendLine($"  pid {pid} started by another process, not held: {name} (live_session action=attach program={pid})");
             }
         }
-        if (action != "children")
+        if (s.JavaScript is { } js) Scripts(js, text);
+        else if (action != "children")
         {
             text.AppendLine($"{rows.Count} modules, {rows.Count(r => r.Image != null)} matched to loaded images:");
             foreach (var (m, state) in rows.Zip(modules))
@@ -310,7 +348,8 @@ public sealed partial class LiveSessionTools(ServerOptions options, LiveSessionS
                         break;
                     }
                     var point = await live.SetAsync(s, at, cancellationToken).ConfigureAwait(false);
-                    head.AppendLine($"{point.Id} set at {Hex(point.Address)} {point.At.Display}{Src(point.At.Source)}{(point.Followed != null ? $" ({point.Followed})" : "")}");
+                    head.AppendLine(point.Script != null ? $"{point.Id} set at {point.Script}"
+                        : $"{point.Id} set at {Hex(point.Address)} {point.At.Display}{Src(point.At.Source)}{(point.Followed != null ? $" ({point.Followed})" : "")}");
                     break;
                 case "clear":
                     LiveSessionService.Live(s);
@@ -336,6 +375,7 @@ public sealed partial class LiveSessionTools(ServerOptions options, LiveSessionS
                     head.AppendLine(s.Ended is { } ended ? $"the program ended before a stop ({ended})"
                         : s.Closed ? "the session closed before a stop"
                         : $"no stop within {Math.Clamp(waitSeconds, 1, 300)} s; the session is {s.State}");
+                else if (held.ScriptFrames != null) stop = ScriptStop(held, await live.ScriptFramesAsync(s, held, cancellationToken).ConfigureAwait(false), head);
                 else
                 {
                     await live.FrameModulesAsync(s, held, cancellationToken).ConfigureAwait(false);
@@ -351,12 +391,12 @@ public sealed partial class LiveSessionTools(ServerOptions options, LiveSessionS
             List<LiveDeferred> deferredPoints;
             lock (s.Deferred) deferredPoints = s.Deferred.Where(d => !d.Watch).ToList();
             head.AppendLine($"{s.Id}: {s.State}, {points.Count} stop point(s){(deferredPoints.Count > 0 ? $", {deferredPoints.Count} deferred" : "")}{(failedPoints.Count > 0 ? $", {failedPoints.Count} failed" : "")}");
-            foreach (var p in points) head.AppendLine($"  {p.Id} {p.Where} at {Hex(p.Address)} {p.At.Display}, {p.Hits} hit(s)");
+            foreach (var p in points) head.AppendLine($"  {p.Id} {p.Where} at {p.Script ?? $"{Hex(p.Address)} {p.At.Display}"}, {p.Hits} hit(s)");
             foreach (var d in deferredPoints) head.AppendLine($"  {d.Id} {d.Where}: {Until(d)}");
             foreach (var d in failedPoints) head.AppendLine($"  {d.Id} {d.Where}: failed ({d.Because}): {d.Reason}");
             if (next != null) head.AppendLine($"Next: {next}");
             named.AddRange(points.Select(p => p.At.Named).OfType<EvidenceName>());
-            var rows = points.Select(p => new LiveStopPoint(p.Id, p.Where, Hex(p.Address), p.Hits) { Followed = p.Followed })
+            var rows = points.Select(p => new LiveStopPoint(p.Id, p.Where, p.Script != null ? null : Hex(p.Address), p.Hits) { Followed = p.Followed })
                 .Concat(deferredPoints.Select(d => new LiveStopPoint(d.Id, d.Where, null, 0) { State = "deferred" }))
                 .Concat(failedPoints.Select(d => new LiveStopPoint(d.Id, d.Where, null, 0) { State = "failed" })).ToList();
             return ToolOutput.With(head.ToString(), new LiveStopPointReport(s.Id, rows, stop) { NamedAddresses = Named(named) });
@@ -370,6 +410,15 @@ public sealed partial class LiveSessionTools(ServerOptions options, LiveSessionS
         for (int i = 0; i < frames.Count; i++) text.AppendLine($"  #{i} {Hex(frames[i].Address)} {frames[i].Display}{Src(frames[i].Source)}");
         return new LiveStop(held.Thread.ToString(CultureInfo.InvariantCulture), "stop point", held.Point,
             frames.Select(f => new LiveFrame(Hex(f.Address), f.Image?.Id ?? f.Module, f.Module == null ? null : f.Display, f.Source)).ToList()); // module+offset when no image is loaded
+    }
+
+    // A script frame has no address: Address names its script position, Name its function, Source its original position.
+    private static LiveStop ScriptStop(LiveHeldStop held, IReadOnlyList<Services.LiveScriptFrame> frames, StringBuilder text)
+    {
+        text.AppendLine($"stopped at {held.Point} ({frames.FirstOrDefault()?.Display ?? "?"})");
+        for (int i = 0; i < frames.Count; i++) text.AppendLine($"  #{i} {frames[i].Display}");
+        return new LiveStop("1", held.Point.StartsWith('s') ? "stop point" : "pause", held.Point,
+            [.. frames.Select(f => new LiveFrame($"{f.Script}:{f.Line}:{f.Column}", f.Script, f.Function.Length > 0 ? f.Function : null, f.Original))]);
     }
 
     // Java frames are text only: the structured stop keeps the native stack.

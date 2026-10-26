@@ -23,6 +23,7 @@ public sealed partial class LiveSessionService
     public async Task<LiveYaraScan> ScanMemoryAsync(LiveSession session, string query, CancellationToken ct)
     {
         Live(session);
+        NativeOnly(session, "A memory scan");
         if (session.Platform == "darwin")
             throw new ToolError(ErrorCode.Unsupported, "a live YARA scan is not supported on macOS.", "search_container kind=yara scans the program's files");
         var dir = Path.Combine(Path.GetTempPath(), "corvus-live-yara", $"{Environment.ProcessId}-{Guid.NewGuid():N}");

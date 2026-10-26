@@ -323,7 +323,8 @@ describe.
 | `CORVUS_LUA_TOOLS` | A folder of Lua and LuaJIT builds (`lua-<version>/src/luac` for 5.1.5, 5.2.4, 5.3.6 and 5.4.7; `luajit-2.0/src`, `luajit-2.1/src`): each chunk's functions, instructions and constants are compared with `luac -l -l` and `luajit -bl` of its version; the same builds rebuild the Lua fixtures. | LuaBytecodeTests, tests/Corvus.Tests/Containers/LuaFixtures/build.ps1 |
 | `CORVUS_MOBILE_APPS` | A folder of app packages (.apk, .ipa), searched two levels deep. | AppGraphTests, MobileRulesTests |
 | `CORVUS_MSI_LISTER` | The lessmsi command line the MSI listings are compared with. | InstallerComparisonTests |
-| `CORVUS_NODE` | node (22.17.0), which runs the beautify fixture, its terser output and that output beautified and renamed; all three print the same lines. | JsBeautifyTests |
+| `CORVUS_NODE` | node (22.17.0), which runs the beautify fixture, its terser output and that output beautified and renamed; all three print the same lines. It also runs a compiled script with a source map under `--inspect-brk` for the inspector session tests. | JsBeautifyTests, LiveInspectorTests |
+| `CORVUS_ELECTRON` | electron.exe (33.2.0, Node 20.18.0), which runs a hidden-window app written by the test under `--inspect` and `--remote-debugging-port`; its main process and page each stop at a line. | LiveInspectorTests |
 | `CORVUS_NATIVEAOT_SAMPLES` | `1` builds the NativeAOT sample for several frameworks and options and checks the recovered names against its PDB (Windows, with the C++ build tools). | LiveCompiledNamesRealTests, NativeAotSampleTests |
 | `CORVUS_NATIVE_ADAPTER_SAMPLE` | Images per folder the adapter consistency test reads (default 60; 0 for all). | NativeAdapterConsistencyTests |
 | `CORVUS_NATIVE_LARGE_IMAGE` | One large image whose code index is measured for time, memory and completeness. | NativeCodeSweepTests |

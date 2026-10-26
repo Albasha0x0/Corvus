@@ -103,6 +103,26 @@ points, watches (`live_watch`) and coverage are Frida Interceptor hooks that pat
 `live_script` runs your code inside the program with its rights. Run programs you do not trust only in a disposable
 virtual machine: a session observes the program, it does not contain it.
 
+### V8 inspector
+
+`live_session action=attach program=inspector:PORT` opens a session on a Node or Electron program that already runs
+under its inspector (`--inspect=PORT` or `--inspect-brk=PORT`; an Electron program's pages with
+`--remote-debugging-port=PORT`); `inspector:HOST:PORT`, `inspector:ws://HOST:PORT/ID` and a `#TARGET` suffix (id, type
+or title) name others. Only loopback hosts are accepted, since an inspector runs any code it is sent. The session is
+served by Corvus itself over the Chrome DevTools Protocol; nothing is loaded into the program, and closing the session
+removes its stop points and lets it run on.
+
+- `live_session action=status` lists the program's scripts with the source map each names and the sources it holds.
+- `live_break at=FILE:LINE` takes an original source a loaded script's map names (`src/app.ts:12`): the point goes on
+  its first generated position on that line, or on the next line with code; a script url ending in FILE takes a
+  generated line; a FILE no loaded script has yet is set by url for when it is parsed.
+- `live_break wait=true` returns the paused frames by function and script position, each with the original position
+  its map gives. A program started with `--inspect-brk` opens suspended: set stop points, then `continue`.
+- `live_events kind=output` shows `console.*` calls.
+
+Native actions (`live_watch`, `live_read`, `live_coverage`, `live_script`, snapshots) are refused on these sessions.
+`--live-allow` is checked against the process id the program reports once the session opens.
+
 ### Frida
 
 A session runs a worker on Frida's Python bindings. Either install them

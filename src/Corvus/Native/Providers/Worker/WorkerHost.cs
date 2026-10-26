@@ -38,13 +38,22 @@ public static class WorkerHost
     public static int? TryRun(string[] args)
     {
         if (args is not [Command]) return null;
+        return Serve(Ops(Environment.GetEnvironmentVariable(FixtureOpsVariable) == "1"));
+    }
+
+    /// <summary>Answers requests on stdin with <paramref name="ops"/> until stdin closes, or until <paramref name="endOp"/> is answered; the exit code.</summary>
+    internal static int Serve(IReadOnlyDictionary<string, WorkerOp> ops, string? endOp = null)
+    {
         var protocol = Console.OpenStandardOutput();
         // Only requests' answers go to stdout: anything else a library prints
         // goes to stderr, which the server keeps for its error messages.
         Console.SetOut(Console.Error);
         using var input = new StreamReader(Console.OpenStandardInput(), new UTF8Encoding(false));
-        return Run(input, protocol, Ops(Environment.GetEnvironmentVariable(FixtureOpsVariable) == "1"));
+        return Run(input, protocol, ops, endOp);
     }
+
+    /// <summary>Writes an event line for ops that report outside a request (a stop, an exit); null before <see cref="Run"/>; false once the server closed the pipe.</summary>
+    internal static Func<JsonObject, bool>? Emit { get; private set; }
 
     /// <summary>The ops this worker answers: ping and every <see cref="IWorkerOps"/> provider's, the fixture ops when <paramref name="fixtures"/>.</summary>
     internal static IReadOnlyDictionary<string, WorkerOp> Ops(bool fixtures)
@@ -96,9 +105,10 @@ public static class WorkerHost
         }
     }
 
-    internal static int Run(TextReader input, Stream output, IReadOnlyDictionary<string, WorkerOp> ops)
+    internal static int Run(TextReader input, Stream output, IReadOnlyDictionary<string, WorkerOp> ops, string? endOp = null)
     {
         var writer = new LineWriter(output);
+        Emit = writer.TryWrite;
         AppDomain.CurrentDomain.UnhandledException += (_, e) =>
         {
             if (e.ExceptionObject is OutOfMemoryException) writer.TryWrite(new JsonObject { ["event"] = OutOfMemoryEvent });
@@ -154,6 +164,12 @@ public static class WorkerHost
                     cts.Dispose();
                 }
             }));
+            // The end op is answered before the worker exits, as the server waits for both.
+            if (op == endOp)
+            {
+                tasks[^1].Wait();
+                break;
+            }
         }
         // stdin closed: the server is gone or asked the worker to end.
         Task.WaitAll([.. tasks], TimeSpan.FromSeconds(5));

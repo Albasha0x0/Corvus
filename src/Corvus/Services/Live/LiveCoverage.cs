@@ -223,6 +223,7 @@ public sealed partial class LiveSessionService
         string? module = null;
         if (match?.IndexOf('!') is > 0 and var bang) (module, match) = (match[..bang].Trim(), match[(bang + 1)..]);
         Live(session);
+        NativeOnly(session, "Coverage");
         await IndexedAsync(session, TimeSpan.FromSeconds(60), ct).ConfigureAwait(false);
         if (!string.IsNullOrWhiteSpace(module)) await RefreshModulesAsync(session, ct).ConfigureAwait(false);
         LiveModuleState? m;

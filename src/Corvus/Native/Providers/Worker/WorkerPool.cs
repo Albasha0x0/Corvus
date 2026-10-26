@@ -207,14 +207,14 @@ public sealed class WorkerPool(WorkerPoolOptions? options = null) : IDisposable
         finally { slot.Gate.Release(); }
     }
 
-    /// <summary>This program's <c>worker</c> command: its apphost when there is one, else the dotnet host running corvus.dll.</summary>
-    internal static ChildProcessStart OwnCommand()
+    /// <summary>This program run with <paramref name="command"/> (default <c>worker</c>): its apphost when there is one, else the dotnet host running corvus.dll.</summary>
+    internal static ChildProcessStart OwnCommand(string command = WorkerHost.Command)
     {
         var dll = typeof(WorkerPool).Assembly.Location;
         var apphost = Path.Combine(Path.GetDirectoryName(dll)!, Path.GetFileNameWithoutExtension(dll) + (OperatingSystem.IsWindows() ? ".exe" : ""));
-        if (File.Exists(apphost)) return new ChildProcessStart(apphost, [WorkerHost.Command]);
+        if (File.Exists(apphost)) return new ChildProcessStart(apphost, [command]);
         var host = Environment.ProcessPath is { } p && Path.GetFileNameWithoutExtension(p) == "dotnet" ? p : "dotnet";
-        return new ChildProcessStart(host, [dll, WorkerHost.Command]);
+        return new ChildProcessStart(host, [dll, command]);
     }
 
     public void Dispose()

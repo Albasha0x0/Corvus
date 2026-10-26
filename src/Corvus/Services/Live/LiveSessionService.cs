@@ -32,6 +32,8 @@ public sealed record LiveStopPointState(string Id, string Where, ulong Address, 
     public int Hits { get; set; }
     /// <summary>Set when the location was a jump and the point went where it leads.</summary>
     public string? Followed { get; init; }
+    /// <summary>In a script session, where the point is set: script position and the original line it stands for; Address is 0 then.</summary>
+    public string? Script { get; init; }
     /// <summary>The writable pointer the jump went through and the value it held, which the program may still rebind (delay-load, first-call stubs).</summary>
     internal (ulong Address, ulong Value)? Slot { get; init; }
 }
@@ -62,7 +64,11 @@ internal sealed record LiveJitBinding(string Id, bool Watch, string Name, IReadO
 }
 
 /// <summary>A thread held at a stop point until it is resumed: its general registers and return addresses.</summary>
-public sealed record LiveHeldStop(long Sequence, long Thread, string Point, IReadOnlyDictionary<string, string> Registers, IReadOnlyList<ulong> Frames);
+public sealed record LiveHeldStop(long Sequence, long Thread, string Point, IReadOnlyDictionary<string, string> Registers, IReadOnlyList<ulong> Frames)
+{
+    /// <summary>The paused frames of a script session (no registers or addresses then); null in a process session.</summary>
+    public IReadOnlyList<LiveScriptFrame>? ScriptFrames { get; init; }
+}
 
 /// <summary>
 /// An event; <see cref="Time"/> is when the server recorded it (UTC), later than the program reached it by the worker and
@@ -124,6 +130,8 @@ public sealed class LiveSession
     public bool Spawned { get; }
     /// <summary>The adb serial of the Android device the program runs on; null for a program on this machine.</summary>
     public string? Device { get; init; }
+    /// <summary>The scripts of a session on a V8 inspector; null for a process session.</summary>
+    public LiveJavaScript? JavaScript { get; init; }
     /// <summary>When the session opened (UTC).</summary>
     public DateTime Opened { get; } = DateTime.UtcNow;
     public int ProcessId { get; internal set; }
@@ -473,6 +481,7 @@ public sealed partial class LiveSessionService(AssemblyWorkspace workspace, Nati
     {
         if (_sessions.Values.Count(s => !s.Closed) >= MaxSessions)
             throw new ToolError(ErrorCode.LimitExceeded, $"{MaxSessions} sessions are open.", "close one with live_session action=close");
+        if (Native.Providers.Live.Inspector.InspectorEndpoint.Is(program)) return await OpenInspectorAsync(program, ct).ConfigureAwait(false);
         if (Backend.Unavailable() is { } missing)
             throw new ToolError(ErrorCode.ProviderUnavailable, missing.Reason, missing.Remediation);
         if (childNames != null && OperatingSystem.IsMacOS() && Backend is FridaBackend)
@@ -605,6 +614,14 @@ public sealed partial class LiveSessionService(AssemblyWorkspace workspace, Nati
         }
         lock (session.Modules)
             foreach (var m in session.Modules) Match(m);
+        Track(session);
+        return session;
+    }
+
+    // Registers an open session, with its deadline and the watch for its worker ending.
+    private void Track(LiveSession session)
+    {
+        var worker = session.Worker;
         _sessions[session.Id] = session;
         var minutes = int.TryParse(Environment.GetEnvironmentVariable(MaxMinutesVariable), out var n) && n > 0 ? n : 30;
         session.Deadline = new Timer(_ => _ = CloseAsync(session, "deadline"), null, TimeSpan.FromMinutes(minutes), Timeout.InfiniteTimeSpan);
@@ -621,7 +638,6 @@ public sealed partial class LiveSessionService(AssemblyWorkspace workspace, Nati
             }
             if (!session.Closed) ResumeChildrenDirectly(session);
         }, TaskScheduler.Default);
-        return session;
     }
 
     private static LiveModuleState Module(JsonElement m)
@@ -716,6 +732,11 @@ public sealed partial class LiveSessionService(AssemblyWorkspace workspace, Nati
     /// </summary>
     public async Task RefreshModulesAsync(LiveSession session, CancellationToken ct)
     {
+        if (session.JavaScript != null)
+        {
+            await RefreshScriptsAsync(session, ct, readMaps: true).ConfigureAwait(false);
+            return;
+        }
         if (session.Held.Count == 0 || session.Closed || session.Ended != null) return;
         JsonElement info;
         try { info = await session.Worker.RequestAsync("info", null, RequestTimeout, ct).ConfigureAwait(false); }
@@ -744,6 +765,9 @@ public sealed partial class LiveSessionService(AssemblyWorkspace workspace, Nati
         long? Thread() => body.TryGetProperty("tid", out var t) && t.ValueKind == JsonValueKind.Number ? t.GetInt64() : null;
         switch (e.Name)
         {
+            case "stop" when session.JavaScript != null:
+                ScriptStop(session, body);
+                break;
             case "stop":
             {
                 var point = body.GetProperty("point").GetString() ?? "";
@@ -1428,6 +1452,8 @@ public sealed partial class LiveSessionService(AssemblyWorkspace workspace, Nati
     public async Task<(LiveDeferred Point, bool Held)?> DeferAsync(LiveSession session, string where, bool watch, int perSecond = 0, int rawArguments = 0,
         CancellationToken ct = default, string? id = null)
     {
+        // A script session sets a point on a script not yet parsed by its url (SetScriptAsync).
+        if (session.JavaScript != null) return null;
         var t = where.Trim();
         if (NameOffset.Match(t) is { Success: true } no) t = no.Groups["name"].Value;
         if (t.StartsWith("0x", StringComparison.OrdinalIgnoreCase)) return null;
@@ -1564,6 +1590,7 @@ public sealed partial class LiveSessionService(AssemblyWorkspace workspace, Nati
 
     public async Task<LiveStopPointState> SetAsync(LiveSession session, string where, CancellationToken ct, string? id = null)
     {
+        if (session.JavaScript != null) return await SetScriptAsync(session, where, ct, id).ConfigureAwait(false);
         var (address, followed, slot) = await FollowJumpsThroughAsync(session, await ResolveAsync(session, where, ct).ConfigureAwait(false), ct).ConfigureAwait(false);
         await CheckInstructionStartAsync(session, address, ct).ConfigureAwait(false);
         CheckCoverageOverlap(session, address, "This stop point", ct);
@@ -1593,6 +1620,7 @@ public sealed partial class LiveSessionService(AssemblyWorkspace workspace, Nati
     /// <summary>Records each call of the function at <paramref name="where"/>, decoded by the plan its name, PDB or DWARF gives.</summary>
     public async Task<LiveWatchState> WatchAsync(LiveSession session, string where, int perSecond, int rawArguments, CancellationToken ct, string? id = null)
     {
+        NativeOnly(session, "A watch");
         var (address, followed) = await FollowJumpsAsync(session, await ResolveAsync(session, where, ct).ConfigureAwait(false), ct).ConfigureAwait(false);
         await CheckInstructionStartAsync(session, address, ct).ConfigureAwait(false);
         CheckCoverageOverlap(session, address, "This watch", ct);

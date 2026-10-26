@@ -213,6 +213,41 @@ public sealed class SourceMap
         return best;
     }
 
+    /// <summary>
+    /// The generated positions of source index <paramref name="source"/> at the first original line at or after
+    /// <paramref name="line"/> (0-based) that has any, as a debugger moves a breakpoint to the next line with code; null
+    /// when no such line is mapped. The whole mapping is decoded.
+    /// </summary>
+    public (int Line, IReadOnlyList<MapSegment> Segments)? Generated(int source, int line)
+    {
+        var best = new List<MapSegment>();
+        int found = int.MaxValue;
+        foreach (var seg in All())
+        {
+            if (seg.Source != source || seg.OriginalLine < line || seg.OriginalLine > found) continue;
+            if (seg.OriginalLine < found) (found, best) = (seg.OriginalLine, []);
+            best.Add(seg);
+        }
+        return best.Count == 0 ? null : (found, best);
+    }
+
+    // Every segment in generated order; a section's lines, first-line columns and source indexes are offset into this map's.
+    private IEnumerable<MapSegment> All()
+    {
+        if (_sections == null)
+        {
+            foreach (var seg in Decode(default)) yield return seg;
+            yield break;
+        }
+        int sources = 0;
+        foreach (var (line, column, map) in _sections)
+        {
+            foreach (var seg in map.All())
+                yield return seg with { Line = seg.Line + line, Column = seg.Line == 0 ? seg.Column + column : seg.Column, Source = seg.Source < 0 ? -1 : seg.Source + sources };
+            sources += map.Sources.Count;
+        }
+    }
+
     /// <summary>The map a JavaScript file names: an inline data: URL, a URL relative to the file, or a sibling .map. Null when none.</summary>
     public static (SourceMap Map, string Location)? Locate(string file, byte[] text)
     {
