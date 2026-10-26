@@ -47,6 +47,17 @@ public sealed class JsBeautifyTests(ITestOutputHelper output) : IDisposable
         return run.Text.Replace("\r", "");
     }
 
+    // Regression: d27cda83 added the view without its parameter domain entry, so the server refused it.
+    [Fact]
+    public async Task Analyze_js_accepts_view_beautify()
+    {
+        await using var server = await InProcessServer.StartAsync();
+        var r = await server.Client.CallToolAsync("analyze_js", new Dictionary<string, object?> { ["path"] = Fixture("program.min.js"), ["view"] = "beautify" });
+        var text = string.Concat(r.Content.OfType<ModelContextProtocol.Protocol.TextContentBlock>().Select(t => t.Text));
+        Assert.True(r.IsError != true, text);
+        Assert.StartsWith("// program.min.js: ", text);
+    }
+
     [Fact]
     public void Minified_code_is_laid_out_with_its_tokens_unchanged()
     {

@@ -3017,12 +3017,12 @@ JavaScript bundles and their source maps.
 
 **Analyze a JavaScript bundle** (read-only, idempotent)
 
-Bundler, modules, source map of JS, statically. position: to original; diff: with source=; runtime: webpack chunks; flow: values to effects; origins: back; unknowns marked; beautify: layout, scope renames. Hermes, Ark too.
+JS bundler, modules, source map, statically. position: original; diff: with source=; runtime: webpack chunks; flow: values to effects; origins: back; unknowns marked; beautify: layout, renames. Hermes, Ark too.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `path` | string | yes |  | A .js, Hermes or Ark file, or a package. |
-| `view` | string |  | `summary` | View. Values: summary, modules, module, search, refs, position, sources, source, endpoints, secrets, diff, runtime, flow, origins, functions, decompile, disassemble, xrefs. |
+| `view` | string |  | `summary` | View. Values: summary, modules, module, search, refs, position, sources, source, endpoints, secrets, diff, runtime, flow, origins, beautify, functions, decompile, disassemble, xrefs. |
 | `line` | integer |  |  | position, flow: 1-based generated line. |
 | `column` | integer |  |  | See line. |
 | `source` | string |  |  | source: path or index; diff: old bundle. |

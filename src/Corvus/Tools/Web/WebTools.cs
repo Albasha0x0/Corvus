@@ -23,9 +23,9 @@ public sealed partial class WebTools(OutputPager pager)
     }
 
     [McpServerTool(Name = "analyze_js", Title = "Analyze a JavaScript bundle", UseStructuredContent = true, OutputSchemaType = typeof(JsResult))]
-    [Description("Bundler, modules, source map of JS, statically. position: to original; diff: with source=; runtime: " +
+    [Description("JS bundler, modules, source map, statically. position: original; diff: with source=; runtime: " +
                  "webpack chunks; flow: values to effects; origins: back; unknowns marked; beautify: " +
-                 "layout, scope renames. Hermes, Ark too.")]
+                 "layout, renames. Hermes, Ark too.")]
     public string AnalyzeJs(
         [Description("A .js, Hermes or Ark file, or a package.")] string path,
         [Description("View.")] string view = "summary",

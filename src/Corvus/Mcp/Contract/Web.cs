@@ -20,7 +20,7 @@ public static partial class ParameterDomains
         ["analyze_js"] = new Dictionary<string, Domain>
         {
             ["view"] = Of(["summary", "modules", "module", "search", "refs", "position", "sources", "source", "endpoints", "secrets", "diff", "runtime", "flow", "origins",
-                "functions", "decompile", "disassemble", "xrefs"]),
+                "beautify", "functions", "decompile", "disassemble", "xrefs"]),
         },
     };
 }
