@@ -30,6 +30,7 @@ public sealed record RawArch(string Name, NativeArch Arch, bool Thumb, bool BigE
         new("ppc64le", NativeArch.PowerPc, false, false, 64, "ppcl", "PowerPC:LE:64:default"),
         new("riscv32", NativeArch.RiscV, false, false, 32, "riscv", "RISCV:LE:32:RV32GC"),
         new("riscv64", NativeArch.RiscV, false, false, 64, "riscv", "RISCV:LE:64:RV64GC"),
+        new("m68k", NativeArch.Other, false, true, 32, "68K", "68000:BE:32:default"),
         new("6502", NativeArch.Other, false, false, 16, "m6502", "6502:LE:16:default"),
         new("x86-16", NativeArch.Other, false, false, 16, "metapc", "x86:LE:16:Real Mode"),
         new("dos-mz", NativeArch.Other, false, false, 16, "", "x86:LE:16:Real Mode", "MzLoader"),
@@ -39,6 +40,7 @@ public sealed record RawArch(string Name, NativeArch Arch, bool Thumb, bool BigE
     {
         ["i386"] = "x86", ["x86_64"] = "x64", ["amd64"] = "x64", ["arm32"] = "arm", ["aarch64"] = "arm64", ["mipsbe"] = "mips",
         ["mipsle"] = "mipsel", ["mips64le"] = "mips64el", ["powerpc"] = "ppc", ["ppc64el"] = "ppc64le", ["powerpc64le"] = "ppc64le", ["riscv"] = "riscv64", ["dos-com"] = "x86-16", ["x86_16"] = "x86-16",
+        ["68k"] = "m68k", ["68000"] = "m68k", ["mc68000"] = "m68k",
     };
 
     public static RawArch Find(string? name)
@@ -80,9 +82,16 @@ public sealed record RawLayout(RawArch Isa, ulong Base, uint EntryOffset)
     /// <summary>
     /// The reset handler of a Cortex-M vector table at the start of a Thumb image: word 0 a word-aligned initial stack
     /// pointer outside the image, word 1 an odd (Thumb) address inside it past the table's first two words; else null.
+    /// An m68k image starts with the same two vectors, big-endian, with an even stack pointer and reset address.
     /// </summary>
     private static ulong? ResetVector(RawArch isa, ulong load, long fileSize, ReadOnlySpan<byte> head)
     {
+        if (isa.Name == "m68k" && head.Length >= 8)
+        {
+            uint ssp = System.Buffers.Binary.BinaryPrimitives.ReadUInt32BigEndian(head);
+            uint pc = System.Buffers.Binary.BinaryPrimitives.ReadUInt32BigEndian(head[4..]);
+            return ssp != 0 && (ssp & 1) == 0 && (pc & 1) == 0 && pc >= load + 8 && pc - load < (ulong)fileSize ? pc : null;
+        }
         if (!isa.Thumb || isa.BigEndian || head.Length < 8) return null;
         uint sp = System.Buffers.Binary.BinaryPrimitives.ReadUInt32LittleEndian(head);
         uint reset = System.Buffers.Binary.BinaryPrimitives.ReadUInt32LittleEndian(head[4..]);

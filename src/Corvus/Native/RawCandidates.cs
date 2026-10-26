@@ -45,7 +45,7 @@ public static class RawCandidates
     /// <summary>Instruction sets without a signature here; named, not scored.</summary>
     public static readonly IReadOnlyList<string> NotChecked = ["6502", "x86-16", "dos-mz"];
 
-    private enum Unit { Bytes, BytesNotAfterRex, Le32, Be32, Le16, Thumb32, Le32At2 }
+    private enum Unit { Bytes, BytesNotAfterRex, Le32, Be32, Le16, Thumb32, Le32At2, Be16 }
 
     private sealed record Signature(string Name, Unit Unit, uint Value, uint Mask, byte[]? Bytes = null)
     {
@@ -84,6 +84,8 @@ public static class RawCandidates
             new("c.swsp ra, N(sp)", Unit.Le16, 0xC006, 0xE07F)]),
         ("riscv64", [new("c.ret", Unit.Le16, 0x8082, 0xFFFF), new("ret", Unit.Le32At2, 0x00008067, 0xFFFFFFFF),
             new("c.sdsp ra, N(sp)", Unit.Le16, 0xE006, 0xE07F)]),
+        ("m68k", [new("rts", Unit.Be16, 0x4E75, 0xFFFF), new("link.w a6, #N", Unit.Be16, 0x4E56, 0xFFFF), new("unlk a6", Unit.Be16, 0x4E5E, 0xFFFF),
+            new("movem.l <regs>, -(sp)", Unit.Be16, 0x48E7, 0xFFFF)]),
     ];
 
     // A signature with the same encoding in another instruction set (c.ret in riscv32 and riscv64) tells them apart only
@@ -143,7 +145,7 @@ public static class RawCandidates
     // One pass per unit over the bytes, testing every signature of that unit.
     private static void Count(ReadOnlySpan<byte> data, int[][] counts, CancellationToken ct)
     {
-        var byUnit = new List<(int A, int S, uint Value, uint Mask)>[7];
+        var byUnit = new List<(int A, int S, uint Value, uint Mask)>[8];
         for (int u = 0; u < byUnit.Length; u++) byUnit[u] = [];
         for (int a = 0; a < Table.Length; a++)
             for (int s = 0; s < Table[a].Signatures.Length; s++)
@@ -158,6 +160,7 @@ public static class RawCandidates
         Words(halves, 2, 2, byUnit[(int)Unit.Le32], counts, little ? Order.Low : Order.LowSwapped, ct);
         Words(halves, 2, 2, byUnit[(int)Unit.Be32], counts, little ? Order.LowSwapped : Order.Low, ct);
         Words(halves, 1, 1, byUnit[(int)Unit.Le16], counts, little ? Order.Low : Order.LowSwapped, ct);
+        Words(halves, 1, 1, byUnit[(int)Unit.Be16], counts, little ? Order.LowSwapped : Order.Low, ct);
         Words(halves, 1, 2, byUnit[(int)Unit.Thumb32], counts, little ? Order.High : Order.HighSwapped, ct);
         Words(halves, 1, 2, byUnit[(int)Unit.Le32At2], counts, little ? Order.Low : Order.LowSwapped, ct);
     }

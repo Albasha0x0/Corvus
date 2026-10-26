@@ -62,6 +62,7 @@ public static class Blob
         if (Firmware.Esp32.Esp32Flash.Find(b) != null) return "esp32 flash";
         if (Firmware.Esp32.Esp32PartitionTable.Is(b)) return "esp32 partition table";
         if (Firmware.Esp32.Esp32Nvs.Looks(b)) return "esp32 nvs";
+        if (Firmware.InesRom.Looks(b)) return "ines rom";
         if (Archives.QtResources.Looks(b)) return "qt resources";
         if (Flash.SwfFile.Looks(b)) return "flash swf";
         if (Registry.RegistryHive.Looks(b)) return "registry hive";

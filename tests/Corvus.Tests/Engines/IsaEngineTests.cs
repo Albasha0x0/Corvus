@@ -11,14 +11,19 @@ namespace Corvus.Tests;
 /// leaf; middle → leaf). A failing architecture is reported with the others, not in place of them.
 /// </summary>
 [Trait("Speed", "Slow")]
-public sealed class IsaEngineTests(ITestOutputHelper output)
+public sealed class IsaEngineTests(ITestOutputHelper output) : IDisposable
 {
+    private readonly TempDir _dir = new();
+
+    public void Dispose() => _dir.Dispose();
+
     /// <summary>
     /// A fixture: file, raw arch and base (null for an ELF), the function addresses where the file has no symbols, the
-    /// local entry offset calls target (PPC64 ELFv2: past the TOC setup), and whether IDA has a decompiler for it.
+    /// local entry offset calls target (PPC64 ELFv2: past the TOC setup), whether IDA has a decompiler for it, and the
+    /// entry when it is not the image's own. An iNES file loads as the CPU view its reader writes.
     /// </summary>
     public sealed record Fixture(string File, string? Arch = null, string? Base = null, IReadOnlyDictionary<string, ulong>? Addresses = null,
-        uint LocalEntry = 0, bool IdaDecompiles = true);
+        uint LocalEntry = 0, bool IdaDecompiles = true, string? Entry = null);
 
     private static readonly IReadOnlyDictionary<string, string[]> Edges = new Dictionary<string, string[]>
     {
@@ -30,7 +35,14 @@ public sealed class IsaEngineTests(ITestOutputHelper output)
         new("mips32be.elf"), new("mips32le.elf"), new("ppc32.elf"), new("ppc64.elf", LocalEntry: 8), new("riscv32.elf"), new("riscv64.elf"), new("armbe.elf"),
         new("cortexm.bin", "thumb", "0x8000000",
             new Dictionary<string, ulong> { ["_start"] = 0x8000100, ["classify"] = 0x8000114, ["leaf"] = 0x8000150, ["middle"] = 0x800015C }),
+        // IDA has no m68k decompiler.
+        new("m68k.bin", "m68k", "0x0", new Dictionary<string, ulong> { ["_start"] = 0x400, ["classify"] = 0x42E, ["leaf"] = 0x4BC, ["middle"] = 0x4CE },
+            IdaDecompiles: false),
     ];
+
+    // nrom.s (build.ps1): reset → middle → leaf, PRG bank 0 at 0x8000 and its mirror at 0xC000.
+    private static readonly Fixture Nrom = new("nrom.nes", "6502", "0x8000", new Dictionary<string, ulong> { ["_start"] = 0xC000, ["middle"] = 0xC00B, ["leaf"] = 0xC012 },
+        IdaDecompiles: false, Entry: "0xC000");
 
     // 6502 (hand-assembled, see build.ps1): entry → middle → leaf, no switch; IDA has no 6502 decompiler
     private static readonly Fixture M6502 = new("m6502.bin", "6502", "0x8000", new Dictionary<string, ulong> { ["_start"] = 0x8000, ["middle"] = 0x8004, ["leaf"] = 0x800B },
@@ -47,7 +59,7 @@ public sealed class IsaEngineTests(ITestOutputHelper output)
     {
         await using var server = await InProcessServer.StartAsync();
         var failures = new List<string>();
-        foreach (var f in Fixtures.Append(M6502))
+        foreach (var f in Fixtures.Append(M6502).Append(Nrom))
         {
             try
             {
@@ -66,8 +78,15 @@ public sealed class IsaEngineTests(ITestOutputHelper output)
     private async Task Check(InProcessServer server, string engine, Fixture f)
     {
         var path = Path.Combine(AppContext.BaseDirectory, "Engines", "IsaFixtures", f.File);
+        var bytes = File.ReadAllBytes(path);
+        if (Corvus.Core.Firmware.InesRom.Looks(bytes))
+        {
+            path = _dir.File("prg-cpu.bin");
+            File.WriteAllBytes(path, Corvus.Core.Firmware.InesRom.Read(bytes).CpuView(bytes));
+        }
         var args = new Dictionary<string, object?> { ["path"] = path };
         if (f.Arch != null) { args["format"] = "raw"; args["arch"] = f.Arch; args["base"] = f.Base; }
+        if (f.Entry != null) args["entry"] = f.Entry;
         var load = await Call(server, "load_assembly", args);
         var image = Regex.Match(load.Text, @"Loaded native image (\S+?):").Groups[1].Value;
         if (image.Length == 0) throw new Xunit.Sdk.XunitException("no image id: " + load.Text);

@@ -93,4 +93,16 @@ public sealed class RawImageTests : IDisposable
         // the same bytes as ARM state are not a vector table
         Assert.Equal(0u, Corvus.Native.RawLayout.Parse("arm", "0x8000000", null, 0x200, File.ReadAllBytes(path).AsSpan(0, 8)).EntryOffset);
     }
+
+    /// <summary>An m68k image starts with the initial stack pointer and the reset address, big-endian.</summary>
+    [Fact]
+    public void An_m68k_image_enters_at_its_reset_vector_and_reads_as_m68k()
+    {
+        var data = File.ReadAllBytes(Path.Combine(AppContext.BaseDirectory, "Engines", "IsaFixtures", "m68k.bin"));
+        var layout = Corvus.Native.RawLayout.Parse("68000", null, null, data.Length, data.AsSpan(0, 8));
+        Assert.Equal(("m68k", 0x400u, true), (layout.Isa.Name, layout.EntryOffset, layout.Isa.BigEndian));
+        // A reset address past the image is not a vector table.
+        Assert.Equal(0u, Corvus.Native.RawLayout.Parse("m68k", "0x10000", null, data.Length, data.AsSpan(0, 8)).EntryOffset);
+        Assert.Equal("m68k", Corvus.Native.RawCandidates.Isas(data)[0].Arch);
+    }
 }

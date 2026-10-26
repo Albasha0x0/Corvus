@@ -290,9 +290,11 @@ describe.
 | `CORVUS_EXPORT_LIST` | A file listing assemblies whose exported projects must build; errors go to `<list>.report.txt`. | ExportBuildTests |
 | `CORVUS_EXPORT_REAL` | `1` exports real libraries to projects and builds them. | ExportBuildTests |
 | `CORVUS_FIRMWARE_IMAGES` | A folder of firmware images whose filesystems are compared file by file with the reference extractors. | FirmwareComparisonTests |
+| `CORVUS_FIXTURE_CC65` | A command prefix that runs ca65 and ld65 (cc65 2.19), for rebuilding the NROM image fixture (`wsl.exe -e` runs them in WSL). | tests/Corvus.Tests/Engines/IsaFixtures/build.ps1 |
 | `CORVUS_FIXTURE_ES2ABC` | es2abc from the OpenHarmony SDK (`ets` package), for rebuilding the Ark fixtures; `CORVUS_ARK_DISASSEMBLER` writes their listing. | tests/Corvus.Tests/Mobile/ArkFixtures/build.ps1 |
 | `CORVUS_FIXTURE_HERMESC` | A folder with one subfolder per Hermes compiler release, for rebuilding the Hermes fixtures. | tests/Corvus.Tests/Web/HermesFixtures/build.ps1 |
 | `CORVUS_FIXTURE_LLVM` | A folder holding ld.lld, llvm-objcopy and llvm-nm, for rebuilding the CFI, instruction-set and string form fixtures. | tests/Corvus.Tests/Dumps/CfiFixtures/build.ps1, tests/Corvus.Tests/Engines/IsaFixtures/build.ps1, tests/Corvus.Tests/NativeAnalysis/StringFormFixtures/build.ps1 |
+| `CORVUS_FIXTURE_M68K` | A command prefix that runs GNU binutils `m68k-linux-gnu-ld` and `-objcopy` (2.38), for rebuilding the m68k fixture. | tests/Corvus.Tests/Engines/IsaFixtures/build.ps1 |
 | `CORVUS_FIXTURE_POWERSHELL_LAYERS` | The folder of the PowerShell transformation module the script fixtures are generated with; nothing runs the output. | tests/Corvus.Tests/Web/ScriptFixtures/generate.ps1 |
 | `CORVUS_FIXTURE_PYTHONS` | The Python interpreters (separated by the path separator) that compile the Python fixtures. | tests/Corvus.Tests/Containers/PythonFixtures/build.ps1 |
 | `CORVUS_FIXTURE_RUSTC` | The rustc that builds the CFI, instruction-set and string form fixtures (default: rustc on PATH). | tests/Corvus.Tests/Dumps/CfiFixtures/build.ps1, tests/Corvus.Tests/Engines/IsaFixtures/build.ps1, tests/Corvus.Tests/NativeAnalysis/StringFormFixtures/build.ps1 |

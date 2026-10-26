@@ -1,5 +1,7 @@
 # Rebuilds the ISA fixtures from calls.rs (rustc's LLVM has every backend; ld.lld links them) and writes the 6502 image.
-# Tools: CORVUS_FIXTURE_RUSTC (rustc), CORVUS_FIXTURE_LLVM (a folder with ld.lld, llvm-objcopy and llvm-nm).
+# Tools: CORVUS_FIXTURE_RUSTC (rustc), CORVUS_FIXTURE_LLVM (a folder with ld.lld, llvm-objcopy and llvm-nm),
+# CORVUS_FIXTURE_M68K (a command prefix for GNU binutils m68k-linux-gnu-ld and -objcopy 2.38: ld.lld has no m68k),
+# CORVUS_FIXTURE_CC65 (a command prefix for ca65 and ld65 2.19, which build nrom.nes from nrom.s and nrom.cfg).
 $ErrorActionPreference = 'Stop'
 $here = $PSScriptRoot
 $rustc = $env:CORVUS_FIXTURE_RUSTC ?? 'rustc'
@@ -43,6 +45,27 @@ try {
     }
 }
 finally { Remove-Item -Recurse -Force $tmp }
+
+# m68k at 0: 256-vector table (initial SSP, reset = _start at 0x400, big-endian), then .text and .rodata.
+$m68k = ($env:CORVUS_FIXTURE_M68K ?? '') -split ' ' | Where-Object { $_ }
+function M68k($tool) { $c = @($m68k) + "m68k-linux-gnu-$tool"; & $c[0] @($c[1..($c.Count)] + $args); if ($LASTEXITCODE) { throw "$tool failed" } }
+Push-Location $here
+try {
+    & $rustc --target=m68k-unknown-linux-gnu -C opt-level=2 -C panic=abort -C relocation-model=static --emit=obj -o m68k.o calls.rs
+    if ($LASTEXITCODE) { throw 'rustc failed for m68k' }
+    M68k ld -e _start --build-id=none -static -Ttext=0x400 -o m68k.elf m68k.o
+    M68k objcopy -O binary -j .text -j .rodata m68k.elf m68k.text
+    $table = [byte[]]::new(0x400)
+    $table[1] = 0x10; $table[6] = 0x04
+    [IO.File]::WriteAllBytes((Join-Path $here 'm68k.bin'), [byte[]]($table + [IO.File]::ReadAllBytes((Join-Path $here 'm68k.text'))))
+    $cc65 = ($env:CORVUS_FIXTURE_CC65 ?? '') -split ' ' | Where-Object { $_ }
+    foreach ($step in @(@('ca65', '-o', 'nrom.o', 'nrom.s'), @('ld65', '-C', 'nrom.cfg', '-o', 'nrom.nes', 'nrom.o'))) {
+        $c = @($cc65) + $step
+        & $c[0] @($c[1..($c.Count)])
+        if ($LASTEXITCODE) { throw "$($step[0]) failed" }
+    }
+}
+finally { Remove-Item -Force m68k.o, m68k.elf, m68k.text, nrom.o -ErrorAction SilentlyContinue; Pop-Location }
 
 # 6502 at 0x8000, assembled by hand (no 6502 backend in LLVM):
 #   8000 entry:  JSR middle ; RTS
