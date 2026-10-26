@@ -25,15 +25,15 @@ public sealed partial class WebTools(OutputPager pager)
     [McpServerTool(Name = "analyze_js", Title = "Analyze a JavaScript bundle", UseStructuredContent = true, OutputSchemaType = typeof(JsResult))]
     [Description("JS bundler, modules, source map, statically. position: original; diff: with source=; runtime: " +
                  "webpack chunks; flow: values to effects; origins: back; unknowns marked; beautify: " +
-                 "layout, renames. Hermes, Ark too.")]
+                 "layout, renames; react, jsx: components. Hermes, Ark too.")]
     public string AnalyzeJs(
         [Description("A .js, Hermes or Ark file, or a package.")] string path,
         [Description("View.")] string view = "summary",
         [Description("position, flow: 1-based generated line.")] int? line = null,
         [Description("See line.")] int? column = null,
         [Description("source: path or index; diff: old bundle.")] string? source = null,
-        [Description("Module id; search filter; function #id or name; flow: name, quoted literal, sinks, sink:KIND, module:ID; beautify: a=b, a@line:col=b, auto.")] string? query = null,
-        [Description("flow: max flows (50).")] int? limit = null,
+        [Description("Module id; search filter; function #id or name; flow: name, quoted literal, sinks, sink:KIND, module:ID; beautify: a=b, a@line:col=b, auto; react/jsx: name.")] string? query = null,
+        [Description("Most rows: flow 50, react 200.")] int? limit = null,
         [Description(ToolSupport.CharOffsetDescription)] int offset = 0,
         [Description(ToolSupport.MaxTokensDescription)] int? maxTokens = null)
     {
@@ -206,8 +206,33 @@ public sealed partial class WebTools(OutputPager pager)
                 }
                 return ToolOutput.With(pager.Page(sb.ToString(), start, maxTokens), new JsResult("beautify", Total: r.Origins.Count));
             }
+            case "react":
+            {
+                var program = JsAnalysis.Program(path, default);
+                var r = JsReact.Read(program, query, offset, limit ?? 200, default);
+                var sb = new StringBuilder();
+                sb.AppendLine($"React: {(r.Versions.Count > 0 ? string.Join(", ", r.Versions) : "version not found")}; {r.Total} component(s), {r.Attributed} of {r.Calls} element call(s) in them" + (r.Components.Count < r.Total ? $"; {offset}-{offset + r.Components.Count} shown" : ""));
+                foreach (var c in r.Components)
+                {
+                    sb.Append($"  {c.Name} ({c.Kind}) {c.Line}:{c.Column}{(c.Module != null ? $" [module {c.Module}]" : "")}: {c.Elements} element(s)");
+                    if (c.Hooks.Count > 0) sb.Append("; hooks " + string.Join(", ", c.Hooks));
+                    if (c.Renders.Count > 0) sb.Append("; renders " + string.Join(", ", c.Renders.Take(20)) + (c.Renders.Count > 20 ? ", ..." : ""));
+                    sb.AppendLine();
+                }
+                foreach (var n in r.Notes) sb.AppendLine("Note: " + n);
+                if (offset + r.Components.Count < r.Total) sb.AppendLine($"[More: offset={offset + r.Components.Count}]");
+                return ToolOutput.With(sb.ToString().TrimEnd(), new JsResult("react", Total: r.Total));
+            }
+            case "jsx":
+            {
+                if (string.IsNullOrWhiteSpace(query)) throw new ToolError(ErrorCode.InvalidArgument, "view=jsx needs query= with a component name.", "list the names with view=react");
+                var program = JsAnalysis.Program(path, default);
+                var text = JsReact.Jsx(program, query.Trim(), default)
+                           ?? throw new ToolError(ErrorCode.NotFound, $"no component named '{query.Trim()}' in {Path.GetFileName(path)}.", "list the names with view=react");
+                return ToolOutput.With(pager.Page(text, offset, maxTokens), new JsResult("jsx"));
+            }
             default:
-                throw new ToolError(ErrorCode.InvalidArgument, $"unknown view '{view}'.", "pass view=summary, modules, module, search, refs, position, sources, source, endpoints, secrets, diff, runtime, flow, origins or beautify");
+                throw new ToolError(ErrorCode.InvalidArgument, $"unknown view '{view}'.", "pass view=summary, modules, module, search, refs, position, sources, source, endpoints, secrets, diff, runtime, flow, origins, beautify, react or jsx");
         }
     }
 

@@ -708,7 +708,7 @@ public sealed class NativeEditTools(AssemblyWorkspace workspace, NativeCodeServi
         [Description("Replace an existing file, not the original.")] bool overwrite = false,
         [Description("Remove the Authenticode certificate table from the output.")] bool stripSignature = false,
         [Description("Replace the loaded file (needs --allow-replace-original).")] bool replaceOriginal = false,
-        [Description("Write <name>.N.dll, the first free N.")] bool versioned = false,
+        [Description("Write NAME.N.dll, the first free N.")] bool versioned = false,
         RequestContext<CallToolRequestParams> context = null!,
         CancellationToken cancellationToken = default) => OrderedProgress.Run(context, async progress =>
     {

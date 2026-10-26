@@ -383,7 +383,7 @@ public sealed class NativeTypeTools(AssemblyWorkspace workspace, NativeEngineSer
     public Task<string> SetNativeLocal(
         [Description(NativeTools.ImageDescription)] string image,
         [Description(NativeTools.AddressDescription)] string function,
-        [Description("The variable: its pseudocode name, or stack:<offset> (hex).")] string? local = null,
+        [Description("The variable: its pseudocode name, or stack:OFFSET (hex).")] string? local = null,
         [Description("New name (a C identifier).")] string? newName = null,
         [Description("New C type.")] string? type = null,
         [Description("Drop the user name and type.")] bool clear = false,
@@ -609,7 +609,7 @@ public sealed class NativeTypeTools(AssemblyWorkspace workspace, NativeEngineSer
         [Description("Enum: NAME=value, ... (hex or decimal; or lines); NAME= removes.")] string? members = null,
         [Description("Struct or union: name: type; name@0x10: type; @0x10: type (or lines); name: removes; +name@0x10: type inserts.")] string? fields = null,
         [Description("Struct: new size (hex or decimal); goes alone.")] string? resize = null,
-        [Description("Struct: name unnamed gaps gap_<offset>.")] bool nameGaps = false,
+        [Description("Struct: name unnamed gaps gap_OFFSET.")] bool nameGaps = false,
         [Description("A type to delete.")] string? delete = null,
         [Description("Old=New; kept edits naming it follow.")] string? rename = null,
         [Description(EngineDescription)] string? engine = null,

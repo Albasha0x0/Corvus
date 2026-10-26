@@ -412,7 +412,7 @@ public sealed partial class LiveSessionTools(ServerOptions options, LiveSessionS
     }
 
     [McpServerTool(Name = "live_watch", Title = "Record calls in a session", UseStructuredContent = true, OutputSchemaType = typeof(LiveWatchReport))]
-    [Description("Record every call of a function with arguments and result, decoded by prototype (PDB, DWARF) or known API, as events (live_events from=<watch>).")]
+    [Description("Record every call of a function with arguments and result, decoded by prototype (PDB, DWARF) or known API, as events (live_events from=WATCH).")]
     public Task<string> LiveWatchCalls(
         [Description(SessionDescription)] string session,
         [Description("What to do.")] string action = "list",
@@ -477,7 +477,7 @@ public sealed partial class LiveSessionTools(ServerOptions options, LiveSessionS
         }, cancellationToken);
 
     [McpServerTool(Name = "live_script", Title = "User script in a session", UseStructuredContent = true, OutputSchemaType = typeof(LiveScriptReport))]
-    [Description("Load, list or unload your Frida script in a session's program; its messages are events (live_events from=<script>). Needs --live-scripting.")]
+    [Description("Load, list or unload your Frida script in a session's program; its messages are events (live_events from=SCRIPT). Needs --live-scripting.")]
     public Task<string> LiveScriptCalls(
         [Description(SessionDescription)] string session,
         [Description("What to do.")] string action = "list",

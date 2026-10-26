@@ -10,7 +10,7 @@ internal static class ToolSupport
         "Type or member: Ns.Type, Ns.Outer+Inner, Ns.Type::Method(int), short name or token.";
 
     public const string SymbolOrNativeDescription =
-        "Type or member (Ns.Type::Method(int), short name, token) or native export (kernel32.dll!CreateFileW, native:<image>!<name|#ord|addr>).";
+        "Type or member (Ns.Type::Method(int), short name, token) or native export (kernel32.dll!CreateFileW, native:IMAGE!NAME|#ORD|ADDR).";
 
     public const string AssemblyFilterDescription =
         "Assembly id, name or path; omit: all loaded.";

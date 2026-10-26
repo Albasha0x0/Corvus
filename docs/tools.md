@@ -402,7 +402,7 @@ Every use of a symbol across loaded assemblies: call sites of a method (also via
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `symbol` | string | yes |  | Type or member (Ns.Type::Method(int), short name, token) or native export (kernel32.dll!CreateFileW, native:<image>!<name\|#ord\|addr>). |
+| `symbol` | string | yes |  | Type or member (Ns.Type::Method(int), short name, token) or native export (kernel32.dll!CreateFileW, native:IMAGE!NAME\|#ORD\|ADDR). |
 | `assembly` | string |  |  | Assembly defining the symbol, to disambiguate; all loaded are searched. |
 | `kind` | string |  |  | Symbol kind; overrides: overrides and implementations of the method. Values: type, method, field, property, event, overrides. |
 | `directOnly` | boolean |  |  | Methods: no calls through base / interface declarations. |
@@ -420,7 +420,7 @@ What a method uses: calls, field reads / writes, types instantiated or cast, str
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `method` | string | yes |  | Type or member (Ns.Type::Method(int), short name, token) or native export (kernel32.dll!CreateFileW, native:<image>!<name\|#ord\|addr>). |
+| `method` | string | yes |  | Type or member (Ns.Type::Method(int), short name, token) or native export (kernel32.dll!CreateFileW, native:IMAGE!NAME\|#ORD\|ADDR). |
 | `assembly` | string |  |  | Assembly id, name or path; omit: all loaded. |
 | `distinct` | boolean |  |  | One row per target, with a count. |
 | `offset` | integer |  |  |  |
@@ -437,7 +437,7 @@ Multi-level callers or callees of a method across loaded assemblies, one row per
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `method` | string | yes |  | Type or member (Ns.Type::Method(int), short name, token) or native export (kernel32.dll!CreateFileW, native:<image>!<name\|#ord\|addr>). |
+| `method` | string | yes |  | Type or member (Ns.Type::Method(int), short name, token) or native export (kernel32.dll!CreateFileW, native:IMAGE!NAME\|#ORD\|ADDR). |
 | `direction` | string |  | `callers` | callers or callees. Values: callers, callees. |
 | `depth` | integer |  | `3` | Levels to expand (1-8). |
 | `includeExternal` | boolean |  |  | Callees: also calls into assemblies not loaded (framework). |
@@ -456,7 +456,7 @@ How execution reaches a method: call chains from from= or from entry points (met
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `to` | string | yes |  | Type or member (Ns.Type::Method(int), short name, token) or native export (kernel32.dll!CreateFileW, native:<image>!<name\|#ord\|addr>). |
+| `to` | string | yes |  | Type or member (Ns.Type::Method(int), short name, token) or native export (kernel32.dll!CreateFileW, native:IMAGE!NAME\|#ORD\|ADDR). |
 | `from` | string |  |  | Start method, same forms as to (native only when to is native). |
 | `maxDepth` | integer |  | `8` | Max chain length (max 30). |
 | `limit` | integer |  | `10` |  |
@@ -898,11 +898,11 @@ Write an assembly and its edits to a new file, atomically (replaceOriginal=true 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `assembly` | string | yes |  | Assembly id, name or path. |
-| `outputPath` | string |  |  | Output path (.wasm writes Webcil for Blazor); default <original>.patched.dll. |
+| `outputPath` | string |  |  | Output path (.wasm writes Webcil for Blazor); default ORIGINAL.patched.dll. |
 | `overwrite` | boolean |  |  | Replace an existing file, not the original. |
 | `strict` | boolean |  |  | Write nothing if the writer would change any member (default: save, list them). |
 | `replaceOriginal` | boolean |  |  | Replace the loaded file (needs --allow-replace-original). |
-| `versioned` | boolean |  |  | Write <name>.N.dll, the first free N. |
+| `versioned` | boolean |  |  | Write NAME.N.dll, the first free N. |
 
 Structured output: `outputPath`, `bytes`, `sha256`, `edits`, `backup`, `editList`.
 
@@ -1777,7 +1777,7 @@ Write the patched native image to a new file: other bytes identical, PE checksum
 | `overwrite` | boolean |  |  | Replace an existing file, not the original. |
 | `stripSignature` | boolean |  |  | Remove the Authenticode certificate table from the output. |
 | `replaceOriginal` | boolean |  |  | Replace the loaded file (needs --allow-replace-original). |
-| `versioned` | boolean |  |  | Write <name>.N.dll, the first free N. |
+| `versioned` | boolean |  |  | Write NAME.N.dll, the first free N. |
 
 Structured output: `outputPath`, `bytes`, `patches`, `sha256`, `checksum`, `backup`, `verified`, `notes`, `editList`.
 
@@ -2141,7 +2141,7 @@ Rename and/or retype a native pseudocode local or argument, named as decompile_n
 |---|---|---|---|---|
 | `image` | string | yes |  | Image id, name or path. |
 | `function` | string | yes |  | Hex VA/RVA (rva:/va:/off:), export, module!import or function. |
-| `local` | string |  |  | The variable: its pseudocode name, or stack:<offset> (hex). |
+| `local` | string |  |  | The variable: its pseudocode name, or stack:OFFSET (hex). |
 | `newName` | string |  |  | New name (a C identifier). |
 | `type` | string |  |  | New C type. |
 | `clear` | boolean |  |  | Drop the user name and type. |
@@ -2205,7 +2205,7 @@ Declare C types (structs, unions, enums, typedefs, function types) in the engine
 | `members` | string |  |  | Enum: NAME=value, ... (hex or decimal; or lines); NAME= removes. |
 | `fields` | string |  |  | Struct or union: name: type; name@0x10: type; @0x10: type (or lines); name: removes; +name@0x10: type inserts. |
 | `resize` | string |  |  | Struct: new size (hex or decimal); goes alone. |
-| `nameGaps` | boolean |  |  | Struct: name unnamed gaps gap_<offset>. |
+| `nameGaps` | boolean |  |  | Struct: name unnamed gaps gap_OFFSET. |
 | `delete` | string |  |  | A type to delete. |
 | `rename` | string |  |  | Old=New; kept edits naming it follow. |
 | `engine` | string |  |  | Default auto. Values: auto, ida, ghidra. |
@@ -2322,7 +2322,7 @@ Run Java or Python (PyGhidra, CORVUS_GHIDRA_PYTHON) in the Ghidra worker: a Ghid
 |---|---|---|---|---|
 | `image` | string | yes |  | Image id, name or path. |
 | `code` | string |  |  | Java (a GhidraScript class, or statements for run()) or Python source. |
-| `name` | string |  |  | Instead of code: a script in the Ghidra script folders or <data>/ghidra_scripts. |
+| `name` | string |  |  | Instead of code: a script in the Ghidra script folders or DATA/ghidra_scripts. |
 | `args` | string[] |  |  | With name: script arguments (getScriptArgs). |
 | `timeoutSeconds` | integer |  | `120` | Seconds before the script is cancelled (1-3600). |
 | `language` | string |  |  | java (default) or python; name *.py is Python. |
@@ -2883,7 +2883,7 @@ Structured output: `session`, `stopPoints`, `stop`, `namedAddresses`.
 
 **Record calls in a session** (edit, open-world)
 
-Record every call of a function with arguments and result, decoded by prototype (PDB, DWARF) or known API, as events (live_events from=<watch>).
+Record every call of a function with arguments and result, decoded by prototype (PDB, DWARF) or known API, as events (live_events from=WATCH).
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -2936,7 +2936,7 @@ Structured output: `session`, `items`, `cursor`, `dropped`, `namedAddresses`.
 
 **User script in a session** (destructive, open-world)
 
-Load, list or unload your Frida script in a session's program; its messages are events (live_events from=<script>). Needs --live-scripting.
+Load, list or unload your Frida script in a session's program; its messages are events (live_events from=SCRIPT). Needs --live-scripting.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -3017,17 +3017,17 @@ JavaScript bundles and their source maps.
 
 **Analyze a JavaScript bundle** (read-only, idempotent)
 
-JS bundler, modules, source map, statically. position: original; diff: with source=; runtime: webpack chunks; flow: values to effects; origins: back; unknowns marked; beautify: layout, renames. Hermes, Ark too.
+JS bundler, modules, source map, statically. position: original; diff: with source=; runtime: webpack chunks; flow: values to effects; origins: back; unknowns marked; beautify: layout, renames; react, jsx: components. Hermes, Ark too.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `path` | string | yes |  | A .js, Hermes or Ark file, or a package. |
-| `view` | string |  | `summary` | View. Values: summary, modules, module, search, refs, position, sources, source, endpoints, secrets, diff, runtime, flow, origins, beautify, functions, decompile, disassemble, xrefs. |
+| `view` | string |  | `summary` | View. Values: summary, modules, module, search, refs, position, sources, source, endpoints, secrets, diff, runtime, flow, origins, beautify, react, jsx, functions, decompile, disassemble, xrefs. |
 | `line` | integer |  |  | position, flow: 1-based generated line. |
 | `column` | integer |  |  | See line. |
 | `source` | string |  |  | source: path or index; diff: old bundle. |
-| `query` | string |  |  | Module id; search filter; function #id or name; flow: name, quoted literal, sinks, sink:KIND, module:ID; beautify: a=b, a@line:col=b, auto. |
-| `limit` | integer |  |  | flow: max flows (50). |
+| `query` | string |  |  | Module id; search filter; function #id or name; flow: name, quoted literal, sinks, sink:KIND, module:ID; beautify: a=b, a@line:col=b, auto; react/jsx: name. |
+| `limit` | integer |  |  | Most rows: flow 50, react 200. |
 | `offset` | integer |  |  |  |
 | `maxTokens` | integer |  |  |  |
 

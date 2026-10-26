@@ -102,7 +102,7 @@ public sealed class EngineScriptTools(AssemblyWorkspace workspace, NativeEngineS
     public Task<string> GhidraScript(
         [Description(NativeTools.ImageDescription)] string image,
         [Description("Java (a GhidraScript class, or statements for run()) or Python source.")] string? code = null,
-        [Description("Instead of code: a script in the Ghidra script folders or <data>/ghidra_scripts.")] string? name = null,
+        [Description("Instead of code: a script in the Ghidra script folders or DATA/ghidra_scripts.")] string? name = null,
         [Description("With name: script arguments (getScriptArgs).")] string[]? args = null,
         [Description("Seconds before the script is cancelled (1-3600).")] int timeoutSeconds = 120,
         [Description("java (default) or python; name *.py is Python.")] string? language = null,

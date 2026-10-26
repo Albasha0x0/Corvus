@@ -259,11 +259,11 @@ public sealed class EditTools(AssemblyWorkspace workspace, EditService edits, Ed
                  "refused). Untouched bodies keep their bytes; members the writer changed are listed, with reason codes (docs/saving.md).")]
     public Task<string> SaveAssembly(
         [Description(AssemblyDescription)] string assembly,
-        [Description("Output path (.wasm writes Webcil for Blazor); default <original>.patched.dll.")] string? outputPath = null,
+        [Description("Output path (.wasm writes Webcil for Blazor); default ORIGINAL.patched.dll.")] string? outputPath = null,
         [Description("Replace an existing file, not the original.")] bool overwrite = false,
         [Description("Write nothing if the writer would change any member (default: save, list them).")] bool strict = false,
         [Description("Replace the loaded file (needs --allow-replace-original).")] bool replaceOriginal = false,
-        [Description("Write <name>.N.dll, the first free N.")] bool versioned = false,
+        [Description("Write NAME.N.dll, the first free N.")] bool versioned = false,
         CancellationToken cancellationToken = default) => Read(workspace, () =>
     {
         SaveTarget.RequireReplaceAllowed(replaceOriginal, options);
