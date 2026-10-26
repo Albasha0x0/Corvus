@@ -67,6 +67,7 @@
     <None Include="Databases\LmdbFixtures\**" CopyToOutputDirectory="PreserveNewest" />
     <None Include="Databases\EseFixtures\**" CopyToOutputDirectory="PreserveNewest" />
     <None Include="Databases\BerkeleyDbFixtures\**" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="Databases\RealmFixtures\**" CopyToOutputDirectory="PreserveNewest" />
     <None Include="Containers\LinuxAppFixtures\*.AppImage;Containers\LinuxAppFixtures\*.snap;Containers\LinuxAppFixtures\*.sh;Containers\LinuxAppFixtures\*.py" CopyToOutputDirectory="PreserveNewest" />
     <None Include="Containers\RpmFixtures\*.rpm;Containers\RpmFixtures\*.sh;Containers\RpmFixtures\*.spec" CopyToOutputDirectory="PreserveNewest" />
     <None Include="Containers\GodotFixtures\*.pck;Containers\GodotFixtures\*.gd" CopyToOutputDirectory="PreserveNewest" />
