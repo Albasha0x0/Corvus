@@ -393,6 +393,7 @@ describe.
 | `CORVUS_VCALL_SAMPLE` | Call sites of that image sampled (default 150). | VirtualCallTests |
 | `CORVUS_WASM_DIR` | A folder of .wasm files, validated and converted to text, compared with WABT. | WasmTextTests, WasmValidationTests |
 | `CORVUS_REACT_BUNDLES` | A folder of compiled React bundles (`.js`, searched recursively); each must name the version it assigns and hold at least 90 % of its element calls in components. | JsReactTests |
+| `CORVUS_NEXT_BUILD` | A Next.js build folder (`.next`); each prerendered page under `server/app` and its `.rsc` must decode to the same rows, and every chunk file a client module names must exist in the build. | FlightDataTests |
 | `CORVUS_WEBPACK_APPS` | A folder of folders, each an app's extracted webpack output. | JsRuntimeTests |
 | `CORVUS_WEVTUTIL` | wevtutil (Windows 11 25H2, build 26200) that the event logs under `CORVUS_EVTX_FILES` and the built ones are compared with. | EvtxTests |
 | `CORVUS_WPF_APPS` | A folder of WPF programs (.exe, three levels deep) whose BAML must decompile to XAML that parses. | XamlEventsTests |
