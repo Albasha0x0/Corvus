@@ -277,6 +277,7 @@ describe.
 | `CORVUS_GODOT_RELEASES` | A folder of Godot releases (`godot-<version>` holding the editor executable): the newest 3.x and 4.x mount the Godot fixtures and `CORVUS_GODOT_PACKS` for comparison; 3.6.3, 4.3, 4.5.1 and 4.7.2 rebuild the fixtures. | GodotPackTests, tests/Corvus.Tests/Containers/GodotFixtures/build.ps1 |
 | `CORVUS_ELECTRON_APPS` | A folder of installed Electron apps; every .asar below it (six levels) is read. | ElectronGraphTests, ElectronTests, JsEndpointsTests, NodeApiTests |
 | `CORVUS_ELF_CORES` | A folder of Linux or Android ELF core files, with the program's libraries beside them. | ElfCoreTests |
+| `CORVUS_ESE_FILES` | A folder searched for ESE databases (`*.edb`) compared with pyesedb through `CORVUS_FS_REFERENCE`. | EseTests |
 | `CORVUS_EXPORT_LIST` | A file listing assemblies whose exported projects must build; errors go to `<list>.report.txt`. | ExportBuildTests |
 | `CORVUS_EXPORT_REAL` | `1` exports real libraries to projects and builds them. | ExportBuildTests |
 | `CORVUS_FIRMWARE_IMAGES` | A folder of firmware images whose filesystems are compared file by file with the reference extractors. | FirmwareComparisonTests |
@@ -289,7 +290,7 @@ describe.
 | `CORVUS_FIXTURE_SWIFT` | The swiftc that builds the Swift string form fixtures (default: swiftc on PATH). | tests/Corvus.Tests/NativeAnalysis/StringFormFixtures/build.ps1 |
 | `CORVUS_FIXTURE_SWIFT_STATIC_SDK` | The musl-1.2.5.sdk folder of the Swift Static Linux SDK, for the Linux Swift string form fixtures. | tests/Corvus.Tests/NativeAnalysis/StringFormFixtures/build.ps1 |
 | `CORVUS_FORMAT_FUZZ_ITERATIONS` | Mutated inputs per ELF and Mach-O fuzz test (default 300). | ElfFileTests, MachOFileTests |
-| `CORVUS_FS_REFERENCE` | The program that runs the firmware, rpm and AppImage reference scripts (the firmware one as root): sh on Linux, wsl.exe on Windows; the rpm script needs rpm, rpm2cpio and cpio, the AppImage one unsquashfs and readelf; it runs the LevelDB and LMDB reference.py scripts with python3 (the LMDB one needs mdb_dump). | FirmwareComparisonTests, LevelDbTests, LinuxAppPackageTests, LmdbTests, RpmReaderTests |
+| `CORVUS_FS_REFERENCE` | The program that runs the firmware, rpm and AppImage reference scripts (the firmware one as root): sh on Linux, wsl.exe on Windows; the rpm script needs rpm, rpm2cpio and cpio, the AppImage one unsquashfs and readelf; it runs the ESE, LevelDB and LMDB reference.py scripts with python3 (the ESE one needs pyesedb from libesedb, the LMDB one mdb_dump). | EseTests, FirmwareComparisonTests, LevelDbTests, LinuxAppPackageTests, LmdbTests, RpmReaderTests |
 | `CORVUS_FUZZ_CASES` | Mutated inputs per container and inspection fixture (defaults 40 and 30). | InspectionTests, UnpackTests |
 | `CORVUS_FUZZ_COUNT` | Seeds of the simplify and save fuzz tests (defaults 40 and 60). | SaveFidelityTests, SimplifyFuzzTests |
 | `CORVUS_FUZZ_SEED` | One simplify fuzz seed to run, or `random` for a fresh one. | SimplifyFuzzTests |

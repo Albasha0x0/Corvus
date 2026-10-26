@@ -65,6 +65,7 @@
     <None Include="Containers\AutoItFixtures\*.a3x;Containers\AutoItFixtures\*.au3;Containers\AutoItFixtures\notes.txt;Containers\AutoItFixtures\build.ps1;Containers\AutoItFixtures\reference.py" CopyToOutputDirectory="PreserveNewest" />
     <None Include="Databases\LevelDbFixtures\**" CopyToOutputDirectory="PreserveNewest" />
     <None Include="Databases\LmdbFixtures\**" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="Databases\EseFixtures\**" CopyToOutputDirectory="PreserveNewest" />
     <None Include="Containers\LinuxAppFixtures\*.AppImage;Containers\LinuxAppFixtures\*.snap;Containers\LinuxAppFixtures\*.sh;Containers\LinuxAppFixtures\*.py" CopyToOutputDirectory="PreserveNewest" />
     <None Include="Containers\RpmFixtures\*.rpm;Containers\RpmFixtures\*.sh;Containers\RpmFixtures\*.spec" CopyToOutputDirectory="PreserveNewest" />
     <None Include="Containers\GodotFixtures\*.pck;Containers\GodotFixtures\*.gd" CopyToOutputDirectory="PreserveNewest" />
@@ -200,6 +201,7 @@
     <Compile Remove="PipelineSamples\**" />
     <None Include="PipelineSamples\**" CopyToOutputDirectory="PreserveNewest" />
     <Compile Remove="NativeAotSample\**" />
+    <Compile Remove="Databases\EseFixtures\build.cs" />
     <None Include="NativeAotSample\**" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
