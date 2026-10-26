@@ -276,6 +276,7 @@ describe.
 | `CORVUS_IOSTORE_TOOL` | retoc, for rebuilding the IoStore fixtures. | tests/Corvus.Tests/Containers/UnrealFixtures/build.ps1 |
 | `CORVUS_MAKEPRI` | MakePri.exe of the Windows SDK (10.0.19041.0, x64) that the files under `CORVUS_PRI_FILES` are compared with; `Containers/PriFixtures/build.ps1` rebuilds the fixture with it. | PriFileTests, tests/Corvus.Tests/Containers/PriFixtures/build.ps1 |
 | `CORVUS_JIMAGE` | jimage of a JDK (24, x64) that the images under `CORVUS_JIMAGE_FILES` are listed and extracted with. | JImageFileTests |
+| `CORVUS_WASM_TOOLS` | wasm-tools (1.262.0) that the components under `CORVUS_WASM_COMPONENTS` are resolved with (`component wit --json`). | WasmWorldTests |
 | `CORVUS_ESPTOOL` | esptool (5.6.0) that the images under `CORVUS_ESP32_FILES` are read with (`image-info`). | Esp32FlashTests |
 | `CORVUS_ESP_IDF_TOOLS` | A folder with `gen_esp32part.py` and `nvs_tool.py` (and its `nvs_*.py` modules) of ESP-IDF 5.4, run with `python`. | Esp32FlashTests |
 | `CORVUS_UNREAL_PAKS` | A folder of Unreal pak files whose listings and file contents (SHA-256) are compared with repak's (`CORVUS_PAK_TOOL`); a pak with an encrypted index is named, not listed. | UnrealContainerTests |
@@ -377,6 +378,7 @@ describe.
 | `CORVUS_HYBRID_APPS` | A folder of Cordova and Capacitor packages (.apk, searched recursively); each must join its plugin calls, and every class of capacitor.plugins.json is joined or named. | AppGraphTests |
 | `CORVUS_PRI_FILES` | A folder of package resource index files (`*.pri`, searched recursively), each compared with MakePri's detailed dump (`CORVUS_MAKEPRI`). | PriFileTests |
 | `CORVUS_JIMAGE_FILES` | A folder searched for Java runtime images (files that start with the jimage magic): JDK `lib/modules` files and jlink images. | JImageFileTests |
+| `CORVUS_WASM_COMPONENTS` | A folder of WebAssembly components (`*.wasm`, searched recursively; core modules are skipped). | WasmWorldTests |
 | `CORVUS_ESP32_FILES` | A folder searched for ESP32 flash images, partition tables, NVS partitions and app images. | Esp32FlashTests |
 | `CORVUS_REGISTRY_HIVES` | A folder of registry hive files (searched recursively), each compared with the Offline Registry Library (Windows). | RegistryHiveTests |
 | `CORVUS_R2R_COMPOSITE_DIR` | A composite ReadyToRun app: the output of a self-contained `dotnet publish` with composite ReadyToRun. | ReadyToRunTests |
@@ -545,6 +547,11 @@ missing.
   entry state count and written value in `nvs_tool.py`'s JSON dump. Checked on MicroPython 1.25 flash images for
   ESP32, ESP32-C3 and ESP32-S3, their app images and tables, and NVS partitions written by nvs_partition_gen 0.3.0
   (format versions 1 and 2, multi-page blobs).
+- **WebAssembly component worlds against wasm-tools** (`WasmWorldTests`, `CORVUS_WASM_TOOLS`, `CORVUS_WASM_COMPONENTS`,
+  wasm-tools 1.262.0): every world import and export, and each interface's named types and functions rendered in WIT
+  syntax, must be the ones `component wit --json` resolves. Checked on components built by Rust 1.91 for
+  `wasm32-wasip2` (a command and a `wasi:http` handler) and on components wasm-tools encodes from WIT (every type kind,
+  resources, `use`, inline interfaces, world functions, async functions, streams and futures).
 - **Registry hives against the Offline Registry Library** (`RegistryHiveTests`, `CORVUS_REGISTRY_HIVES`, offreg.dll of
   Windows 11): every key with its class name and last write time, and every value with its type and data, in the order
   the library enumerates them, must be the ones read here: built hives (`Support/HiveSamples.cs`: lh and ri lists,

@@ -15,7 +15,14 @@ internal sealed class WasmFileView : IFileSummaryView
     {
         /// <summary>The JS glue beside the module joined to its imports by name (the first 100 bindings); null when none names an import.</summary>
         public Core.WebAssembly.WasmGlueLink? Glue { get; init; }
+
+        /// <summary>A component's world: its top-level imports and exports with their interfaces; null for a core module.</summary>
+        public ComponentFacts? Component { get; init; }
     }
+
+    /// <summary>The world as WIT declares it; <see cref="Sections"/> counts definitions per section kind.</summary>
+    public sealed record ComponentFacts(IReadOnlyList<Core.WebAssembly.WasmWorld.Item> Imports, IReadOnlyList<Core.WebAssembly.WasmWorld.Item> Exports,
+        IReadOnlyDictionary<string, int> Sections, IReadOnlyList<string> StringEncodings, IReadOnlyList<string> Issues);
 
     public string Name => "wasm";
 
@@ -24,6 +31,7 @@ internal sealed class WasmFileView : IFileSummaryView
         if (!WasmModule.IsWasm(file.Head)) return null;
         // a component's facts are its largest core module's: the program, beside adapters and shims
         var cores = Core.WebAssembly.WasmComponent.Looks(file.Head) ? Core.WebAssembly.WasmComponent.CoreModules(file.Bytes) : null;
+        var world = cores != null ? Core.WebAssembly.WasmWorld.Read(file.Bytes, ct) : null;
         var main = cores is { Count: > 0 } ? cores.MaxBy(c => c.Length) : default;
         var compact = cores == null ? file.Wasm : null;
         var bytes = main.Name != null ? file.Bytes.AsSpan(main.Offset, main.Length).ToArray() : compact?.Bytes ?? file.Bytes;
@@ -46,6 +54,7 @@ internal sealed class WasmFileView : IFileSummaryView
             [.. m.Exports.Take(MaxListed).Select(e => $"{e.Name} ({e.Kind})")], m.FunctionNames.Count,
             [.. m.Sections.Select(s => $"{s.Name} ({s.Size:N0} bytes)")], m.Issues, validation.Verdict, [.. validation.Errors.Take(20)])
         {
+            Component = world == null ? null : new ComponentFacts(world.Imports, world.Exports, world.Sections, [.. world.StringEncodings], world.Issues),
             Glue = glue == null ? null : glue with
             {
                 Imports = [.. glue.Imports.Where(b => b.Value == null).Take(50), .. glue.Imports.Where(b => b.Value != null).Take(100 - Math.Min(50, glue.Total - glue.Matched))],
@@ -55,6 +64,9 @@ internal sealed class WasmFileView : IFileSummaryView
         if (cores != null)
             highlights.Add($"WebAssembly component of {cores.Count} core modules ({string.Join(", ", cores.Select(c => $"{c.Name} {c.Length:N0} bytes"))})" +
                            (main.Name != null ? $"; the module facts are {main.Name}'s, the largest; unpack_container extracts each." : "."));
+        if (world != null)
+            highlights.Add($"World: {Interfaces(world.Imports)} imported, {Interfaces(world.Exports)} exported" +
+                           (world.Issues.Count > 0 ? $"; {world.Issues[0]}." : "."));
         highlights.Add($"WebAssembly module: {m.DefinedFunctions:N0} functions, {m.Imports.Count} imports from {facts.ImportsByModule.Count} module(s), {m.Exports.Count} exports" +
                        (toolchain != null ? $"; built by {toolchain}" : "") + ".");
         if (compact is { Omitted: > 0 })
@@ -68,6 +80,9 @@ internal sealed class WasmFileView : IFileSummaryView
         if (!validation.Valid) highlights.Add($"Validation: {validation.Verdict}" + (validation.Errors.Count > 0 ? $" ({validation.Errors[0]})." : "."));
         return new FileView(facts, highlights);
     }
+
+    private static string Interfaces(List<Core.WebAssembly.WasmWorld.Item> items) =>
+        items.Count == 0 ? "nothing" : $"{items.Count} ({string.Join(", ", items.Take(6).Select(i => i.Name))}{(items.Count > 6 ? ", ..." : "")})";
 
     /// <summary>The toolchain: the producers section first, else the import shapes each runtime is known by.</summary>
     private static string? Toolchain(WasmModule m)
