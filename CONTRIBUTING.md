@@ -42,6 +42,10 @@ Its `[Description]` texts become the MCP tool description: keep them accurate an
    (`README.*.md`).
 6. Tests: the tool's own, and a case in `McpProtocolTests.ToolCases` so it is called over stdio.
 
+Agent skills for this work live in `.agents/skills`: `corvus-tool-checklist`, `corvus-catalog-audit` and
+`corvus-release-notes`. Clients that read `.agents/skills` load them from the repository; for Claude Code, link
+`.claude/skills` to that folder. `MaintainerSkillTests` checks that every path, test and variable they name exists.
+
 The guard tests (catalog audit and size ceiling, layering, README sync, parameter domains, contract sweep, guide
 coverage, toolsets) fail when a step is missing. The catalog size ceiling in `CatalogAuditTests` is raised only
 deliberately, with the new figure recorded there.
