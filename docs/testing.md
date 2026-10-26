@@ -362,6 +362,8 @@ describe.
 | `CORVUS_PIPELINE_SEED` | One pipeline seed to run. | PipelineRoundTripTests |
 | `CORVUS_PIPELINE_SEEDS` | Pipeline seeds per option (default 3 in an exhaustive run, else one of the three by day). | PipelineRoundTripTests |
 | `CORVUS_PIPELINE_TOOL` | The executable of the transformation pipeline tool, which reads a .crproj project. | PipelineRoundTripTests, test-remote.psm1 |
+| `CORVUS_PROCMON` | Process Monitor (4.12) that opens the built backing files and saves them as CSV. | ProcmonTests |
+| `CORVUS_PROCMON_FILES` | A folder searched for Process Monitor backing files (`*.pml`), each beside the CSV export Process Monitor saved of it (same name, `.csv`). | ProcmonTests |
 | `CORVUS_R2R_COMPOSITE_DIR` | A composite ReadyToRun app: the output of a self-contained `dotnet publish` with composite ReadyToRun. | ReadyToRunTests |
 | `CORVUS_REALM_FILES` | A folder searched for Realm files (any name, by their header) compared with the realm package through `CORVUS_REALM_REFERENCE`. | RealmTests |
 | `CORVUS_REALM_REFERENCE` | A folder holding `node_modules/realm`; RealmTests runs reference.js with node from PATH and this folder as NODE_PATH. | RealmTests |
@@ -496,6 +498,11 @@ missing.
   every record of each log, exported and as the service holds it, must render to the XML wevtutil writes, matched by
   EventRecordID. The built logs (`Support/EvtxSamples.cs`: three templates, a string array, empty optional values, a
   nested binary XML value) must render the same through wevtutil.
+- **Process Monitor logs against Process Monitor** (`ProcmonTests`, `CORVUS_PROCMON`, `CORVUS_PROCMON_FILES`, Process
+  Monitor 4.12): every event of each backing file must match the CSV export of it in time of day, process, PID,
+  operation, path and result, and in the detail of process, image, thread and network events; the export cuts a detail
+  at 4,095 characters and writes line breaks as semicolons. The built backing files (`Support/ProcmonSamples.cs`) must
+  read the same through Process Monitor.
 - **HTTP/3 field sections against Wireshark** (`Http3Tests`, `CORVUS_TSHARK`, TShark 4.6.9): an aioquic 1.2.0 capture
   (`Containers/Http3Fixtures/build.py`: five requests, a key update, AES-256-GCM) decrypted with its key log; every
   HTTP/3 field section, its stream and field lines in order, must equal what TShark decodes.

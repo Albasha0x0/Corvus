@@ -18,15 +18,15 @@ public sealed class InspectionTools(InspectionService inspection, AssemblyWorksp
     private const string PathParam = "A .NET assembly or container, a Unity build folder, package or zip, or a serialized file or bundle; pass this or assembly.";
 
     [McpServerTool(Name = "summarize_file", Title = "Summarize file", UseStructuredContent = true, OutputSchemaType = typeof(FileSummaryRecord))]
-    [Description("Look at a file or assembly, not run: type, hashes, signature, containers, assemblies, highlights (toolchain, " +
+    [Description("Read a file or assembly, not run: type, hashes, signature, containers, assemblies, highlights (toolchain, " +
                  "capabilities, packagers), entry points. view= takes package (install review), raw (headerless code), " +
-                 "script (layers peeled), sqlite, unity (MonoBehaviour fields), all; views lists what applies.")]
+                 "script (layers), sqlite, unity (MonoBehaviour fields); views lists what applies.")]
     public Task<string> SummarizeFile(
-        [Description("File (assembly, executable, bundle, package, zip, .asar), .app or source folder.")] string? path = null,
+        [Description("File (assembly, executable, bundle, package, zip, .asar) or folder.")] string? path = null,
         [Description(AssemblyParam)] string? assembly = null,
         [Description("A view the overview lists.")] string view = "overview",
-        [Description("sqlite(-recover), ese, realm: table to page; lmdb, berkeleydb: database; evtx: provider/id.")] string? table = null,
-        [Description("With table=: these columns (rowid too).")] string[]? columns = null,
+        [Description("sqlite, ese, realm: table; lmdb, berkeleydb: database; evtx: provider/id; procmon: process/PID/operation/result.")] string? table = null,
+        [Description("With table=: these columns, rowid too.")] string[]? columns = null,
         [Description("unity: only assets of this script class.")] string? script = null,
         [Description(ToolSupport.RowOffsetDescription)] long offset = 0,
         [Description(ToolSupport.LimitDescription)] int? limit = null,
@@ -37,10 +37,10 @@ public sealed class InspectionTools(InspectionService inspection, AssemblyWorksp
         CancellationToken cancellationToken = default) => OrderedProgress.Run(context, async progress =>
         {
             var name = string.IsNullOrWhiteSpace(view) ? "overview" : view.Trim().ToLowerInvariant();
-            if (table != null && name is not ("sqlite" or "sqlite-recover" or "lmdb" or "ese" or "berkeleydb" or "realm" or "evtx") || columns != null && name is not ("sqlite" or "sqlite-recover")
-                || limit != null && name is not ("sqlite" or "sqlite-recover" or "protobuf" or "layers" or "unity" or "leveldb" or "lmdb" or "ese" or "berkeleydb" or "realm" or "qlog" or "certificate" or "evtx")
-                || offset != 0 && name is not ("sqlite" or "sqlite-recover" or "protobuf" or "layers" or "script" or "unity" or "leveldb" or "lmdb" or "ese" or "berkeleydb" or "realm" or "qlog" or "certificate" or "evtx"))
-                throw new ToolError(ErrorCode.InvalidArgument, "table, columns, offset and limit page the rows of view=sqlite and view=sqlite-recover (table, offset and limit also view=lmdb, view=ese, view=berkeleydb, view=realm and view=evtx; offset and limit also view=protobuf, view=layers, view=unity, view=leveldb, view=qlog and view=certificate; offset view=script).",
+            if (table != null && name is not ("sqlite" or "sqlite-recover" or "lmdb" or "ese" or "berkeleydb" or "realm" or "evtx" or "procmon") || columns != null && name is not ("sqlite" or "sqlite-recover")
+                || limit != null && name is not ("sqlite" or "sqlite-recover" or "protobuf" or "layers" or "unity" or "leveldb" or "lmdb" or "ese" or "berkeleydb" or "realm" or "qlog" or "certificate" or "evtx" or "procmon")
+                || offset != 0 && name is not ("sqlite" or "sqlite-recover" or "protobuf" or "layers" or "script" or "unity" or "leveldb" or "lmdb" or "ese" or "berkeleydb" or "realm" or "qlog" or "certificate" or "evtx" or "procmon"))
+                throw new ToolError(ErrorCode.InvalidArgument, "table, columns, offset and limit page the rows of view=sqlite and view=sqlite-recover (table, offset and limit also view=lmdb, view=ese, view=berkeleydb, view=realm, view=evtx and view=procmon; offset and limit also view=protobuf, view=layers, view=unity, view=leveldb, view=qlog and view=certificate; offset view=script).",
                     "pass view=sqlite with table=, or drop them");
             if (script != null && name != "unity") throw new ToolError(ErrorCode.InvalidArgument, "script selects the assets of view=unity.", "pass view=unity with script=, or drop it");
             if (columns != null && table == null) throw new ToolError(ErrorCode.InvalidArgument, "columns selects columns of a table: pass table= with it.");

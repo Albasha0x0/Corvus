@@ -553,15 +553,15 @@ File inspection, containers and wrapped apps, Unity overview.
 
 **Summarize file** (read-only, idempotent)
 
-Look at a file or assembly, not run: type, hashes, signature, containers, assemblies, highlights (toolchain, capabilities, packagers), entry points. view= takes package (install review), raw (headerless code), script (layers peeled), sqlite, unity (MonoBehaviour fields), all; views lists what applies.
+Read a file or assembly, not run: type, hashes, signature, containers, assemblies, highlights (toolchain, capabilities, packagers), entry points. view= takes package (install review), raw (headerless code), script (layers), sqlite, unity (MonoBehaviour fields); views lists what applies.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `path` | string |  |  | File (assembly, executable, bundle, package, zip, .asar), .app or source folder. |
+| `path` | string |  |  | File (assembly, executable, bundle, package, zip, .asar) or folder. |
 | `assembly` | string |  |  | A loaded assembly; pass this or path. |
-| `view` | string |  | `overview` | A view the overview lists. Values: overview, managed, dependencies, android, apple, berkeleydb, certificate, electron, ese, evtx, firmware, flutter, go, harmony, hermes, installer, layers, leveldb, lmdb, lnk, native, nib, office, package, page, pcap, pdf, plist, protobuf, python, qlog, raw, realm, rust, script, sqlite, sqlite-recover, unity, wasm, xbf, all. |
-| `table` | string |  |  | sqlite(-recover), ese, realm: table to page; lmdb, berkeleydb: database; evtx: provider/id. |
-| `columns` | string[] |  |  | With table=: these columns (rowid too). |
+| `view` | string |  | `overview` | A view the overview lists. Values: overview, managed, dependencies, android, apple, berkeleydb, certificate, electron, ese, evtx, firmware, flutter, go, harmony, hermes, installer, layers, leveldb, lmdb, lnk, native, nib, office, package, page, pcap, pdf, plist, procmon, protobuf, python, qlog, raw, realm, rust, script, sqlite, sqlite-recover, unity, wasm, xbf, all. |
+| `table` | string |  |  | sqlite, ese, realm: table; lmdb, berkeleydb: database; evtx: provider/id; procmon: process/PID/operation/result. |
+| `columns` | string[] |  |  | With table=: these columns, rowid too. |
 | `script` | string |  |  | unity: only assets of this script class. |
 | `offset` | integer |  |  |  |
 | `limit` | integer |  |  |  |
