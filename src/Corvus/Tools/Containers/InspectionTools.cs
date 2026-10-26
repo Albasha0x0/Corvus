@@ -20,7 +20,7 @@ public sealed class InspectionTools(InspectionService inspection, AssemblyWorksp
     // The views that read each paging parameter; any other view refuses it.
     private static readonly string[] TableViews = ["sqlite", "sqlite-recover", "lmdb", "ese", "berkeleydb", "realm", "evtx", "procmon", "registry", "pri", "esp32"];
     private static readonly string[] ColumnViews = ["sqlite", "sqlite-recover"];
-    private static readonly string[] LimitViews = [.. TableViews, "protobuf", "layers", "unity", "leveldb", "qlog", "certificate"];
+    private static readonly string[] LimitViews = [.. TableViews, "protobuf", "layers", "unity", "leveldb", "qlog", "certificate", "model"];
     private static readonly string[] OffsetViews = [.. LimitViews, "script", "python", "xbf"];
 
     /// <summary>The first paging parameter passed that <paramref name="view"/> does not read, with the views that do; null when all apply.</summary>
@@ -34,13 +34,13 @@ public sealed class InspectionTools(InspectionService inspection, AssemblyWorksp
     [McpServerTool(Name = "summarize_file", Title = "Summarize file", UseStructuredContent = true, OutputSchemaType = typeof(FileSummaryRecord))]
     [Description("Read a file or assembly, not run: type, hashes, signature, containers, assemblies, highlights (toolchain, " +
                  "capabilities, packagers), entry points. view=: package, raw (headerless code), " +
-                 "script (layers), sqlite, unity (MonoBehaviour fields); views lists the rest.")]
+                 "script (layers), sqlite, unity (MonoBehaviour fields); views lists all.")]
     public Task<string> SummarizeFile(
         [Description("File (assembly, executable, package, archive) or folder.")] string? path = null,
         [Description(AssemblyParam)] string? assembly = null,
         [Description("A view the overview lists.")] string view = "overview",
         [Description("Table; lmdb, berkeleydb: database; evtx: provider/id; procmon: process/PID/operation/result; registry: key; pri: name; esp32: namespace.")] string? table = null,
-        [Description("With table=: these columns, rowid too.")] string[]? columns = null,
+        [Description("With table=: these columns and rowid.")] string[]? columns = null,
         [Description("unity: assets of this script class.")] string? script = null,
         [Description(ToolSupport.RowOffsetDescription)] long offset = 0,
         [Description(ToolSupport.LimitDescription)] int? limit = null,

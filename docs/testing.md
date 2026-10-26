@@ -277,6 +277,7 @@ describe.
 | `CORVUS_MAKEPRI` | MakePri.exe of the Windows SDK (10.0.19041.0, x64) that the files under `CORVUS_PRI_FILES` are compared with; `Containers/PriFixtures/build.ps1` rebuilds the fixture with it. | PriFileTests, tests/Corvus.Tests/Containers/PriFixtures/build.ps1 |
 | `CORVUS_JIMAGE` | jimage of a JDK (24, x64) that the images under `CORVUS_JIMAGE_FILES` are listed and extracted with. | JImageFileTests |
 | `CORVUS_WASM_TOOLS` | wasm-tools (1.262.0) that the components under `CORVUS_WASM_COMPONENTS` are resolved with (`component wit --json`). | WasmWorldTests |
+| `CORVUS_MODEL_PYTHON` | A Python with safetensors 0.8.0, gguf 0.19.0, onnx 1.23.2 and torch 2.14.1 (CPU) that the files under `CORVUS_MODEL_FILES` are read with. | ModelFileTests |
 | `CORVUS_ESPTOOL` | esptool (5.6.0) that the images under `CORVUS_ESP32_FILES` are read with (`image-info`). | Esp32FlashTests |
 | `CORVUS_ESP_IDF_TOOLS` | A folder with `gen_esp32part.py` and `nvs_tool.py` (and its `nvs_*.py` modules) of ESP-IDF 5.4, run with `python`. | Esp32FlashTests |
 | `CORVUS_UNREAL_PAKS` | A folder of Unreal pak files whose listings and file contents (SHA-256) are compared with repak's (`CORVUS_PAK_TOOL`); a pak with an encrypted index is named, not listed. | UnrealContainerTests |
@@ -379,6 +380,7 @@ describe.
 | `CORVUS_PRI_FILES` | A folder of package resource index files (`*.pri`, searched recursively), each compared with MakePri's detailed dump (`CORVUS_MAKEPRI`). | PriFileTests |
 | `CORVUS_JIMAGE_FILES` | A folder searched for Java runtime images (files that start with the jimage magic): JDK `lib/modules` files and jlink images. | JImageFileTests |
 | `CORVUS_WASM_COMPONENTS` | A folder of WebAssembly components (`*.wasm`, searched recursively; core modules are skipped). | WasmWorldTests |
+| `CORVUS_MODEL_FILES` | A folder of model files (safetensors, GGUF, ONNX, PyTorch checkpoints, pickles; searched recursively, ONNX `.data` files skipped). | ModelFileTests |
 | `CORVUS_ESP32_FILES` | A folder searched for ESP32 flash images, partition tables, NVS partitions and app images. | Esp32FlashTests |
 | `CORVUS_REGISTRY_HIVES` | A folder of registry hive files (searched recursively), each compared with the Offline Registry Library (Windows). | RegistryHiveTests |
 | `CORVUS_R2R_COMPOSITE_DIR` | A composite ReadyToRun app: the output of a self-contained `dotnet publish` with composite ReadyToRun. | ReadyToRunTests |
@@ -547,6 +549,13 @@ missing.
   entry state count and written value in `nvs_tool.py`'s JSON dump. Checked on MicroPython 1.25 flash images for
   ESP32, ESP32-C3 and ESP32-S3, their app images and tables, and NVS partitions written by nvs_partition_gen 0.3.0
   (format versions 1 and 2, multi-page blobs).
+- **Model files against their vendor libraries** (`ModelFileTests`, `CORVUS_MODEL_PYTHON`, `CORVUS_MODEL_FILES`): tensors,
+  metadata, the ONNX graph (inputs, outputs, operators, subgraphs, functions, initializers), pickle imports and the
+  `torch.load(weights_only=True)` verdict must be the ones safetensors, gguf, onnx and torch report. Pickles are read
+  by an `Unpickler` that records each class lookup and returns inert stand-ins. Checked on published Q4_0, Q8_0 and F32
+  GGUF models, ONNX vision models, Hugging Face test checkpoints in safetensors and `torch.save` form, and files the
+  libraries write (every safetensors dtype group, GGUF value types and alignment, ONNX control flow and external
+  data, zip and legacy checkpoints, pickles of protocols 2 to 5).
 - **WebAssembly component worlds against wasm-tools** (`WasmWorldTests`, `CORVUS_WASM_TOOLS`, `CORVUS_WASM_COMPONENTS`,
   wasm-tools 1.262.0): every world import and export, and each interface's named types and functions rendered in WIT
   syntax, must be the ones `component wit --json` resolves. Checked on components built by Rust 1.91 for

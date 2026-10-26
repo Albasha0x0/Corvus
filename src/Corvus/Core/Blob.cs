@@ -73,6 +73,10 @@ public static class Blob
         if (Lua.LuaBytecode.Looks(b)) return "lua bytecode";
         if (Lua.LuaJitBytecode.Looks(b)) return "luajit bytecode";
         if (AutoIt.AutoItScript.Looks(b)) return "autoit script";
+        if (Models.Gguf.Looks(b)) return "gguf";
+        if (Models.Safetensors.Looks(b, long.MaxValue)) return "safetensors";
+        if (Models.PickleScan.Looks(b)) return "pickle";
+        if (Models.OnnxModel.Looks(b)) return "onnx";
         if (StartsWith(b, "PYZ\0"u8) && b.Length >= 12 && Python.PyVersion.FromMagic(b[4..]) != null) return "pyinstaller pyz";
         if (Python.PyVersion.LooksLikePyc(b)) return "python bytecode";
         if (LooksLikeText(b)) return "text";

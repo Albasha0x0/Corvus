@@ -553,15 +553,15 @@ File inspection, containers and wrapped apps, Unity overview.
 
 **Summarize file** (read-only, idempotent)
 
-Read a file or assembly, not run: type, hashes, signature, containers, assemblies, highlights (toolchain, capabilities, packagers), entry points. view=: package, raw (headerless code), script (layers), sqlite, unity (MonoBehaviour fields); views lists the rest.
+Read a file or assembly, not run: type, hashes, signature, containers, assemblies, highlights (toolchain, capabilities, packagers), entry points. view=: package, raw (headerless code), script (layers), sqlite, unity (MonoBehaviour fields); views lists all.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `path` | string |  |  | File (assembly, executable, package, archive) or folder. |
 | `assembly` | string |  |  | A loaded assembly; pass this or path. |
-| `view` | string |  | `overview` | A view the overview lists. Values: overview, managed, dependencies, android, apple, berkeleydb, certificate, electron, ese, esp32, evtx, firmware, flight, flutter, go, harmony, hermes, installer, layers, leveldb, lmdb, lnk, native, nib, office, package, page, pcap, pdf, plist, pri, procmon, protobuf, python, qlog, raw, realm, registry, rust, script, sqlite, sqlite-recover, unity, wasm, xbf, all. |
+| `view` | string |  | `overview` | A view the overview lists. Values: overview, managed, dependencies, android, apple, berkeleydb, certificate, electron, ese, esp32, evtx, firmware, flight, flutter, go, harmony, hermes, installer, layers, leveldb, lmdb, lnk, model, native, nib, office, package, page, pcap, pdf, plist, pri, procmon, protobuf, python, qlog, raw, realm, registry, rust, script, sqlite, sqlite-recover, unity, wasm, xbf, all. |
 | `table` | string |  |  | Table; lmdb, berkeleydb: database; evtx: provider/id; procmon: process/PID/operation/result; registry: key; pri: name; esp32: namespace. |
-| `columns` | string[] |  |  | With table=: these columns, rowid too. |
+| `columns` | string[] |  |  | With table=: these columns and rowid. |
 | `script` | string |  |  | unity: assets of this script class. |
 | `offset` | integer |  |  |  |
 | `limit` | integer |  |  |  |
