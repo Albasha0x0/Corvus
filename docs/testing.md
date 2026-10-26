@@ -274,6 +274,7 @@ describe.
 | `CORVUS_FLUTTER_RELEASES` | A folder of Flutter engine releases (`flutter-<version>/bin/cache` with the Dart SDK, the patched SDK and the Android gen_snapshot for x64 and arm64); each compiles a compressed-pointer sample whose code names are compared with its debug symbols. | DartSdkProgramTests |
 | `CORVUS_GAMEMAKER_DATA` | A folder of GameMaker data files (`data.win`, `game.unx`, `game.ios`, `game.droid`) whose code entry names, string tables and texture page counts are compared with UndertaleModCli's dump (`CORVUS_GAMEMAKER_TOOL`). | GameMakerDataTests |
 | `CORVUS_IOSTORE_TOOL` | retoc, for rebuilding the IoStore fixtures. | tests/Corvus.Tests/Containers/UnrealFixtures/build.ps1 |
+| `CORVUS_MAKEPRI` | MakePri.exe of the Windows SDK (10.0.19041.0, x64) that the files under `CORVUS_PRI_FILES` are compared with; `Containers/PriFixtures/build.ps1` rebuilds the fixture with it. | PriFileTests, tests/Corvus.Tests/Containers/PriFixtures/build.ps1 |
 | `CORVUS_UNREAL_PAKS` | A folder of Unreal pak files whose listings and file contents (SHA-256) are compared with repak's (`CORVUS_PAK_TOOL`); a pak with an encrypted index is named, not listed. | UnrealContainerTests |
 | `CORVUS_GODOT_PACKS` | A folder of Godot packs (`.pck`) and executables with an embedded pack, each mounted by the engine (`CORVUS_GODOT_RELEASES`) and compared by path and MD5. | GodotPackTests |
 | `CORVUS_GODOT_RELEASES` | A folder of Godot releases (`godot-<version>` holding the editor executable): the newest 3.x and 4.x mount the Godot fixtures and `CORVUS_GODOT_PACKS` for comparison; 3.6.3, 4.3, 4.5.1 and 4.7.2 rebuild the fixtures. | GodotPackTests, tests/Corvus.Tests/Containers/GodotFixtures/build.ps1 |
@@ -371,6 +372,7 @@ describe.
 | `CORVUS_SWF_DUMP` | `swfdump.jar` of the Apache Flex SDK (4.16.1), run with java from `JAVA_HOME` or `PATH`. | SwfTests |
 | `CORVUS_SWF_FILES` | A folder of `.swf` files (searched recursively; the Flex SDK folder holds 20), compared with `CORVUS_SWF_DUMP`. | SwfTests |
 | `CORVUS_HYBRID_APPS` | A folder of Cordova and Capacitor packages (.apk, searched recursively); each must join its plugin calls, and every class of capacitor.plugins.json is joined or named. | AppGraphTests |
+| `CORVUS_PRI_FILES` | A folder of package resource index files (`*.pri`, searched recursively), each compared with MakePri's detailed dump (`CORVUS_MAKEPRI`). | PriFileTests |
 | `CORVUS_REGISTRY_HIVES` | A folder of registry hive files (searched recursively), each compared with the Offline Registry Library (Windows). | RegistryHiveTests |
 | `CORVUS_R2R_COMPOSITE_DIR` | A composite ReadyToRun app: the output of a self-contained `dotnet publish` with composite ReadyToRun. | ReadyToRunTests |
 | `CORVUS_REALM_FILES` | A folder searched for Realm files (any name, by their header) compared with the realm package through `CORVUS_REALM_REFERENCE`. | RealmTests |
@@ -523,6 +525,11 @@ missing.
   in order, each sprite's tags and the binary data sizes; per ActionScript 3 block the pool, method, class, script and
   body counts and every class with its base class, interfaces and instance traits. Every image and block must read
   without a note. LZMA files are checked on built files (`Support/SwfSamples.cs`) only; the SDK ships zlib files.
+- **Package resource indexes against MakePri** (`PriFileTests`, `CORVUS_MAKEPRI`, `CORVUS_PRI_FILES`, MakePri of the
+  Windows SDK 10.0.19041.0): every named resource with each candidate's type, qualifiers and value, in MakePri's order,
+  must be the one MakePri's detailed dump shows: the built fixture (`Containers/PriFixtures`: three languages, scale,
+  contrast, theme and target size, a non-ASCII name, a multi-line and a whitespace value, checked against its committed
+  dump everywhere) and real files. Embedded data candidates are checked on real files only; the fixture holds none.
 - **Registry hives against the Offline Registry Library** (`RegistryHiveTests`, `CORVUS_REGISTRY_HIVES`, offreg.dll of
   Windows 11): every key with its class name and last write time, and every value with its type and data, in the order
   the library enumerates them, must be the ones read here: built hives (`Support/HiveSamples.cs`: lh and ri lists,

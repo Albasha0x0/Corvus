@@ -18,7 +18,7 @@ public sealed class InspectionTools(InspectionService inspection, AssemblyWorksp
     private const string PathParam = "A .NET assembly or container, a Unity build folder, package or zip, or a serialized file or bundle; pass this or assembly.";
 
     // The views that read each paging parameter; any other view refuses it.
-    private static readonly string[] TableViews = ["sqlite", "sqlite-recover", "lmdb", "ese", "berkeleydb", "realm", "evtx", "procmon", "registry"];
+    private static readonly string[] TableViews = ["sqlite", "sqlite-recover", "lmdb", "ese", "berkeleydb", "realm", "evtx", "procmon", "registry", "pri"];
     private static readonly string[] ColumnViews = ["sqlite", "sqlite-recover"];
     private static readonly string[] LimitViews = [.. TableViews, "protobuf", "layers", "unity", "leveldb", "qlog", "certificate"];
     private static readonly string[] OffsetViews = [.. LimitViews, "script", "python", "xbf"];
@@ -39,7 +39,7 @@ public sealed class InspectionTools(InspectionService inspection, AssemblyWorksp
         [Description("File (assembly, executable, bundle, package, zip, .asar) or folder.")] string? path = null,
         [Description(AssemblyParam)] string? assembly = null,
         [Description("A view the overview lists.")] string view = "overview",
-        [Description("sqlite, ese, realm: table; lmdb, berkeleydb: database; evtx: provider/id; procmon: process/PID/operation/result; registry: key.")] string? table = null,
+        [Description("Table; lmdb, berkeleydb: database; evtx: provider/id; procmon: process/PID/operation/result; registry: key; pri: name.")] string? table = null,
         [Description("With table=: these columns, rowid too.")] string[]? columns = null,
         [Description("unity: only assets of this script class.")] string? script = null,
         [Description(ToolSupport.RowOffsetDescription)] long offset = 0,

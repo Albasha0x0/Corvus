@@ -66,6 +66,7 @@
     <None Include="Mobile\ArkFixtures\*.abc;Mobile\ArkFixtures\*.txt" CopyToOutputDirectory="PreserveNewest" />
     <None Include="Containers\GameMakerFixtures\*.win" CopyToOutputDirectory="PreserveNewest" />
     <None Include="Containers\LuaFixtures\*.luac;Containers\LuaFixtures\*.ljbc" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="Containers\PriFixtures\notes.pri;Containers\PriFixtures\notes.pri.xml" CopyToOutputDirectory="PreserveNewest" />
     <None Include="Containers\AutoItFixtures\*.a3x;Containers\AutoItFixtures\*.au3;Containers\AutoItFixtures\notes.txt;Containers\AutoItFixtures\build.ps1;Containers\AutoItFixtures\reference.py" CopyToOutputDirectory="PreserveNewest" />
     <None Include="Databases\LevelDbFixtures\**" CopyToOutputDirectory="PreserveNewest" />
     <None Include="Databases\LmdbFixtures\**" CopyToOutputDirectory="PreserveNewest" />

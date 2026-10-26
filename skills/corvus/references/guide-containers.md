@@ -43,7 +43,8 @@ tls.json (version, cipher, JA3 / JA4 / JA4S); keyLog (SSLKEYLOGFILE) or the pcap
 QUIC; summarize_file view=qlog reads QUIC event logs; view=certificate reads PEM, DER, PKCS #7 and PKCS #12
 files (fingerprints, SPKI pins, chains); view=evtx pages a Windows event log's events, recovered ones too;
 view=procmon pages a Process Monitor log's events; view=registry reads a
-registry hive file (table= a key path) with its deleted keys; kind=dart lists a Flutter app's Dart
+registry hive file (table= a key path) with its deleted keys; view=pri pages a package resource index's
+names and candidates (table= part of a name); kind=dart lists a Flutter app's Dart
 package: / dart: URIs and identifiers (summarize_file view=flutter gives its packages).
 summarize_file view=protobuf rebuilds embedded protobuf descriptors as .proto files.
 summarize_file view=script reads PowerShell, batch, VBScript and JavaScript with their transformation layers peeled to plain

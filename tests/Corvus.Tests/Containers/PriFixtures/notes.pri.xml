@@ -1,0 +1,409 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<PriInfo>
+	<PriHeader>
+		<WindowsEnvironment name="WinCore" version="1.2" checksum="1912541329"/>
+		<AutoMerge>false</AutoMerge>
+		<IsDeploymentMergeable>true</IsDeploymentMergeable>
+		<TargetOS version="10.0.0"/>
+		<ReverseMap>false</ReverseMap>
+	</PriHeader>
+	<QualifierInfo>
+		<Qualifiers>
+			<Qualifier name="Theme" value="DARK" priority="350" scoreAsDefault="1.0" index="1"/>
+			<Qualifier name="Theme" value="LIGHT" priority="350" scoreAsDefault="0.0" index="2"/>
+			<Qualifier name="Contrast" value="HIGH" priority="400" scoreAsDefault="0.0" index="3"/>
+			<Qualifier name="Contrast" value="STANDARD" priority="400" scoreAsDefault="1.0" index="4"/>
+			<Qualifier name="Scale" value="100" priority="200" scoreAsDefault="1.0" index="5"/>
+			<Qualifier name="Scale" value="200" priority="200" scoreAsDefault="0.75" index="6"/>
+			<Qualifier name="Scale" value="400" priority="200" scoreAsDefault="0.44" index="7"/>
+			<Qualifier name="TargetSize" value="16" priority="300" scoreAsDefault="0.5" index="8"/>
+			<Qualifier name="TargetSize" value="48" priority="300" scoreAsDefault="0.5" index="9"/>
+			<Qualifier name="Language" value="de-DE" priority="700" scoreAsDefault="0.0" index="10"/>
+			<Qualifier name="Language" value="en-US" priority="700" scoreAsDefault="1.0" index="11"/>
+			<Qualifier name="Language" value="ja-JP" priority="700" scoreAsDefault="0.0" index="12"/>
+		</Qualifiers>
+		<QualifierSets>
+			<QualifierSet index="1">
+				<Qualifier name="Theme" value="DARK" priority="350" scoreAsDefault="1.0" index="1"/>
+			</QualifierSet>
+			<QualifierSet index="2">
+				<Qualifier name="Theme" value="LIGHT" priority="350" scoreAsDefault="0.0" index="2"/>
+			</QualifierSet>
+			<QualifierSet index="3">
+				<Qualifier name="Contrast" value="HIGH" priority="400" scoreAsDefault="0.0" index="3"/>
+			</QualifierSet>
+			<QualifierSet index="4">
+				<Qualifier name="Contrast" value="STANDARD" priority="400" scoreAsDefault="1.0" index="4"/>
+			</QualifierSet>
+			<QualifierSet index="5">
+				<Qualifier name="Scale" value="100" priority="200" scoreAsDefault="1.0" index="5"/>
+			</QualifierSet>
+			<QualifierSet index="6">
+				<Qualifier name="Scale" value="200" priority="200" scoreAsDefault="0.75" index="6"/>
+			</QualifierSet>
+			<QualifierSet index="7">
+				<Qualifier name="Scale" value="400" priority="200" scoreAsDefault="0.44" index="7"/>
+			</QualifierSet>
+			<QualifierSet index="8">
+				<Qualifier name="TargetSize" value="16" priority="300" scoreAsDefault="0.5" index="8"/>
+			</QualifierSet>
+			<QualifierSet index="9">
+				<Qualifier name="TargetSize" value="48" priority="300" scoreAsDefault="0.5" index="9"/>
+			</QualifierSet>
+			<QualifierSet index="10">
+				<Qualifier name="Language" value="de-DE" priority="700" scoreAsDefault="0.0" index="10"/>
+			</QualifierSet>
+			<QualifierSet index="11">
+				<Qualifier name="Language" value="en-US" priority="700" scoreAsDefault="1.0" index="11"/>
+			</QualifierSet>
+			<QualifierSet index="12">
+				<Qualifier name="Language" value="ja-JP" priority="700" scoreAsDefault="0.0" index="12"/>
+			</QualifierSet>
+		</QualifierSets>
+		<Decisions>
+			<Decision index="2">
+				<QualifierSet index="2">
+					<Qualifier name="Theme" value="LIGHT" priority="350" scoreAsDefault="0.0" index="2"/>
+				</QualifierSet>
+				<QualifierSet index="1">
+					<Qualifier name="Theme" value="DARK" priority="350" scoreAsDefault="1.0" index="1"/>
+				</QualifierSet>
+			</Decision>
+			<Decision index="3">
+				<QualifierSet index="4">
+					<Qualifier name="Contrast" value="STANDARD" priority="400" scoreAsDefault="1.0" index="4"/>
+				</QualifierSet>
+				<QualifierSet index="3">
+					<Qualifier name="Contrast" value="HIGH" priority="400" scoreAsDefault="0.0" index="3"/>
+				</QualifierSet>
+			</Decision>
+			<Decision index="4">
+				<QualifierSet index="7">
+					<Qualifier name="Scale" value="400" priority="200" scoreAsDefault="0.44" index="7"/>
+				</QualifierSet>
+				<QualifierSet index="6">
+					<Qualifier name="Scale" value="200" priority="200" scoreAsDefault="0.75" index="6"/>
+				</QualifierSet>
+				<QualifierSet index="5">
+					<Qualifier name="Scale" value="100" priority="200" scoreAsDefault="1.0" index="5"/>
+				</QualifierSet>
+			</Decision>
+			<Decision index="5">
+				<QualifierSet index="9">
+					<Qualifier name="TargetSize" value="48" priority="300" scoreAsDefault="0.5" index="9"/>
+				</QualifierSet>
+				<QualifierSet index="8">
+					<Qualifier name="TargetSize" value="16" priority="300" scoreAsDefault="0.5" index="8"/>
+				</QualifierSet>
+			</Decision>
+			<Decision index="6">
+				<QualifierSet index="12">
+					<Qualifier name="Language" value="ja-JP" priority="700" scoreAsDefault="0.0" index="12"/>
+				</QualifierSet>
+				<QualifierSet index="11">
+					<Qualifier name="Language" value="en-US" priority="700" scoreAsDefault="1.0" index="11"/>
+				</QualifierSet>
+				<QualifierSet index="10">
+					<Qualifier name="Language" value="de-DE" priority="700" scoreAsDefault="0.0" index="10"/>
+				</QualifierSet>
+			</Decision>
+		</Decisions>
+	</QualifierInfo>
+	<ResourceMap name="SampleNotes" primary="true" uniqueName="ms-appx://SampleNotes/" version="1.0">
+		<VersionInfo version="1.0" checksum="-826910277" numScopes="5" numItems="10"/>
+		<ResourceMapSubtree index="1" name="Files">
+			<ResourceMapSubtree index="2" name="Assets">
+				<NamedResource name="Badge.png" index="0" uri="ms-resource://SampleNotes/Files/Assets/Badge.png">
+					<Decision index="2">
+						<QualifierSet index="2">
+							<Qualifier name="Theme" value="LIGHT" priority="350" scoreAsDefault="0.0" index="2"/>
+						</QualifierSet>
+						<QualifierSet index="1">
+							<Qualifier name="Theme" value="DARK" priority="350" scoreAsDefault="1.0" index="1"/>
+						</QualifierSet>
+					</Decision>
+					<Candidate type="Path">
+						<QualifierSet index="2">
+							<Qualifier name="Theme" value="LIGHT" priority="350" scoreAsDefault="0.0" index="2"/>
+						</QualifierSet>
+						<Value>Assets\Badge.theme-light.png</Value>
+					</Candidate>
+					<Candidate type="Path">
+						<QualifierSet index="1">
+							<Qualifier name="Theme" value="DARK" priority="350" scoreAsDefault="1.0" index="1"/>
+						</QualifierSet>
+						<Value>Assets\Badge.theme-dark.png</Value>
+					</Candidate>
+				</NamedResource>
+				<NamedResource name="Icon.png" index="1" uri="ms-resource://SampleNotes/Files/Assets/Icon.png">
+					<Decision index="3">
+						<QualifierSet index="4">
+							<Qualifier name="Contrast" value="STANDARD" priority="400" scoreAsDefault="1.0" index="4"/>
+						</QualifierSet>
+						<QualifierSet index="3">
+							<Qualifier name="Contrast" value="HIGH" priority="400" scoreAsDefault="0.0" index="3"/>
+						</QualifierSet>
+					</Decision>
+					<Candidate type="Path">
+						<QualifierSet index="4">
+							<Qualifier name="Contrast" value="STANDARD" priority="400" scoreAsDefault="1.0" index="4"/>
+						</QualifierSet>
+						<Value>Assets\Icon.contrast-standard.png</Value>
+					</Candidate>
+					<Candidate type="Path">
+						<QualifierSet index="3">
+							<Qualifier name="Contrast" value="HIGH" priority="400" scoreAsDefault="0.0" index="3"/>
+						</QualifierSet>
+						<Value>Assets\Icon.contrast-high.png</Value>
+					</Candidate>
+				</NamedResource>
+				<NamedResource name="Logo.png" index="2" uri="ms-resource://SampleNotes/Files/Assets/Logo.png">
+					<Decision index="4">
+						<QualifierSet index="7">
+							<Qualifier name="Scale" value="400" priority="200" scoreAsDefault="0.44" index="7"/>
+						</QualifierSet>
+						<QualifierSet index="6">
+							<Qualifier name="Scale" value="200" priority="200" scoreAsDefault="0.75" index="6"/>
+						</QualifierSet>
+						<QualifierSet index="5">
+							<Qualifier name="Scale" value="100" priority="200" scoreAsDefault="1.0" index="5"/>
+						</QualifierSet>
+					</Decision>
+					<Candidate type="Path">
+						<QualifierSet index="7">
+							<Qualifier name="Scale" value="400" priority="200" scoreAsDefault="0.44" index="7"/>
+						</QualifierSet>
+						<Value>Assets\Logo.scale-400.png</Value>
+					</Candidate>
+					<Candidate type="Path">
+						<QualifierSet index="6">
+							<Qualifier name="Scale" value="200" priority="200" scoreAsDefault="0.75" index="6"/>
+						</QualifierSet>
+						<Value>Assets\Logo.scale-200.png</Value>
+					</Candidate>
+					<Candidate type="Path">
+						<QualifierSet index="5">
+							<Qualifier name="Scale" value="100" priority="200" scoreAsDefault="1.0" index="5"/>
+						</QualifierSet>
+						<Value>Assets\Logo.scale-100.png</Value>
+					</Candidate>
+				</NamedResource>
+				<NamedResource name="Wide.png" index="3" uri="ms-resource://SampleNotes/Files/Assets/Wide.png">
+					<Decision index="5">
+						<QualifierSet index="9">
+							<Qualifier name="TargetSize" value="48" priority="300" scoreAsDefault="0.5" index="9"/>
+						</QualifierSet>
+						<QualifierSet index="8">
+							<Qualifier name="TargetSize" value="16" priority="300" scoreAsDefault="0.5" index="8"/>
+						</QualifierSet>
+					</Decision>
+					<Candidate type="Path">
+						<QualifierSet index="9">
+							<Qualifier name="TargetSize" value="48" priority="300" scoreAsDefault="0.5" index="9"/>
+						</QualifierSet>
+						<Value>Assets\Wide.targetsize-48.png</Value>
+					</Candidate>
+					<Candidate type="Path">
+						<QualifierSet index="8">
+							<Qualifier name="TargetSize" value="16" priority="300" scoreAsDefault="0.5" index="8"/>
+						</QualifierSet>
+						<Value>Assets\Wide.targetsize-16.png</Value>
+					</Candidate>
+				</NamedResource>
+			</ResourceMapSubtree>
+		</ResourceMapSubtree>
+		<ResourceMapSubtree index="3" name="Resources">
+			<ResourceMapSubtree index="4" name="Save">
+				<NamedResource name="Content" index="9" uri="ms-resource://SampleNotes/Resources/Save/Content">
+					<Decision index="6">
+						<QualifierSet index="12">
+							<Qualifier name="Language" value="ja-JP" priority="700" scoreAsDefault="0.0" index="12"/>
+						</QualifierSet>
+						<QualifierSet index="11">
+							<Qualifier name="Language" value="en-US" priority="700" scoreAsDefault="1.0" index="11"/>
+						</QualifierSet>
+						<QualifierSet index="10">
+							<Qualifier name="Language" value="de-DE" priority="700" scoreAsDefault="0.0" index="10"/>
+						</QualifierSet>
+					</Decision>
+					<Candidate type="String">
+						<QualifierSet index="12">
+							<Qualifier name="Language" value="ja-JP" priority="700" scoreAsDefault="0.0" index="12"/>
+						</QualifierSet>
+						<Value>保存</Value>
+					</Candidate>
+					<Candidate type="String">
+						<QualifierSet index="11">
+							<Qualifier name="Language" value="en-US" priority="700" scoreAsDefault="1.0" index="11"/>
+						</QualifierSet>
+						<Value>Save</Value>
+					</Candidate>
+					<Candidate type="String">
+						<QualifierSet index="10">
+							<Qualifier name="Language" value="de-DE" priority="700" scoreAsDefault="0.0" index="10"/>
+						</QualifierSet>
+						<Value>Speichern</Value>
+					</Candidate>
+				</NamedResource>
+			</ResourceMapSubtree>
+			<NamedResource name="AppName" index="4" uri="ms-resource://SampleNotes/Resources/AppName">
+				<Decision index="6">
+					<QualifierSet index="12">
+						<Qualifier name="Language" value="ja-JP" priority="700" scoreAsDefault="0.0" index="12"/>
+					</QualifierSet>
+					<QualifierSet index="11">
+						<Qualifier name="Language" value="en-US" priority="700" scoreAsDefault="1.0" index="11"/>
+					</QualifierSet>
+					<QualifierSet index="10">
+						<Qualifier name="Language" value="de-DE" priority="700" scoreAsDefault="0.0" index="10"/>
+					</QualifierSet>
+				</Decision>
+				<Candidate type="String">
+					<QualifierSet index="12">
+						<Qualifier name="Language" value="ja-JP" priority="700" scoreAsDefault="0.0" index="12"/>
+					</QualifierSet>
+					<Value>サンプルノート</Value>
+				</Candidate>
+				<Candidate type="String">
+					<QualifierSet index="11">
+						<Qualifier name="Language" value="en-US" priority="700" scoreAsDefault="1.0" index="11"/>
+					</QualifierSet>
+					<Value>Sample Notes</Value>
+				</Candidate>
+				<Candidate type="String">
+					<QualifierSet index="10">
+						<Qualifier name="Language" value="de-DE" priority="700" scoreAsDefault="0.0" index="10"/>
+					</QualifierSet>
+					<Value>Beispielnotizen</Value>
+				</Candidate>
+			</NamedResource>
+			<NamedResource name="Footer" index="7" uri="ms-resource://SampleNotes/Resources/Footer">
+				<Decision index="6">
+					<QualifierSet index="12">
+						<Qualifier name="Language" value="ja-JP" priority="700" scoreAsDefault="0.0" index="12"/>
+					</QualifierSet>
+					<QualifierSet index="11">
+						<Qualifier name="Language" value="en-US" priority="700" scoreAsDefault="1.0" index="11"/>
+					</QualifierSet>
+					<QualifierSet index="10">
+						<Qualifier name="Language" value="de-DE" priority="700" scoreAsDefault="0.0" index="10"/>
+					</QualifierSet>
+				</Decision>
+				<Candidate type="String">
+					<QualifierSet index="12">
+						<Qualifier name="Language" value="ja-JP" priority="700" scoreAsDefault="0.0" index="12"/>
+					</QualifierSet>
+					<Value>一行目
+二行目</Value>
+				</Candidate>
+				<Candidate type="String">
+					<QualifierSet index="11">
+						<Qualifier name="Language" value="en-US" priority="700" scoreAsDefault="1.0" index="11"/>
+					</QualifierSet>
+					<Value>First line
+Second line</Value>
+				</Candidate>
+				<Candidate type="String">
+					<QualifierSet index="10">
+						<Qualifier name="Language" value="de-DE" priority="700" scoreAsDefault="0.0" index="10"/>
+					</QualifierSet>
+					<Value>Erste Zeile
+Zweite Zeile</Value>
+				</Candidate>
+			</NamedResource>
+			<NamedResource name="Greeting" index="5" uri="ms-resource://SampleNotes/Resources/Greeting">
+				<Decision index="6">
+					<QualifierSet index="12">
+						<Qualifier name="Language" value="ja-JP" priority="700" scoreAsDefault="0.0" index="12"/>
+					</QualifierSet>
+					<QualifierSet index="11">
+						<Qualifier name="Language" value="en-US" priority="700" scoreAsDefault="1.0" index="11"/>
+					</QualifierSet>
+					<QualifierSet index="10">
+						<Qualifier name="Language" value="de-DE" priority="700" scoreAsDefault="0.0" index="10"/>
+					</QualifierSet>
+				</Decision>
+				<Candidate type="String">
+					<QualifierSet index="12">
+						<Qualifier name="Language" value="ja-JP" priority="700" scoreAsDefault="0.0" index="12"/>
+					</QualifierSet>
+					<Value>こんにちは</Value>
+				</Candidate>
+				<Candidate type="String">
+					<QualifierSet index="11">
+						<Qualifier name="Language" value="en-US" priority="700" scoreAsDefault="1.0" index="11"/>
+					</QualifierSet>
+					<Value>Hello</Value>
+				</Candidate>
+				<Candidate type="String">
+					<QualifierSet index="10">
+						<Qualifier name="Language" value="de-DE" priority="700" scoreAsDefault="0.0" index="10"/>
+					</QualifierSet>
+					<Value>Hallo</Value>
+				</Candidate>
+			</NamedResource>
+			<NamedResource name="Größe" index="6" uri="ms-resource://SampleNotes/Resources/Größe">
+				<Decision index="6">
+					<QualifierSet index="12">
+						<Qualifier name="Language" value="ja-JP" priority="700" scoreAsDefault="0.0" index="12"/>
+					</QualifierSet>
+					<QualifierSet index="11">
+						<Qualifier name="Language" value="en-US" priority="700" scoreAsDefault="1.0" index="11"/>
+					</QualifierSet>
+					<QualifierSet index="10">
+						<Qualifier name="Language" value="de-DE" priority="700" scoreAsDefault="0.0" index="10"/>
+					</QualifierSet>
+				</Decision>
+				<Candidate type="String">
+					<QualifierSet index="12">
+						<Qualifier name="Language" value="ja-JP" priority="700" scoreAsDefault="0.0" index="12"/>
+					</QualifierSet>
+					<Value>サイズ</Value>
+				</Candidate>
+				<Candidate type="String">
+					<QualifierSet index="11">
+						<Qualifier name="Language" value="en-US" priority="700" scoreAsDefault="1.0" index="11"/>
+					</QualifierSet>
+					<Value>Size</Value>
+				</Candidate>
+				<Candidate type="String">
+					<QualifierSet index="10">
+						<Qualifier name="Language" value="de-DE" priority="700" scoreAsDefault="0.0" index="10"/>
+					</QualifierSet>
+					<Value>Größe</Value>
+				</Candidate>
+			</NamedResource>
+			<NamedResource name="Spacer" index="8" uri="ms-resource://SampleNotes/Resources/Spacer">
+				<Decision index="6">
+					<QualifierSet index="12">
+						<Qualifier name="Language" value="ja-JP" priority="700" scoreAsDefault="0.0" index="12"/>
+					</QualifierSet>
+					<QualifierSet index="11">
+						<Qualifier name="Language" value="en-US" priority="700" scoreAsDefault="1.0" index="11"/>
+					</QualifierSet>
+					<QualifierSet index="10">
+						<Qualifier name="Language" value="de-DE" priority="700" scoreAsDefault="0.0" index="10"/>
+					</QualifierSet>
+				</Decision>
+				<Candidate type="String">
+					<QualifierSet index="12">
+						<Qualifier name="Language" value="ja-JP" priority="700" scoreAsDefault="0.0" index="12"/>
+					</QualifierSet>
+					<Value>  </Value>
+				</Candidate>
+				<Candidate type="String">
+					<QualifierSet index="11">
+						<Qualifier name="Language" value="en-US" priority="700" scoreAsDefault="1.0" index="11"/>
+					</QualifierSet>
+					<Value>  </Value>
+				</Candidate>
+				<Candidate type="String">
+					<QualifierSet index="10">
+						<Qualifier name="Language" value="de-DE" priority="700" scoreAsDefault="0.0" index="10"/>
+					</QualifierSet>
+					<Value>  </Value>
+				</Candidate>
+			</NamedResource>
+		</ResourceMapSubtree>
+	</ResourceMap>
+</PriInfo>
