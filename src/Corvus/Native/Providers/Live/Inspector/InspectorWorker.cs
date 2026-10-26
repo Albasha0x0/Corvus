@@ -20,6 +20,13 @@ internal static class InspectorWorker
     /// <summary>Runs the worker when <paramref name="args"/> is its command; null for any other command line.</summary>
     public static int? TryRun(string[] args) => args is [Command] ? WorkerHost.Serve(new State().Ops, endOp: "close") : null;
 
+    /// <summary>Worker ops that act on native code, refused by script and JVM workers.</summary>
+    internal static readonly string[] NativeOps =
+    [
+        "read", "export", "watch", "unwatch", "set_many", "clear_many", "defer_module", "undefer_module", "release_load", "watch_jit", "count_jit",
+        "load_script", "unload_script", "art_dump", "capture_memory", "resume_child", "drop_child",
+    ];
+
     private sealed record Script(string Id, string Url, string? Map, int Length, string Hash);
 
     private sealed class State
@@ -56,12 +63,6 @@ internal static class InspectorWorker
                 return ops;
             }
         }
-
-        private static readonly string[] NativeOps =
-        [
-            "read", "export", "watch", "unwatch", "set_many", "clear_many", "defer_module", "undefer_module", "release_load", "watch_jit", "count_jit",
-            "load_script", "unload_script", "art_dump", "capture_memory", "resume_child", "drop_child",
-        ];
 
         private CdpConnection Cdp => _cdp ?? throw new ToolError(ErrorCode.InvalidArgument, "no inspector is connected (open first)");
 

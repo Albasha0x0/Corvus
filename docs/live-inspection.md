@@ -123,6 +123,22 @@ removes its stop points and lets it run on.
 Native actions (`live_watch`, `live_read`, `live_coverage`, `live_script`, snapshots) are refused on these sessions.
 `--live-allow` is checked against the process id the program reports once the session opens.
 
+### JVM (JDWP)
+
+`live_session action=attach program=jdwp:PORT` (or `jdwp:HOST:PORT`, loopback only) opens a session on a JVM started
+with its JDWP agent: `java -agentlib:jdwp=transport=dt_socket,server=y,suspend=n,address=127.0.0.1:PORT` (`suspend=y`
+holds it until the first `continue`). Corvus serves it itself over the Java Debug Wire Protocol; nothing is installed.
+
+- `live_session action=status` lists the program's classes by source file (JDK classes left out) and every thread
+  with its state and stack, as jstack prints them; the JVM is suspended for the read only.
+- `live_break at=File.java:LINE` stops the thread that reaches that line, in every loaded class compiled from that
+  file and in classes loaded later. `live_break wait=true` names the held thread's frames by class, method, file and
+  line; `continue` resumes it.
+
+Closing removes the stop points and detaches (VirtualMachine.Dispose), so the program runs on. The process id is the
+one listening on the port before the session connects, which `--live-allow` checks. Native actions are refused.
+Tested with JDK 11.0.24, 22.0.1 and 24.0.1 (HotSpot, Windows x64).
+
 ### Frida
 
 A session runs a worker on Frida's Python bindings. Either install them

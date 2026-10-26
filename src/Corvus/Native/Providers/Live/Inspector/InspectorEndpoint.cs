@@ -72,11 +72,12 @@ public static class InspectorEndpoint
         return targets;
     }
 
-    private static void RequireLoopback(string host, string program)
+    /// <summary>Returns when <paramref name="host"/> is localhost or a loopback address; else refuses <paramref name="program"/>, naming <paramref name="what"/> it connects to.</summary>
+    internal static void RequireLoopback(string host, string program, string what = "an inspector")
     {
         var name = host.Trim('[', ']');
         if (name.Equals("localhost", StringComparison.OrdinalIgnoreCase) || (IPAddress.TryParse(name, out var ip) && IPAddress.IsLoopback(ip))) return;
-        throw new ToolError(ErrorCode.Unsupported, $"{program}: {host} is not a loopback address; sessions connect only to an inspector on this machine.",
+        throw new ToolError(ErrorCode.Unsupported, $"{program}: {host} is not a loopback address; sessions connect only to {what} on this machine.",
             "forward the port to 127.0.0.1 (ssh -L, adb forward) and name that");
     }
 

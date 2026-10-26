@@ -6,6 +6,7 @@ using Corvus.Mcp;
 
 if (Corvus.Native.Providers.Worker.WorkerHost.TryRun(args) is { } workerExitCode) return workerExitCode;
 if (Corvus.Native.Providers.Live.Inspector.InspectorWorker.TryRun(args) is { } inspectorExitCode) return inspectorExitCode;
+if (Corvus.Native.Providers.Live.Jdwp.JdwpWorker.TryRun(args) is { } jdwpExitCode) return jdwpExitCode;
 if (Corvus.Native.Providers.DataFolder.MigratesOnStart(args)) Corvus.Native.Providers.DataFolder.MigrateDefault(Console.Error);
 if (Corvus.Relay.RelayCli.TryRun(args) is { } relayExitCode) return relayExitCode;
 if (Corvus.Setup.ToolCli.TryRun(args) is { } toolExitCode) return toolExitCode;

@@ -131,7 +131,7 @@ public sealed class LiveSession
     /// <summary>The adb serial of the Android device the program runs on; null for a program on this machine.</summary>
     public string? Device { get; init; }
     /// <summary>The scripts of a session on a V8 inspector; null for a process session.</summary>
-    public LiveJavaScript? JavaScript { get; init; }
+    public LiveScriptRuntime? ScriptRuntime { get; init; }
     /// <summary>When the session opened (UTC).</summary>
     public DateTime Opened { get; } = DateTime.UtcNow;
     public int ProcessId { get; internal set; }
@@ -481,7 +481,7 @@ public sealed partial class LiveSessionService(AssemblyWorkspace workspace, Nati
     {
         if (_sessions.Values.Count(s => !s.Closed) >= MaxSessions)
             throw new ToolError(ErrorCode.LimitExceeded, $"{MaxSessions} sessions are open.", "close one with live_session action=close");
-        if (Native.Providers.Live.Inspector.InspectorEndpoint.Is(program)) return await OpenInspectorAsync(program, ct).ConfigureAwait(false);
+        if (Native.Providers.Live.Inspector.InspectorEndpoint.Is(program) || Native.Providers.Live.Jdwp.JdwpWorker.Is(program)) return await OpenScriptRuntimeAsync(program, ct).ConfigureAwait(false);
         if (Backend.Unavailable() is { } missing)
             throw new ToolError(ErrorCode.ProviderUnavailable, missing.Reason, missing.Remediation);
         if (childNames != null && OperatingSystem.IsMacOS() && Backend is FridaBackend)
@@ -732,7 +732,7 @@ public sealed partial class LiveSessionService(AssemblyWorkspace workspace, Nati
     /// </summary>
     public async Task RefreshModulesAsync(LiveSession session, CancellationToken ct)
     {
-        if (session.JavaScript != null)
+        if (session.ScriptRuntime != null)
         {
             await RefreshScriptsAsync(session, ct, readMaps: true).ConfigureAwait(false);
             return;
@@ -765,7 +765,7 @@ public sealed partial class LiveSessionService(AssemblyWorkspace workspace, Nati
         long? Thread() => body.TryGetProperty("tid", out var t) && t.ValueKind == JsonValueKind.Number ? t.GetInt64() : null;
         switch (e.Name)
         {
-            case "stop" when session.JavaScript != null:
+            case "stop" when session.ScriptRuntime != null:
                 ScriptStop(session, body);
                 break;
             case "stop":
@@ -1453,7 +1453,7 @@ public sealed partial class LiveSessionService(AssemblyWorkspace workspace, Nati
         CancellationToken ct = default, string? id = null)
     {
         // A script session sets a point on a script not yet parsed by its url (SetScriptAsync).
-        if (session.JavaScript != null) return null;
+        if (session.ScriptRuntime != null) return null;
         var t = where.Trim();
         if (NameOffset.Match(t) is { Success: true } no) t = no.Groups["name"].Value;
         if (t.StartsWith("0x", StringComparison.OrdinalIgnoreCase)) return null;
@@ -1590,7 +1590,7 @@ public sealed partial class LiveSessionService(AssemblyWorkspace workspace, Nati
 
     public async Task<LiveStopPointState> SetAsync(LiveSession session, string where, CancellationToken ct, string? id = null)
     {
-        if (session.JavaScript != null) return await SetScriptAsync(session, where, ct, id).ConfigureAwait(false);
+        if (session.ScriptRuntime != null) return await SetScriptAsync(session, where, ct, id).ConfigureAwait(false);
         var (address, followed, slot) = await FollowJumpsThroughAsync(session, await ResolveAsync(session, where, ct).ConfigureAwait(false), ct).ConfigureAwait(false);
         await CheckInstructionStartAsync(session, address, ct).ConfigureAwait(false);
         CheckCoverageOverlap(session, address, "This stop point", ct);
