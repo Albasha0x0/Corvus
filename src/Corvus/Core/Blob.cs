@@ -58,6 +58,7 @@ public static class Blob
         if (Hermes.HermesFile.Looks(b)) return "hermes bytecode";
         if (UnityWebData.Looks(b)) return "unitywebdata";
         if (GodotPack.Looks(b)) return "godotpck";
+        if (JImage.JImageFile.Looks(b)) return "jimage";
         if (Archives.QtResources.Looks(b)) return "qt resources";
         if (Flash.SwfFile.Looks(b)) return "flash swf";
         if (Registry.RegistryHive.Looks(b)) return "registry hive";

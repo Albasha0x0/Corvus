@@ -275,6 +275,7 @@ describe.
 | `CORVUS_GAMEMAKER_DATA` | A folder of GameMaker data files (`data.win`, `game.unx`, `game.ios`, `game.droid`) whose code entry names, string tables and texture page counts are compared with UndertaleModCli's dump (`CORVUS_GAMEMAKER_TOOL`). | GameMakerDataTests |
 | `CORVUS_IOSTORE_TOOL` | retoc, for rebuilding the IoStore fixtures. | tests/Corvus.Tests/Containers/UnrealFixtures/build.ps1 |
 | `CORVUS_MAKEPRI` | MakePri.exe of the Windows SDK (10.0.19041.0, x64) that the files under `CORVUS_PRI_FILES` are compared with; `Containers/PriFixtures/build.ps1` rebuilds the fixture with it. | PriFileTests, tests/Corvus.Tests/Containers/PriFixtures/build.ps1 |
+| `CORVUS_JIMAGE` | jimage of a JDK (24, x64) that the images under `CORVUS_JIMAGE_FILES` are listed and extracted with. | JImageFileTests |
 | `CORVUS_UNREAL_PAKS` | A folder of Unreal pak files whose listings and file contents (SHA-256) are compared with repak's (`CORVUS_PAK_TOOL`); a pak with an encrypted index is named, not listed. | UnrealContainerTests |
 | `CORVUS_GODOT_PACKS` | A folder of Godot packs (`.pck`) and executables with an embedded pack, each mounted by the engine (`CORVUS_GODOT_RELEASES`) and compared by path and MD5. | GodotPackTests |
 | `CORVUS_GODOT_RELEASES` | A folder of Godot releases (`godot-<version>` holding the editor executable): the newest 3.x and 4.x mount the Godot fixtures and `CORVUS_GODOT_PACKS` for comparison; 3.6.3, 4.3, 4.5.1 and 4.7.2 rebuild the fixtures. | GodotPackTests, tests/Corvus.Tests/Containers/GodotFixtures/build.ps1 |
@@ -373,6 +374,7 @@ describe.
 | `CORVUS_SWF_FILES` | A folder of `.swf` files (searched recursively; the Flex SDK folder holds 20), compared with `CORVUS_SWF_DUMP`. | SwfTests |
 | `CORVUS_HYBRID_APPS` | A folder of Cordova and Capacitor packages (.apk, searched recursively); each must join its plugin calls, and every class of capacitor.plugins.json is joined or named. | AppGraphTests |
 | `CORVUS_PRI_FILES` | A folder of package resource index files (`*.pri`, searched recursively), each compared with MakePri's detailed dump (`CORVUS_MAKEPRI`). | PriFileTests |
+| `CORVUS_JIMAGE_FILES` | A folder searched for Java runtime images (files that start with the jimage magic): JDK `lib/modules` files and jlink images. | JImageFileTests |
 | `CORVUS_REGISTRY_HIVES` | A folder of registry hive files (searched recursively), each compared with the Offline Registry Library (Windows). | RegistryHiveTests |
 | `CORVUS_R2R_COMPOSITE_DIR` | A composite ReadyToRun app: the output of a self-contained `dotnet publish` with composite ReadyToRun. | ReadyToRunTests |
 | `CORVUS_REALM_FILES` | A folder searched for Realm files (any name, by their header) compared with the realm package through `CORVUS_REALM_REFERENCE`. | RealmTests |
@@ -530,6 +532,10 @@ missing.
   must be the one MakePri's detailed dump shows: the built fixture (`Containers/PriFixtures`: three languages, scale,
   contrast, theme and target size, a non-ASCII name, a multi-line and a whitespace value, checked against its committed
   dump everywhere) and real files. Embedded data candidates are checked on real files only; the fixture holds none.
+- **Java runtime images against jimage** (`JImageFileTests`, `CORVUS_JIMAGE`, `CORVUS_JIMAGE_FILES`, jimage of JDK 24):
+  the resource names by module must be the ones `jimage list` prints, and every resource's bytes the ones
+  `jimage extract` writes. Checked on the `lib/modules` of JDK 11, 22 and 24 and on jlink images built with zip
+  (JDK 11 and 24) and compact-cp (JDK 11) compression.
 - **Registry hives against the Offline Registry Library** (`RegistryHiveTests`, `CORVUS_REGISTRY_HIVES`, offreg.dll of
   Windows 11): every key with its class name and last write time, and every value with its type and data, in the order
   the library enumerates them, must be the ones read here: built hives (`Support/HiveSamples.cs`: lh and ri lists,

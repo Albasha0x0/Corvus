@@ -67,6 +67,7 @@ public static class Containers
         if (kind == "asar") return AsarContainer.Open(data, location, allFiles, limits, ct);
         if (kind == "unitywebdata") return UnityWebData.Open(data, name, location, allFiles, limits, ct);
         if (kind == "godotpck") return GodotPack.Open(data, 0, name, allFiles, limits, ct);
+        if (kind == "jimage") return JImage.JImageFile.Open(data, name, allFiles, limits, ct);
         if (kind == "unreal pak") return UnrealPak.Open(data, name, allFiles, limits, ct);
         if (kind == "unreal utoc") return UnrealIoStore.Open(data, name, location, allFiles, limits, ct);
         if (kind == "gamemaker data") return GameMakerData.Open(data, name, allFiles, limits, ct);
@@ -326,6 +327,11 @@ public static class Containers
         {
             using var s = open();
             return reader.Open(s, name, allFiles: false, limits, ct);
+        }
+        if (kind == "jimage")
+        {
+            using var s = open();
+            return JImage.JImageFile.Open(s, name, allFiles: false, limits, ct);
         }
         if (kind == "data")
         {
