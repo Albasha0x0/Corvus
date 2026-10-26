@@ -188,6 +188,16 @@ internal static class ClientCatalog
         var pi = env.Set("PI_CODING_AGENT_DIR") is { } piDir ? env.ExpandPath(piDir) : env.InHome(".pi", "agent");
         Add("pi", "Pi", [], Json(Path.Combine(pi, "mcp.json"), Stdio), Dir(pi) || Dir(env.InHome(".pi")));
 
+        // KIMI_CODE_HOME replaces Kimi Code's own folder.
+        var kimi = env.Set("KIMI_CODE_HOME") is { } kimiHome ? env.ExpandPath(kimiHome) : env.InHome(".kimi-code");
+        Add("kimi-code", "Kimi Code", ["kimi"], Json(Path.Combine(kimi, "mcp.json"), Plain), Dir(kimi) || env.HasTool("kimi"));
+        Add("qoder", "Qoder", ["qodercli"], Json(env.InHome(".qoder", "settings.json"), Plain), Dir(env.InHome(".qoder")) || env.HasTool("qodercli"));
+        Add("factory-droid", "Factory Droid", ["droid", "factory"], Json(env.InHome(".factory", "mcp.json"), Stdio), Dir(env.InHome(".factory")) || env.HasTool("droid"));
+        // Source-derived: the VS Code fork's user folder, as for VS Code; Trae publishes no file reference.
+        var trae = Path.Combine(env.AppSupport("Trae"), "User");
+        Add("trae", "Trae", [], Json(Path.Combine(trae, "mcp.json"), Plain), Dir(trae));
+        Add("codebuddy", "CodeBuddy", ["codebuddy-code"], Json(env.InHome(".codebuddy", ".mcp.json"), Stdio), Dir(env.InHome(".codebuddy")) || env.HasTool("codebuddy"));
+
         return list;
     }
 

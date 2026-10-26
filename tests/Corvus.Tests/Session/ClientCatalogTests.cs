@@ -41,6 +41,29 @@ public sealed class ClientCatalogTests : IDisposable
     }
 
     [Fact]
+    public void Kimi_Qoder_Droid_Trae_and_CodeBuddy_get_the_files_and_entries_their_docs_name()
+    {
+        var (code, output) = _home.Run("install", "--no-check", "--client", "kimi-code,qoder,factory-droid,trae,codebuddy");
+        Assert.True(code == 0, output);
+        JsonNode Entry(string id) => ReadJson(Client(id).Target.Path)["mcpServers"]!["corvus"]!;
+
+        Assert.Equal(_home.Path(".kimi-code", "mcp.json"), Client("kimi-code").Target.Path);
+        Assert.Equal(_home.Path("k", "mcp.json"), Client("kimi-code", new() { ["KIMI_CODE_HOME"] = "~/k" }).Target.Path);
+        Assert.Equal(_home.Path(".qoder", "settings.json"), Client("qoder").Target.Path);
+        Assert.Equal(_home.Path(".factory", "mcp.json"), Client("factory-droid").Target.Path);
+        Assert.Equal(_home.Path(".codebuddy", ".mcp.json"), Client("codebuddy").Target.Path);
+        Assert.EndsWith(Path.Combine("Trae", "User", "mcp.json"), Client("trae").Target.Path);
+        foreach (var id in new[] { "kimi-code", "qoder", "trae" })
+        {
+            Assert.Equal(SetupHome.Launch.Command, Entry(id)["command"]!.GetValue<string>());
+            Assert.Null(Entry(id)["type"]);
+        }
+        // Droid and CodeBuddy require the transport type on a local server.
+        foreach (var id in new[] { "factory-droid", "codebuddy" }) Assert.Equal("stdio", Entry(id)["type"]!.GetValue<string>());
+        Assert.Contains("--client", Entry("codebuddy")["args"]!.AsArray().Select(a => a!.GetValue<string>()));
+    }
+
+    [Fact]
     public void OmpAndPi_FollowProfilesAndAgentFolders()
     {
         Assert.Equal(_home.Path(".omp", "profiles", "work", "agent", "mcp.json"), Client("omp", new() { ["OMP_PROFILE"] = "work" }).Target.Path);
@@ -256,7 +279,7 @@ public sealed class ClientCatalogTests : IDisposable
     {
         var env = _home.Env(os: HostOs.Windows);
         var all = ClientCatalog.All(env);
-        Assert.Equal(27, all.Count);
+        Assert.Equal(32, all.Count);
         var output = new StringWriter();
         Assert.Equal(0, SetupCli.TryRun(["install", "--no-check", "--client", string.Join(",", all.Select(c => c.Id))], output, env, SetupHome.Launch));
         foreach (var client in ClientCatalog.All(env))

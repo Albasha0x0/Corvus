@@ -223,6 +223,11 @@ folder), the entry's shape, and the environment variables that move the file. `-
 | `grok-build` | Grok Build | TOML `[mcp_servers]` | `~/.grok/config.toml` | `~/.grok/config.toml` | `~/.grok/config.toml` | `GROK_HOME` | 9,500 tokens; no call limit; full |
 | `omp` | OMP | JSON `mcpServers` | `~/.omp/agent/mcp.json` | `~/.omp/agent/mcp.json` | `~/.omp/agent/mcp.json` | `OMP_PROFILE`, `PI_CODING_AGENT_DIR`, `PI_CONFIG_DIR`, `PI_PROFILE` | 9,500 tokens; no call limit; full |
 | `pi` | Pi | JSON `mcpServers` | `~/.pi/agent/mcp.json` | `~/.pi/agent/mcp.json` | `~/.pi/agent/mcp.json` | `PI_CODING_AGENT_DIR` | 9,500 tokens; no call limit; full |
+| `kimi-code` | Kimi Code | JSON `mcpServers` | `~/.kimi-code/mcp.json` | `~/.kimi-code/mcp.json` | `~/.kimi-code/mcp.json` | `KIMI_CODE_HOME` | 9,500 tokens; no call limit; full |
+| `qoder` | Qoder | JSON `mcpServers` | `~/.qoder/settings.json` | `~/.qoder/settings.json` | `~/.qoder/settings.json` |  | 9,500 tokens; no call limit; full |
+| `factory-droid` | Factory Droid | JSON `mcpServers` | `~/.factory/mcp.json` | `~/.factory/mcp.json` | `~/.factory/mcp.json` |  | 9,500 tokens; no call limit; full |
+| `trae` | Trae | JSON `mcpServers` | `%APPDATA%/Trae/User/mcp.json` | `~/Library/Application Support/Trae/User/mcp.json` | `~/.config/Trae/User/mcp.json` | `XDG_CONFIG_HOME` | 9,500 tokens; no call limit; full |
+| `codebuddy` | CodeBuddy | JSON `mcpServers` | `~/.codebuddy/.mcp.json` | `~/.codebuddy/.mcp.json` | `~/.codebuddy/.mcp.json` |  | 9,500 tokens; no call limit; full |
 <!-- clients:end -->
 
 ## The agent skill

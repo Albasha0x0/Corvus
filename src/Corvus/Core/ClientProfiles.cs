@@ -71,6 +71,11 @@ public static class ClientProfiles
         Plain("grok-build", "Grok Build", "grok-build", "grok"),
         Plain("omp", "OMP", "omp"),
         Plain("pi", "Pi", "pi", "pi-coding-agent"),
+        Plain("kimi-code", "Kimi Code", "kimi-code", "kimi"),
+        Plain("qoder", "Qoder", "qoder", "qodercli"),
+        Plain("factory-droid", "Factory Droid", "factory-droid", "droid"),
+        Plain("trae", "Trae", "trae"),
+        Plain("codebuddy", "CodeBuddy", "codebuddy"),
     ];
 
     /// <summary>The profile of a client id (or the unknown row's id); null for anything else.</summary>

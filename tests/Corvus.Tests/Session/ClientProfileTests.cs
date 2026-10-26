@@ -34,6 +34,11 @@ public sealed class ClientProfileTests
     [InlineData("grok-build", "grok-build")]
     [InlineData("omp", "omp")]
     [InlineData("pi-coding-agent", "pi")]
+    [InlineData("kimi-code", "kimi-code")]
+    [InlineData("qodercli", "qoder")]
+    [InlineData("droid", "factory-droid")]
+    [InlineData("Trae", "trae")]
+    [InlineData("codebuddy", "codebuddy")]
     public void KnownClientNames_AreDetected(string clientInfoName, string id) =>
         Assert.Equal(id, ClientProfiles.Detect(clientInfoName)?.Id);
 
@@ -55,7 +60,7 @@ public sealed class ClientProfileTests
         using var home = new SetupHome();
         var ids = Corvus.Setup.ClientCatalog.All(home.Env(os: Corvus.Setup.HostOs.Windows)).Select(c => c.Id).Order(StringComparer.Ordinal);
         Assert.Equal(ids, ClientProfiles.All.Select(p => p.Id).Order(StringComparer.Ordinal));
-        Assert.Equal(27, ClientProfiles.All.Count);
+        Assert.Equal(32, ClientProfiles.All.Count);
     }
 
     [Fact]
