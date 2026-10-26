@@ -112,7 +112,7 @@ Thumb-2 are decoded by our own engine; other instruction sets go through IDA, el
 **Built in vs external.** Everything below is built in (PE parser, Iced disassembler, function discovery, MSVC
 RTTI / exception data / name demangling, PDB reader) unless marked. These need IDA (through idalib) or Ghidra (through a
 Java worker built on first use): `decompile_native`; `search_decompiled` (their pseudocode); `emulate_native` (Ghidra
-p-code; `engine=speakeasy` uses speakeasy instead); `ida_python` / `ghidra_script`; `list_functions view=candidates`;
+p-code; `engine=ours` is built in for x86, x64 and ARM64; `engine=speakeasy` uses speakeasy); `ida_python` / `ghidra_script`; `list_functions view=candidates`;
 and every `engine=ida|ghidra` mode. Reliability runs and their numbers: [docs/native-maturity.md](native-maturity.md);
 editing contract: [docs/native-editing.md](native-editing.md); engine databases (identity, reuse, invalidation, cold and
 warm times): [docs/engine-databases.md](engine-databases.md).
@@ -155,6 +155,7 @@ the parameters and locals in scope (with their register or frame slot) for `reso
 ### Emulation (`emulate_native`)
 
 - **Default (Ghidra p-code):** static emulation in Ghidra's emulator from a function or address, nothing run natively. Arguments by the calling convention, registers, memory writes, strings and buffers in a private scratch area. Calls step into the image or return `stubs=` values (`*=0` answers every call). Stops on return, a stop address, or an instruction or time budget; an unmodelled call or unmapped read is an error naming the address. Reports the return value, changed registers, written memory with decoded strings, reads and a trace.
+- **`engine=ours`:** the same request, report and stop reasons from the built-in emulator, with no engine installed: x86, x64 and ARM64 integer code (general registers, flags, string operations, 128-bit vector moves and the ARM64 population count). `auto` picks it when Ghidra is not available. Floating point, vector arithmetic, system calls and segment bases stop the run naming the instruction. Verified: clang 14 `-O2` output of nine routines (hashes, CRC, base64, sort, jump table, 64-bit multiply and divide) returns the same values on all three as computed in the test and as Ghidra 12.1.4; 400 random x64 integer sequences agree with the host processor on registers and defined flags.
 - **`engine=speakeasy`:** runs a whole PE from its entry point or `address`, or raw x86/x64 code from `address`, in speakeasy 2.0.0b9 (`CORVUS_EMULATOR`) in the worker host, with Windows APIs modelled and nothing run natively. Reports the API calls with arguments and return values, the files the program wrote (each saved), and its image, allocations and stack after the run as a region set `open_minidump` reads. An API the emulator does not model stops the run by name, keeping the calls before it as a partial result. Verified with speakeasy 2.0.0b9 on Windows: a built x86 and x64 program's 5 kernel32 calls listed in order, its written file saved, the decoded text at its allocation in the region set.
 
 ### Other dump files

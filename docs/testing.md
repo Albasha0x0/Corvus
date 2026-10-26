@@ -290,6 +290,7 @@ describe.
 | `CORVUS_EXPORT_LIST` | A file listing assemblies whose exported projects must build; errors go to `<list>.report.txt`. | ExportBuildTests |
 | `CORVUS_EXPORT_REAL` | `1` exports real libraries to projects and builds them. | ExportBuildTests |
 | `CORVUS_FIRMWARE_IMAGES` | A folder of firmware images whose filesystems are compared file by file with the reference extractors. | FirmwareComparisonTests |
+| `CORVUS_FIXTURE_CLANG` | A command prefix that runs clang, ld.lld and llvm-objcopy (14), for rebuilding the emulator fixtures from emu.c (`wsl.exe -e` runs them in WSL). | tests/Corvus.Tests/Engines/IsaFixtures/build.ps1 |
 | `CORVUS_FIXTURE_CC65` | A command prefix that runs ca65 and ld65 (cc65 2.19), for rebuilding the NROM image fixture (`wsl.exe -e` runs them in WSL). | tests/Corvus.Tests/Engines/IsaFixtures/build.ps1 |
 | `CORVUS_FIXTURE_ES2ABC` | es2abc from the OpenHarmony SDK (`ets` package), for rebuilding the Ark fixtures; `CORVUS_ARK_DISASSEMBLER` writes their listing. | tests/Corvus.Tests/Mobile/ArkFixtures/build.ps1 |
 | `CORVUS_FIXTURE_HERMESC` | A folder with one subfolder per Hermes compiler release, for rebuilding the Hermes fixtures. | tests/Corvus.Tests/Web/HermesFixtures/build.ps1 |

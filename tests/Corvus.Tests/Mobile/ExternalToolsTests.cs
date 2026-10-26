@@ -303,6 +303,25 @@ public class ExternalToolsTests : IDisposable
     }
 
     [Fact]
+    public void Status_names_the_programs_not_found_in_one_row()
+    {
+        // A CI runner has none of the programs; their rows put status over its report budget.
+        using var empty = new TempDir();
+        var env = new EnvironmentScope().Set("PATH", empty.Path).Set("JAVA_HOME", null).Set("ANDROID_HOME", null).Set("ANDROID_SDK_ROOT", null);
+        using var _ = ExternalTools.Table.Aggregate(env, (scope, t) => scope.Set(t.Variable, null));
+        var each = Corvus.Tools.SessionTools.ExternalToolCapabilities().ToList();
+        var missing = each.Where(c => c.Detail == ExternalTools.NotFound).ToList();
+        Assert.True(missing.Count >= 2, string.Join("; ", each.Select(c => $"{c.Name}: {c.Detail}")));
+        var status = Corvus.Tools.SessionTools.ExternalToolStatus();
+        Assert.Equal(each.Count - missing.Count + 1, status.Count);
+        Assert.DoesNotContain(status, c => c.Detail == ExternalTools.NotFound);
+        var merged = Assert.Single(status, c => c.Name == $"{missing.Count} programs not found");
+        Assert.False(merged.Available);
+        foreach (var tool in ExternalTools.Table.Where(t => missing.Any(m => m.Name == $"{t.Name}: {t.Purpose}")))
+            Assert.Contains($"{tool.Name} ({tool.Variable}): {tool.Purpose}", merged.Detail);
+    }
+
+    [Fact]
     public void A_device_call_runs_adb_without_checking_its_version_first()
     {
         using var fake = new FakeTool();

@@ -171,22 +171,32 @@ public sealed partial class DeviceService(ServerOptions options, DexService? dex
     }
 
     /// <summary>
-    /// Waits up to <paramref name="wait"/> for device <paramref name="serial"/> to be ready (adb state "device"): a device
-    /// is offline for a few seconds after the adb server starts. Throws not_found when adb does not list it, access_denied
-    /// when it is unauthorized, provider_unavailable when it stays in another state.
+    /// Waits up to <paramref name="wait"/> for device <paramref name="serial"/> to be ready: adb state "device" and a shell
+    /// that reads sys.boot_completed 1. A device is offline for a few seconds after the adb server starts, and an emulator
+    /// that stops answering stays listed as "device". Throws not_found when adb does not list it, access_denied when it is
+    /// unauthorized, provider_unavailable when it stays in another state or its shell does not answer.
     /// </summary>
     public void WaitReady(string serial, TimeSpan wait, CancellationToken ct)
     {
         var until = DateTime.UtcNow + wait;
+        string? notBooted = null;
         while (true)
         {
             var state = Devices(ct).Items.FirstOrDefault(d => d.Serial == serial)?.State;
-            if (state == "device") return;
+            if (state == "device")
+            {
+                var left = until - DateTime.UtcNow;
+                var boot = Run(ExternalTools.Arguments(Adb, "boot", ("serial", serial)), left < Short && left > TimeSpan.Zero ? left : Short, MaxTextBytes, ct);
+                if (!boot.TimedOut && boot.ExitCode == 0 && boot.Text.Trim() == "1") return;
+                notBooted = boot.TimedOut ? "its shell did not answer" : $"it is still starting (sys.boot_completed '{boot.Text.Trim()}')";
+            }
             if (state == "unauthorized") throw new ToolError(ErrorCode.AccessDenied, $"device {serial} is unauthorized.", "accept the USB debugging prompt on the device");
             if (DateTime.UtcNow >= until)
                 throw state == null
                     ? new ToolError(ErrorCode.NotFound, $"adb lists no device {serial}.", "list_android_devices shows the connected devices")
-                    : new ToolError(ErrorCode.ProviderUnavailable, $"device {serial} is {state}.", "reconnect it, then list_android_devices");
+                    : state == "device"
+                        ? new ToolError(ErrorCode.ProviderUnavailable, $"device {serial} is listed as ready, but {notBooted}.", "restart the device or emulator, then list_android_devices")
+                        : new ToolError(ErrorCode.ProviderUnavailable, $"device {serial} is {state}.", "reconnect it, then list_android_devices");
             Task.Delay(TimeSpan.FromMilliseconds(500), ct).Wait(ct);
         }
     }

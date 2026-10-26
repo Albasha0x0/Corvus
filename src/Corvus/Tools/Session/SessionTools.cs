@@ -103,7 +103,7 @@ public sealed class SessionTools(AssemblyWorkspace workspace, IndexingService in
         capabilities.Add(new("native PE analysis", true, "built in", null));
         // The engines are checked beside the external programs, each check in parallel (see ExternalToolCapabilities).
         var deadline = DateTime.UtcNow + Native.Providers.ExternalTools.StatusWait;
-        var external = OwnThread(() => ExternalToolCapabilities(Native.Providers.ExternalTools.StatusWait).ToList());
+        var external = OwnThread(() => ExternalToolStatus(Native.Providers.ExternalTools.StatusWait));
         // The sections' own waits (cache folder counts) run beside the checks rather than after them.
         var sections = context?.Services is { } services ? OwnThread(() => StatusSections.Collect(services)) : null;
         var providers = engines?.Providers ?? [];
@@ -190,14 +190,35 @@ public sealed class SessionTools(AssemblyWorkspace workspace, IndexingService in
     /// One capability per external program the server runs (test oracles left out), probed once per file. A version check
     /// still running after <paramref name="wait"/> (default: no limit) is reported as an unknown version.
     /// </summary>
-    internal static IEnumerable<Capability> ExternalToolCapabilities(TimeSpan? wait = null)
+    internal static IEnumerable<Capability> ExternalToolCapabilities(TimeSpan? wait = null) => Probes(wait).Select(Row).ToList();
+
+    /// <summary>
+    /// <see cref="ExternalToolCapabilities"/> for server_status: the programs that were not found share one row naming each
+    /// with its variable, so the report budget holds as the table grows. Programs found or failing keep their own rows.
+    /// </summary>
+    internal static List<Capability> ExternalToolStatus(TimeSpan? wait = null)
     {
-        var tools = Native.Providers.ExternalTools.Table.Where(t => !t.TestOracle).ToList();
-        // Side by side: each probe may start a program, so a first status waits for the slowest, not for their sum.
-        var probes = tools.Select(t => OwnThread(() => wait is { } w ? Native.Providers.ExternalTools.Probe(t, w) : Native.Providers.ExternalTools.Probe(t))).ToList();
-        return probes.Select(task => task.GetAwaiter().GetResult())
-            .Select(p => new Capability($"{p.Name}: {p.Purpose}", p.Usable, p.Usable ? Found(p) : p.Problem!, p.Usable ? null : p.Remediation)).ToList();
+        var probes = Probes(wait);
+        var missing = probes.Where(NotFound).ToList();
+        var rows = probes.Where(p => !NotFound(p)).Select(Row).ToList();
+        if (missing.Count == 1) rows.Add(Row(missing[0]));
+        else if (missing.Count > 1)
+            rows.Add(new Capability($"{missing.Count} programs not found", false,
+                string.Join("; ", missing.Select(p => $"{p.Name} ({Native.Providers.ExternalTools.Get(p.Id).Variable}): {p.Purpose}")),
+                "set each variable to the program (or jar) or its folder, or put the program on PATH"));
+        return rows;
     }
+
+    private static bool NotFound(Native.Providers.ExternalToolProbe p) => !p.Found && p.Problem == Native.Providers.ExternalTools.NotFound;
+
+    private static Capability Row(Native.Providers.ExternalToolProbe p) =>
+        new($"{p.Name}: {p.Purpose}", p.Usable, p.Usable ? Found(p) : p.Problem!, p.Usable ? null : p.Remediation);
+
+    // Side by side: each probe may start a program, so a first status waits for the slowest, not for their sum.
+    private static List<Native.Providers.ExternalToolProbe> Probes(TimeSpan? wait) =>
+        [.. Native.Providers.ExternalTools.Table.Where(t => !t.TestOracle)
+            .Select(t => OwnThread(() => wait is { } w ? Native.Providers.ExternalTools.Probe(t, w) : Native.Providers.ExternalTools.Probe(t))).ToList()
+            .Select(task => task.GetAwaiter().GetResult())];
 
     // A path the user set in the tool's variable is theirs already; a searched one is named.
     private static string Found(Native.Providers.ExternalToolProbe p) =>

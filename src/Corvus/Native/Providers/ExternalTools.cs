@@ -83,6 +83,7 @@ public static partial class ExternalTools
         "the Android device tools", false,
         Ops(("devices", ["devices", "-l"]),
             ("getprop", ["-s", "{serial}", "shell", "getprop"]),
+            ("boot", ["-s", "{serial}", "shell", "getprop", "sys.boot_completed"]),
             ("packages", ["-s", "{serial}", "shell", "pm", "list", "packages", "-f", "-U", "-i"]),
             ("ps", ["-s", "{serial}", "shell", "ps", "-A", "-o", "PID,PPID,USER,NAME"]),
             ("ps-legacy", ["-s", "{serial}", "shell", "ps"]),
@@ -318,6 +319,9 @@ public static partial class ExternalTools
     // rather than each running the program.
     private static readonly ConcurrentDictionary<string, Lazy<ExternalToolProbe>> Probes = new(StringComparer.Ordinal);
 
+    /// <summary>The problem of a probe that found the tool neither through its variable nor on PATH.</summary>
+    public const string NotFound = "not found";
+
     /// <summary>Where the tool is and its version, probed once per file per server process.</summary>
     public static ExternalToolProbe Probe(ExternalTool tool)
     {
@@ -327,7 +331,7 @@ public static partial class ExternalTools
             var configured = ReadVariable(tool.Variable);
             var why = configured is { Length: > 0 }
                 ? $"{tool.Variable} is set to '{configured.Trim()}', which is not {(tool.Kind == ExternalToolKind.Jar ? "a jar or a folder with one" : "the program or a folder with it")}"
-                : "not found";
+                : NotFound;
             return new(tool.Id, tool.Name, tool.Purpose, false, null, null, null, why, Remediation(tool));
         }
         var key = tool.Id + "|" + at.Path + "|" + Stamp(at.Path);

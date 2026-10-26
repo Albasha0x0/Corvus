@@ -1,7 +1,8 @@
 # Rebuilds the ISA fixtures from calls.rs (rustc's LLVM has every backend; ld.lld links them) and writes the 6502 image.
 # Tools: CORVUS_FIXTURE_RUSTC (rustc), CORVUS_FIXTURE_LLVM (a folder with ld.lld, llvm-objcopy and llvm-nm),
 # CORVUS_FIXTURE_M68K (a command prefix for GNU binutils m68k-linux-gnu-ld and -objcopy 2.38: ld.lld has no m68k),
-# CORVUS_FIXTURE_CC65 (a command prefix for ca65 and ld65 2.19, which build nrom.nes from nrom.s and nrom.cfg).
+# CORVUS_FIXTURE_CC65 (a command prefix for ca65 and ld65 2.19, which build nrom.nes from nrom.s and nrom.cfg),
+# CORVUS_FIXTURE_CLANG (a command prefix for clang, ld.lld and llvm-objcopy 14, which build emu-*.elf from emu.c).
 $ErrorActionPreference = 'Stop'
 $here = $PSScriptRoot
 $rustc = $env:CORVUS_FIXTURE_RUSTC ?? 'rustc'
@@ -58,6 +59,20 @@ try {
     $table = [byte[]]::new(0x400)
     $table[1] = 0x10; $table[6] = 0x04
     [IO.File]::WriteAllBytes((Join-Path $here 'm68k.bin'), [byte[]]($table + [IO.File]::ReadAllBytes((Join-Path $here 'm68k.text'))))
+    # Integer code for the built-in emulator: loops stay scalar, as the emulator models no vector arithmetic.
+    $clang = ($env:CORVUS_FIXTURE_CLANG ?? '') -split ' ' | Where-Object { $_ }
+    foreach ($t in @(@('x86_64-linux-gnu', 'x64'), @('i386-linux-gnu', 'x86'), @('aarch64-linux-gnu', 'arm64'))) {
+        $steps = @(
+            @('clang', "--target=$($t[0])", '-O2', '-fno-vectorize', '-fno-slp-vectorize', '-ffreestanding', '-fno-builtin', '-fno-stack-protector',
+                '-fno-pic', '-fno-asynchronous-unwind-tables', '-c', 'emu.c', '-o', 'emu.o'),
+            @('ld.lld', '-e', '_start', '--build-id=none', '-static', '-o', 'emu.elf', 'emu.o'),
+            @('llvm-objcopy', '--remove-section=.comment', 'emu.elf', "emu-$($t[1]).elf"))
+        foreach ($step in $steps) {
+            $c = @($clang) + $step
+            & $c[0] @($c[1..($c.Count)])
+            if ($LASTEXITCODE) { throw "$($step[0]) failed for $($t[0])" }
+        }
+    }
     $cc65 = ($env:CORVUS_FIXTURE_CC65 ?? '') -split ' ' | Where-Object { $_ }
     foreach ($step in @(@('ca65', '-o', 'nrom.o', 'nrom.s'), @('ld65', '-C', 'nrom.cfg', '-o', 'nrom.nes', 'nrom.o'))) {
         $c = @($cc65) + $step
@@ -65,7 +80,7 @@ try {
         if ($LASTEXITCODE) { throw "$($step[0]) failed" }
     }
 }
-finally { Remove-Item -Force m68k.o, m68k.elf, m68k.text, nrom.o -ErrorAction SilentlyContinue; Pop-Location }
+finally { Remove-Item -Force m68k.o, m68k.elf, m68k.text, nrom.o, emu.o, emu.elf -ErrorAction SilentlyContinue; Pop-Location }
 
 # 6502 at 0x8000, assembled by hand (no 6502 backend in LLVM):
 #   8000 entry:  JSR middle ; RTS

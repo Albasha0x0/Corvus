@@ -19,9 +19,9 @@ public sealed class NativeEmulationTests
     public async Task Arguments_are_checked_before_any_engine_starts()
     {
         var tools = new NativeEmulationTools(null!, null!);
-        var ours = await Assert.ThrowsAsync<ToolError>(() => tools.EmulateNative("x.dll", "f", engine: "ours"));
-        Assert.Equal(ErrorCode.Unsupported, ours.Code);
-        Assert.Contains("Ghidra", ours.Message);
+        var unknown = await Assert.ThrowsAsync<ToolError>(() => tools.EmulateNative("x.dll", "f", engine: "qemu"));
+        Assert.Equal(ErrorCode.Unsupported, unknown.Code);
+        Assert.Contains("engine=ours", unknown.Remediation);
         Assert.Equal(ErrorCode.InvalidArgument, (await Assert.ThrowsAsync<ToolError>(() => tools.EmulateNative("x.dll", "f", maxInstructions: 0))).Code);
         Assert.Equal(ErrorCode.InvalidArgument, (await Assert.ThrowsAsync<ToolError>(() => tools.EmulateNative("x.dll", "f", timeoutSeconds: 301))).Code);
         Assert.Equal(ErrorCode.InvalidArgument, (await Assert.ThrowsAsync<ToolError>(() => tools.EmulateNative("x.dll", "f", trace: 2001))).Code);
@@ -91,10 +91,10 @@ public sealed class NativeEmulationTests
 [Trait("Speed", "Slow")]
 public sealed class NativeEmulationGhidraTests(ITestOutputHelper output, NativeEmulationGhidraTests.Rig rig) : IClassFixture<NativeEmulationGhidraTests.Rig>
 {
-    private const ulong Base = 0x180000000;
+    internal const ulong Base = 0x180000000;
     private const byte Key = 0x5A;
-    private const string Secret = "Hello, emulator!";
-    private const string HashInput = "kernel32.dll";
+    internal const string Secret = "Hello, emulator!";
+    internal const string HashInput = "kernel32.dll";
 
     /// <summary>emu.dll and a workspace with the Ghidra engine, built once for the class.</summary>
     public sealed class Rig : IDisposable
@@ -136,7 +136,7 @@ public sealed class NativeEmulationGhidraTests(ITestOutputHelper output, NativeE
     /// emu.dll exports: XorDecode(dst, src, n) writes src[i] ^ 0x5A; Fnv1a(s) returns the 32-bit FNV-1a of a NUL-terminated string;
     /// HashName() returns Fnv1a("kernel32.dll") + 1 through a call; Ticks() returns GetTickCount() + 1; Deref(p) returns *(int*)p; Spin() loops.
     /// </summary>
-    private static string Build(TempDir dir, Dictionary<string, uint> at)
+    internal static string Build(TempDir dir, Dictionary<string, uint> at)
     {
         byte[] Code(Dictionary<string, uint> slots)
         {
@@ -226,7 +226,7 @@ public sealed class NativeEmulationGhidraTests(ITestOutputHelper output, NativeE
         for (int i = 0; i < 8; i++) a.int3();
     }
 
-    private static uint Fnv1a(string s)
+    internal static uint Fnv1a(string s)
     {
         uint h = 0x811C9DC5;
         foreach (var b in Encoding.ASCII.GetBytes(s)) h = (h ^ b) * 0x01000193;

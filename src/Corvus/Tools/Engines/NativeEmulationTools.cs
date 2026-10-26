@@ -9,6 +9,7 @@ using ModelContextProtocol.Protocol;
 using ModelContextProtocol.Server;
 using Corvus.Core;
 using Corvus.Native;
+using Corvus.Native.Emulation;
 using Corvus.Native.Providers;
 using Corvus.Native.Providers.Ghidra;
 using Corvus.Services;
@@ -16,7 +17,7 @@ using Corvus.Services.Analysis;
 
 namespace Corvus.Tools;
 
-/// <summary>Static p-code emulation of native code in the Ghidra worker.</summary>
+/// <summary>Static emulation of native code: Ghidra's p-code emulator, the built-in x86, x64 and ARM64 emulator, or speakeasy.</summary>
 [McpServerToolType]
 public sealed partial class NativeEmulationTools(AssemblyWorkspace workspace, NativeEngineService engines, NativeCodeService? nativeCode = null, NativeNamePush? names = null)
 {
@@ -24,7 +25,7 @@ public sealed partial class NativeEmulationTools(AssemblyWorkspace workspace, Na
     internal const int MaxCandidates = 1000;
 
     [McpServerTool(Name = "emulate_native", Title = "Emulate native code", UseStructuredContent = true, OutputSchemaType = typeof(EmulationReport))]
-    [Description("Emulate native code in the Ghidra p-code emulator: string decoders, hashes, computed constants. Memory: image, stack, given writes. " +
+    [Description("Emulate native code (Ghidra p-code or built in): string decoders, hashes, computed constants. Memory: image, stack, given writes. " +
                  "Stops on return, stopAt or a budget. Calls run in the image or return stubs= values; an unmodelled call or unmapped read is an " +
                  "error. Reports return value, registers, written strings, reads, trace. engine=speakeasy runs a whole PE or raw x86/x64 code with " +
                  "Windows APIs modelled: API calls, files written, memory as a region set.")]
@@ -41,14 +42,16 @@ public sealed partial class NativeEmulationTools(AssemblyWorkspace workspace, Na
         [Description("Time budget, s (1-300).")] int timeoutSeconds = 10,
         [Description("Last instructions listed (0-2000).")] int trace = 0,
         [Description("Argument sets, ;-separated, each as args; one timeoutSeconds covers all.")] string? candidates = null,
-        [Description("auto (default: Ghidra) or speakeasy (a whole program from address; maxInstructions and timeoutSeconds apply).")] string? engine = null,
+        [Description("auto (Ghidra, else ours), ghidra, ours (x86/x64/ARM64 integer code) or speakeasy (a whole program).")] string? engine = null,
         RequestContext<CallToolRequestParams> context = null!,
         CancellationToken cancellationToken = default) => OrderedProgress.Run(context, async progress =>
     {
-        var id = string.IsNullOrWhiteSpace(engine) || engine.Trim().Equals("auto", StringComparison.OrdinalIgnoreCase) ? "ghidra" : engine.Trim().ToLowerInvariant();
-        if (id is not ("ghidra" or SpeakeasyEngine))
-            throw new ToolError(ErrorCode.Unsupported, $"emulate_native runs in Ghidra's p-code emulator or speakeasy, not in '{engine!.Trim()}'.",
-                $"omit engine or pass engine=ghidra (Ghidra from {GhidraOptions.DirectoryVariable}) or engine=speakeasy ({ExternalTools.Emulator.Variable})");
+        bool auto = string.IsNullOrWhiteSpace(engine) || engine.Trim().Equals("auto", StringComparison.OrdinalIgnoreCase);
+        var id = auto ? "ghidra" : engine!.Trim().ToLowerInvariant();
+        if (id is "built-in" or "builtin") id = OursEngine;
+        if (id is not ("ghidra" or OursEngine or SpeakeasyEngine))
+            throw new ToolError(ErrorCode.Unsupported, $"emulate_native runs in Ghidra's p-code emulator, the built-in emulator or speakeasy, not in '{engine!.Trim()}'.",
+                $"omit engine or pass engine=ghidra (Ghidra from {GhidraOptions.DirectoryVariable}), engine=ours or engine=speakeasy ({ExternalTools.Emulator.Variable})");
         if (maxInstructions is < 1 or > 50_000_000) throw new ToolError(ErrorCode.InvalidArgument, $"maxInstructions must be 1-50000000, not {maxInstructions}.");
         if (timeoutSeconds is < 1 or > 300) throw new ToolError(ErrorCode.InvalidArgument, $"timeoutSeconds must be 1-300, not {timeoutSeconds}.");
         if (id == SpeakeasyEngine)
@@ -59,8 +62,18 @@ public sealed partial class NativeEmulationTools(AssemblyWorkspace workspace, Na
         }
         int seconds = timeoutSeconds;
         if (trace is < 0 or > 2000) throw new ToolError(ErrorCode.InvalidArgument, $"trace must be 0-2000, not {trace}.");
-        engines.Provider("ghidra");
+        // A function name without exports or symbols an engine reads resolves through the code index, so build it first.
+        if (nativeCode != null && address.TrimStart() is [var c, ..] && (char.IsLetter(c) || c == '_'))
+            await nativeCode.Index(await Task.Run(() => NativeAnalysisTools.ResolveImage(workspace, image), cancellationToken), null, cancellationToken);
         var (native, startRva) = await Task.Run(() => NativeAnalysisTools.Resolve(workspace, nativeCode, image, address), cancellationToken);
+        string? oursNote = null;
+        if (id == OursEngine) oursNote = "engine=ours: the built-in emulator";
+        else if (auto && engines.UnavailabilityOf("ghidra") is { } missing && IntegerEmulation.Supports(native.Image))
+            oursNote = $"auto: Ghidra is not available ({missing.Reason}), so the built-in emulator";
+        if (oursNote != null)
+            return await EmulateOursAsync(native, startRva, oursNote, args, registers, memory, stopAt, stubs, read, maxInstructions, seconds, trace, candidates,
+                cancellationToken);
+        engines.Provider("ghidra");
         var session = await engines.Session(native, "ghidra", new Progress<NativeProviderProgress>(p =>
             progress.Report(new ProgressNotificationValue { Progress = (float)p.Elapsed.TotalSeconds, Message = $"Ghidra {p.Stage}" })), cancellationToken);
         EngineReport.Answered(new EngineChoice("ghidra", "the p-code emulator is Ghidra's"), engines, session);
@@ -68,9 +81,27 @@ public sealed partial class NativeEmulationTools(AssemblyWorkspace workspace, Na
             throw new ToolError(ErrorCode.Unsupported, "emulate_native needs a Ghidra session.", "omit engine or pass engine=ghidra");
         if (names != null) await names.EnsureAsync(native, session, cancellationToken);
 
-        var parse = new Inputs(workspace, native, ghidra.ImageBase, nativeCode);
-        var request = WorkerRows.Args(("start", Hex(ghidra.ImageBase + startRva)), ("max_instructions", maxInstructions),
-            ("seconds", seconds), ("trace", trace));
+        var (request, sets) = Request(native, ghidra.ImageBase, startRva, args, registers, memory, stopAt, stubs, read, maxInstructions, seconds, trace,
+            candidates);
+
+        if (sets != null)
+        {
+            var batch = await ghidra.CallAsync("emulate_batch", request, cancellationToken, timeout: TimeSpan.FromSeconds(seconds + 30));
+            var runs = batch.GetProperty("candidates").EnumerateArray().ToList();
+            return Mcp.ToolOutput.Report(FormatBatch(native.Id, sets, runs), BatchReport(native.Id, sets, runs));
+        }
+        var r = await ghidra.CallAsync("emulate", request, cancellationToken, timeout: TimeSpan.FromSeconds(seconds + 30));
+        return Finish(native.Id, r, maxInstructions);
+    });
+
+    internal const string OursEngine = "ours";
+
+    /// <summary>The emulation request both engines take, and the candidate argument sets (null without candidates); throws on bad input.</summary>
+    private (JsonObject Request, List<string>? Sets) Request(LoadedNative native, ulong imageBase, uint startRva, string? args, string? registers, string? memory,
+        string? stopAt, string? stubs, string? read, int maxInstructions, int seconds, int trace, string? candidates)
+    {
+        var parse = new Inputs(workspace, native, imageBase, nativeCode);
+        var request = WorkerRows.Args(("start", Hex(imageBase + startRva)), ("max_instructions", maxInstructions), ("seconds", seconds), ("trace", trace));
         if (args != null && candidates != null) throw new ToolError(ErrorCode.InvalidArgument, "Pass args or candidates, not both.", "candidates takes argument sets separated by ';'");
         if (args != null) request["args"] = new JsonArray([.. Split(args).Select(parse.Value)]);
         var sets = candidates != null ? Split(candidates, ';') : null;
@@ -85,15 +116,47 @@ public sealed partial class NativeEmulationTools(AssemblyWorkspace workspace, Na
                 Hex(Integer(After(item)) ?? throw new ToolError(ErrorCode.InvalidArgument, $"The stub value in '{item}' is not an integer."))))]);
         if (read != null) request["reads"] = new JsonArray([.. Split(read).Select(parse.Read)]);
         if (parse.ScratchBytes > MaxScratchBytes) throw new ToolError(ErrorCode.LimitExceeded, $"args and registers copy {parse.ScratchBytes} bytes; the scratch area holds {MaxScratchBytes}.");
+        return (request, sets);
+    }
+
+    private async Task<string> EmulateOursAsync(LoadedNative native, uint startRva, string note, string? args, string? registers, string? memory,
+        string? stopAt, string? stubs, string? read, int maxInstructions, int seconds, int trace, string? candidates, CancellationToken ct)
+    {
+        IntegerEmulation.Cpu(native.Image);
+        var index = nativeCode != null ? await nativeCode.Index(native, null, ct) : null;
+        EngineReport.Answered(new EngineChoice(OursEngine, note), engines);
+        ulong imageBase = native.Image.ImageBase;
+        var (request, sets) = Request(native, imageBase, startRva, args, registers, memory, stopAt, stubs, read, maxInstructions, seconds, trace, candidates);
 
         if (sets != null)
         {
-            var batch = await ghidra.CallAsync("emulate_batch", request, cancellationToken, timeout: TimeSpan.FromSeconds(seconds + 30));
-            var runs = batch.GetProperty("candidates").EnumerateArray().ToList();
+            // One time budget covers every set; sets left when it is spent are not run.
+            var clock = System.Diagnostics.Stopwatch.StartNew();
+            var runs = new List<JsonElement>();
+            var argSets = (JsonArray)request["candidates"]!;
+            request.Remove("candidates");
+            for (int i = 0; i < sets.Count; i++)
+            {
+                double left = seconds - clock.Elapsed.TotalSeconds;
+                if (left <= 0 || ct.IsCancellationRequested)
+                {
+                    runs.Add(JsonSerializer.SerializeToElement(new JsonObject { ["stop"] = ct.IsCancellationRequested ? "cancelled" : "not_run" }));
+                    continue;
+                }
+                var one = (JsonObject)request.DeepClone();
+                one["args"] = argSets[i]!.DeepClone();
+                one["seconds"] = left;
+                runs.Add(JsonSerializer.SerializeToElement(await Task.Run(() => IntegerEmulation.Run(native.Image, imageBase, index, one, ct), ct)));
+            }
             return Mcp.ToolOutput.Report(FormatBatch(native.Id, sets, runs), BatchReport(native.Id, sets, runs));
         }
-        var r = await ghidra.CallAsync("emulate", request, cancellationToken, timeout: TimeSpan.FromSeconds(seconds + 30));
-        var text = Format(native.Id, r, maxInstructions);
+        var r = JsonSerializer.SerializeToElement(await Task.Run(() => IntegerEmulation.Run(native.Image, imageBase, index, request, ct), ct));
+        return Finish(native.Id, r, maxInstructions);
+    }
+
+    private static string Finish(string imageId, JsonElement r, int maxInstructions)
+    {
+        var text = Format(imageId, r, maxInstructions);
         var stop = r.GetProperty("stop").GetString();
         var where = At(r);
         var detail = r.GetProperty("detail").GetString();
@@ -109,8 +172,8 @@ public sealed partial class NativeEmulationTools(AssemblyWorkspace workspace, Na
             "cancelled" => new ToolError(ErrorCode.Cancelled, $"Emulation was cancelled at {where}.") { Partial = text },
             _ => null,
         };
-        return error != null ? throw error : Mcp.ToolOutput.Report(text, Report(native.Id, r));
-    });
+        return error != null ? throw error : Mcp.ToolOutput.Report(text, Report(imageId, r));
+    }
 
     private static string At(JsonElement r) =>
         r.GetProperty("where").GetString() is { } w ? $"{r.GetProperty("pc").GetString()} ({w})" : r.GetProperty("pc").GetString() ?? "?";
@@ -143,6 +206,12 @@ public sealed partial class NativeEmulationTools(AssemblyWorkspace workspace, Na
         public IReadOnlyList<string>? Notes { get; init; }
     }
 
+    /// <summary>The engine of a run: "ours" when the built-in emulator marked it, else "ghidra".</summary>
+    private static string EngineOf(JsonElement r) =>
+        r.ValueKind == JsonValueKind.Object && r.TryGetProperty("engine", out var e) && e.ValueKind == JsonValueKind.String ? e.GetString()! : "ghidra";
+
+    private static string Kind(string engine) => engine == OursEngine ? "built-in emulation" : "Ghidra p-code emulation";
+
     internal static EmulationReport BatchReport(string imageId, IReadOnlyList<string> sets, IReadOnlyList<JsonElement> runs)
     {
         var candidates = runs.Select((r, i) =>
@@ -153,7 +222,8 @@ public sealed partial class NativeEmulationTools(AssemblyWorkspace workspace, Na
             return new EmulatedCandidate(i + 1, sets[i], one.Stop, one.StoppedAt, one.ReturnValue, one.Instructions, one.Reads,
                 r.TryGetProperty("detail", out var d) && d.ValueKind == JsonValueKind.String ? d.GetString() : null);
         }).ToList();
-        return new EmulationReport(imageId, "ghidra", candidates.Sum(c => c.Instructions), "batch", null, null, null, [], 0, [], [], [], [])
+        return new EmulationReport(imageId, runs.Select(EngineOf).FirstOrDefault(e => e == OursEngine) ?? "ghidra", candidates.Sum(c => c.Instructions), "batch",
+                null, null, null, [], 0, [], [], [], [])
             { Candidates = candidates };
     }
 
@@ -162,7 +232,7 @@ public sealed partial class NativeEmulationTools(AssemblyWorkspace workspace, Na
         var report = BatchReport(imageId, sets, runs);
         var sb = new StringBuilder();
         int returned = report.Candidates!.Count(c => c.Stop == "returned");
-        sb.Append(CultureInfo.InvariantCulture, $"{imageId}: Ghidra p-code emulation of {ToolSupport.Plural(sets.Count, "argument set")}, {returned} returned, ")
+        sb.Append(CultureInfo.InvariantCulture, $"{imageId}: {Kind(report.Engine)} of {ToolSupport.Plural(sets.Count, "argument set")}, {returned} returned, ")
             .Append(CultureInfo.InvariantCulture, $"{report.Instructions:N0} instructions\n");
         foreach (var c in report.Candidates!)
         {
@@ -185,7 +255,7 @@ public sealed partial class NativeEmulationTools(AssemblyWorkspace workspace, Na
     {
         string? S(JsonElement e, string name) => e.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.String ? v.GetString() : null;
         var stop = S(r, "stop") ?? "stopped";
-        return new EmulationReport(imageId, "ghidra", r.GetProperty("instructions").GetInt64(), stop, stop == "returned" ? null : At(r),
+        return new EmulationReport(imageId, EngineOf(r), r.GetProperty("instructions").GetInt64(), stop, stop == "returned" ? null : At(r),
             stop == "returned" ? S(r, "return_register") : null, stop == "returned" ? S(r, "return_value") : null,
             [.. r.GetProperty("registers").EnumerateArray().Where(x => x[2].GetBoolean()).Select(x => new EmulatedRegister(x[0].GetString()!, x[1].GetString()!))],
             r.GetProperty("call_count").GetInt32(),
@@ -218,7 +288,7 @@ public sealed partial class NativeEmulationTools(AssemblyWorkspace workspace, Na
             "time_budget" => "time budget reached",
             _ => r.GetProperty("detail").GetString() ?? stop ?? "stopped",
         };
-        sb.Append(CultureInfo.InvariantCulture, $"{imageId}: Ghidra p-code emulation ({r.GetProperty("language").GetString()}), ")
+        sb.Append(CultureInfo.InvariantCulture, $"{imageId}: {Kind(EngineOf(r))} ({r.GetProperty("language").GetString()}), ")
             .Append(CultureInfo.InvariantCulture, $"{count:N0} instructions\n");
         sb.Append("Stopped: ").Append(why);
         // a return stops on the sentinel return address, which says nothing

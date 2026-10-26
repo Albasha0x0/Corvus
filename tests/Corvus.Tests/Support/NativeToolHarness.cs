@@ -324,12 +324,14 @@ public class NativeToolHarnessTests
             return SpinWait.SpinUntil(() => harness.StacksTaken > 0, TimeSpan.FromSeconds(30));
         }), TaskCreationOptions.LongRunning);
         held.Wait();
-        await harness.Run("image", "read", "", ct => Task.Run(() =>
+        // A thread of its own: a pool work item queued behind a loaded pool was still waiting to start when the stacks were
+        // taken (host tier, 270c1082).
+        await harness.Run("image", "read", "", ct => Task.Factory.StartNew(() =>
         {
             harness.Workspace.Read(() => 0, CancellationToken.None);
             ct.ThrowIfCancellationRequested();
             return "";
-        }), limit: TimeSpan.FromSeconds(1));
+        }, CancellationToken.None, TaskCreationOptions.LongRunning, TaskScheduler.Default), limit: TimeSpan.FromSeconds(2));
         await holder;
         var call = Assert.Single(harness.Calls);
         Assert.IsType<TimeoutException>(call.Unexpected);

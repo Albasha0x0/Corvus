@@ -31,6 +31,25 @@ public abstract class DeviceTests : IDisposable
     public sealed class Info : DeviceTests
     {
         [Fact]
+        public void A_device_is_ready_once_its_shell_reads_boot_completed()
+        {
+            _fake.On(@"shell getprop sys\.boot_completed$", "1\n");
+            Service().WaitReady(FakeDevice.Serial, AdbLimit, default);
+            Assert.Equal(["-s", FakeDevice.Serial, "shell", "getprop", "sys.boot_completed"], _fake.ArgumentLists.Last());
+        }
+
+        [Fact]
+        public void A_listed_device_whose_shell_does_not_answer_is_named()
+        {
+            // The fake's shell sleeps past the check's limit, as an emulator that stopped answering does.
+            _fake.On(@"shell getprop sys\.boot_completed$", "1\n", sleepMs: 60_000);
+            var service = new DeviceService(new ServerOptions()) { Environment = _fake.Environment, AdbOverride = FakeTool.Executable, Short = TimeSpan.FromSeconds(2) };
+            var e = Assert.Throws<ToolError>(() => service.WaitReady(FakeDevice.Serial, TimeSpan.FromSeconds(1), default));
+            Assert.Equal(ErrorCode.ProviderUnavailable, e.Code);
+            Assert.Contains($"device {FakeDevice.Serial} is listed as ready, but its shell did not answer", e.Message);
+        }
+
+        [Fact]
         public void Devices_RowsStatesAndUnparsedLines()
         {
             var list = Service().Devices(default);

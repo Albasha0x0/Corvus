@@ -39,7 +39,7 @@ public static partial class ToolEffects
         ["get_native_type"] = Reads(longRunning: true, openWorld: true), // source=engine runs IDA
         ["decompile_native"] = Reads(longRunning: true, openWorld: true), // runs IDA (idalib) in a worker process; its database is a private cache
         ["search_decompiled"] = Reads(longRunning: true, openWorld: true), // decompiles many functions through IDA or Ghidra
-        ["emulate_native"] = Reads(longRunning: true, openWorld: true), // emulation in the Ghidra worker or speakeasy; the program is not changed
+        ["emulate_native"] = Reads(longRunning: true, openWorld: true), // emulation in the Ghidra worker, in process or in speakeasy; the program is not changed
         ["verify_native_imports"] = Reads(longRunning: true), // the whole IL and every library the declarations bind to
         ["load_pdb"] = Changes(destructive: true, idempotent: true, longRunning: true, openWorld: true), // download=true fetches from a symbol server; clear=true deletes the saved PDB names
         ["search_pdb_symbols"] = Reads(),
@@ -67,7 +67,7 @@ public static partial class ParameterDomains
         ["native_call_tree"] = new Dictionary<string, Domain> { ["direction"] = Of(["callers", "callees", "both"]), ["calls"] = Of(["all", "direct", "virtual"]), ["engine"] = Engine },
         ["decompile_native"] = new Dictionary<string, Domain> { ["engine"] = Of(["auto", "ida", "ghidra", "all"]) },
         ["search_decompiled"] = new Dictionary<string, Domain> { ["engine"] = DecompilerEngine },
-        ["emulate_native"] = new Dictionary<string, Domain> { ["engine"] = Of(["auto", "ghidra", "speakeasy"]) },
+        ["emulate_native"] = new Dictionary<string, Domain> { ["engine"] = Of(["auto", "ghidra", "ours", "speakeasy"], "built-in", "builtin") },
         ["get_native_type"] = new Dictionary<string, Domain>
         {
             ["source"] = Of(["auto", "pdb", "rtti", "il2cpp", "objc", "swift", "engine"]), ["format"] = Of(["table", "c"]), ["engine"] = DecompilerEngine,

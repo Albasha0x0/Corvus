@@ -66,8 +66,8 @@ public sealed class ClientCatalogTests : IDisposable
     [Fact]
     public void Hermes_and_DeepSeek_Harness_files_follow_their_homes()
     {
-        Assert.Equal(_home.Path("AppData", "Local", "hermes", "config.yaml"), Client("hermes").Target.Path);
-        Assert.Equal(_home.Path("AppData", "Local", "hermes-dev", "config.yaml"), Client("hermes", new() { ["HERMES_DATA_DIR_SUFFIX"] = "-dev" }).Target.Path);
+        Assert.Equal(_home.Path("AppData", "Local", "hermes", "config.yaml"), Client("hermes", os: HostOs.Windows).Target.Path);
+        Assert.Equal(_home.Path("AppData", "Local", "hermes-dev", "config.yaml"), Client("hermes", new() { ["HERMES_DATA_DIR_SUFFIX"] = "-dev" }, HostOs.Windows).Target.Path);
         Assert.Equal(_home.Path(".hermes", "config.yaml"), Client("hermes", os: HostOs.Linux).Target.Path);
         Assert.Equal(_home.Path("h", "config.yaml"), Client("hermes", new() { ["HERMES_HOME"] = "~/h" }).Target.Path);
         Assert.Equal(_home.Path(".dsh", "cordis.patch.yml"), Client("deepseek-harness").Target.Path);
