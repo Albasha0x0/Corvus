@@ -58,6 +58,7 @@ public static class Blob
         if (Hermes.HermesFile.Looks(b)) return "hermes bytecode";
         if (UnityWebData.Looks(b)) return "unitywebdata";
         if (GodotPack.Looks(b)) return "godotpck";
+        if (Archives.QtResources.Looks(b)) return "qt resources";
         // A pak is known by its footer, so only a whole file matches.
         if (UnrealPak.Looks(b)) return "unreal pak";
         if (UnrealIoStore.Looks(b)) return "unreal utoc";

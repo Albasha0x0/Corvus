@@ -134,6 +134,7 @@ public static class Containers
         }
         // frozen Python programs read the files beside them, so they open here with the location rather than as a reader
         if (kind is "native PE" or "elf" or "mach-o" or "data" && Python.FrozenPython.Open(data, name, location, allFiles, limits, ct) is { } python) return python;
+        if (kind is "native PE" or "elf" or "mach-o" && Archives.QtResources.Embedded(data, ct) is { Count: > 0 } qt) return Archives.QtResources.Open(data, qt, name, allFiles, limits, ct);
         if (ReaderFor(data, name) is { } reader) return reader.Open(data, name, allFiles, limits, ct);
         if (kind == "data" && Firmware.FirmwareCarve.Open(data, name, limits, ct, allFiles) is { } firmware) return firmware;
         return Carve(data, name, pe != null ? "native PE" : kind, limits, ct);
