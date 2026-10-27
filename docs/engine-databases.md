@@ -3,23 +3,18 @@
 What Corvus keeps of an IDA or Ghidra analysis, and when it reuses or rebuilds it.
 
 - The first open of an image analyzes it.
-- Every later open of the same bytes under the same configuration reopens the saved database: any session, server
-  process or command-line call.
+- Later opens of the same bytes under the same configuration reopen the saved database, from any session, server or command-line call.
 
 ## Where
 
-- One cache entry per input and engine under `CORVUS_ANALYSIS_CACHE` (default `<data folder>/analysis`): a private
-  copy of the input with the engine's databases beside it.
+- One cache entry per input and engine under `CORVUS_ANALYSIS_CACHE` (default `<data folder>/analysis`): a private copy of the input with the engine's databases beside it.
 - Engines never write next to the user's file.
-- Eviction: entries unused for `CORVUS_ANALYSIS_CACHE_DAYS` (default 60), then least recently used past
-  `CORVUS_ANALYSIS_CACHE_MB` (default 32,768). An entry open in any process is never touched.
-- Engine answers (pseudocode, frames) are kept in `engine-output` (`CORVUS_ENGINE_OUTPUT_MB`, default 1,024) and served
-  without starting the engine.
+- Eviction: entries unused for `CORVUS_ANALYSIS_CACHE_DAYS` (default 60), then least recently used past `CORVUS_ANALYSIS_CACHE_MB` (default 32,768). An entry open in any process is never touched.
+- Engine answers (pseudocode, frames) are kept in `engine-output` (`CORVUS_ENGINE_OUTPUT_MB`, default 1,024) and served without starting the engine.
 
 ## Identity
 
-A saved database is reused only when every part matches; otherwise a new one is made and the old one stays until
-evicted.
+A saved database is reused only when every part matches; otherwise a new one is made and the old one stays until evicted.
 
 | Part | IDA | Ghidra |
 |---|---|---|
@@ -31,68 +26,34 @@ evicted.
 | Archive input | - | the `.gzf`'s SHA-256 (also one packed from a `.gpr`) |
 
 - An IDA database made from other bytes is rebuilt.
-- `-noauto` comes from `CORVUS_ENGINE_ANALYSIS=none`. Ghidra options are `CORVUS_GHIDRA_OPTIONS`; extension zips count
-  by hash.
+- `-noauto` comes from `CORVUS_ENGINE_ANALYSIS=none`; Ghidra options are `CORVUS_GHIDRA_OPTIONS`, and extension zips count by hash.
 - `get_engine_status` reports per image `reusedDatabase`, `openSeconds`, the profile and the import overrides.
 
 ## Reuse
 
-- **Across sessions and processes.** The database is saved after the first analysis and after edits (journaled until
-  saved, replayed after a worker crash). A later server or `corvus <tool> --load <file>` opens it without analysis.
+- **Across sessions and processes.** The database is saved after the first analysis and after edits (journaled until saved, replayed after a worker crash). A later server or `corvus <tool> --load <file>` opens it without analysis.
 - **Within a session.** One worker per image and engine; reads run concurrently (Ghidra) or in order (IDA).
-- Kept answers are keyed by database state, so a stale answer is never served. A change inside one function (a local
-  renamed, no signature committed) drops only that function's answers.
-- **Two processes, one image.** The first process locks the entry. A second opens a read-only snapshot of the last
-  saved database (edits neither journaled nor saved; status says so); with nothing saved yet it gets a `conflict` naming the owner,
-  retryable after
-  `details.retryAfterMs`.
-- **Edits outlive the database.** Names, comments, types and patches are also kept per file hash and pushed into a new
-  database, so invalidating one loses no user work.
+- Kept answers are keyed by database state, so a stale answer is never served. A change inside one function (a local renamed, no signature committed) drops only that function's answers.
+- **Two processes, one image.** The first process locks the entry. A second opens a read-only snapshot of the last saved database (edits neither journaled nor saved; status says so). With nothing saved yet, it gets a `conflict` naming the owner, retryable after `details.retryAfterMs`.
+- **Edits outlive the database.** Names, comments, types and patches are also kept per file hash and pushed into a new database, so invalidating one loses no user work.
 
 ## Partial analyses
 
-- An open analyzes within `CORVUS_ENGINE_OPEN_TIMEOUT` seconds. Past it, the database is saved as it stands and marked
-  partial; later opens reopen it as is.
+- An open analyzes within `CORVUS_ENGINE_OPEN_TIMEOUT` seconds. Past it, the database is saved as it stands and marked partial; later opens reopen it as is.
 - A native tool's Engine line names the partial analysis and `reanalyze_native`; `get_engine_status` reports it.
-- `reanalyze_native` completes it (`background=true` returns at once). Nothing completes it unasked: that would hold
-  the entry's lock, use the processor and change kept answers between calls.
+- `reanalyze_native` completes it (`background=true` returns at once). Nothing completes it unasked: that would hold the entry's lock, use the processor and change kept answers between calls.
 
 ## Invalidation
 
-- `reanalyze_native` reruns auto-analysis over the image or a range, with options for that run (`preset=` picks a
-  saved set). Every kept answer of the image is then asked again.
-- A different engine build, profile, option set, extension set, override or raw layout is a new identity: a new
-  database is made once and reused.
+- `reanalyze_native` reruns auto-analysis over the image or a range, with options for that run (`preset=` picks a saved set). Every kept answer of the image is then asked again.
+- A different engine build, profile, option set, extension set, override or raw layout is a new identity: a new database is made once and reused.
 - A damaged database (unreadable `.i64`, broken project) is rebuilt from the input copy.
 - Deleting the entry's folder forgets the analysis; saved edits come back.
 
 ## The user's own databases
 
-- **IDA `.i64` beside the input** (`app.i64` or `app.dll.i64`): copied into a new entry as its start; IDA accepts it
-  only when its input record matches. The original is not changed.
-- **Ghidra archive** (`load_assembly path=app.gzf`): loads the file it was made from (kept in the archive, else beside
-  it, checked by SHA-256) and opens the archive without analysis.
-- **Ghidra project** (`load_assembly path=Project.gpr program=/app.exe`; `program` optional for a one-program
-  project): the project is copied into the cache (lock files left out), the program packed and opened as above.
-- The user's project is only read and may stay open in Ghidra. The copy is keyed by path, program and each file's size
-  and write time: an unchanged project reuses its archive and database, a changed one is copied again.
-- **Hand-off.** `export_engine_database` writes the database with every edit, for the engine's GUI: a compressed
-  `.i64` (IDA) or a `.gzf` (Ghidra).
-
-## Cold and warm times
-
-Seconds, empty cache, one Windows machine under load (20 logical processors), IDA 9.3 and Ghidra 12.1.4, default
-profiles (2026-10-15).
-
-- First open: the session's first `decompile_native`, analysis included. Warm call: a second function.
-- Second session: a new server, `load_assembly`, a new function.
-- Command-line call: `corvus decompile_native --load <file> image=<name> address=<function>`, median of three.
-
-| Image | Engine | First open | Warm call | Second session | Command-line call | First open / second session |
-|---|---|---:|---:|---:|---:|---:|
-| `e_sqlite3.dll` (SQLitePCLRaw.lib.e_sqlite3 2.1.11, 1.8 MB) | IDA | 39.7 | 0.53 | 1.5 | 4.7 | 26× |
-| `libSkiaSharp.dll` (SkiaSharp.NativeAssets.Win32 2.88.9, 9.4 MB) | IDA | 121.1 | 0.02 | 2.0 | 3.6 | 61× |
-| `e_sqlite3.dll` | Ghidra | 170.2 | 0.34 | 10.0 | 17.5 | 17× |
-| `libSkiaSharp.dll` | Ghidra | 494.0 | 0.03 | 10.3 | 15.9 | 48× |
-
-A repeated question comes from the output cache in about 0.01 s, also in a new process.
+- **IDA `.i64` beside the input** (`app.i64` or `app.dll.i64`): copied into a new entry as its start; IDA accepts it only when its input record matches. The original is not changed.
+- **Ghidra archive** (`load_assembly path=app.gzf`): loads the file it was made from (kept in the archive, else beside it, checked by SHA-256) and opens the archive without analysis.
+- **Ghidra project** (`load_assembly path=Project.gpr program=/app.exe`; `program` optional for a one-program project): copied into the cache with lock files left out; the program is packed and opened as above.
+- The user's project is only read and may stay open in Ghidra. The copy is keyed by path, program and each file's size and write time: an unchanged project reuses its archive and database; a changed one is copied again.
+- **Hand-off.** `export_engine_database` writes the database with every edit, for the engine's GUI: a compressed `.i64` (IDA) or a `.gzf` (Ghidra).

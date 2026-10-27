@@ -1,9 +1,9 @@
 # Guide 3: a new build
 
 Notes 2.0 ([source](../../samples/Notes/v2)) renames `CsvExporter.Quote` to `Escape` and `PreviewGate.Verify` to
-`Check`, and moves the string decoder into `PreviewGate`. This guide finds those changes and carries the edits of
-[guide 2](2-decode-and-patch.md) (simplify, rename, patch) to the new build. Run guide 2 first; it writes the edit
-script.
+`Check`, and moves the string decoder into `PreviewGate`. This guide finds those changes and carries the
+[guide 2](2-decode-and-patch.md) edits (simplify, rename, patch) to the new build. Run guide 2 first; it writes the
+edit script.
 
 ## Ask your agent
 
@@ -71,8 +71,8 @@ Wrote samples/Notes/v2/bin/patched/Notes.dll (12,800 bytes, 3 edit(s); everythin
 Edits written: Notes#2#1 (c89766f68754b1db), Notes#2#2 (4e55ef172ec3a611), Notes#2#3 (44588f360cc89803).
 ```
 
-The comparison finds the two renames and the move in the [source diff](../../samples/Notes); all three edits apply
-to their renamed targets.
+The comparison finds the two renames and the move in the [source](../../samples/Notes); all three edits apply to their
+renamed targets.
 
 ## Check
 

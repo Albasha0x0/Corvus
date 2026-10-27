@@ -8,7 +8,6 @@ Mach-O binaries.
 [![Release](https://img.shields.io/github/v/release/Albasha0x0/Corvus?style=flat-square)](https://github.com/Albasha0x0/Corvus/releases)
 [![CI](https://img.shields.io/github/actions/workflow/status/Albasha0x0/Corvus/ci.yml?branch=main&style=flat-square&label=CI)](https://github.com/Albasha0x0/Corvus/actions/workflows/ci.yml)
 [![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue?style=flat-square)](LICENSE)
-[![GitHub stars](https://img.shields.io/github/stars/Albasha0x0/Corvus?style=flat-square)](https://github.com/Albasha0x0/Corvus/stargazers)
 
 - One self-contained binary. Nothing is uploaded; nothing it reads is executed by default.
 - Tools and output can change between releases; see the [release notes](docs/release-notes.md).
@@ -60,15 +59,8 @@ The installer verifies the download and registers Corvus with the MCP clients it
 
 All 165 tools and 15 prompts: [features](docs/features.md), [tool reference](docs/tools.md).
 
-## Showcases
-
-- [Decompile, rebuild, run](docs/showcase/round-trip.md): an assembly exported as a C# project that builds and runs.
-- [Inside a single-file app](docs/showcase/single-file.md): a .NET single-file executable unpacked without running it.
-- [Where SQLite makes its random numbers](docs/showcase/sqlite-random.md): a crypto constant traced to its callers.
-- [A Json.NET error traced to its code](docs/showcase/json-reference-loop.md): an error message traced to its setting.
-
 Guides: [first session](docs/guides/1-first-session.md) · [decode and patch](docs/guides/2-decode-and-patch.md) ·
-[new build](docs/guides/3-new-build.md). A test runs every step.
+[new build](docs/guides/3-new-build.md).
 
 ## Documentation
 
@@ -83,12 +75,3 @@ Analyze only software you own or may analyze. Licenses and local law can restric
 redistribution.
 
 [Contributing](CONTRIBUTING.md) · [Security](SECURITY.md) · [Apache-2.0 license](LICENSE)
-
-## Star history
-
-<a href="https://www.star-history.com/#Albasha0x0/Corvus&Date">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=Albasha0x0/Corvus&type=Date&theme=dark" />
-    <img alt="Corvus star history" src="https://api.star-history.com/svg?repos=Albasha0x0/Corvus&type=Date" />
-  </picture>
-</a>

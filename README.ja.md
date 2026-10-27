@@ -8,7 +8,6 @@ PE、ELF、Mach-O バイナリ。
 [![Release](https://img.shields.io/github/v/release/Albasha0x0/Corvus?style=flat-square)](https://github.com/Albasha0x0/Corvus/releases)
 [![CI](https://img.shields.io/github/actions/workflow/status/Albasha0x0/Corvus/ci.yml?branch=main&style=flat-square&label=CI)](https://github.com/Albasha0x0/Corvus/actions/workflows/ci.yml)
 [![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue?style=flat-square)](LICENSE)
-[![GitHub stars](https://img.shields.io/github/stars/Albasha0x0/Corvus?style=flat-square)](https://github.com/Albasha0x0/Corvus/stargazers)
 
 - 自己完結型の単一バイナリ。何もアップロードせず、既定では読み取ったものを実行しません。
 - ツールと出力はリリース間で変わることがあります。[リリースノート](docs/release-notes.md)を参照してください。本書は [README.md](README.md) の翻訳で、英語版が優先します。
@@ -60,15 +59,8 @@ curl -fsSL https://raw.githubusercontent.com/Albasha0x0/Corvus/main/install.sh |
 
 全 165 ツールと 15 プロンプト：[機能](docs/features.md)、[ツールリファレンス](docs/tools.md)。
 
-## ショーケース
-
-- [逆コンパイル、再ビルド、実行](docs/showcase/round-trip.md)：ビルドして実行できる C# プロジェクトとしてエクスポートしたアセンブリ。
-- [単一ファイルアプリの中身](docs/showcase/single-file.md)：実行せずに展開した .NET 単一ファイル実行可能ファイル。
-- [SQLite はどこで乱数を作るか](docs/showcase/sqlite-random.md)：呼び出し元までたどった暗号定数。
-- [Json.NET のエラーをコードまでたどる](docs/showcase/json-reference-loop.md)：設定までたどったエラーメッセージ。
-
 ガイド：[最初のセッション](docs/guides/1-first-session.md) · [デコードとパッチ](docs/guides/2-decode-and-patch.md) ·
-[新しいビルド](docs/guides/3-new-build.md)。すべての手順をテストが実行します。
+[新しいビルド](docs/guides/3-new-build.md)。
 
 ## ドキュメント
 
@@ -82,12 +74,3 @@ curl -fsSL https://raw.githubusercontent.com/Albasha0x0/Corvus/main/install.sh |
 自分が所有するか分析を許可されたソフトウェアだけを分析してください。ライセンスや現地の法律により、逆コンパイル、パッチ、再配布が制限されることがあります。
 
 [コントリビューション](CONTRIBUTING.md) · [セキュリティ](SECURITY.md) · [Apache-2.0 ライセンス](LICENSE)
-
-## Star の推移
-
-<a href="https://www.star-history.com/#Albasha0x0/Corvus&Date">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=Albasha0x0/Corvus&type=Date&theme=dark" />
-    <img alt="Corvus star history" src="https://api.star-history.com/svg?repos=Albasha0x0/Corvus&type=Date" />
-  </picture>
-</a>

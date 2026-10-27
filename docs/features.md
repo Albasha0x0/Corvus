@@ -1,29 +1,29 @@
 # Features
 
-What each of the 165 tools and 15 prompts reads or shows. Every parameter: [tools.md](tools.md).
+What each of the 165 tools and 15 prompts reads or shows. Parameters: [tools.md](tools.md).
 
 ## Built on
 
 - Decompiler: ILSpy (`ICSharpCode.Decompiler`).
 - Metadata and patching: [dnlib](https://github.com/0xd4d/dnlib) and a `System.Reflection.Metadata` IL scanner.
 - C# patching: Roslyn.
-- .NET crash dumps: [ClrMD](https://github.com/microsoft/clrmd) with the dumped runtime's DAC, signature-checked first.
+- .NET crash dumps: [ClrMD](https://github.com/microsoft/clrmd), with the dumped runtime's DAC, signature-checked first.
 - Archives: [SharpCompress](https://github.com/adamhathcock/sharpcompress) (tar, 7z, RAR, gzip, bzip2, xz).
 - JavaScript: [Acornima](https://github.com/adams85/acornima); source maps decoded by built-in code.
 - Transport: stdio, through the [MCP C# SDK](https://github.com/modelcontextprotocol/csharp-sdk).
-- Native code: Corvus's own engine (x86, x64, ARM32, ARM64); IDA or Ghidra optional.
+- Native code: built-in engine (x86, x64, ARM32, ARM64); IDA or Ghidra optional.
 
 ## MCP features
 
-- Tools, prompts, resources and resource templates, argument completion, progress, cancellation.
-- Annotations: title and read-only, destructive, idempotent and open-world hints on every tool.
+- Tools, prompts, resources, resource templates, argument completion, progress, cancellation.
+- Annotations: title, read-only, destructive, idempotent and open-world hints on every tool.
 - Resource updates: `resources/subscribe`, or `subscriptions/listen` on protocol version 2026-07-28.
 - Structured output for list, search and info tools.
-- Typed errors: `Error (<code>) in <tool>: ...` with a `Next:` step and a JSON copy ([errors.md](errors.md)).
-- Strict arguments: an undeclared parameter or unlisted value is `invalid_argument` naming the closest match.
-- Stale-server check: `server_status expectedCatalogDigest=...` and `corvus doctor`.
+- Errors: `Error (<code>) in <tool>: ...` with a `Next:` step and a JSON copy ([errors.md](errors.md)).
+- Strict arguments: an undeclared parameter or unlisted value is `invalid_argument`, naming the closest match.
+- Stale server check: `server_status expectedCatalogDigest=...` or `corvus doctor`.
 - Size guard: each tool declares `anthropic/maxResultSizeChars`; larger results are kept for `read_result`.
-- Server instructions under 2,048 characters; details in the `guide` prompt.
+- Server instructions: under 2,048 characters; details in the `guide` prompt.
 
 ## Tools
 
@@ -74,8 +74,8 @@ What each of the 165 tools and 15 prompts reads or shows. Every parameter: [tool
 | | `get_android_resource`: one entry, binary XML decoded |
 | Android DEX | `list_dex_classes`: classes of every DEX file |
 | | `get_dex_class`: one class with fields, methods and Kotlin metadata |
-| | `disassemble_dex`: smali of a method or class; decoded strings with format=simplified |
-| Android Java | `decompile_java`:Java source through JADX or Vineflower; smali where JADX fails; cached on disk |
+| | `disassemble_dex`: smali of a method or class; decoded strings with `format=simplified` |
+| Android Java | `decompile_java`: Java source through JADX or Vineflower; smali where JADX fails; cached on disk |
 | | `search_dex`: strings, types, members, constants and opcodes in DEX code |
 | | `find_dex_references`: cross-references in DEX code |
 | Android bindings | `map_java_dotnet`: Java wrappers to .NET types and back |
@@ -207,7 +207,7 @@ What each of the 165 tools and 15 prompts reads or shows. Every parameter: [tool
 **Completion:** assembly, image and dump ids, type names, file paths and guide topics.
 
 **Edits:** kept in memory until saved; .NET edit tools and native patches take `dryRun`. `save_assembly` replaces
-an existing file only with `overwrite=true`; both save tools replace the loaded file only with `replaceOriginal=true`
+an existing file only with `overwrite=true`. Both save tools replace the loaded file only with `replaceOriginal=true`,
 behind `--allow-replace-original`, keeping a `.bak`.
 
 **Running programs:** the session tools refuse every call until a `--allow-live*` switch is on, and need a Python with
@@ -216,101 +216,83 @@ Frida's bindings ([live-inspection.md](live-inspection.md)).
 ## Native images
 
 - PE, ELF and Mach-O (one slice of a universal file) load with `load_assembly`, or with any native tool given a path.
-- x86, x64, ARM64 and ARM32 / Thumb-2 are decoded by Corvus's engine; other instruction sets go through IDA, else
-  Ghidra, marked "(via IDA)" or "(via Ghidra)".
-- Headerless code: `load_assembly format=raw arch=x86|x64|arm|thumb|arm64 base=… entry=…`; `summarize_file view=raw`
-  suggests the instruction set and load base.
-- Import overrides on `load_assembly`: `processor=`, `language=`, `compilerSpec=`, `seeds=`, `disableAnalyzers=`; each
-  set gets its own engine database.
-- Ghidra `.gzf` archives (checked against their recorded SHA-256) and `.gpr` projects open as the database without
-  analysis; projects are left unchanged.
-- A database open in IDA: run `corvus_connect.py` (from `corvus ida-script`) in IDA 9+ and start Corvus with
-  `CORVUS_IDA_CONNECT=1`; no local IDA install is needed.
-  - The script serves 127.0.0.1 behind a token in a file only its user can read.
-  - Corvus never rebases, saves, closes or deletes that database; a different base is refused; a closed session only
+- x86, x64, ARM64 and ARM32 / Thumb-2 decode in the built-in engine. Other instruction sets use IDA, else Ghidra, marked "(via IDA)" or "(via Ghidra)".
+- Headerless code: `load_assembly format=raw arch=x86|x64|arm|thumb|arm64 base=… entry=…`. `summarize_file view=raw` suggests the instruction set and load base.
+- `load_assembly` overrides: `processor=`, `language=`, `compilerSpec=`, `seeds=`, `disableAnalyzers=`. Each set gets its own engine database.
+- Ghidra `.gzf` archives (checked against their recorded SHA-256) and `.gpr` projects open without analysis. Projects are left unchanged.
+- An image open in IDA: run `corvus_connect.py` (from `corvus ida-script`) in IDA 9+, and start Corvus with `CORVUS_IDA_CONNECT=1`. No local IDA install is needed.
+  - The script serves 127.0.0.1 behind a token, in a file only its user can read.
+  - Corvus never rebases, saves, closes or deletes that database. A different base is refused. A closed session only
     detaches.
-- Need IDA (idalib) or Ghidra: `decompile_native`, `search_decompiled`, `ida_python`, `ghidra_script`,
-  `list_functions view=candidates`, the default `emulate_native` engine, and every `engine=ida|ghidra` mode.
-- Engine choice (`engine=auto|ours|ida|ghidra`, server default `--engine` / `CORVUS_ENGINE`): `auto` uses the first
-  engine that has analyzed the image (IDA, then Ghidra), else Corvus's index. Corvus's names win over the engine's.
-  Every result names its engine.
+- IDA (idalib) or Ghidra is required for `decompile_native`, `search_decompiled`, `ida_python`, `ghidra_script`, `list_functions view=candidates`, the default `emulate_native` engine, and every `engine=ida|ghidra` mode.
+- `engine=auto|ours|ida|ghidra` (server default `--engine` / `CORVUS_ENGINE`). `auto` uses the first engine that analyzed the image (IDA, then Ghidra), else Corvus's index. Corvus's names win over the engine's. Every result names its engine.
 - Node-API add-ons, Dart AOT snapshots (Dart 3.0-3.13) and NativeAOT images get names from their own metadata.
-- More: [native-maturity.md](native-maturity.md), [native-editing.md](native-editing.md),
-  [engine-databases.md](engine-databases.md).
+- More: [native-editing.md](native-editing.md), [engine-databases.md](engine-databases.md).
 
 ### Debug information (`load_pdb`)
 
-- PE: the matching PDB from beside the file, the CodeView path, the symbol path or caches; `download=true` uses a
-  symbol server.
-- ELF and Mach-O: DWARF 2-5 from the image, a `.debug` file by build id (`CORVUS_DEBUG_DIRS`) or `.gnu_debuglink`, a
-  dSYM, `.dwo` / `.dwp`, or the object files of a Mach-O debug map; `download=true` uses debuginfod.
+- PE: the matching PDB beside the file, the CodeView path, the symbol path or caches. `download=true` uses a symbol server.
+- ELF and Mach-O: DWARF 2-5 from the image; a `.debug` file by build id (`CORVUS_DEBUG_DIRS`) or `.gnu_debuglink`; a dSYM; `.dwo` / `.dwp`; the object files of a Mach-O debug map. `download=true` uses debuginfod.
 - Gives names, types, prototypes, source lines, inlined calls, and the locals in scope at an address.
-- Read on any host.
-- Names are saved per file hash and reapplied on later loads; `clear=true` removes them.
+- Runs on any host.
+- Names are saved per file hash and reapplied on later loads. `clear=true` removes them.
 
 ### Emulation (`emulate_native`)
 
-- Default: Ghidra's p-code emulator from a function or address, in a private scratch area; nothing run natively.
+- Default engine: Ghidra's p-code emulator, from a function or address, in a private scratch area. Nothing runs natively.
   - Stops on return, a stop address, or an instruction or time budget.
-  - Calls step into the image or return `stubs=` values; an unmodelled call stops the run naming the address.
-  - Reports the return value, changed registers, written memory with decoded strings and a trace.
+  - Calls step into the image or return `stubs=` values. An unmodelled call stops the run and names the address.
+  - Reports the return value, changed registers, written memory with decoded strings, and a trace.
 - `engine=ours`: built in, no engine needed; x86, x64 and ARM64 integer code. `auto` picks it without Ghidra.
-  - Floating point, vector arithmetic, system calls and segment bases stop the run naming the instruction.
-- `engine=speakeasy`: a whole PE or raw x86/x64 code in speakeasy 2.0.0b9 (`CORVUS_EMULATOR`) in the worker host,
-  Windows APIs modelled, nothing run natively.
+  - Floating point, vector arithmetic, system calls and segment bases stop the run and name the instruction.
+- `engine=speakeasy`: a whole PE, or raw x86 / x64 code, in speakeasy 2.0.0b9 (`CORVUS_EMULATOR`), in the worker host. Windows APIs are modelled. Nothing runs natively.
   - An unmodelled API stops the run by name, keeping the calls before it.
-  - Reports API calls, written files and memory as a region set `open_minidump` reads.
+  - Reports API calls, written files and memory as a region set that `open_minidump` reads.
 
 ### Other dump files
 
-- Linux and Android ELF core dumps: threads, registers, signal, modules matched by build id, CFI unwinding.
-  - .NET cores use Microsoft's signature-checked DAC for Linux targets, loaded only on Windows and checked against
-    the runtime file version in `imageDirectories`.
-- macOS Mach-O core dumps: ARM64 and x86_64 threads, images matched by UUID.
-- Region sets: memory region files listed in a `"format": 1` JSON manifest open as a dump; threads read as unknown.
-  - Overlapping regions are refused; a missing region file reads as unknown for its range.
+- Linux and Android ELF cores: threads, registers, signal, modules matched by build id, CFI unwinding.
+  - .NET cores use Microsoft's signature-checked DAC for Linux targets. It loads only on Windows, checked against the
+    runtime file version in `imageDirectories`.
+- macOS Mach-O cores: ARM64 and x86_64 threads; images matched by UUID.
+- Region sets: memory region files listed in a `"format": 1` JSON manifest open as a dump. Threads read as unknown.
+  - Overlapping regions are refused. A missing region file reads as unknown for its range.
 
 ### WebAssembly
 
-- A `.wasm` module loads as a native image; a component opens as its largest core module.
+- A `.wasm` module loads as a native image. A component opens as its largest core module.
 - Webcil is not read as a module; `unpack_container` converts it.
 - Names from the name section, exports, imports and an Emscripten symbol map; no size limit below 4 GiB.
-- `disassemble`: WAT equal to `wasm2wat`.
-- `decompile_native`: a structured view without an engine; `engine=ghidra` answers unsupported unless
-  `CORVUS_GHIDRA_EXTENSIONS` names a WebAssembly extension.
-- `list_functions`, `find_xrefs`, `native_call_tree`, `get_cfg`, `inspect_instruction`, `search_native_strings`: the
-  module's own index, `call_indirect` edges included.
-- `compare_native_images`: imports, exports and functions paired by name, then body hash.
+- `disassemble`: WAT output matches `wasm2wat`.
+- `decompile_native`: a structured view without an engine. `engine=ghidra` answers unsupported unless `CORVUS_GHIDRA_EXTENSIONS` names a WebAssembly extension.
+- `list_functions`, `find_xrefs`, `native_call_tree`, `get_cfg`, `inspect_instruction`, `search_native_strings`: the module's own index, `call_indirect` edges included.
+- `compare_native_images`: imports, exports and functions paired by name, then by body hash.
 
 ## Compiled metadata
 
 Managed code compiled ahead of time to native code: a build folder, `global-metadata.dat` with `GameAssembly.dll`,
 `libil2cpp.so`, `GameAssembly.so`, `GameAssembly.dylib` or `UnityFramework`.
 
-- `load_assembly` reads metadata versions 24-39 with the built-in reader; no external tool is needed.
-- Packages: `.apk`, `.xapk`, `.apks`, `.aab` (`slice=` picks the ABI), `.ipa` or `.app`.
-- Unreadable metadata is an error with a reason (`encrypted_or_transformed`, `unsupported_version`,
-  `binary_mismatch_or_transformed`, ...).
-- 32-bit ARM builds whose code registration is not found report `registration_not_found_armv7` or
-  `armv7_unreadable`; load the arm64-v8a build.
-- Encrypted metadata is not decrypted; `summarize_build` reports it; load a copy dumped from memory instead.
+- `load_assembly` reads metadata versions 24-39 with the built-in reader. No external tool is needed.
+- Packages: `.apk`, `.xapk`, `.apks`, `.aab` (`slice=` picks the ABI), `.ipa`, `.app`.
+- Unreadable metadata is an error with a reason: `encrypted_or_transformed`, `unsupported_version`, `binary_mismatch_or_transformed`, ...
+- 32-bit ARM builds without a found code registration report `registration_not_found_armv7` or `armv7_unreadable`. Load the arm64-v8a build.
+- Encrypted metadata is not decrypted. `summarize_build` reports it. Load a copy dumped from memory instead.
 - FairPlay-encrypted iOS binaries fail with `encrypted_fairplay`.
-- Metadata alone (no binary): types, methods, fields and string literals; no addresses or field offsets.
-- Folders of dummy assemblies with `[Address]` attributes also load.
-- With `script.json` beside them: every function start, generic instantiations and metadata slots are named.
-- With `stringliteral.json` or `script.json`: `search_strings` searches the build's literals; with an x64
-  `GameAssembly.dll`, each literal names the functions that load it.
+- Metadata alone (no binary): types, methods, fields and string literals. No addresses or field offsets.
+- Folders of dummy assemblies with `[Address]` attributes load too.
+- With `script.json` beside them: every function start, generic instantiation and metadata slot is named.
+- With `stringliteral.json` or `script.json`: `search_strings` searches the build's literals. With an x64 `GameAssembly.dll`, each literal names the functions that load it.
 - `find_method_by_address` takes an RVA, VA or file offset (`kind=auto` guesses).
 - Reads are cached per user (`CORVUS_AOT_CACHE`).
 
 ## Containers
 
-- `unpack_container` extracts the code inside a file and loads its assemblies (`extractOnly=true` only extracts).
-- It reads bytes only and never runs the file.
-- Nested containers open too, up to 4 levels deep.
-- `list_assemblies path=` lists a container's assemblies without writing anything.
-- `search_container` finds types and members by name across a container's assemblies: default 100 matches, up to
-  5,000.
+- `unpack_container` extracts the code inside a file and loads its assemblies. `extractOnly=true` only extracts.
+- Reads bytes only; never runs the file.
+- Nested containers open, up to 4 levels deep.
+- `list_assemblies path=` lists a container's assemblies and writes nothing.
+- `search_container` finds types and members by name across a container's assemblies: default 100 matches, up to 5,000.
 
 | Container | What comes out |
 |---|---|
@@ -351,17 +333,16 @@ Managed code compiled ahead of time to native code: a build folder, `global-meta
 
 Untrusted input:
 
-- Output stays inside the output directory; `..`, rooted and drive parts are dropped; device names get a `_` prefix.
-- Runnable extensions (`.exe`, `.bat`, `.ps1`, `.lnk`, ...) get a `.bin` suffix; `.dll` is kept.
-- A corrupt entry is skipped with a note; a corrupt container fails with an error.
-- Limits: 512 MB per item, 4 GB and 20,000 files per extraction.
-- Default output: a folder under the temp directory named by the file and its SHA-256. A given directory must be new,
-  empty, or an earlier extract of the same file.
+- Output stays inside the output directory. `..`, rooted and drive parts are dropped; device names get a `_` prefix.
+- Runnable extensions (`.exe`, `.bat`, `.ps1`, `.lnk`, ...) get a `.bin` suffix. `.dll` is kept.
+- A corrupt entry is skipped with a note. A corrupt container fails with an error.
+- Limits: 512 MB per item; 4 GB and 20,000 files per extraction.
+- Default output: a folder under the temp directory, named by the file and its SHA-256. A given directory must be new, empty, or an earlier extract of the same file.
 
 Labels:
 
-- `readyToRun`: precompiled native code beside the IL; the IL still decompiles.
-- `merged`: traces of ILRepack or ILMerge, with the original module count where known; inputs are not split back.
+- `readyToRun`: precompiled native code beside the IL. The IL still decompiles.
+- `merged`: traces of ILRepack or ILMerge, with the original module count where known. Inputs are not split back.
 
 ### Searching files (`search_container kind=`)
 
@@ -376,32 +357,29 @@ Labels:
 | `hermes` | strings and function names of a Hermes bundle |
 | `yara` | YARA rule matches ([YARA rules](#yara-rules)) |
 
-- `capture=` joins code rows to captured requests; two captures compare template by template.
+- `capture=` joins code rows to captured requests. Two captures compare template by template.
 - `compare_folders` compares two `.asar` archives without extracting.
 
 ### Captures
 
 - `kind=packet` takes a Wireshark display filter and lists matching frames with the fields it names.
-- Decoded in process: frame, IP, TCP, UDP, DNS, HTTP, TLS (SNI, ALPN, JA3, JA4), cleartext HTTP/2, QUIC Initials,
-  SMB2, NTLMSSP, Kerberos.
+- Decoded in process: frame, IP, TCP, UDP, DNS, HTTP, TLS (SNI, ALPN, JA3, JA4), cleartext HTTP/2, QUIC Initials, SMB2, NTLMSSP, Kerberos.
 - Other fields run through TShark when `CORVUS_TSHARK`, `PATH` or the Wireshark folder finds it.
 - Captures are streamed; size is not limited.
 - `unpack_container` on a capture reassembles TCP and writes:
   - HTTP/1.x and HTTP/2 bodies, decoded by Content-Encoding;
-  - TLS 1.2 and 1.3 decrypted with `keyLog` or the pcapng's own secrets;
+  - TLS 1.2 and 1.3 streams, decrypted with `keyLog` or the pcapng's own secrets;
   - HTTP/3 over QUIC v1 and v2;
   - other streams under `streams/`;
   - `tls.json`: version, suite, ALPN, JA3, JA4, JA4S and decryption state per connection.
 
 ### YARA rules
 
-- `search_container kind=yara`; the query is a rule file, a folder, rule text, or `pack:<name>` from `corvus rules
-  fetch` ([cli.md](cli.md)). Corvus ships no rules.
-- Run by YARA-X 1.22.0 in a worker process; unavailable with `CORVUS_WORKER_HOST=0`.
-- Scans the file, then each member of a container; minidumps and cores by their captured memory.
+- `search_container kind=yara`. The query is a rule file, a folder, rule text, or `pack:<name>` from `corvus rules fetch` ([cli.md](cli.md)). Corvus ships no rules.
+- Runs YARA-X 1.22.0 in a worker process. Unavailable with `CORVUS_WORKER_HOST=0`.
+- Scans the file, then each container member. Minidumps and cores are scanned by their captured memory.
 - Modules: `pe`, `elf`, `macho`, `dotnet`, `dex`, `hash`, `math`, `time`, `lnk`.
-- Shipped for win-x64, win-arm64, linux-x64, linux-arm64 (glibc 2.34+), osx-x64 and osx-arm64; elsewhere set
-  `CORVUS_YARA_LIBRARY`.
+- Shipped for win-x64, win-arm64, linux-x64, linux-arm64 (glibc 2.34+), osx-x64 and osx-arm64. Elsewhere, set `CORVUS_YARA_LIBRARY`.
 
 ## File inspection
 
@@ -416,9 +394,8 @@ Labels:
 - `summarize_file` reads up to 25 assemblies inside a container.
 - `stixPath=` writes a STIX 2.1 bundle of the file, its members and network indicators.
 - Features describe API use, not whether the code runs.
-- `extract_embedded xorText=true` recovers repeating XOR keys of 1-16 bytes over text; off by default.
-- Authenticode digest and signature checks are exact; chain trust uses the machine's root store; revocation is not
-  checked.
+- `extract_embedded xorText=true` recovers repeating XOR keys of 1-16 bytes over text. Off by default.
+- Authenticode digest and signature checks are exact. Chain trust uses the machine's root store. Revocation is not checked.
 
 ### `summarize_file` views
 
@@ -465,15 +442,14 @@ Pass the name as `view=`.
 
 ### Dependencies view
 
-- .NET: packages from deps.json with SHA-512; without one, assemblies by name with versions unknown.
-- Go modules, Rust crates, frozen Python distributions, Android Maven and native libraries.
-- `sbomPath=` writes a CycloneDX 1.6 SBOM; an existing file needs `overwrite=true`.
-- Advisories: matched offline by osv-scanner (`CORVUS_OSV_SCANNER`); without it they are reported not checked.
+- .NET: packages from deps.json with SHA-512. Without one, assemblies by name, versions unknown.
+- Also: Go modules, Rust crates, frozen Python distributions, Android Maven and native libraries.
+- `sbomPath=` writes a CycloneDX 1.6 SBOM. An existing file needs `overwrite=true`.
+- Advisories: matched offline by osv-scanner (`CORVUS_OSV_SCANNER`). Without it, reported as not checked.
 
 ### Large files
 
-- Files over 64 MiB are streamed: hashes, captures, SQLite, zip, HAR, packages, plists, WebAssembly, native images,
-  tar / 7z / gzip.
+- Files over 64 MiB are streamed: hashes, captures, SQLite, zip, HAR, packages, plists, WebAssembly, native images, tar / 7z / gzip.
 - A native image's own sections and a module's code are still read whole.
 
 ## JavaScript (`analyze_js`)
@@ -483,20 +459,19 @@ Pass the name as `view=`.
 - Endpoints and routes: fetch, axios, XMLHttpRequest, WebSocket, GraphQL; React Router, Vue Router, Angular, Next.js.
 - Secrets: key-like literals by provider pattern, masked.
 - Two builds compared module by module.
-- Data flow: `view=flow` forward and `view=origins` back to sinks; unfollowable steps end as unknown.
-- `view=beautify`: one statement per line; `query` renames bindings by scope.
+- Data flow: `view=flow` forward, `view=origins` back to sinks. Unfollowable steps end as unknown.
+- `view=beautify`: one statement per line. `query` renames bindings by scope.
 - `view=react` and `view=jsx`: components, hooks and JSX of a compiled bundle.
 - Hermes bytecode versions 59-96 and Ark bytecode: disassembly, decompiled view, users of a function or string.
-- Source maps: inline, by `sourceMappingURL` or a sibling `.map`.
+- Source maps: inline, by `sourceMappingURL`, or a sibling `.map`.
 
 ## Android
 
 - `mapping=` (R8 / ProGuard `mapping.txt`) on the DEX tools puts original names beside ids.
-- `disassemble_dex format=simplified` runs string decoders in a bounded Dalvik interpreter.
-  - 100,000 instructions per call, call depth 8, 10 s per package-wide pass.
+- `disassemble_dex format=simplified` runs string decoders in a bounded Dalvik interpreter: 100,000 instructions per call, call depth 8, 10 s per package-wide pass.
   - A call not folded names its reason (`not-constant`, `mutable-static`, `instruction-budget`, ...).
 - `summarize_file` on a package names its runtimes, ABIs, DEX files and signature verdict.
-- Device tools find adb through `CORVUS_ADB`, `PATH` or the SDK; installs and uninstalls need `--allow-device-changes`.
+- Device tools find adb through `CORVUS_ADB`, `PATH` or the SDK. Installs and uninstalls need `--allow-device-changes`.
 
 ## Reliability
 
@@ -513,9 +488,8 @@ Pass the name as `view=`.
 | Crashing inputs | file reads run in a worker process; the server keeps answering |
 | Invalid patches | IL is stack-validated, C# compiled; nothing changes on failure |
 
-- `read_result format=evidence` writes a findings bundle; `format=verify` re-runs its calls and names what changed.
-- `compare_assemblies`, `compare_native_images` and `compare_folders` take `oldResult` / `newResult` to compare kept
-  results.
+- `read_result format=evidence` writes a findings bundle. `format=verify` re-runs its calls and names what changed.
+- `compare_assemblies`, `compare_native_images` and `compare_folders` take `oldResult` / `newResult` to compare kept results.
 
 ## Symbol syntax
 
@@ -535,7 +509,7 @@ patch_method_csharp  method="App.Account::Withdraw(int)"
                      code="if (amount <= 0) return; _balance -= amount;"
 ```
 
-- The body compiles against the real assembly with access checks off; lambdas, async, `yield` and LINQ work.
+- The body compiles against the real assembly with access checks off. Lambdas, async, `yield` and LINQ work.
 
 New members and types:
 
@@ -544,7 +518,7 @@ add_members_csharp  type="App.Shop"  code="private int _bonus; public int Bonus(
 add_types_csharp    assembly="App"   code="namespace Extensions { public static class Diagnostics { public static void Trace() { } } }"
 ```
 
-IL: edit the `get_il` lines and pass them back; `/* token */` comments resolve operands.
+IL: edit the `get_il` lines and pass them back. `/* token */` comments resolve operands.
 
 ```
 ldarg.0
@@ -557,14 +531,13 @@ ldc.i4.0
 ret
 ```
 
-- `mode=prepend` inserts code before the original body; `.local <type>` declares a local.
-- `export_edits` binds a script to its build (SHA-256, MVID); `apply_edits` refuses another build unless
-  `targetBuild=other`.
+- `mode=prepend` inserts code before the original body. `.local <type>` declares a local.
+- `export_edits` binds a script to its build (SHA-256, MVID). `apply_edits` refuses another build unless `targetBuild=other`.
 
 ## Exported projects
 
 - `export_project` writes a project meant to build.
 - References: the project's own framework (its reference pack when not installed), NuGet cache, Windows SDK metadata.
 - Costura-wrapped dependencies go to `lib\` and are referenced.
-- Missing dependencies are rebuilt as stand-ins from how the code uses them; the project still builds.
-- Known decompiler output errors are rewritten; a method that cannot be decompiled throws `NotSupportedException`.
+- Missing dependencies are rebuilt as stand-ins from how the code uses them. The project still builds.
+- Known decompiler output errors are rewritten. A method that cannot be decompiled throws `NotSupportedException`.

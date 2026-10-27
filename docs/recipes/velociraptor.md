@@ -1,24 +1,11 @@
 # Scan collected files with a Velociraptor artifact
 
-Run Corvus's file batch on each file a Velociraptor collection matches: one row per file, with the `corvus.batch/1`
-document as a column. The batch runs read-only steps; nothing in the file runs and Corvus makes no network request
-([file batch](../cli.md#file-batch)).
+Run Corvus's file batch on each file a Velociraptor collection matches: one row per file, with the `corvus.batch/1` document as a column. Nothing in the file runs and Corvus makes no network request ([file batch](../cli.md#file-batch)).
 
-Tested: Velociraptor 0.77.3 (local collection), Corvus 2.5.1; Linux (Ubuntu 24.04) and Windows.
+Requires:
 
-## Prerequisites
-
-- Corvus on each endpoint, at the path the artifact names ([installation](../installation.md)).
 - Velociraptor 0.77.3 ([release](https://github.com/Velocidex/velociraptor/releases/tag/v0.77.3)).
-
-## Command per file
-
-```sh
-corvus batch --file <path> --json --time-limit 120
-```
-
-Exit code 0 when the document is written; 124 when the time limit ended the run (document still written). `complete`
-and each section's `status` say what was read.
+- Corvus 2.5.1 on each endpoint, at the path the artifact names ([installation](../installation.md)).
 
 ## Artifact
 
@@ -46,8 +33,7 @@ sources:
       })
 ```
 
-On Linux, set `Glob` and `CorvusPath` at collection time. `length` keeps each document in one row; piped output is one
-line.
+On Linux, set `Glob` and `CorvusPath` at collection time.
 
 ## Collect on one machine
 
@@ -55,11 +41,4 @@ line.
 velociraptor --definitions . artifacts collect Custom.Corvus.FileBatch --args Glob='/srv/inbox/*' --args CorvusPath=/usr/local/bin/corvus --format json
 ```
 
-Each row:
-
-```json
-{"OSPath": "/srv/inbox/app.zip", "Size": 120, "ReturnCode": 0,
- "Batch": {"schema": "corvus.batch/1", "file": {"sha256": "...", "type": "zip"}, "complete": true, "sections": [...]}}
-```
-
-A Velociraptor server can hunt the same artifact across endpoints (not run for this page).
+Each row has `OSPath`, `Size`, `ReturnCode` and `Batch`, the `corvus.batch/1` document. The batch's exit code is 0 when the document is written, 124 when `--time-limit` ended the run.

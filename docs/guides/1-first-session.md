@@ -1,8 +1,7 @@
 # Guide 1: first session
 
 Find the code behind a feature in a program without source, read it, predict its output, and check the prediction by
-running the program. The program is Notes, a console app built from [samples/Notes](../../samples/Notes). A test runs
-every step below and compares the output.
+running the program. The program is Notes, a console app built from [samples/Notes](../../samples/Notes).
 
 ## Build the sample
 
@@ -23,7 +22,7 @@ With Corvus registered in your MCP client ([installation](../installation.md)), 
 > Load samples/Notes/v1/bin/Notes.dll. Find how Notes exports to CSV and predict the exported line for the note titled
 > `Hello, "you"`.
 
-The same calls from a terminal, as a [batch](../cli.md#batch) (save as `g1.jsonl`, run `corvus batch g1.jsonl`):
+From a terminal, as a [batch](../cli.md#batch) (save as `g1.jsonl`, run `corvus batch g1.jsonl`):
 
 <!-- check: batch -->
 ```json
@@ -73,8 +72,8 @@ public static class CsvExporter
 
 ## Predict, then check
 
-`Quote` quotes a field that holds a comma, a quote or a line break, and doubles each inner quote. `Hello, "you"` has
-both, so note 2 should export as `2,"Hello, ""you""",2026-01-06`:
+`Quote` wraps a field with a comma, quote or line break in quotes, and doubles inner quotes. `Hello, "you"` has a comma
+and quotes, so note 2 should export as `2,"Hello, ""you""",2026-01-06`:
 
 <!-- check: run -->
 ```sh
@@ -90,4 +89,4 @@ id,title,created
 exit code 0
 ```
 
-The prediction matches. Next: [guide 2](2-decode-and-patch.md) reads transformed code.
+Next: [guide 2](2-decode-and-patch.md) reads transformed code.

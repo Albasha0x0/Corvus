@@ -1,98 +1,50 @@
 # Normalized IL hash
 
-A SHA-256 of each method body, independent of metadata tokens, byte offsets and short or long instruction forms. Two
-builds of the same code give the same hash even when every token shifted.
+A SHA-256 of each method body that ignores metadata tokens, byte offsets and short or long instruction forms. Two
+builds of the same code give the same hash.
 
-- `get_il` prints it per method: `// IL hash: <first 16 hex digits>`.
-- `find_counterpart` compares it: `body: unchanged` or `changed`.
-- `compare_assemblies` uses it to find changed bodies and pair renamed methods with identical bodies.
-- A method without a body (abstract, extern, runtime-implemented) or with invalid IL has no hash.
-
-## Raw IL SHA-256
-
-- `get_il` also prints `raw IL SHA-256: <first 16 hex digits>`: the SHA-256 of the IL code bytes in the loaded file.
-- It covers the header's code size after the tiny (1-byte) or fat (12-byte) header; header, padding and exception
-  sections are excluded.
-- Any token or offset change changes it: it identifies one build; the normalized hash identifies the code.
-- With unsaved edits it is still the file's value (`(file as loaded)`).
-- Methods without an IL body (abstract, extern, runtime-implemented, native) have none.
-- `decompile_member provenance=true` prints both hashes in full.
+- `get_il` prints it: `// IL hash: <first 16 hex digits>`.
+- `find_counterpart` reports `body: unchanged` or `changed`; `compare_assemblies` pairs renamed methods with identical
+  bodies.
+- A method without a body, or with invalid IL, has no hash.
+- `get_il` also prints `raw IL SHA-256` over the IL code bytes in the file (`(file as loaded)` with unsaved edits).
+  Any token or offset change changes it. `decompile_member provenance=true` prints both hashes in full.
 
 ## Encoding (version 1)
 
-The hash is the lower-case hex SHA-256 of the UTF-8 bytes of a text. Each line ends with `\n` (also the last).
+Lower-case hex SHA-256 of this UTF-8 text; each line ends with `\n`.
 
 1. `ilhash 1`
-2. `locals` followed by ` <type>` for each local variable, in slot order.
-3. `initlocals 1` if the body header asks for zero-initialized locals and there is at least one local, else
-   `initlocals 0`.
-4. One line per instruction, in order: the opcode name, then, if the instruction has an operand, a space and the
-   operand as `<kind>:<value>`:
+2. `locals` and ` <type>` per local, in slot order.
+3. `initlocals 1` if the header zeroes locals and there is at least one, else `initlocals 0`.
+4. Per instruction: the opcode name, then ` <kind>:<value>` for an operand (table below).
+5. Per exception region, in metadata order: `catch`, `filter`, `finally` or `fault`, try start and end, handler start and
+   end, as `@<instruction index>`. Ends are exclusive; the body end is `@<instruction count>`. A filter adds its filter
+   start; a catch adds `t:<type>`.
 
-   | Operand | Written as |
-   |---|---|
-   | int8 / int32 constant (`ldc.i4`, `ldc.i4.s`, `ldc.i4.<n>`, `unaligned.`) | `i:<decimal>` |
-   | int64 constant | `l:<decimal>` |
-   | float32 / float64 constant | `r4:<8 hex digits>` / `r8:<16 hex digits>` (IEEE bits) |
-   | string | `s:"<text>"`, with `\` as `\\`, `"` as `\"`, and characters below U+0020, U+007F and UTF-16 surrogates as `\u<4 hex digits>` |
-   | argument | `a:<number>` (argument 0 is `this` in instance methods) |
-   | local | `v:<slot>` |
-   | branch target | `@<instruction index>` (0-based); `switch` lists them comma-separated |
-   | method (`MethodDef`, `MemberRef`, `MethodSpec`) | `m:<return type> <declaring type>::<name>[<<instantiation>>](<parameter types>)` |
-   | field (`FieldDef`, `MemberRef`) | `f:<type> <declaring type>::<name>` |
-   | type (`TypeDef`, `TypeRef`, `TypeSpec`) | `t:<type>` |
-   | stand-alone signature (`calli`) | `sig:[instance ]<return type>(<parameter types>)` |
-   | operand that does not resolve | `?` (a branch target that is not an instruction start: `@?`) |
+| Operand | Written as |
+|---|---|
+| int32 / int64 / float32 / float64 | `i:<decimal>` / `l:<decimal>` / `r4:<8 hex digits>` / `r8:<16 hex digits>` (IEEE bits) |
+| string | `s:"<text>"`; `\` and `"` escaped; below U+0020, U+007F and surrogates as `\uXXXX` |
+| argument / local | `a:<n>` (0 is `this`) / `v:<slot>` |
+| branch target | `@<instruction index>` (0-based); `switch` lists them comma-separated |
+| method / field / type | `m:<return> <declaring>::<name>[<<instantiation>>](<parameter types>)`, `f:<type> <declaring>::<name>`, `t:<type>` |
+| `calli` | `sig:[instance ]<return>(<parameter types>)` |
+| unresolved | `?` (a branch target that is not an instruction start: `@?`) |
 
-   Opcodes are normalized to one form: short branches (`br.s`, `leave.s`, `beq.s`, ...) to the long form;
-   `ldarg.s`, `ldarga.s`, `starg.s`, `ldloc.s`, `ldloca.s`, `stloc.s` to the long form; `ldarg.<n>`, `ldloc.<n>`,
-   `stloc.<n>` to `ldarg` / `ldloc` / `stloc` with the number as operand; `ldc.i4.<n>`, `ldc.i4.m1`, `ldc.i4.s` to
-   `ldc.i4`. Other opcodes are written with their ECMA-335 name.
-5. One line per exception region, in metadata order: `catch`, `filter`, `finally` or `fault`, then the try start
-   and end, then the handler start and end, as `@<instruction index>` (ends are exclusive; the end of the body is
-   `@<instruction count>`); a filter region adds its filter start, a catch region adds `t:<catch type>`.
+Normalized opcodes: short branches and `*.s` forms take the long name; `ldarg.<n>`, `ldloc.<n>` and `stloc.<n>` become
+`ldarg`, `ldloc` and `stloc` with the number as operand; `ldc.i4.<n>`, `ldc.i4.m1` and `ldc.i4.s` become `ldc.i4`. Other
+opcodes keep their ECMA-335 name.
 
-Types are written in signature notation without assembly names: `Namespace.Name` with `/` before nested type
-names, generic instances as `Name`1<Arg>` with comma-separated arguments, type generic parameters as `!<n>` and
-method generic parameters as `!!<n>`, `*` / `&` / `[]` / `[<rank>]` suffixes, ` pinned`, and
-` modreq(<type>)` / ` modopt(<type>)`. Primitive types use their full names (`System.Int32`). Member references and
-definitions are written alike, so a call to a method of the same assembly and a call through a member reference
-give the same text.
+Types: signature notation without assembly names (`System.Int32`, `Outer/Inner`, ``Name`1<Arg>``, `!n`, `!!n`, `*`,
+`&`, `[]`, `[<rank>]`, ` pinned`, ` modreq(<type>)`, ` modopt(<type>)`).
 
-Not part of the hash: metadata tokens, IL byte offsets and sizes, the max-stack value, the local signature's
-token, the method's own name, signature, flags and custom attributes (`compare_assemblies` reports those as
-signature or `metadata` changes).
+Not hashed: metadata tokens, IL offsets and sizes, max stack, the local signature token, and the method's name,
+signature, flags and custom attributes.
 
 ## Test vector
 
-`Lab.P::Parse(string)` with short forms; long forms and other tokens give the same hash:
-
-```
-.method public hidebysig static int32 Parse(string a0)
-{
-  .locals init (int32 V_0)
-  .try
-  {
-    IL_0000: ldarg.0
-    IL_0001: call int32 [mscorlib]System.Int32::Parse(string)
-    IL_0006: stloc.0
-    IL_0007: leave.s IL_000e
-  }
-  catch [mscorlib]System.FormatException
-  {
-    IL_0009: pop
-    IL_000a: ldc.i4.m1
-    IL_000b: stloc.0
-    IL_000c: leave.s IL_000e
-  }
-  IL_000e: ldloc.0
-  IL_000f: ldstr "done\n"
-  IL_0014: pop
-  IL_0015: ret
-}
-```
-
-Canonical text:
+Canonical text of a `Parse(string)` method with a catch region:
 
 ```
 ilhash 1
@@ -113,5 +65,4 @@ ret
 catch @0 @4 @4 @8 t:System.FormatException
 ```
 
-SHA-256: `21807e13787c7f6e0a872a4b4d1741c054fc0de4727a67d8b55ea0dc0b26fffa` (shown by `get_il` as
-`// IL hash: 21807e13787c7f6e`).
+SHA-256: `21807e13787c7f6e0a872a4b4d1741c054fc0de4727a67d8b55ea0dc0b26fffa`

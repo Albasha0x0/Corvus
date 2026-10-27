@@ -4,7 +4,7 @@ using Corvus.Setup;
 
 namespace Corvus.Tests;
 
-/// <summary>Checked blocks of docs/guides and docs/showcase print what the samples print now; CORVUS_UPDATE_DOCS=1 rewrites them.</summary>
+/// <summary>Checked blocks of docs/guides print what the samples print now; CORVUS_UPDATE_DOCS=1 rewrites them.</summary>
 // Runs alone: it builds and exports into samples/, which other classes running at once can hold open.
 [Collection(nameof(SerialTimingTests))]
 public partial class SampleDocsTests
@@ -12,8 +12,7 @@ public partial class SampleDocsTests
     private static readonly string Root = DocsTests.RepoRoot();
 
     internal static IEnumerable<string> Pages() =>
-        new[] { "guides", "showcase" }.Select(d => Path.Combine(Root, "docs", d)).Where(Directory.Exists)
-            .SelectMany(d => Directory.EnumerateFiles(d, "*.md")).Order(StringComparer.Ordinal);
+        Directory.EnumerateFiles(Path.Combine(Root, "docs", "guides"), "*.md").Order(StringComparer.Ordinal);
 
     /// <summary>A checked block: setup (commands, exit 0), batch (corvus batch steps), run (one program run) or output.</summary>
     internal sealed record Block(string Kind, string Options, int Start, int End, string Body);
@@ -41,7 +40,7 @@ public partial class SampleDocsTests
     public void Pages_are_well_formed()
     {
         var pages = Pages().ToList();
-        Assert.True(pages.Count >= 5, $"only {pages.Count} guide and showcase pages");
+        Assert.True(pages.Count >= 3, $"only {pages.Count} guide pages");
         foreach (var page in pages)
         {
             var name = Path.GetRelativePath(Root, page);
@@ -78,17 +77,9 @@ public partial class SampleDocsTests
     internal const string Packages = "~/.nuget/packages/";
 
     /// <summary>A page that only reads restored packages: no sample build, so it runs in the quick set.</summary>
-    internal static bool PackagePage(string page)
-    {
-        var blocks = Blocks(File.ReadAllLines(page));
-        var paths = blocks.Where(b => b.Kind == "batch").SelectMany(b => ToolCli.ParseBatch(b.Body))
-            .Select(s => s.Arguments.TryGetValue("path", out var p) ? p?.ToString() : null).OfType<string>().ToList();
-        return blocks.All(b => b.Kind is "batch" or "output") && paths.Count > 0 && paths.All(p => p.StartsWith(Packages, StringComparison.Ordinal));
-    }
-
     [Fact]
     [Trait("Speed", "Slow")]
-    public Task Pages_match_what_the_steps_print() => CheckAsync(Pages().Where(p => !PackagePage(p)));
+    public Task Pages_match_what_the_steps_print() => CheckAsync(Pages());
 
     internal static async Task CheckAsync(IEnumerable<string> pages)
     {
@@ -141,7 +132,7 @@ public partial class SampleDocsTests
             }
             File.WriteAllText(page, string.Join("\n", edited) + "\n");
         }
-        Assert.True(stale.Count == 0, "guide or showcase output is out of date (CORVUS_UPDATE_DOCS=1 rewrites it):\n" + string.Join("\n\n", stale));
+        Assert.True(stale.Count == 0, "guide output is out of date (CORVUS_UPDATE_DOCS=1 rewrites it):\n" + string.Join("\n\n", stale));
     }
 
     /// <summary>Runs the steps in one in-process session, with the samples' paths made absolute; show=1,3 keeps those steps.</summary>
@@ -248,16 +239,4 @@ public partial class SampleDocsTests
 
     [GeneratedRegex(@"\b[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\b")]
     private static partial Regex Guid();
-}
-
-/// <summary>The showcases on restored packages need no sample build: checked in the quick set.</summary>
-public class PackageDocsTests
-{
-    [Fact]
-    public async Task Package_pages_match_what_the_steps_print()
-    {
-        var pages = SampleDocsTests.Pages().Where(SampleDocsTests.PackagePage).ToList();
-        Assert.True(pages.Count >= 2, $"only {pages.Count} package showcase pages");
-        await SampleDocsTests.CheckAsync(pages);
-    }
 }

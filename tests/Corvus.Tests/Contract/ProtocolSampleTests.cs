@@ -252,7 +252,7 @@ public partial class ProtocolSampleTests
     private static readonly HashSet<string> PathSized = ["export_native_patches", "export_native_annotations", "export_method_symbols"];
 
     /// <summary>A note only a non-Windows host adds (it has no Windows system DLLs to check against), in text or as a record entry.</summary>
-    [GeneratedRegex(@"\nNote: This host has no Windows system DLLs[^\n]*|,\s*""This host has no Windows system DLLs[^""]*""|""This host has no Windows system DLLs[^""]*""\s*,?")]
+    [GeneratedRegex(@"\nNote: No Windows system DLLs on this host[^\n]*|,\s*""No Windows system DLLs on this host[^""]*""|""No Windows system DLLs on this host[^""]*""\s*,?")]
     private static partial Regex HostNote();
 
     /// <summary>A measured duration depends on the machine.</summary>

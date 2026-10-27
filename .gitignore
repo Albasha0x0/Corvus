@@ -24,3 +24,6 @@ Thumbs.db
 *.report.txt
 *.cleanup-log.txt
 .env
+
+# Maintainer and agent folders; never shipped.
+.agents/

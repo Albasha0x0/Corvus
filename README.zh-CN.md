@@ -7,7 +7,6 @@
 [![Release](https://img.shields.io/github/v/release/Albasha0x0/Corvus?style=flat-square)](https://github.com/Albasha0x0/Corvus/releases)
 [![CI](https://img.shields.io/github/actions/workflow/status/Albasha0x0/Corvus/ci.yml?branch=main&style=flat-square&label=CI)](https://github.com/Albasha0x0/Corvus/actions/workflows/ci.yml)
 [![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue?style=flat-square)](LICENSE)
-[![GitHub stars](https://img.shields.io/github/stars/Albasha0x0/Corvus?style=flat-square)](https://github.com/Albasha0x0/Corvus/stargazers)
 
 - 单个自包含二进制文件。不上传任何内容；默认不执行它读取的任何内容。
 - 工具和输出可能在版本之间变化；见[发行说明](docs/release-notes.md)。本文译自 [README.md](README.md)，以英文版为准。
@@ -59,15 +58,8 @@ curl -fsSL https://raw.githubusercontent.com/Albasha0x0/Corvus/main/install.sh |
 
 全部 165 个工具和 15 个提示：[功能](docs/features.md)、[工具参考](docs/tools.md)。
 
-## 示例
-
-- [反编译、重建、运行](docs/showcase/round-trip.md)：导出为可构建、可运行的 C# 项目的程序集。
-- [单文件应用内部](docs/showcase/single-file.md)：不运行即可解包的 .NET 单文件可执行文件。
-- [SQLite 在哪里生成随机数](docs/showcase/sqlite-random.md)：追踪到其调用方的加密常量。
-- [追踪到代码的 Json.NET 错误](docs/showcase/json-reference-loop.md)：追踪到其设置的错误消息。
-
 指南：[第一次会话](docs/guides/1-first-session.md) · [解码与修补](docs/guides/2-decode-and-patch.md) ·
-[新构建](docs/guides/3-new-build.md)。每个步骤都由测试运行。
+[新构建](docs/guides/3-new-build.md)。
 
 ## 文档
 
@@ -81,12 +73,3 @@ curl -fsSL https://raw.githubusercontent.com/Albasha0x0/Corvus/main/install.sh |
 只分析你拥有或获准分析的软件。许可证和当地法律可能限制反编译、修补和再分发。
 
 [贡献](CONTRIBUTING.md) · [安全](SECURITY.md) · [Apache-2.0 许可证](LICENSE)
-
-## Star 历史
-
-<a href="https://www.star-history.com/#Albasha0x0/Corvus&Date">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=Albasha0x0/Corvus&type=Date&theme=dark" />
-    <img alt="Corvus star history" src="https://api.star-history.com/svg?repos=Albasha0x0/Corvus&type=Date" />
-  </picture>
-</a>

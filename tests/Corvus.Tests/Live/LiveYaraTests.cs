@@ -28,7 +28,7 @@ public sealed class LiveYaraTests : LiveSessionTestBase
         var row = Assert.Single(report.Memory);
         Assert.Equal(("written", "yara", "0x50000012"), (row.Name, row.Type, row.Address));
         Assert.Equal("$a at 0x50000012+22", row.Value);
-        Assert.Contains("Note: Writable memory of the running program: 1 ranges, 26 bytes saved", text);
+        Assert.Contains("Note: Writable memory: 1 ranges, 26 bytes saved while the program ran", text);
     }
 
     [Fact]

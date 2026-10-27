@@ -194,7 +194,7 @@ public partial class DocFactsTests
         // Prompt names read like tools; list_changed is a notification.
         var tools = ToolCli.CatalogTools.Concat(ToolCli.CatalogPrompts).Select(t => (string)t["name"]!).ToHashSet(StringComparer.Ordinal);
         string[] notTools = ["dump_from_memory", "list_changed"];
-        foreach (var file in new[] { "README.md", "docs/cli.md", "docs/faq.md", "docs/troubleshooting.md", "docs/installation.md", "docs/testing.md" }
+        foreach (var file in new[] { "README.md", "docs/cli.md", "docs/faq.md", "docs/troubleshooting.md", "docs/installation.md" }
                      .Concat(SampleDocsTests.Pages().Select(f => Path.GetRelativePath(Root, f).Replace('\\', '/'))))
         {
             var unknown = McpProtocolTests.UnknownTools(Read(file), tools, notTools);

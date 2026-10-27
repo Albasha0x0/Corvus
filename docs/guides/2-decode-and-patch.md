@@ -2,17 +2,16 @@
 
 Transformed code hides its strings behind decoder calls and its control flow behind a state-machine switch.
 `PreviewGate` in the Notes sample ([source](../../samples/Notes/v1/PreviewGate.cs)) is written that way. This guide
-restores plain code, recovers the valid code, makes the check accept any code and saves a patched copy. Build the
-sample first ([guide 1](1-first-session.md#build-the-sample)).
+restores plain code, finds the valid code and saves a copy that accepts any code. Build the sample first ([guide 1](1-first-session.md#build-the-sample)).
 
 ## Ask your agent
 
 > Load samples/Notes/v1/bin/Notes.dll. Simplify PreviewGate.Verify and tell me which code it accepts. Then make it
 > accept any code, name the string decoder Decode, and save a copy to samples/Notes/v1/bin/patched/Notes.dll.
 
-The calls, as a batch. `simplify_methods` runs each decoder call in an IL interpreter; no code from the file runs
-natively. It replaces the call with the returned string, then straightens the switch. The two `decompile_member` calls
-show the method before and after.
+`simplify_methods` runs each decoder call in an IL interpreter; no code from the file runs natively. It replaces each
+call with its returned string, then straightens the switch. The `decompile_member` calls show the method before and
+after.
 
 <!-- check: batch -->
 ```json
