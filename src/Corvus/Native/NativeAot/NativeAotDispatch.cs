@@ -69,9 +69,8 @@ public sealed class NativeAotDispatch
         // Cells: a pointer to code, then the tagged relative pointer to an interface MethodTable (zero padded to a pointer).
         var image = aot.Hydrated;
         uint ptr = (uint)image.PointerSize;
-        var cells = new List<NativeAotDispatchCell>();
+        var runs = new List<(List<(uint Cell, uint Iface)> Cells, int Slot)>();
         var seen = new HashSet<uint>();
-        int unnamed = 0;
         foreach (uint slot in Candidates(aot, ct))
         {
             if (seen.Contains(slot) || Interface(aot, slot) is not { } iface) continue;
@@ -85,7 +84,12 @@ public sealed class NativeAotDispatch
                 break;
             }
             foreach (var (cell, i) in run) seen.Add(cell);
-            if (number is not { } k) continue;
+            if (number is { } k) runs.Add((run, k));
+        }
+        var cells = new List<NativeAotDispatchCell>();
+        int unnamed = 0;
+        foreach (var (run, k) in Section(runs, ptr))
+        {
             foreach (var (cell, i) in run)
             {
                 string name = Name(i);
@@ -122,6 +126,32 @@ public sealed class NativeAotDispatch
                     yield return section.Rva + (uint)at;
             }
         }
+    }
+
+    /// <summary>
+    /// The runs of the cell section: the cluster of runs with the most cells, a run joining the cluster when it starts
+    /// within <c>MaxGap</c> bytes of the previous run's terminator. ILC emits every cell into one section, so a run
+    /// outside it is data that reads as a cell (seen in the embedded metadata of a .NET 10.0.14 win-x86 build). Empty
+    /// when there are no runs.
+    /// </summary>
+    private static List<(List<(uint Cell, uint Iface)> Cells, int Slot)> Section(List<(List<(uint Cell, uint Iface)> Cells, int Slot)> runs, uint ptr)
+    {
+        // Room for padding and for a run the reader could not resolve, far below the distance to other data.
+        const uint MaxGap = 4096;
+        var best = new List<(List<(uint Cell, uint Iface)> Cells, int Slot)>();
+        var cluster = new List<(List<(uint Cell, uint Iface)> Cells, int Slot)>();
+        int bestCells = 0, clusterCells = 0;
+        uint next = 0;
+        foreach (var run in runs.OrderBy(r => r.Cells[0].Cell))
+        {
+            uint start = run.Cells[0].Cell;
+            if (cluster.Count > 0 && (start < next || start - next > MaxGap)) { cluster = []; clusterCells = 0; }
+            cluster.Add(run);
+            clusterCells += run.Cells.Count;
+            next = run.Cells[^1].Cell + 4 * ptr;
+            if (clusterCells > bestCells) { best = cluster; bestCells = clusterCells; }
+        }
+        return best;
     }
 
     /// <summary>The interface MethodTable of the cell at <paramref name="cell"/>, or null when it is not a cell.</summary>
