@@ -79,6 +79,8 @@ None.
 - **Engines:** worker folders are closed to other user accounts, and a worker connection disposed under load no
   longer ends the server. [2d7e3a56](https://github.com/Albasha0x0/Corvus/commit/2d7e3a56) [42fb7d84](https://github.com/Albasha0x0/Corvus/commit/42fb7d84)
 - **Native:** `resolve_address` resolves a name while the code index is still building. [0a3a2f27](https://github.com/Albasha0x0/Corvus/commit/0a3a2f27)
+- **NativeAOT:** interface dispatch cells are read from the cell section only; a win-x86 build's metadata no longer
+  adds false cells. [eaeb4649](https://github.com/Albasha0x0/Corvus/commit/eaeb4649)
 - **Containers:** 64-bit NSIS installers list their files, Godot 3 packs embedded in executables read, and every
   `summarize_file` view that pages takes its paging parameters. [b0ba843e](https://github.com/Albasha0x0/Corvus/commit/b0ba843e) [2393b92c](https://github.com/Albasha0x0/Corvus/commit/2393b92c) [de1509ab](https://github.com/Albasha0x0/Corvus/commit/de1509ab)
 - **Web:** positions in later sections of an indexed source map name the right source, and `analyze_js view=beautify`
@@ -96,7 +98,7 @@ None.
 - **Live, browser:** sessions on a browser page over the Chrome DevTools Protocol.
 - **Live, Android:** arm64 devices and Il2Cpp programs on a device.
 - **Emulation:** ARM64 checked against hardware.
-- **Tests:** push runs within 15 minutes, and IDA tests split across two test hosts.
+- **Tests:** push runs within 15 minutes.
 
 ## 2.6.0
 
