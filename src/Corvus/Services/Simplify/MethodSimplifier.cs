@@ -1364,8 +1364,9 @@ public sealed class MethodSimplifier
         return true;
     }
 
-    // Workaround: a conditional branch to its own fall-through that starts nested trys crashes the .NET 10 JIT
-    // (valid IL); repro: SimplifyRegressionTests.Conditional_branch_to_next_becomes_pops. Not reported upstream yet.
+    // Workaround for dotnet/runtime#136505: a conditional branch to its own
+    // fall-through that starts nested trys crashes the JIT. Tested: 9.0.22,
+    // 10.0.11 and 10.0.14 crash; 8.0.33 does not. No fix commit yet.
     /// <summary>Deletes branches to the next instruction; conditional ones become pops of their operands.</summary>
     private static bool DropBranchesToNext(CilBody body, HashSet<Instruction> dead)
     {

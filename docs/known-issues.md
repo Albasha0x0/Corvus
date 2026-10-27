@@ -10,6 +10,7 @@
 - No Rust v0 (`_R`) demangler; legacy Rust names read as Itanium names, with their hash suffix.
 - No FLIRT engine; IDA's library function names are used when present.
 - No YARA rules are bundled.
-- .NET 10 JIT (runtime 10.0.11, Windows x64) crashes on a conditional branch to its fall-through that starts two nested
-  try regions. `simplify_methods` rewrites such a branch to pops of its operands; a method with no other simplification
-  keeps its original body.
+- The .NET 9 and 10 JIT crashes on a conditional branch to its fall-through that starts two nested try regions
+  ([dotnet/runtime#136505](https://github.com/dotnet/runtime/issues/136505)).
+- `simplify_methods` rewrites such a branch to pops of its operands; a method with no other simplification keeps its
+  original body.
