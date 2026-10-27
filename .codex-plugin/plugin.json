@@ -1,13 +1,13 @@
 {
   "name": "corvus",
-  "version": "2.6.0",
+  "version": "2.7.0",
   "description": "Reverse engineering and security analysis of .NET assemblies and native binaries: decompile, search, compare builds, patch and save. Registers the Corvus MCP server and skill; needs the .NET 10 SDK.",
   "keywords": ["decompiler", "reverse-engineering", "dotnet", "disassembler", "native", "mcp"],
   "skills": "./skills/",
   "mcpServers": {
     "corvus": {
       "command": "dotnet",
-      "args": ["tool", "exec", "CorvusRE@2.6.0", "--yes", "--", "--client", "codex"]
+      "args": ["tool", "exec", "CorvusRE@2.7.0", "--yes", "--", "--client", "codex"]
     }
   },
   "interface": {
