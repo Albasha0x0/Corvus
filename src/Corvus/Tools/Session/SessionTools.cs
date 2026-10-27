@@ -312,9 +312,10 @@ public sealed class SessionTools(AssemblyWorkspace workspace, IndexingService in
                     input = "each call re-run";
                     checks = await EvidenceBundle.Verify(bundle, context!, results, workspace, cancellationToken);
                 }
-                int failed = checks.Count(c => !c.Matches);
-                return ToolOutput.With($"{id}: {checks.Count} record(s), {checks.Count - failed} verified, {failed} differ ({input})\n" +
-                                       string.Join("\n", checks.Select(c => $"  {(c.Matches ? "ok" : "DIFFERS")}  {c.Id} {c.Tool}: {c.Detail}")),
+                int skipped = checks.Count(c => c.Skipped), failed = checks.Count(c => !c.Matches) - skipped;
+                return ToolOutput.With($"{id}: {checks.Count} record(s), {checks.Count - failed - skipped} verified, {failed} differ" +
+                                       (skipped > 0 ? $", {skipped} skipped" : "") + $" ({input})\n" +
+                                       string.Join("\n", checks.Select(c => $"  {(c.Matches ? "ok" : c.Skipped ? "SKIPPED" : "DIFFERS")}  {c.Id} {c.Tool}: {c.Detail}")),
                     new ReadResultRecord(id, "verify", 0) { Checks = checks, Input = input });
             }
         }

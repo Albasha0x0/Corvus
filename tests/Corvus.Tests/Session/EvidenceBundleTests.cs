@@ -41,4 +41,32 @@ public sealed class EvidenceBundleTests(ITestOutputHelper output) : IDisposable
             Assert.Matches(@"DIFFERS  c-[0-9]+ decompile_member: input sample\.dll changed", verified);
         }
     }
+
+    [Fact]
+    public async Task A_bundle_naming_a_tool_that_writes_is_skipped_and_writes_nothing()
+    {
+        var input = _dir.File("sample.dll");
+        File.Copy(Env.FixturePath, input);
+        var target = _dir.File("written.dll");
+        var bundle = _dir.File("crafted.json");
+        var save = System.Text.Json.JsonSerializer.Serialize(new { assembly = "sample.dll", outputPath = target });
+        var types = System.Text.Json.JsonSerializer.Serialize(new { assembly = "sample.dll" });
+        File.WriteAllText(bundle, System.Text.Json.JsonSerializer.Serialize(new
+        {
+            format = "corvus-evidence/1", corvus = "0", created = DateTimeOffset.UtcNow,
+            records = new object[]
+            {
+                new { id = "c-1", tool = "save_assembly", arguments = save, inputs = Array.Empty<object>(), contentSha256 = new string('0', 64), text = "", structured = (string?)null },
+                new { id = "c-2", tool = "list_types", arguments = types, inputs = Array.Empty<object>(), contentSha256 = new string('0', 64), text = "", structured = (string?)null },
+            },
+        }));
+        await using var server = await InProcessServer.StartAsync();
+        await server.Client.CallToolAsync("load_assembly", new Dictionary<string, object?> { ["path"] = input });
+        var verified = Text(await server.Client.CallToolAsync("read_result", new Dictionary<string, object?> { ["id"] = bundle, ["format"] = "verify" }));
+        output.WriteLine(verified);
+        Assert.Contains("SKIPPED  c-1 save_assembly: skipped: save_assembly is not read-only", verified);
+        Assert.Contains("DIFFERS  c-2 list_types: the content differs", verified);
+        Assert.Contains("0 verified, 1 differ, 1 skipped", verified);
+        Assert.False(File.Exists(target));
+    }
 }

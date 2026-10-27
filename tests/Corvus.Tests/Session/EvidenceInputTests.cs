@@ -88,6 +88,30 @@ public sealed class EvidenceInputTests(ITestOutputHelper output) : IDisposable
     }
 
     [Fact]
+    public async Task Diff_function_does_not_remake_a_bundle_entry_of_a_tool_that_writes()
+    {
+        var copy = _dir.File("new-" + Path.GetFileName(NativeFormats.NativeFixtures.LinuxX64Coverage));
+        File.Copy(NativeFormats.NativeFixtures.LinuxX64Coverage, copy);
+        var before = File.ReadAllBytes(copy);
+        await using var server = await InProcessServer.StartAsync();
+        var @new = (await Call(server, "load_assembly", new() { ["path"] = copy })).StructuredContent!.Value.GetProperty("ids")[0].GetString()!;
+        var start = (await Call(server, "list_functions", new() { ["image"] = @new, ["limit"] = 1 })).StructuredContent!.Value
+            .GetProperty("items")[0].GetProperty("address").GetString()!;
+        var bundle = _dir.File("crafted.json");
+        var args = JsonSerializer.Serialize(new { image = @new, address = start, bytes = "90", save = true });
+        File.WriteAllText(bundle, JsonSerializer.Serialize(new
+        {
+            format = "corvus-evidence/1", corvus = "0", created = DateTimeOffset.UtcNow,
+            records = new[] { new { id = "c-1", tool = "patch_bytes", arguments = args, inputs = Array.Empty<object>(), contentSha256 = new string('0', 64), text = "", structured = (string?)null } },
+        }));
+        var r = await Call(server, "diff_function", new() { ["oldResult"] = $"{bundle}#c-1", ["newImage"] = @new, ["address"] = start });
+        Assert.Equal(true, r.IsError);
+        Assert.Contains("patch_bytes is not read-only", Text(r));
+        Assert.Equal(before, File.ReadAllBytes(copy));
+        Assert.Contains("0 edits", Text(await Call(server, "list_native_edits", new() { ["image"] = @new })));
+    }
+
+    [Fact]
     public async Task Verify_compares_a_result_with_another_without_running_it()
     {
         await using var server = await InProcessServer.StartAsync();

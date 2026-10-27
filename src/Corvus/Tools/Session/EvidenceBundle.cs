@@ -17,8 +17,18 @@ public static partial class EvidenceBundle
 
     public sealed record Bundle(string Format, string Corvus, DateTimeOffset Created, IReadOnlyList<Record> Records);
 
-    /// <summary>One record's verdict: match, or what differs.</summary>
-    public sealed record Check(string Id, string Tool, bool Matches, string Detail);
+    /// <summary>One record's verdict: match, or what differs; a skipped record was not re-run.</summary>
+    public sealed record Check(string Id, string Tool, bool Matches, string Detail)
+    {
+        [System.Text.Json.Serialization.JsonIgnore]
+        public bool Skipped => !Matches && Detail.StartsWith(SkippedPrefix, StringComparison.Ordinal);
+    }
+
+    private const string SkippedPrefix = "skipped: ";
+
+    /// <summary>Whether a recorded call may be made again from inside another call: only tools that change and write nothing.</summary>
+    // A bundle file is input: re-running a tool that writes, exports or edits would act without the user approving that call.
+    public static bool Rerunnable(string tool) => ToolEffects.Of(tool).ReadOnly;
 
     private static readonly JsonSerializerOptions Json = new() { WriteIndented = true, PropertyNamingPolicy = JsonNamingPolicy.CamelCase };
 
@@ -107,6 +117,11 @@ public static partial class EvidenceBundle
                     : ((string?)null, (string?)null))));
                 continue;
             }
+            if (ToolEffects.Table.ContainsKey(r.Tool) && !Rerunnable(r.Tool))
+            {
+                checks.Add(new(r.Id, r.Tool, false, $"{SkippedPrefix}{r.Tool} is not read-only; make the call again to check it"));
+                continue;
+            }
             var result = await Invoke(r.Tool, r.Arguments != null ? JsonSerializer.Deserialize<Dictionary<string, JsonElement>>(r.Arguments) : null, context, ct);
             if (result == null)
             {
@@ -127,10 +142,12 @@ public static partial class EvidenceBundle
         return checks;
     }
 
-    /// <summary>Calls one of this server's tools from inside a call, through the same argument checks; null when there is no such tool.</summary>
+    /// <summary>Calls one of this server's read-only tools from inside a call, through the same argument checks; null when there is no such tool.</summary>
     internal static async Task<CallToolResult?> Invoke(string toolName, Dictionary<string, JsonElement>? arguments, RequestContext<CallToolRequestParams> context, CancellationToken ct)
     {
         if (context.Server.ServerOptions.ToolCollection?.FirstOrDefault(t => t.ProtocolTool.Name == toolName) is not { } tool) return null;
+        if (!Rerunnable(toolName))
+            throw new ToolError(ErrorCode.AccessDenied, $"{toolName} is not read-only: a recorded call to it is not made again from inside another call.", $"call {toolName} directly");
         var request = new CallToolRequestParams { Name = toolName, Arguments = arguments };
         return await CallFilter.Run(request, tool.ProtocolTool.InputSchema, context.Services,
             token => tool.InvokeAsync(new RequestContext<CallToolRequestParams>(context.Server, context.JsonRpcRequest, request)
