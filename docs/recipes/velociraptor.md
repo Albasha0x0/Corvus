@@ -5,7 +5,7 @@ Run Corvus's file batch on each file a Velociraptor collection matches: one row 
 Requires:
 
 - Velociraptor 0.77.3 ([release](https://github.com/Velocidex/velociraptor/releases/tag/v0.77.3)).
-- Corvus 2.5.1 on each endpoint, at the path the artifact names ([installation](../installation.md)).
+- Corvus 2.5.1 on each endpoint, at the path the artifact names ([installation](../installation.md)), in a folder only administrators can write: the client runs it as SYSTEM.
 
 ## Artifact
 
@@ -19,7 +19,7 @@ parameters:
   - name: Glob
     default: C:\Users\*\Downloads\*.exe
   - name: CorvusPath
-    default: C:\Users\Public\corvus\corvus.exe
+    default: C:\Program Files\Corvus\corvus.exe
   - name: TimeLimit
     default: "120"
 sources:
