@@ -171,7 +171,8 @@ public class ServerStatusToolVariableTests
     public async Task The_default_status_fits_with_every_external_tool_found_in_a_deep_folder(bool pending)
     {
         using var fake = new FakeTool();
-        fake.On("--version", stdout: "TShark (Wireshark) 4.6.9");
+        // One answer for every version check, at or above each minimum (capa 10).
+        fake.On("--version", stdout: "version 10.0.0");
         // Pending: every program's version check runs until the test releases it, as on a loaded machine.
         var release = Path.Combine(fake.Directory, "check.release");
         var checks = Corvus.Native.Providers.ExternalTools.Table

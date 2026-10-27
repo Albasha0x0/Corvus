@@ -14,6 +14,9 @@ public sealed record ExternalTool(string Id, string Name, string Variable, Exter
     /// <summary>Folders searched after the variable: before PATH when <see cref="KnownDirectoriesFirst"/>, else after it.</summary>
     public Func<IEnumerable<(string Directory, string Source)>> KnownDirectories { get; init; } = () => [];
     public bool KnownDirectoriesFirst { get; init; }
+
+    /// <summary>Why <see cref="MinimumMajorVersion"/> is required, named when an older version is refused; null names no reason.</summary>
+    public string? MinimumReason { get; init; }
 }
 
 /// <summary>Where a tool was found and how it ran its version probe.</summary>
@@ -154,8 +157,8 @@ public static partial class ExternalTools
 
     // The freeze file and result formats are capa's own and change between releases: 10.0.0 is the version tested.
     public static readonly ExternalTool Capa = new("capa", "capa (standalone, rules built in)", "CORVUS_CAPA", ExternalToolKind.Executable,
-        ["capa" + Exe], ["--version"], 0, "survey_features category=capa and analyze_native_function labels", false,
-        Ops(("freeze", ["-j", "{file}"]), ("analyze", ["-j", "{file}"])));
+        ["capa" + Exe], ["--version"], 10, "survey_features category=capa and analyze_native_function labels", false,
+        Ops(("freeze", ["-j", "{file}"]), ("analyze", ["-j", "{file}"]))) { MinimumReason = "the result and freeze formats are read as capa 10 writes them" };
 
     // Tested with speakeasy 2.0.0b9 (report format 5, no version output); unknown APIs stop the run instead of returning 1.
     public static readonly ExternalTool Emulator = new("emulator", "speakeasy 2.0.0b9 (Windows API emulator)", "CORVUS_EMULATOR", ExternalToolKind.Executable,
@@ -365,7 +368,8 @@ public static partial class ExternalTools
             var major = version == null ? 0 : int.Parse(version.Split('.')[0], System.Globalization.CultureInfo.InvariantCulture);
             // Java 1.8 means 8.
             if (major == 1 && version!.Split('.') is [_, var legacy, ..]) major = int.Parse(legacy, System.Globalization.CultureInfo.InvariantCulture);
-            if (major < tool.MinimumMajorVersion) problem = $"version {version ?? "unknown"}; {tool.MinimumMajorVersion} or newer is required";
+            if (major < tool.MinimumMajorVersion)
+                problem = $"version {version ?? "unknown"}; {tool.MinimumMajorVersion} or newer is required" + (tool.MinimumReason is { } why ? $": {why}" : "");
         }
         return new(tool.Id, tool.Name, tool.Purpose, true, path, source, version, problem, Remediation(tool));
     }

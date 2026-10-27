@@ -151,12 +151,14 @@ public sealed class NativeCapaTests(ITestOutputHelper output) : IDisposable
         return path;
     }
 
-    /// <summary>A fake capa 10.0.0 answering <paramref name="result"/>, named by CORVUS_CAPA and run in this process.</summary>
-    private IDisposable FakeCapa(string result)
+    private FakeTool? _capa;
+
+    /// <summary>A fake capa (10.0.0 by default) answering <paramref name="result"/>, named by CORVUS_CAPA and run in this process.</summary>
+    private IDisposable FakeCapa(string result, string version = "10.0.0")
     {
-        var fake = new FakeTool();
+        var fake = _capa = new FakeTool();
         _owned.Add(fake);
-        fake.On("^--version$", stdout: "capa.exe 10.0.0\n");
+        fake.On("^--version$", stdout: $"capa.exe {version}\n");
         fake.On(@"^-j .+$", stdout: result);
         var env = new EnvironmentScope().Set("CORVUS_CAPA", fake.CopyAs("capa")).Set(FakeTool.ScriptVariable, fake.ScriptPath);
         // A pool that is off in this flow only: CORVUS_WORKER_HOST=0 would turn off the workers of every test running now.
@@ -205,6 +207,29 @@ public sealed class NativeCapaTests(ITestOutputHelper output) : IDisposable
         var read = NativeCapa.Read(Ran("", 16, stderr), "capa 10.0.0", tested: true);
         Assert.Equal(NativeCapa.NotChecked, read.State);
         Assert.Equal("capa does not read this file (exit 16: Input file does not appear to be a supported file.)", Assert.Single(read.Notes));
+    }
+
+    [Fact]
+    public void Capa_older_than_10_is_not_checked_naming_the_reason()
+    {
+        using var capa = FakeCapa(Result(), "9.4.0");
+        var report = NativeCapa.Analyze(FixtureFile(), default);
+        Assert.Equal(NativeCapa.NotChecked, report.State);
+        Assert.Contains("version 9.4.0; 10 or newer is required: the result and freeze formats are read as capa 10 writes them", Assert.Single(report.Notes));
+        Assert.DoesNotContain(_capa!.ArgumentLists, a => a.Contains("-j"));
+    }
+
+    [Fact]
+    public void Capa_reads_a_copy_in_a_private_folder_and_not_the_files_beside_the_input()
+    {
+        var file = FixtureFile();
+        File.WriteAllText(file + ".viv", "a workspace beside the input");
+        using var capa = FakeCapa(Result());
+        Assert.Equal("matched", NativeCapa.Analyze(file, default).State);
+        var input = Assert.Single(_capa!.ArgumentLists, a => a.Contains("-j")).Last();
+        Assert.NotEqual(Path.GetDirectoryName(Path.GetFullPath(file)), Path.GetDirectoryName(Path.GetFullPath(input)));
+        Assert.Equal(".exe", Path.GetExtension(input));
+        Assert.False(Directory.Exists(Path.GetDirectoryName(input)));
     }
 
     [Fact]

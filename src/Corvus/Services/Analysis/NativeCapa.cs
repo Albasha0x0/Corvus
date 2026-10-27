@@ -94,8 +94,25 @@ internal sealed partial class NativeCapa : IWorkerOps
 
     private static CapaReport Run(string capa, string path, string? version, CancellationToken ct)
     {
-        var run = ExternalTools.Run(capa, ExternalTools.Arguments(ExternalTools.Capa, "analyze", ("file", path)), Timeout, MaxOutput, ct, UserName);
-        return Read(run, Checker(version), version == TestedVersion);
+        // vivisect, capa's backend, loads and saves a workspace file beside its input: a copy in a fresh private folder gives it the file alone.
+        var dir = Path.Combine(Path.GetTempPath(), "corvus-capa", $"{Environment.ProcessId}-{Guid.NewGuid():N}");
+        try
+        {
+            PrivateFolder.Create(dir);
+            var copy = Path.Combine(dir, Path.GetFileName(path));
+            File.Copy(path, copy);
+            var run = ExternalTools.Run(capa, ExternalTools.Arguments(ExternalTools.Capa, "analyze", ("file", copy)), Timeout, MaxOutput, ct, UserName);
+            return Read(run, Checker(version), version == TestedVersion);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return Unknown(Checker(version), version, $"capa was not run: {ex.Message}");
+        }
+        finally
+        {
+            try { Directory.Delete(dir, true); }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
+        }
     }
 
     // capa 10.0.0's vivisect calls getpass.getuser(), which needs USERNAME on Windows; a neutral name hides the user's.
